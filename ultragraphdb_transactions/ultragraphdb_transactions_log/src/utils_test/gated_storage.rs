@@ -4,8 +4,8 @@
  */
 
 //! A log's storage whose file syncs a test can hold: every operation goes to the storage it wraps, and a file's sync waits while
-//! the test holds the gate, then syncs. A partition core over it waits in its turn as it waits on a real sync, so a test can send
-//! requests while a sync is truly in flight. The tests run on one thread, so the gate's state is `Rc`'s.
+//! the test holds the gate, then syncs. What awaits a log over it waits as it waits on a real sync, so a test can send requests
+//! while a sync is truly in flight. The tests run on one thread, so the gate's state is `Rc`'s.
 
 use std::cell::Cell;
 use std::io;
@@ -13,8 +13,10 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 
-use ultragraphdb_tool_bdd::{TestError, TestResult};
-use ultragraphdb_transactions_log::{AlignedBuf, DurableFile, DurableStorage, OpenMode};
+use crate::traits::durable_file::DurableFile;
+use crate::traits::durable_storage::DurableStorage;
+use crate::types::aligned_buf::AlignedBuf;
+use crate::types::open_mode::OpenMode;
 
 /// How often a held sync looks at the gate.
 const LOOK: Duration = Duration::from_millis(1);
@@ -23,30 +25,35 @@ const DUE: Duration = Duration::from_secs(10);
 
 /// The gate the syncs of one storage wait at, and the syncs waiting there now.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct SyncGate {
+pub struct SyncGate {
     held: Rc<Cell<bool>>,
     waiting: Rc<Cell<u64>>,
 }
 
 impl SyncGate {
     /// Holds every file sync from now on, until [`SyncGate::release`].
-    pub(crate) fn hold(&self) {
+    pub fn hold(&self) {
         self.held.set(true);
     }
 
     /// Lets every sync held go on, and every later one.
-    pub(crate) fn release(&self) {
+    pub fn release(&self) {
         self.held.set(false);
     }
 
-    /// Waits until a sync waits at the gate, within [`DUE`].
-    pub(crate) async fn until_waiting(&self) -> TestResult {
+    /// Waits until a sync waits at the gate.
+    ///
+    /// # Errors
+    ///
+    /// [`io::ErrorKind::TimedOut`] when none reaches it within [`DUE`].
+    pub async fn until_waiting(&self) -> io::Result<()> {
         let mut waited = Duration::ZERO;
         while self.waiting.get() == 0 {
             if waited >= DUE {
-                return Err(TestError::new(format!(
-                    "no sync reached the gate within {DUE:?}"
-                )));
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!("no sync reached the gate within {DUE:?}"),
+                ));
             }
             compio::time::sleep(LOOK).await;
             waited += LOOK;
@@ -69,21 +76,21 @@ impl SyncGate {
 
 /// `S`, its files' syncs held at a [`SyncGate`].
 #[derive(Debug)]
-pub(crate) struct GatedStorage<S> {
+pub struct GatedStorage<S> {
     inner: S,
     gate: SyncGate,
 }
 
 impl<S> GatedStorage<S> {
     /// `inner`, its files' syncs waiting at `gate`.
-    pub(crate) fn new(inner: S, gate: SyncGate) -> Self {
+    pub fn new(inner: S, gate: SyncGate) -> Self {
         Self { inner, gate }
     }
 }
 
 /// A file of a [`GatedStorage`].
 #[derive(Debug)]
-pub(crate) struct GatedFile<F> {
+pub struct GatedFile<F> {
     inner: F,
     gate: SyncGate,
 }

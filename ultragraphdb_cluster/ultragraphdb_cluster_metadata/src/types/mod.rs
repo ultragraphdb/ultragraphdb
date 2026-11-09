@@ -9,6 +9,7 @@ pub mod leased_blocks;
 pub mod metadata_command;
 pub mod metadata_config;
 pub mod metadata_group;
+pub mod metadata_reads;
 pub mod metadata_snapshot;
 pub mod metadata_state;
 pub mod principal;

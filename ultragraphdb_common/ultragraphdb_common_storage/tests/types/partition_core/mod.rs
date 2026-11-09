@@ -10,7 +10,6 @@ pub(crate) mod core_rig;
 #[cfg(test)]
 pub(crate) mod core_writes;
 #[cfg(test)]
-pub(crate) mod gated_storage;
 #[cfg(test)]
 pub(crate) mod inbox_tap;
 #[cfg(test)]

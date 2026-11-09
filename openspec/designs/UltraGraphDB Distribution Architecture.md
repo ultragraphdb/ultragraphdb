@@ -6,7 +6,7 @@ UltraGraphDB is a distributed graph database with three node types (frontend, co
 
 ## Cluster architecture
 
-Three node types, each its own binary and OCI image under `ultragraphdb/` (decided 2026-11-01, Shard-per-Core note P22). The split follows StarRocks (frontends plus executors) and matches Apache HugeGraph's independently evolved Server, PD and Store layout, with a separate compute tier because graph algorithms are heavy and should not compete with storage I/O.
+Three node types, each its own binary and OCI image under `../../ultragraphdb` (decided 2026-11-01, Shard-per-Core note P22). The split follows StarRocks (frontends plus executors) and matches Apache HugeGraph's independently evolved Server, PD and Store layout, with a separate compute tier because graph algorithms are heavy and should not compete with storage I/O.
 
 &#91;embedded content: Cluster architecture · frontend, compute and two storage modes\]
 
@@ -219,7 +219,7 @@ The cost of hop k is roughly the number of edges touched from the current fronti
 
 Deployment targets (decided 2026-11-01): Kubernetes and Docker, bare metal later. CI builds, signs and publishes the OCI images with Bazel's `rules_img`, the server's glibc base built from Wolfi packages by `rules_apko` (D7). The microVM runtime and minimal kernel described below are tracked options, not current targets.
 
-Each role runs its own binary, linked against glibc with mimalloc, on the Wolfi glibc base of `bazel/oci_images/glibc_base` (D7, decided 2026-11-01): musl with mimalloc measured about 18% slower per core. The tracked microVM option builds a static musl variant for its kernel.
+Each role runs its own binary, linked against glibc with mimalloc, on the Wolfi glibc base of `../../bazel/oci_images/glibc_base` (D7, decided 2026-11-01): musl with mimalloc measured about 18% slower per core. The tracked microVM option builds a static musl variant for its kernel.
 
 | Node type | Runtime |
 | --- | --- |
@@ -294,7 +294,7 @@ Storage goes first because it holds durable formats; frontends go last so the pl
 
 Coordination avoidance moves correctness from runtime coordination into analysis and protocol design, so verification carries more weight than usual.
 
-- **Formal model first.** A Lean model of epochs, registration, referrer sets, reclamation and deletes (P24 rules 4, 5, 6, 9 and 11, stage 5.5's `lean/PlacementModel`, including the epoch propagation rule), of the change-stream and watermark protocol in the tile stage, and of the state-machine version switch, proved before implementation, in the repository's `lean/` project beside stage 5's round model (decided 2026-11-01). Cassandra's materialized views failed partly because their design was never extensively modeled or simulated.
+- **Formal model first.** A Lean model of epochs, registration, referrer sets, reclamation and deletes (P24 rules 4, 5, 6, 9 and 11, stage 5.5's `../../lean/PlacementModel`, including the epoch propagation rule), of the change-stream and watermark protocol in the tile stage, and of the state-machine version switch, proved before implementation, in the repository's `lean/` project beside stage 5's round model (decided 2026-11-01). Cassandra's materialized views failed partly because their design was never extensively modeled or simulated.
 - **Classification soundness.** Property tests check, for every constraint the schema can express, that any write classified coordination-free or segmented preserves the invariant under all interleavings the simulator can generate.
 - **Deterministic simulation.** Fault injection, crash recovery, network partitions and mixed-version clusters, with results compared against a single-version, single-group reference run.
 - **Background verifier in production.** Continuous comparison of reverse entries against forward edges and of derived indexes against base data, with repair and alerting.

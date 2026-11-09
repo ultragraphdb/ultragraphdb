@@ -19,6 +19,7 @@ use xxhash_rust::xxh3::xxh3_64;
 
 use crate::types::metadata_command::MetadataCommand;
 use crate::types::metadata_config::MetadataConfig;
+use crate::types::metadata_reads::MetadataReads;
 use crate::types::metadata_state::MetadataState;
 
 /// The derivation version the group's rounds name: they hold no quads, so the first.
@@ -80,6 +81,12 @@ impl<L: OrderedLog> MetadataGroup<L> {
         self.replayed
     }
 
+    /// What reads answer from: the durable state, and the head's sessions.
+    #[must_use]
+    pub fn reads(&self) -> MetadataReads<'_> {
+        MetadataReads::new(&self.state, &self.head)
+    }
+
     /// Makes every appended command durable, applies it to the state reads answer from, and returns the durable
     /// position.
     ///
@@ -93,6 +100,31 @@ impl<L: OrderedLog> MetadataGroup<L> {
     /// a later `sync` applies them.
     pub async fn sync(&mut self) -> Result<Position, ClusterError> {
         let durable = self.log.sync().await?;
+        self.synced(durable)?;
+        Ok(durable)
+    }
+
+    /// The log's sync, apart from the reads: the sync borrows the log alone, so the reads are answered from the state
+    /// as it was before it, durable, until [`synced`](Self::synced) applies what it made durable. A sync's position not
+    /// passed to `synced` leaves the staged commands staged, as a dropped [`sync`](Self::sync) does.
+    pub fn syncing(
+        &mut self,
+    ) -> (
+        impl Future<Output = Result<Position, ClusterError>> + use<'_, L>,
+        MetadataReads<'_>,
+    ) {
+        let sync = self.log.sync();
+        let reads = MetadataReads::new(&self.state, &self.head);
+        (async move { Ok(sync.await?) }, reads)
+    }
+
+    /// Applies to the state reads answer from every staged command at or below `durable`, a position a sync returned.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of [`MetadataState::apply`](crate::MetadataState::apply) when a durable command does not apply as it
+    /// did when decided, a bug.
+    pub fn synced(&mut self, durable: Position) -> Result<(), ClusterError> {
         // Each staged command became durable in log order; the staged are bounded by the log's capacity.
         while let Some((next, _)) = self.staged.front() {
             if *next > durable {
@@ -104,7 +136,7 @@ impl<L: OrderedLog> MetadataGroup<L> {
             self.state.apply(&command)?;
             self.applied = position;
         }
-        Ok(durable)
+        Ok(())
     }
 
     /// Applies `command` to the head state and appends it: as one round when its encoding fits

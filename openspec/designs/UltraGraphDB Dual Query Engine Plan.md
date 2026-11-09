@@ -2,7 +2,7 @@
 
 Phase 1 of the dual-engine roadmap (`UltraGraphDB Roadmap Dual Query Engine and Tile Storage.md`) is feasible on the
 existing storage engine. That roadmap calls its two parts "Stage 1" (conformance) and "Stage 2" (scale); this plan
-calls them phase 1 and phase 2, to keep them apart from the stages of `ROADMAP.md`. SPARQL and GQL replace DQL;
+calls them phase 1 and phase 2, to keep them apart from the stages of `../../ROADMAP.md`. SPARQL and GQL replace DQL;
 fjall, the posting lists, MVCC at commit timestamps and the simulator stay. Three changes carry the plan: a second key
 layout built for quads, a write path that executes transactions on n−1 cores and serialises only a short commit step,
 and the removal of most reads from the write path. Together they address the measured bottleneck
@@ -12,7 +12,7 @@ The plan is large. The storage and concurrency work is bounded and builds on tes
 kernel, the protocol and the catalog are new code, and GQL has no official conformance suite. Those are the risks,
 ranked at the end.
 
-The plan covers stages 4 to 10 of `ROADMAP.md` ("Stages" below). The DeepBrain MVP runs on the single node of stage 7,
+The plan covers stages 4 to 10 of `../../ROADMAP.md` ("Stages" below). The DeepBrain MVP runs on the single node of stage 7,
 so stage 6 builds the query core both languages share, and full conformance and Bolt follow the single node. 
 
 Phase 2's tile storage lands with sharding and clustering, in stage 10, so the distributed design is set out here as well.
@@ -73,7 +73,7 @@ ISO text, as every oracle difference is.
 **Uses:**
 1. **Golden results.** A generator produces property graphs and queries inside the fragment. An exporter writes each
    as an MGQL `PropertyGraph`, `GraphSchemaFull` and query term, MGQL evaluates them, and the results are committed as
-   golden files. Lean runs outside Bazel, as Go does for `tools/golden`, so the GQL engine's tests stay hermetic and
+   golden files. Lean runs outside Bazel, as Go does for `../../tools/golden`, so the GQL engine's tests stay hermetic and
    compare against committed files.
 2. **Relations that cannot give false alarms.** MGQL's theorems hold under its semantics: 281 in `Metatheory.lean`,
    among them that trail-mode results are a subset of walk-mode results (`evalPatternTrail_subset`). Stated as property
@@ -121,7 +121,7 @@ predicate. Mandatory reverse lists over all objects make a bound literal object 
 index.
 
 **Absence proofs largely disappear.** Today's write path spends 34 % of the apply thread seeking keys that were never
-written (`perf-optimization.md`). Under dictionary encoding, a term new to a transaction receives a fresh ID, and a
+written (`../notes/perf-optimization.md`). Under dictionary encoding, a term new to a transaction receives a fresh ID, and a
 fresh ID has no stored versions under any key, so its lists are known empty without a read. The one remaining absence
 proof per new term is a dictionary point get, which a bloom filter answers. The existence marker proposed in
 `perf-optimization.md` is then needed only if a measurement still shows absence proofs on existing terms.
@@ -392,7 +392,7 @@ tests hold it to that.
 
 ## Stages
 
-`ROADMAP.md`'s table holds the stage numbering, renumbered on 2026-11-01 for the distributed-first architecture
+`../../ROADMAP.md`'s table holds the stage numbering, renumbered on 2026-11-01 for the distributed-first architecture
 (`UltraGraphDB Distribution Architecture.md`): 5.5 refactor for the three-role cluster, 6 UGS, 7 query core, 8 basic
 three-role cluster in one container, 9 conformance, 10 full distribution and tiles. The rows below are the contents
 and exits planned under the earlier numbering, kept as the source for those stages' changes.
@@ -403,7 +403,7 @@ and exits planned under the earlier numbering, kept as the source for those stag
 | **2. Storage** | Done, the fault simulator (1.5) included | Archived 2026-10-25 |
 | **3. Website and public repository** | Done | — |
 | **4. Data model and quad storage** | Mapping contract v1; catalog v1; the term dictionary, a keyspace without versions, in the `Store` trait, fjall and the simulator; the quad keyspaces; statement IDs; type bits in UIDs; changesets in place of `DirectedEdge`; index maintenance driven by the catalog; the data dictionary's read API, per-label shapes from a background pass; the DQL crates and Dgraph's gRPC API removed | Quads round-trip with statement IDs under the simulator's faults; `store_bench` loads quads and reports reads per relation, which fall to the dictionary lookups |
-| **5. Transactions and the binary protocol** | The commit step: rounds closed by the previous sync, versions following the clock, exact validation against a conflict history, commit-time operations in place of a per-key path, sessions with exactly-once commits, catalog changes, drops and index builds in rounds, acknowledgement at the watermark; the write-ahead log as the durability point behind the ordered-log interface; the posting lists' own format; the vector indexer in commit order. The binary protocol in crates of its own: header, chunked checksums, bodies read in place, streams, credit, cancellation, prepared statements, describe, columnar results and authentication; its sans-I/O transport and conformance suite; the Rust client, a sans-I/O core with tokio and compio shells. A Lean model of the round protocol. Reduced on 2026-11-01 to what it built; what the distribution architecture asks beyond it is `backlog.md` | The Lean model's properties proved; every decoder fuzzed and the fuzzers audited; mutation testing over the stage's crates; the client conformance suite under the simulator's faults and through both shells; the log's suite on Linux; the stage-4 workload's baseline and the log's write volume measured |
+| **5. Transactions and the binary protocol** | The commit step: rounds closed by the previous sync, versions following the clock, exact validation against a conflict history, commit-time operations in place of a per-key path, sessions with exactly-once commits, catalog changes, drops and index builds in rounds, acknowledgement at the watermark; the write-ahead log as the durability point behind the ordered-log interface; the posting lists' own format; the vector indexer in commit order. The binary protocol in crates of its own: header, chunked checksums, bodies read in place, streams, credit, cancellation, prepared statements, describe, columnar results and authentication; its sans-I/O transport and conformance suite; the Rust client, a sans-I/O core with tokio and compio shells. A Lean model of the round protocol. Reduced on 2026-11-01 to what it built; what the distribution architecture asks beyond it is `../notes/backlog.md` | The Lean model's properties proved; every decoder fuzzed and the fuzzers audited; mutation testing over the stage's crates; the client conformance suite under the simulator's faults and through both shells; the log's suite on Linux; the stage-4 workload's baseline and the log's write volume measured |
 | **5.5. Hardening transactions with chaos testing** | Stage 5's commit step, group commit and protocol server under the simulator's faults and process kills; Elle under faults on one node; scrith's Dgraph probes Q1 and A8 re-run as tests: a read rooted on an index every write sets, and a hub's reverse edge, each checked against every commit below its read timestamp | Elle finds no anomaly under any fault class; no acknowledged commit is lost across a kill; Q1 and A8 find no missed commit |
 | **6. Query core** | What SPARQL and GQL share, as "The query core" sets out: the kernel (access patterns, operators, statistics) with binary joins planned from statistics; spargebra and the forked selene-gql as parsers; the core's register, which refuses a query outside the core naming the feature; spareval on the quad keyspaces through `QueryableDataset` as the SPARQL oracle; reads, CRUD writes through the changeset path, bounded walks, vector and text search, and catalog declarations through the binary protocol | The selected W3C SPARQL 1.1 tests and MGQL's golden results inside the core pass; no unexplained difference from spareval or MGQL there; one question asked in SPARQL and in GQL over the same data answers equally; the DeepBrain MVP's queries and scrith's catalogue reads run as scenarios |
 | **7. Single-node product** | Access control and tenants on the catalog; backup, restore and export; the live and bulk loaders, on quads, resolving every IRI in a dictionary pass first; the commit log; administration and metrics; client libraries and their documentation, the transaction limits included | The DeepBrain MVP runs against a single-node server through the Rust client; backup and restore round-trip under the simulator's faults; the dictionary's growth under the MVP's workload measured; the mapping contract at a stable version |

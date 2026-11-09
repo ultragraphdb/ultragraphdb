@@ -17,7 +17,7 @@ use ultragraphdb_cluster_metadata::MetadataGroup;
 use ultragraphdb_transactions_log::{SimStorage, Wal};
 
 use crate::utils::harness::{
-    DIR, block_on, fresh, fresh_with, open, pid, sync, tenant, wal_config,
+    DIR, block_on, fresh, fresh_with, open, pid, sync, tenant, verifier, wal_config,
 };
 
 #[test]
@@ -216,5 +216,51 @@ fn test_a_command_one_byte_past_a_chunk_takes_two_chunks() -> TestResult {
     assert_eq!(chunked.get(), 4);
     sync(&mut group)?;
     assert_eq!(group.state().current_version(tenant()), 2);
+    Ok(())
+}
+
+#[test]
+fn test_reads_during_a_sync_answer_from_the_durable_state_until_it_is_applied() -> TestResult {
+    let (_storage, mut group) = fresh()?;
+    let (_, position) = group.offer_catalog(tenant(), 0, b"v1")?;
+    let (syncing, reads) = group.syncing();
+    assert_eq!(reads.state().current_version(tenant()), 0);
+    let durable = block_on(syncing)??;
+    assert_eq!(durable, position);
+    // Durable, not yet applied: the reads still answer from the state before the sync.
+    assert_eq!(group.reads().state().current_version(tenant()), 0);
+    group.synced(durable)?;
+    assert_eq!(group.state().current_version(tenant()), 1);
+    assert_eq!(group.applied(), position);
+    Ok(())
+}
+
+#[test]
+fn test_reads_during_a_sync_hold_the_sessions_every_appended_command_leaves() -> TestResult {
+    let (_storage, mut group) = fresh()?;
+    let _: (u64, Position) =
+        group.create_principal("ann", verifier("ann's password!", 1)?, false)?;
+    sync(&mut group)?;
+    assert!(group.register_session(1, "ann", |_| false)?.0.is_empty());
+    let (syncing, reads) = group.syncing();
+    assert!(reads.holds_session(1));
+    assert!(reads.state().session_principal(1).is_err());
+    let durable = block_on(syncing)??;
+    group.synced(durable)?;
+    assert!(group.state().session_principal(1).is_ok());
+    assert!(group.reads().holds_session(1));
+    Ok(())
+}
+
+#[test]
+fn test_a_sync_never_applied_leaves_its_commands_staged_for_the_next() -> TestResult {
+    let (_storage, mut group) = fresh()?;
+    let (_, position) = group.offer_catalog(tenant(), 0, b"v1")?;
+    let (syncing, _reads) = group.syncing();
+    let durable = block_on(syncing)??;
+    assert_eq!(group.state().current_version(tenant()), 0);
+    assert_eq!(block_on(group.sync())??, durable);
+    assert_eq!(group.state().current_version(tenant()), 1);
+    assert_eq!(group.applied(), position);
     Ok(())
 }

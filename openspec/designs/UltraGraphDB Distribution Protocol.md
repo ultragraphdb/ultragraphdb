@@ -140,7 +140,7 @@ the latest-state read.
   disk by the mode"; `sync` completes a ticket at commit, and flushing moves behind the interface. Stage 5.5's hosts are
   generic over this trait, so the commit step does not change.
 - commit-rounds' acknowledgement requirement and its "failed sync" scenario gain the replicated reading.
-- `lean/RoundModel` and `lean/PlacementModel` model crashes after durable steps. Under this protocol a replica's crash loses
+- `../../lean/RoundModel` and `lean/PlacementModel` model crashes after durable steps. Under this protocol a replica's crash loses
   what it held in memory, and "durable" means committed by a quorum. The epoch inequality and reverse-read completeness are
   proved again under that crash.
 - A `trim_through` stays below the store's synced checkpoint and `committed`.
@@ -272,4 +272,4 @@ Nothing needs building before stage 8. The conflict keys stay in the record, the
 - [TigerBeetle VSR internals](https://raw.githubusercontent.com/tigerbeetle/tigerbeetle/main/docs/internals/vsr.md).
 - [Exploiting Nil-Externality for Fast Replicated Storage](https://par.nsf.gov/biblio/10299722) (Skyros), SOSP 2021: abstract, for the alternative of deferring ordering on a fork of VR.
 - [Optimizing Distributed Protocols with Query Rewrites](https://arxiv.org/abs/2404.01593), SIGMOD 2024: decoupling and partitioning, which raise throughput, not latency, and which this design leaves out until a core-level bottleneck is measured.
-- `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md`: P8, P10, P18, P24. `openspec/notes/UltraGraphDB Distribution Architecture.md`: *Write classification*. `openspec/notes/UltraGraphDB Single-Container Deployment.md`: `dev-ha`. `ROADMAP.md`: Aeron's stream position, whose open questions on the Round frame's position, repair and flow control apply to `Prepare`. `openspec/notes/backlog.md`: item 12.
+- `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md`: P8, P10, P18, P24. `openspec/notes/UltraGraphDB Distribution Architecture.md`: *Write classification*. `openspec/notes/UltraGraphDB Single-Container Deployment.md`: `dev-ha`. `../../ROADMAP.md`: Aeron's stream position, whose open questions on the Round frame's position, repair and flow control apply to `Prepare`. `openspec/notes/backlog.md`: item 12.

@@ -868,7 +868,7 @@ does, so the steps are comparable. Stage 8 runs it on a 64-core bare-metal machi
 
 ## Decisions from the review before drafting
 
-A critical review of this note, `perf-optimization.md` and `review-stages-5.5-and-6.md` against the repository found
+A critical review of this note, `../notes/perf-optimization.md` and `review-stages-5.5-and-6.md` against the repository found
 eight more questions stage 5.5 has to answer before its specifications are drafted. P13–P20 state them in the format of
 P1–P12; they refine P1, P3 and P9 where they say so. The user adopted all eight on 2026-11-01. The ninth, musl or
 glibc, is D7 in the review note, adopted the same day.
@@ -1051,14 +1051,14 @@ group, the reply's generation), entries copied in both directions among the new 
 deletes by pattern as their removals, session-table entries, index-build records, and the registrations a home accepts
 with the referrer-set members they add or renew.*
 
-### P19. Reads of versioned keys (carries `perf-optimization.md` forward)
+### P19. Reads of versioned keys (carries `../notes/perf-optimization.md` forward)
 
 **Trade-off.**
 
 - lsm-tree's bloom filters hash the whole stored key and serve point gets only. A read of a versioned key is a range
   read, which consults no filter and seeks into every table whose key range covers it: one seek per level for a key
   held in one level, and all of them for an absent key.
-- `perf-optimization.md` measured absent keys at 34% of stage 2's apply thread. The stage-5 pipeline avoids them for
+- `../notes/perf-optimization.md` measured absent keys at 34% of stage 2's apply thread. The stage-5 pipeline avoids them for
   new IDs, whose lists it never reads (`wal_bench` counted none), but reads of existing keys outside the cache, and
   every query, pay the seeks.
 - *Existence markers* (that note's option A) prove absence with a point get, at one more key per list.
@@ -1078,7 +1078,7 @@ with the referrer-set members they add or renew.*
 
 - The read estimates of this note's discussion assume memtable and cache costs; reads from tables cost a seek per
   level until filters exist.
-- `perf-optimization.md` becomes a read-path note; its options P1–P4 are renamed R1–R4 so they no longer collide with
+- `../notes/perf-optimization.md` becomes a read-path note; its options P1–P4 are renamed R1–R4 so they no longer collide with
   this note's.
 
 ### P20. What stage 5.5 builds and what it only decides
@@ -1103,7 +1103,7 @@ with the referrer-set members they add or renew.*
   - the sequencer with one replica, closing epochs and ordering multi-partition transactions (P21);
   - the partition runtime, partition-generic, run with one partition for stages 6 and 7 and with N in `wal_bench`
     (P5 step 1);
-  - the crates divided into the three roles, each role its own binary and OCI image under `ultragraphdb/` (P22).
+  - the crates divided into the three roles, each role its own binary and OCI image under `../../ultragraphdb` (P22).
 - **Stage 5.5 decides and stage 8 builds**: the execution of cross-partition commits on the sequencer's order (P3,
   P14), change streams and their aggregation per node, replication and replica placement (P8), node budgets (P4, P11),
   the epoch agent (P12), flush sharing behind the log interface (P10).
@@ -1133,7 +1133,7 @@ epoch length and on placing the sequencer beside the metadata group stay with st
 
 ### P22. Three binaries, three images
 
-Each role is its own binary under `ultragraphdb/`: frontend (the endpoint, the metadata group, the sequencer),
+Each role is its own binary under `../../ultragraphdb`: frontend (the endpoint, the metadata group, the sequencer),
 compute (query execution) and storage (transactions, the commit step, the log, the store). Each ships as its own OCI
 image on the Wolfi glibc base through `glibc_multiarch_img` (D7). A binary carries only its role's code and
 dependencies, so each image is the smallest that role allows and a role updates on its own; the roles share the
@@ -1332,7 +1332,7 @@ facts it points at, only the guarantee that it grows before they are written.
 
 ## What stage 5.5 built
 
-Stage 5.5's change (`openspec/changes/archive/2026-11-09-stage-5-5-three-role-refactor`) built every decision P20 and P24 assign it, each
+Stage 5.5's change (`../changes/archive/2026-11-09-stage-5-5-three-role-refactor`) built every decision P20 and P24 assign it, each
 group on one replica; P20's list of what stage 8 builds is backlog item 11. Each row names the decision, what runs and
 where.
 
@@ -1349,7 +1349,7 @@ where.
 | P24 rules 3 and 5 | Registration as get-or-create at the entity's home, durable before its reply; the referrer's marks; referrer sets whose members carry their epoch and generation | `ultragraphdb_cluster_partition` (`src/types/home/mod.rs`, `src/types/reference.rs`); `ultragraphdb_store_quads` (`src/types/referrer_set/mod.rs`) |
 | P24 rule 6 | Reverse reads and summed reverse counts through referrer sets at a closed epoch, fanned out to the member partitions; compute's routing, fan-out and merge in key order | `ultragraphdb_cluster_partition` (`src/types/fanout/mod.rs`, `src/types/reverse_query.rs`); `ultragraphdb_common_compute` |
 | P24 rules 7 and 8 | A read-write transaction bound to the partition owning its first subject; cross-partition work, a delete by pattern reaching another partition's state included, refused with `CrossPartition` | `ultragraphdb_transactions_txn` (`Transaction::bind`, `src/types/transaction/mod.rs`); `ultragraphdb_cluster_partition`'s `PartitionError` |
-| P24, rules 4, 5, 6, 9 and 11 | The placement model in Lean, built with no `sorry`; its invariants checked after every step of partitions on the simulator under every fault class | `lean/PlacementModel`; `ultragraphdb_tool_test` (`src/types/partition_workload/mod.rs`) |
+| P24, rules 4, 5, 6, 9 and 11 | The placement model in Lean, built with no `sorry`; its invariants checked after every step of partitions on the simulator under every fault class | `../../lean/PlacementModel`; `ultragraphdb_tool_test` (`src/types/partition_workload/mod.rs`) |
 | P20, P5 step 1 | The partition runtime, partition-generic: one partition by default (`partition_count` in the `dev` profile), N in one process in `wal_bench --partitions`, each on a pinned compio runtime with its own store, log and seeded generator and a share of edges to other partitions' entities | `ultragraphdb_cluster_partition` (`PartitionHost`), hosted by `ultragraphdb_common_storage`; `ultragraphdb_tool_bench` (`src/utils/partitions_run.rs`) |
-| P22 | The frontend, compute and storage binaries and the supervisor, joined over Unix-domain sockets in the development image; each role's image on the Wolfi glibc base and the seccomp profile allowing io_uring | `ultragraphdb/ultragraphdb_frontend`, `ultragraphdb_compute`, `ultragraphdb_storage`, `ultragraphdb_supervisor`; `glibc_multiarch_img` in each role's `BUILD.bazel`; `bazel/oci_images/seccomp/ultragraphdb.json` |
+| P22 | The frontend, compute and storage binaries and the supervisor, joined over Unix-domain sockets in the development image; each role's image on the Wolfi glibc base and the seccomp profile allowing io_uring | `../../ultragraphdb/ultragraphdb_frontend`, `ultragraphdb_compute`, `ultragraphdb_storage`, `ultragraphdb_supervisor`; `glibc_multiarch_img` in each role's `BUILD.bazel`; `bazel/oci_images/seccomp/ultragraphdb.json` |
 | P23 | The packed list and the posting list with 128-bit IDs under their own version bytes, their golden values generated from their specifications | `ultragraphdb_core_codec` (`testdata/golden/formats.py`) |

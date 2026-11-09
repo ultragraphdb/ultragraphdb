@@ -6,9 +6,10 @@
 mod owner_answer;
 pub(crate) mod owner_catalog;
 mod owner_check;
+pub(super) mod owner_syncing;
 mod owner_turn;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::path::PathBuf;
 
@@ -23,6 +24,7 @@ use ultragraphdb_protocol_scram::{DEFAULT_ITERATIONS, ScramVerifier};
 use ultragraphdb_protocol_wire::ErrorReply;
 use ultragraphdb_traits_log::OrderedLog;
 
+use crate::types::asked::Asked;
 use crate::types::auth_throttle::AuthThrottle;
 use crate::types::membership::Membership;
 use crate::types::owner_start::OwnerStart;
@@ -83,6 +85,11 @@ pub struct Owner<M: OrderedLog, S: OrderedLog> {
     snapshots: Option<PathBuf>,
     /// The failed authentications of every endpoint core, by source (design D15).
     logins: AuthThrottle,
+    /// The last close the sequencer's log holds durable, as its last sync left it: what the gate's facts name while the
+    /// sequencer syncs the next (design D17).
+    closed: u64,
+    /// The asks a sync's wait took and did not answer, in the order they came, for the turn after it (design D17).
+    waiting: VecDeque<Asked>,
 }
 
 impl<M: OrderedLog, S: OrderedLog> fmt::Debug for Owner<M, S> {
@@ -164,8 +171,17 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             closes_since_snapshot: 0,
             snapshots,
             logins: AuthThrottle::new(start.logins()),
+            closed: 0,
+            waiting: VecDeque::new(),
         };
-        owner.learn_missed().await?;
+        owner.closed = owner.sequencer.last_closed().get();
+        if owner.learn_missed()? {
+            let _durable = owner
+                .metadata
+                .sync()
+                .await
+                .map_err(|error| stopped(&error))?;
+        }
         Ok(owner)
     }
 

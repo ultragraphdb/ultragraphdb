@@ -20,11 +20,8 @@ use ultragraphdb_traits_log::OrderedLog;
 use crate::types::asked::Asked;
 use crate::types::auth_throttle::AuthThrottle;
 use crate::types::login_asked::LoginAsked;
-use crate::types::owner::{Durable, Owner, stopped};
+use crate::types::owner::{Durable, Owner, owner_syncing, stopped};
 use crate::types::tenant_facts::TenantFacts;
-
-/// The `detail` of code 21 for a write another principal's session may not make (`PROTOCOL.md` §11.3).
-const ACTION_WRITE: u64 = 2;
 
 impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     /// Takes what an endpoint core asked: answered now from what is durable, or kept for the turn's sync.
@@ -217,27 +214,15 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
         principal: u64,
         writes: bool,
     ) -> Result<(), ErrorReply> {
-        self.check(session, principal)?;
-        if self.in_flight.contains_key(&session) {
-            return Err(ErrorReply::new(
-                ErrorCode::SessionBusy,
-                "the session has a commit in flight",
-            ));
-        }
-        let _absent = self.in_flight.insert(session, writes);
-        Ok(())
+        owner_syncing::begin_commit(
+            self.metadata.reads(),
+            &mut self.in_flight,
+            (session, principal, writes),
+        )
     }
 
     fn tenant_facts(&self, tenant: u64) -> TenantFacts {
-        let state = self.metadata.state();
-        let held = Tenant::new(tenant);
-        let last_closed = self.sequencer.last_closed().get();
-        TenantFacts::new(
-            state.holds_tenant(held),
-            last_closed.saturating_add(1),
-            last_closed,
-            state.current_version(held),
-        )
+        owner_syncing::tenant_facts(self.metadata.reads(), self.closed, tenant)
     }
 
     fn lease(
@@ -268,30 +253,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
 
     /// The owner check: `session` held by the registry, its eviction appended or not, and `principal`'s.
     fn check(&self, session: u128, principal: u64) -> Result<(), ErrorReply> {
-        let evicted = || {
-            ErrorReply::new(
-                ErrorCode::SessionEvicted,
-                "the registry evicted this session, or never registered it",
-            )
-        };
-        let held = self
-            .metadata
-            .state()
-            .session_principal(session)
-            .map_err(|_| evicted())?;
-        // A registration of this turn may evict it before its sync, and the close carrying that eviction could then reach the
-        // partition before a commit checked here.
-        if !self.metadata.holds_session(session) {
-            return Err(evicted());
-        }
-        if held == principal {
-            return Ok(());
-        }
-        Err(ErrorReply::new(
-            ErrorCode::PermissionDenied,
-            "the session is another principal's",
-        )
-        .with_detail(ACTION_WRITE))
+        owner_syncing::check(self.metadata.reads(), session, principal)
     }
 
     /// The next close after `after` for a subscriber waiting on it, answered now or once the sequencer closes it. A

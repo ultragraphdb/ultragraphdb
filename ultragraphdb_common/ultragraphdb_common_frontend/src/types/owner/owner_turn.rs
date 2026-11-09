@@ -13,6 +13,7 @@ use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
 use ultragraphdb_traits_log::OrderedLog;
 
 use crate::types::asked::Asked;
+use crate::types::owner::owner_syncing::{SyncReads, while_syncing};
 use crate::types::owner::{
     ASKS_PER_TURN_MAX, CLOSES_PER_SNAPSHOT, Durable, METADATA_SNAPSHOT, Owner, SEQUENCER_SNAPSHOT,
     stopped,
@@ -37,36 +38,53 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
         clock: impl Fn() -> ClockReading,
     ) -> Result<(), RoleError> {
         loop {
-            let wait = self
-                .sequencer
-                .deadline()
-                .saturating_sub(clock().monotonic_us());
-            let wait = std::time::Duration::from_micros(wait);
-            // A message waiting stays in the channel when the wait ends first, so nothing is lost by dropping the wait.
-            if let Ok(asked) = compio::time::timeout(wait, inbox.next()).await {
-                let Some(first) = asked else {
-                    return Ok(());
-                };
-                self.take(first)?;
-                // At most ASKS_PER_TURN_MAX, the rest waiting for the next turn (Ultra rule 2).
-                let mut taking = InboxTurn::new(ASKS_PER_TURN_MAX);
-                while let Some(next) = taking.receive(|| inbox.try_recv()) {
-                    self.take(next)?;
+            if self.waiting.is_empty() {
+                let wait = self
+                    .sequencer
+                    .deadline()
+                    .saturating_sub(clock().monotonic_us());
+                let wait = std::time::Duration::from_micros(wait);
+                // A message waiting stays in the channel when the wait ends first, so nothing is lost by dropping the wait.
+                if let Ok(asked) = compio::time::timeout(wait, inbox.next()).await {
+                    let Some(first) = asked else {
+                        return Ok(());
+                    };
+                    self.take(first)?;
+                    self.take_turn(&mut inbox)?;
                 }
+            } else {
+                // What the last sync's wait took and kept comes first, in its order, then what came after it.
+                while let Some(kept) = self.waiting.pop_front() {
+                    self.take(kept)?;
+                }
+                self.take_turn(&mut inbox)?;
             }
-            self.turn(clock()).await?;
+            self.turn(clock(), &mut inbox).await?;
         }
+    }
+
+    /// Takes what waits in `inbox`, at most `ASKS_PER_TURN_MAX`, the rest waiting for the next turn (Ultra rule 2).
+    fn take_turn(&mut self, inbox: &mut UnboundedReceiver<Asked>) -> Result<(), RoleError> {
+        let mut taking = InboxTurn::new(ASKS_PER_TURN_MAX);
+        while let Some(next) = taking.receive(|| inbox.try_recv()) {
+            self.take(next)?;
+        }
+        Ok(())
     }
 
     /// One turn: the answers the asks of this turn wait for, then the close due at `now`, durable in the sequencer's log
     /// before the group learns it.
     /// A future dropped at a sync leaves its answers unsent and the owner fit only to be dropped, as [`Owner::run`]
     /// says.
-    async fn turn(&mut self, now: ClockReading) -> Result<(), RoleError> {
-        self.answer_durable().await?;
+    async fn turn(
+        &mut self,
+        now: ClockReading,
+        inbox: &mut UnboundedReceiver<Asked>,
+    ) -> Result<(), RoleError> {
+        self.answer_durable(inbox).await?;
         // A report just durable may end a check, whose restoring version takes the next sync.
         self.run_checks(now.monotonic_us())?;
-        self.answer_durable().await?;
+        self.answer_durable(inbox).await?;
         let state = self.metadata.state();
         let versions: Vec<(Tenant, u64)> = state
             .pending_versions()
@@ -90,12 +108,18 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
         if closed.is_none() {
             return Ok(());
         }
-        let _durable = self
-            .sequencer
-            .sync()
+        let answering = SyncReads {
+            reads: self.metadata.reads(),
+            in_flight: &mut self.in_flight,
+            closed: self.closed,
+        };
+        let _durable = while_syncing(self.sequencer.sync(), inbox, answering, &mut self.waiting)
             .await
             .map_err(|error| stopped(&error))?;
-        self.learn_missed().await?;
+        self.closed = self.sequencer.last_closed().get();
+        if self.learn_missed()? {
+            self.sync_metadata(inbox).await?;
+        }
         self.answer_closes();
         self.answer_versions();
         self.closes_since_snapshot += 1;
@@ -104,15 +128,14 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
 
     /// Syncs the metadata group, when this turn appended what an answer waits for, and hands those answers out.
     /// A future dropped at the sync leaves the answers waiting, handed out after the next sync.
-    async fn answer_durable(&mut self) -> Result<(), RoleError> {
+    async fn answer_durable(
+        &mut self,
+        inbox: &mut UnboundedReceiver<Asked>,
+    ) -> Result<(), RoleError> {
         if self.durable.is_empty() {
             return Ok(());
         }
-        let _durable = self
-            .metadata
-            .sync()
-            .await
-            .map_err(|error| stopped(&error))?;
+        self.sync_metadata(inbox).await?;
         for answer in self.durable.drain(..) {
             // An asker gone has no one to tell; what it asked for is durable all the same.
             match answer {
@@ -126,10 +149,30 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
         Ok(())
     }
 
-    /// Learns every durable close the group has not, oldest first, durable before it returns.
-    /// A future dropped at the sync leaves the closes learned appended, durable at the group's next sync; a start
-    /// learns again any the group lost.
-    pub(super) async fn learn_missed(&mut self) -> Result<(), RoleError> {
+    /// Syncs the metadata group while answering what `inbox` brings on a commit's path, from the state before the sync
+    /// (design D17), and applies what it made durable.
+    /// A future dropped at the sync leaves the staged commands staged, applied by the next sync.
+    async fn sync_metadata(
+        &mut self,
+        inbox: &mut UnboundedReceiver<Asked>,
+    ) -> Result<(), RoleError> {
+        let (sync, reads) = self.metadata.syncing();
+        let answering = SyncReads {
+            reads,
+            in_flight: &mut self.in_flight,
+            closed: self.closed,
+        };
+        let durable = while_syncing(sync, inbox, answering, &mut self.waiting)
+            .await
+            .map_err(|error| stopped(&error))?;
+        self.metadata
+            .synced(durable)
+            .map_err(|error| stopped(&error))
+    }
+
+    /// Appends every durable close the group has not learned, oldest first: whether it appended one, which the caller
+    /// syncs. A start learns again any the group lost before its sync.
+    pub(super) fn learn_missed(&mut self) -> Result<bool, RoleError> {
         let mut learned = false;
         let mut after = self.metadata.state().last_learned();
         while let Some(close) = self
@@ -154,14 +197,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             after = close.epoch();
             learned = true;
         }
-        if learned {
-            let _durable = self
-                .metadata
-                .sync()
-                .await
-                .map_err(|error| stopped(&error))?;
-        }
-        Ok(())
+        Ok(learned)
     }
 
     /// Sends each waiting subscriber its next close, when it is durable now.

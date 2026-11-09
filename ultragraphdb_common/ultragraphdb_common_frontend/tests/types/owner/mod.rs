@@ -12,6 +12,8 @@ mod owner_catalog_tests;
 #[cfg(test)]
 mod owner_check_tests;
 #[cfg(test)]
+mod owner_syncing_tests;
+#[cfg(test)]
 mod owner_turn_tests;
 
 use std::cell::Cell;

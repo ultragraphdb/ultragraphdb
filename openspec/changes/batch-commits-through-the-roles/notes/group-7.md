@@ -117,3 +117,82 @@ Every figure lies above the before range. Kept.
 150. A read's deadline counts from the frontend's Begin (`client_session_requests.rs`), and the step started its clock once the
 Begin had returned, missing its way back, so a prompt timer read as early. The clock now starts before the Begin is sent. `make
 test` then: doc 21, unit 79, BDD 37, integration 7, all pass.
+
+## 7.3 Allocation per round: measured, not built (the owner, 2026-11-09)
+
+`alloc_bench --frames 10000` on this Mac (`-c opt`) at `7cc1d1ab`, medians a frame:
+
+| Relations | Terms | Allocations: execution | at commit | in all | a relation | a term | Reallocations | Bytes |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 5 | 94 | 144 | 244 | 244 | 48.8 | 36 | 47,560 |
+| 10 | 23 | 672 | 1,002 | 1,682 | 168 | 73.1 | 134 | 313,801 |
+| 50 | 102 | 3,283 | 4,831 | 8,125 | 162 | 79.8 | 406 | 1,509,769 |
+
+The allocator and `memcpy` at the leaf are 5.0% of the commit thread's samples through the binaries (7.1, ten relations a commit)
+and 8.5% in process at six partitions. No caller holds more than 0.6%. Through the binaries the largest of this repository's are
+`MutableLayer::insert_posting` 0.31%, `Request::get_from_delta` 0.26%, `ChangesetWrite::finish` 0.26%, `Request::into_writes`
+0.23%, `ChangesetCore::settle_round` 0.22%, `ReferrerSet::set` 0.21% and `PostingList::encode` 0.20%; fjall's own (skip-list nodes,
+`ByteView`, its iterators) about 1%. With every allocation of this repository's gone the commit thread would gain at most about 5%
+through the binaries, and buffers the pipeline lends would take part of that, near the runs' spread. The owner closed 7.3 without
+building it.
+
+## 7.4 Index entries per relation: counted, nothing merged (the owner, 2026-11-09)
+
+A probe (not kept) in `ultragraphdb_store_apply`'s harness: 64 hubs, then 200 commits of 10 relations of `wal_bench`'s shape (a
+new node with an edge `rel_t<j>_org` to a hub and the string `rel_t<j>_w` "x", ten relation types), the store's versions counted
+by keyspace before and after:
+
+| Keyspace | Versions a relation | New keys a relation | What writes them |
+|---|---|---|---|
+| Forward | 2.00 | 2.00 | the node's two lists, one per quad |
+| Reverse | 2.00 | 0.17 | the hub's reverse list under its predicate, and the literal's |
+| SubjectPredicates | 1.00 | 1.00 | the new node's predicate list |
+| ObjectPredicates | 1.10 | 0.03 | the hub's and the literal's predicate lists |
+| Statistics | 2.00 | 0.01 | a delta per predicate a commit touches |
+| Referrers | 0.98 | 0.03 | the hubs' sets, still gaining groups in a run this short |
+| In all | 9.08 | 3.24 | |
+
+Of the 9.1, 5.0 are what the reads need: the forward and reverse lists and the new node's predicate list. Two writes repeat what
+the store holds:
+
+- **The object-predicate list.** An insert adds its predicate's SET to the object's list blind (`QuadWrite::insert`), so the hub's
+  and the literal's lists take a version each commit though they named every predicate long before. Leaving the SET out where the
+  list names the predicate needs the list read, and a read that is not recorded would let a concurrent delete of the object's last
+  subject under that predicate take the predicate out after this write added a subject: the read is recorded, and the delete then
+  conflicts with the write.
+- **Statistics.** Each commit writes one delta per predicate it touches. A Describe reads them merged up to its version
+  (`QuadStore::statistics`), and a read may name a version inside a round, so one delta a round would change what it returns there.
+
+Neither keeps every read as it is, and the write batch is 20 to 22% of the commit thread (7.1), so the two together are worth about
+5 to 9%. The owner chose to record them for roadmap stage 6.5, whose storage format decides how a predicate list and its statistics
+are kept, and to merge nothing here.
+
+## 7.5 The owner answers a commit's checks while its logs sync: kept (design D17)
+
+The owner chose to answer during the syncs (2026-11-09). `MetadataGroup::syncing` gives the log's sync beside `MetadataReads`, the
+durable state and the head's registry, and `synced` applies what it made durable; the owner keeps the sequencer's last durable close;
+while either log syncs, `while_syncing` answers a gate's facts, a commit's owner check and end, a session check and whether a session
+is held, and keeps every other ask for the next turn, in order. The sync gate of 3.5 moved, `git mv`, from
+`ultragraphdb_common_storage`'s tests to `ultragraphdb_transactions_log`'s `utils_test` behind `test-utils`, so the frontend's tests
+hold a log's sync too. Tests: the metadata group's reads during a sync, its registry, and a sync never applied; the owner holding the
+sequencer's sync and the metadata group's, each answering the facts and the check while a registration waits; both owner tests fail
+with the waits taken out. The client-endpoint requirement "One owner answers for the metadata group" states it.
+
+The 6/6/2 layout, six partitions, the 7.2 storage under both frontends (g72 before, 75 after), three runs a point interleaved:
+
+| Connections | Commits/s | p50 ms | p90 ms | p99 ms | Mean ms | Checks, mean / p99 µs |
+|---|---|---|---|---|---|---|
+| 1, before | 362 (296–365) | 2.52 | 3.69 | 5.34 | 2.75 (2.73–3.36) | 259 / 1,874 |
+| 1, after | 384 (380–390) | 2.44 | 3.20 | 4.60 | 2.59 (2.55–2.62) | 112 / 275 |
+| 16, before | 9,191 (8,767–9,638) | 1.48 | 2.25 | 6.64 | 1.74 (1.66–1.82) | 143 / 2,406 |
+| 16, after | 8,677 (8,320–9,866) | 1.47 | 2.58 | 7.41 | 1.84 (1.62–1.92) | 68 / 191 |
+| 1,024, before | 43,833 (42,949–46,489) | 16.55 | 42.46 | 105.51 | 23.34 (22.00–23.82) | 802 / 6,239 |
+| 1,024, after | 42,847 (42,460–43,958) | 14.38 | 52.99 | 115.52 | 23.87 (23.27–24.07) | 202 / 3,119 |
+
+One connection commits 6% more, outside the spread; its checks' p99 falls from 1.9 ms to 0.3 ms. At 16 and 1,024 connections the
+rate is storage's and moves within the spread. At 1,024 the median falls 2.2 ms and the p90 rises 10.5 ms, each outside its
+range, and the mean does not move: it is the connections over the rate, 1,024 / 42,847 a second, as Little's law has it, and the
+clients' own means match it to 0.05 ms. The frontend's phases (partition p50 11.0 against 12.0 ms, total p99 102 to 118 against
+100 to 142 ms) and storage's read-to-answer show no added time. Under a fixed mean the change moves where the commits wait, not how
+long: before, the owner's syncs held the checks back in batches; now they reach storage's queues, which serve them less evenly, a
+reading the phase logs fit and that no run isolated. Kept: the rate rises where the frontend bounds it and nothing loses rate.

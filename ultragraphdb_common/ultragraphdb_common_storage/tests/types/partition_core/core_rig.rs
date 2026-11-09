@@ -39,9 +39,8 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_tool_test::TestDir;
 use ultragraphdb_traits_blocks::SequenceBlock;
 use ultragraphdb_transactions_commit::{CloseRequest, Pipeline, RoundBounds};
-use ultragraphdb_transactions_log::{CompioStorage, Wal, WalConfig};
+use ultragraphdb_transactions_log::{CompioStorage, GatedStorage, SyncGate, Wal, WalConfig};
 
-use crate::types::partition_core::gated_storage::{GatedStorage, SyncGate};
 use crate::types::partition_core::inbox_tap::{Tap, tap};
 use crate::types::partition_core::yielding_session::Yielding;
 

@@ -18,6 +18,10 @@ autotests = false
 [lints]
 workspace = true
 
+[features]
+default = []
+test-utils = []
+
 [dependencies]
 ultragraphdb_traits_log = { workspace = true }
 ultragraphdb_error_log = { workspace = true }

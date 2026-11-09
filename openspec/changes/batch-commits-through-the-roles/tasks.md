@@ -150,17 +150,21 @@ taken out again, and its figures are recorded with the reason.
   names, whichever keeps "A commit under a registration reply reads its mark" and the referrer sets' completeness (`partitions`);
   tests first; measured in process at 1 and 12 partitions over 3 s and 30 s runs (the decay from 35,984 to 14,202 relations a
   second gone) and through the binaries
-- [ ] 7.3 Allocation per round, not per relation: the terms, changesets and records between a DirectWrite's frame and its round
+- [x] 7.3 Allocation per round, not per relation: the terms, changesets and records between a DirectWrite's frame and its round
   built in buffers the pipeline lends and takes back, as its read sets are; `alloc_bench`'s allocations per term and per relation
-  before and after (12.5b: 52–86 a term, 176–258 a relation), and the throughput
-- [ ] 7.4 Index entries per relation within the KV layout: the keys a relation writes counted by keyspace and each keyspace's share
+  before and after (12.5b: 52–86 a term, 176–258 a relation), and the throughput. Measured, not built: allocation is 5 to 8.5% of the commit
+  thread, no caller above 0.6%; the owner closed it (`notes/group-7.md`)
+- [x] 7.4 Index entries per relation within the KV layout: the keys a relation writes counted by keyspace and each keyspace's share
   of the commit thread's time; entries the layout can merge or drop without changing what any read returns or what recovery
   rebuilds are merged or dropped, tests first; what only a new storage format can remove is recorded as input to roadmap stage 6.5
-  (the tile-based storage engine)
-- [ ] 7.5 The owner's epoch-close sync off the commit path (backlog item 18, *The owner's sync*): the owner answers asks that read
+  (the tile-based storage engine). Counted: 9.1 versions a relation, 5.0 of them
+  the reads'; the object-predicate SETs and the statistics deltas change reads to remove, recorded for stage 6.5, nothing merged
+  (the owner; `notes/group-7.md`)
+- [x] 7.5 The owner's epoch-close sync off the commit path (backlog item 18, *The owner's sync*): the owner answers asks that read
   nothing unsynced ahead of its sync, or the endpoint holds a tenant's facts between closes, whichever keeps the gate's and the
   owner check's guarantees (`client-endpoint`, `metadata-group`); spec deltas for the behaviour that changes, tests first; the
-  frontend's checks and a one-relation commit measured at the `dev` epochs against X1 (1.44 ms and 3.93 ms)
+  frontend's checks and a one-relation commit measured at the `dev` epochs against X1 (1.44 ms and 3.93 ms). Built as design D17, the owner answering a commit's checks during its syncs: one
+  connection +6%, the checks' p99 1.9 to 0.3 ms; the rate under load unchanged (`notes/group-7.md`)
 - [ ] 7.6 The four together, group 6's matrix again: each improvement's gain alone and together, the share of the in-process ceiling
   at 1, 4 and 12 partitions, validation's share of the commit thread, and the per-relation floor the KV store leaves, in
   `notes/group-7.md` and the Shard-per-Core note

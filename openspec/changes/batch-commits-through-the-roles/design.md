@@ -344,6 +344,21 @@ attaching a finished sync every four requests: a partition's commits a sync halv
 1.8 ms and more). The core's wait in `sync` is what gathers the next round's commits in its inbox, so a partition's log keeps its
 inline sync; the figures are in `notes/group-6.md`.
 
+### D17. The owner answers a commit's checks while its logs sync (owner's decision, 2026-11-09)
+
+Group 6 measured the frontend's checks at one client: a mean of 230 to 289 µs and a p99 of 1.6 to 2.0 ms of a commit of 1.7 to
+1.9 ms. The owner takes nothing while it syncs: a turn whose close falls due syncs the sequencer's log, then the metadata group's
+as it learns the close, and a gate's facts or an owner check asked meanwhile waits for both. Both are answered from what is durable
+(the sequencer's last close counts once its sync returns; the metadata group's reads answer from its durable state), so a sync
+changes nothing of their answers until it returns.
+
+- `MetadataGroup::syncing` splits the log's sync from the reads (`MetadataReads`: the durable state and the head's registry), so
+  the sync borrows the log alone; `synced` applies what it made durable; `sync` is the two.
+- The owner keeps the sequencer's last durable close (`closed`), set once each of its syncs returns.
+- While either log syncs, the owner takes what its inbox brings, at most `ASKS_PER_TURN_MAX`: a gate's facts, a commit's owner
+  check and its end, a session check and whether a session is held are answered at once; every other ask, each of which writes a
+  log or reads the sequencer, waits in `waiting` and is taken first, in order, by the next turn.
+
 ## Risks / Trade-offs
 
 - [The frontend reads a storage connection's replies one at a time (`RoleClient`'s pool of one buffer), and a round now answers

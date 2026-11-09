@@ -48,6 +48,7 @@ pub use crate::types::leased_blocks::LeasedBlocks;
 pub use crate::types::metadata_command::MetadataCommand;
 pub use crate::types::metadata_config::MetadataConfig;
 pub use crate::types::metadata_group::MetadataGroup;
+pub use crate::types::metadata_reads::MetadataReads;
 pub use crate::types::metadata_snapshot::MetadataSnapshot;
 pub use crate::types::metadata_state::MetadataState;
 pub use crate::types::principal::Principal;

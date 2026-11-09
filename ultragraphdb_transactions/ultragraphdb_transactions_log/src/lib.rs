@@ -15,6 +15,8 @@
 mod traits;
 mod types;
 mod utils;
+#[cfg(feature = "test-utils")]
+mod utils_test;
 
 pub use crate::traits::durable_file::DurableFile;
 pub use crate::traits::durable_storage::DurableStorage;
@@ -38,3 +40,5 @@ pub use crate::types::wal::Wal;
 pub use crate::types::wal_config::WalConfig;
 pub use crate::utils::frame::encode_round;
 pub use crate::utils::scan::{find_complete_round, scan_segment};
+#[cfg(feature = "test-utils")]
+pub use crate::utils_test::gated_storage::{GatedFile, GatedStorage, SyncGate};
