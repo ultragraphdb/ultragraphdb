@@ -4,15 +4,15 @@
  */
 
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
-    AskedCredentials, AuthThrottle, ClientSession, EndpointCore, EndpointLimits,
-    EveryAuthenticated, OwnerHandle, OwnerStart, RoleDouble, RoleLinks, TenantGate, batch_frame,
-    empty_batch, last_frame, partition_answer, start_owner,
+    AskedCredentials, ClientSession, EndpointCore, EndpointLimits, EveryAuthenticated, LoginLimits,
+    OwnerHandle, OwnerStart, RoleDouble, RoleLinks, TenantGate, batch_frame, empty_batch,
+    last_frame, partition_answer, start_owner,
 };
 use ultragraphdb_common_role::{
     Answer, OpenRequests, RoleClient, RoleCluster, RoleSecret, Server, listen, serve_connection,
@@ -38,14 +38,12 @@ fn directory(name: &str) -> PathBuf {
 /// A client endpoint over `owner` at a free port; its address.
 async fn endpoint(owner: OwnerHandle) -> TestResult<Address> {
     let limits = EndpointLimits::new(1 << 22, Duration::from_secs(30));
-    Ok(endpoint_within(owner, limits).await?.0)
+    endpoint_within(owner, limits).await
 }
 
-/// A client endpoint over `owner` of `limits` at a free port; its address and its throttle.
-async fn endpoint_within(
-    owner: OwnerHandle,
-    limits: EndpointLimits,
-) -> TestResult<(Address, AuthThrottle)> {
+/// A client endpoint over `owner` of `limits` at a free port, each connection admitted by the owner first as the frontend
+/// admits it; its address.
+async fn endpoint_within(owner: OwnerHandle, limits: EndpointLimits) -> TestResult<Address> {
     let port = std::net::TcpListener::bind("127.0.0.1:0")?
         .local_addr()?
         .port();
@@ -65,18 +63,22 @@ async fn endpoint_within(
         TenantGate::new(EveryAuthenticated),
         limits,
     );
-    let throttle = core.throttle().clone();
     spawn(async move {
         while let Ok(carrier) = listener.accept().await {
             let credentials = AskedCredentials::default();
-            let session = ClientSession::new(core.clone(), credentials.clone(), None);
-            let server = server.clone();
-            spawn(async move { serve_connection(carrier, &server, credentials, session).await })
-                .detach();
+            let peer = carrier.peer_ip();
+            let session = ClientSession::new(core.clone(), credentials.clone(), peer);
+            let (server, core) = (server.clone(), core.clone());
+            spawn(async move {
+                if core.admits(peer).await {
+                    serve_connection(carrier, &server, credentials, session).await;
+                }
+            })
+            .detach();
         }
     })
     .detach();
-    Ok((address, throttle))
+    Ok(address)
 }
 
 /// A principal the owner holds authenticates on the client endpoint by the verifier it asks the owner for; a wrong
@@ -151,51 +153,58 @@ fn test_an_answer_serves_its_own_name_once() -> TestResult {
     Ok(())
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a point in time the throttle compares with, which no simulation replays"
-)]
-fn instant() -> Instant {
-    Instant::now()
-}
-
-/// A principal past its failures is refused with its right password until its interval ends, as any failure is, and then serves.
+/// A source past its failures is banned: its connection closes as accepted, before any frame, even with the right password, until
+/// the ban ends on its own, and then it authenticates (design D15).
 #[test]
-fn test_a_principal_past_its_failures_is_refused_until_its_interval_ends() -> TestResult {
-    let data = directory("refused");
+fn test_a_source_past_its_failures_is_banned_until_its_ban_ends() -> TestResult {
+    let data = directory("banned");
     if data.exists() {
         std::fs::remove_dir_all(&data)?;
     }
-    let interval = Duration::from_millis(300);
+    let ban = Duration::from_millis(500);
     Runtime::new()?.block_on(async {
-        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1)
+            .with_logins(LoginLimits::new(1, 1, ban));
         let principals = vec![(
             "alice".to_string(),
             ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
         )];
         let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
-        let limits =
-            EndpointLimits::new(1 << 22, Duration::from_secs(30)).with_refusal_interval(interval);
-        let (address, throttle) = endpoint_within(owner.handle().clone(), limits).await?;
-        let failed_at = instant();
-        for _ in 0..100 {
-            throttle.name_failed("alice", failed_at);
+        let limits = EndpointLimits::new(1 << 22, Duration::from_secs(30));
+        let address = endpoint_within(owner.handle().clone(), limits).await?;
+        for _ in 0..2 {
+            let refused = RoleClient::dial(&address, CLUSTER, "alice", "wrong")
+                .await
+                .err()
+                .context("a refusal")?;
+            assert!(
+                matches!(
+                    &refused.0,
+                    TransportErrorEnum::Refused {
+                        code: ErrorCode::AuthenticationFailed,
+                        ..
+                    }
+                ),
+                "{refused}"
+            );
         }
-        let refused = RoleClient::dial(&address, CLUSTER, "alice", "pw")
-            .await
-            .err()
-            .context("a refusal")?;
-        assert!(
-            matches!(
-                &refused.0,
-                TransportErrorEnum::Refused {
-                    code: ErrorCode::AuthenticationFailed,
-                    ..
+        // The outcome is told to the owner without an answer: the ban holds once the owner has counted the second failure.
+        let mut closed = None;
+        for _ in 0..100 {
+            // A wrong password while the ban is not yet held counts once more, and a right one would forget the failures.
+            match RoleClient::dial(&address, CLUSTER, "alice", "wrong").await {
+                Err(error) if matches!(&error.0, TransportErrorEnum::Refused { .. }) => {
+                    compio::time::sleep(Duration::from_millis(1)).await;
                 }
-            ),
-            "{refused}"
-        );
-        compio::time::sleep(interval).await;
+                Err(error) => {
+                    closed = Some(error);
+                    break;
+                }
+                Ok(_accepted) => return Err(TestError::new("a wrong password authenticated")),
+            }
+        }
+        let _closed = closed.context("a banned connection closed before any frame")?;
+        compio::time::sleep(ban).await;
         let _alice = RoleClient::dial(&address, CLUSTER, "alice", "pw").await?;
         Ok(())
     })

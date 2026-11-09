@@ -116,6 +116,10 @@
   compute on another of 6, the clients (several `client_bench` processes) on a third of 2, over the network; 6 partitions at 1 and
   10 relations a commit against `wal_bench` at 6 partitions on the storage machine, the threads' time on a CPU, and the 12-CPU
   shared figure beside it
+- [x] 6.10 Failed logins throttled, then banned, in the owner (design D15): the three `[endpoint]` settings in place of
+  `refusal_interval_ms`; the owner's counts per source (IPv4 address, IPv6 /64); the verifier's ask answering the delay, each
+  outcome reported, each accepted connection admitted or closed; tests of the posture and of a banned source's connection closed,
+  another source served; `SECURITY.md` and the client-endpoint requirement
 - [ ] 6.9 The frontend's cost a commit profiled (`ultragraphdb_frontend_profile`, a symbol build as storage's) and cut, each change
   kept only where 6.8's figures rise outside their spread
 - [ ] 6.4 Any share of the in-process rate far below it chased to its cause (design D9): the phase that grows or the time no phase

@@ -104,8 +104,9 @@ async fn ranges(owner: &OwnerThread) -> TestResult<Vec<(u32, u32, u32)>> {
 async fn principal(owner: &OwnerThread, name: &str) -> TestResult<u64> {
     let (id, _) = owner
         .handle()
-        .verifier(name.to_string())
+        .verifier(name.to_string(), None)
         .await
+        .0
         .context("the principal")?;
     Ok(id)
 }

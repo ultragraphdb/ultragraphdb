@@ -23,6 +23,7 @@ use ultragraphdb_protocol_scram::{DEFAULT_ITERATIONS, ScramVerifier};
 use ultragraphdb_protocol_wire::ErrorReply;
 use ultragraphdb_traits_log::OrderedLog;
 
+use crate::types::auth_throttle::AuthThrottle;
 use crate::types::membership::Membership;
 use crate::types::owner_start::OwnerStart;
 use crate::utils::snapshot_file;
@@ -80,6 +81,8 @@ pub struct Owner<M: OrderedLog, S: OrderedLog> {
     schema_ids: BTreeMap<u64, (u64, u64)>,
     closes_since_snapshot: u32,
     snapshots: Option<PathBuf>,
+    /// The failed authentications of every endpoint core, by source (design D15).
+    logins: AuthThrottle,
 }
 
 impl<M: OrderedLog, S: OrderedLog> fmt::Debug for Owner<M, S> {
@@ -160,6 +163,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             schema_ids: BTreeMap::new(),
             closes_since_snapshot: 0,
             snapshots,
+            logins: AuthThrottle::new(start.logins()),
         };
         owner.learn_missed().await?;
         Ok(owner)

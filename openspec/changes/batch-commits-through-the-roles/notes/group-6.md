@@ -233,6 +233,21 @@ and `/proc/sys` read-only in a `container` machine, so `perf` ran as the roles' 
   `TimerRuntime::poll_timer` and the B-tree under it, take about 4.5%, as a timer is armed per request; std's SipHash in
   `ultragraphdb_protocol_wire` 2.5%; `session_principal` on the owner 2.3%; allocation about 3%.
 
+## 6.10 Failed logins: throttled, then banned, in the owner (design D15)
+
+The owner's decision replaced the throttle split per core in 6.6 and the lockout per principal. `AuthThrottle` is now the owner's
+plain table by source, an IPv4 address or an IPv6 /64; `LoginLimits` holds `[endpoint] auth_failures_before_throttle` (50),
+`auth_throttled_failures_before_ban` (20) and `auth_ban_ms` (24 hours), each refused at 0 by the settings' check;
+`refusal_interval_ms` and `EndpointLimits`' refusal interval are gone. The login messages are one `Asked::Login(LoginAsked)`: the
+verifier's ask carries the source and answers the delay, each outcome is told without an answer, each accepted connection asks
+whether its source is admitted, on its own task, and a banned one is closed before TLS or any frame. A ban is logged to the audit
+target. `PROTOCOL.md` §11.9's table, the authentication step and `SECURITY.md`'s *Failures* state it.
+
+Tests: the throttle's six (no wait within the threshold, a doubling one past it, the ban and its end, a success forgetting, an IPv6
+/64 as one source, a full table keeping its bans, the defaults); a session test where two failures with limits of 1 and 1 ban the
+source, its next connection closes before any frame, and it authenticates once the ban has ended; the settings' check refusing 0
+for each of the three. `make test`: doc 21, unit 79, BDD 37, integration 7, all pass.
+
 ## Still open for 6.5
 
 The Shard-per-Core note beside X1's figures and backlog item 18's *Batching* bullet, once the owner has decided on the frontend.

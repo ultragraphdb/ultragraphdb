@@ -253,7 +253,7 @@ fn test_a_bootstrap_file_creates_the_administrator_once() -> TestResult {
         // The file is gone: only a group holding the administrator starts without reading it.
         drop(recovered(&data, &named()?).await?);
         let running = owner(&data, MetadataConfig::new(), 1).await?;
-        let held = running.handle().verifier("admin".to_string()).await;
+        let held = running.handle().verifier("admin".to_string(), None).await.0;
         assert!(held.is_some(), "the administrator");
         running.stopped().await?;
         Ok(())

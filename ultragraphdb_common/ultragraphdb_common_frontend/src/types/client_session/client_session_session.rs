@@ -3,11 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::time::Duration;
-
 use futures::StreamExt;
 use ultragraphdb_common_role::{Answer, ParkedBytes, Push, Session};
-use ultragraphdb_protocol_scram::{MECHANISM, ScramServer, ScramVerifier};
+use ultragraphdb_protocol_scram::{MECHANISM, ScramServer};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
 
@@ -20,65 +18,33 @@ use crate::types::route_key::RouteKey;
 use crate::types::session_event::SessionEvent;
 
 impl<A: Authorizer + Clone> Session for ClientSession<A> {
-    /// Asks the owner for the name's verifier by message, first waiting out the failures of its address and its name. A name
-    /// refused holds no verifier here, so its exchange fails as any other does and says nothing of why.
-    /// A future dropped at its delay or at the owner's answer leaves the credentials unanswered, which fails the
-    /// exchange.
+    /// Asks the owner for the name's verifier by message, and waits as long as the owner says the failures of its source call for
+    /// (design D15).
+    /// A future dropped at the owner's answer or at its delay leaves the credentials unanswered, which fails the exchange.
     async fn authenticating(&mut self, first: &[u8]) {
-        let name = ScramServer::name_in(first).ok();
-        let throttle = self.core.throttle();
-        let delay = self
-            .peer
-            .map_or(Duration::ZERO, |peer| throttle.delay(peer))
-            .max(
-                name.as_deref()
-                    .map_or(Duration::ZERO, |name| throttle.name_delay(name)),
-            );
+        // A malformed message asks for nothing, and the machine refuses it.
+        let Ok(name) = ScramServer::name_in(first) else {
+            return;
+        };
+        let (held, delay) = self.core.owner().verifier(name.clone(), self.peer).await;
         if !delay.is_zero() {
             compio::time::sleep(delay).await;
         }
-        // A malformed message asks for nothing, and the machine refuses it.
-        if let Some(name) = name {
-            let held = self.core.owner().verifier(name.clone()).await;
-            let refused = self.core.throttle().name_refused(&name, now());
-            // A refused name keeps its salt and iterations and fails its proof, as an unknown name keeps its own (SECURITY.md,
-            // *Failures*): no key hashes to all zeros.
-            let held = held.map(|(principal, verifier)| {
-                if !refused {
-                    return (principal, verifier);
-                }
-                let failing = ScramVerifier::new(
-                    verifier.salt().to_vec(),
-                    verifier.iterations(),
-                    [0; 32],
-                    [0; 32],
-                );
-                (principal, failing)
-            });
-            self.credentials.answered(name.clone(), held);
-            self.asked_name = Some(name);
-        }
+        self.credentials.answered(name.clone(), held);
+        self.asked_name = Some(name);
     }
 
     fn authenticated(&mut self, principal: u64) {
         self.principal = principal;
-        let throttle = self.core.throttle();
         if let Some(peer) = self.peer {
-            throttle.succeeded(peer);
-        }
-        if let Some(name) = &self.asked_name {
-            throttle.name_succeeded(name);
+            self.core.owner().login_outcome(peer, true);
         }
         self.audit_authentication("accepted");
     }
 
     fn authentication_refused(&mut self) {
-        let throttle = self.core.throttle();
         if let Some(peer) = self.peer {
-            throttle.failed(peer);
-        }
-        if let Some(name) = &self.asked_name {
-            throttle.name_failed(name, now());
+            self.core.owner().login_outcome(peer, false);
         }
         self.audit_authentication("refused");
     }

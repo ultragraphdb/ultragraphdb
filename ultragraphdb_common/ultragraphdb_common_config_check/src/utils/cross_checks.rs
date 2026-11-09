@@ -271,8 +271,9 @@ fn bounds(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceConf
 /// deadline, so a hung compute process is answered before its client gives the connection up (`PROTOCOL.md` §11.11).
 const SCAN_STALL_MS_MAX: u64 = 30_000;
 
-/// The settings a value of 0 leaves with no time or room to act: a Scan's stall, a storage process's retention and the
-/// bytes a frontend's reads hold back. A frontend bounds a hung compute process by its own `scan_stall_ms`.
+/// The settings a value of 0 leaves with no time or room to act: a Scan's stall, a storage process's retention, the bytes a
+/// frontend's reads hold back, and its counts and time of failed authentications before a throttle and a ban. A frontend bounds a
+/// hung compute process by its own `scan_stall_ms`.
 fn no_time_bounds(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceConfig) {
     let (storage, frontend) = (instance.role() == "storage", instance.role() == "frontend");
     let settings = [
@@ -291,6 +292,27 @@ fn no_time_bounds(checking: &mut Checking<'_>, instance: &Instance, config: &Ser
             frontend,
             "endpoint.held_bytes",
             config.endpoint().held_bytes(),
+        ),
+        (
+            frontend,
+            "endpoint.auth_failures_before_throttle",
+            config
+                .endpoint()
+                .auth_failures_before_throttle()
+                .map(u64::from),
+        ),
+        (
+            frontend,
+            "endpoint.auth_throttled_failures_before_ban",
+            config
+                .endpoint()
+                .auth_throttled_failures_before_ban()
+                .map(u64::from),
+        ),
+        (
+            frontend,
+            "endpoint.auth_ban_ms",
+            config.endpoint().auth_ban_ms(),
         ),
     ];
     for (_, setting, _) in settings

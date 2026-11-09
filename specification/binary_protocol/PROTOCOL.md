@@ -1630,7 +1630,9 @@ The forms are the protocol's own, independent of any library's formatting, and g
    secret, and the server closes the connection. A request on a stream other than 0 before the final Authenticate is
    refused with an Error of code 20 (Unauthenticated) on the request's stream, which ends it, and the connection stays
    open for authentication. An exchange not complete within the authentication timeout (section 11.9) is answered with
-   an Error of code 20 on stream 0, and the server closes the connection. With `auth` 0, which a test server alone
+   an Error of code 20 on stream 0, and the server closes the connection. The frontend counts each source's failed
+   authentications and throttles, then bans, a source past them (section 11.9): a banned source's connection is closed as it
+   is accepted, before TLS or any frame. With `auth` 0, which a test server alone
    answers, nothing is exchanged, and the connection acts for the anonymous principal (`../../openspec/notes/SECURITY.md`).
 
 Every later frame carries in its header the cluster, the sender's `release`, `protocol` equal to the Welcome's
@@ -1952,7 +1954,9 @@ refusing nothing (section 11.12, *Frames on their way*).
 | Statements per connection | 256 |
 | Idle limit, a connection sending no frame | 600 s |
 | Authentication timeout, from Welcome to the final Authenticate | 60 s |
-| Refusal interval after 100 consecutive failed authentications of a principal | 15 minutes |
+| `auth_failures_before_throttle`, the consecutive failed authentications of one source, an IPv4 address or an IPv6 /64, before each further attempt waits a delay doubling from 100 ms to at most 30 s | 50, at least 1 |
+| `auth_throttled_failures_before_ban`, the failed authentications of a source past those before it is banned | 20, at least 1 |
+| `auth_ban_ms`, how long a banned source's connections are closed as accepted, before TLS or any frame | 86,400,000 ms (24 hours), at least 1 |
 
 A write that would hold an object under more statement IDs than `statements_per_object_max` is refused with code 6 (TooLarge),
 `detail` the bound, so a key's object record fits a frame at the floor of `max_frame` in a forward and a reverse list alike: a floor

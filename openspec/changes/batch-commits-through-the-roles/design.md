@@ -282,10 +282,7 @@ frontend used one for its whole client path. The owner chose to fix it in this c
   message, an unbounded channel per core drained by a task of that core, so every core routes to what has joined.
 - Every core stops accepting when the service stops, and its runtime stays up until the open requests a stop waits on are
   answered.
-- The failed-authentication throttle stays one for the frontend: `SECURITY.md` refuses a principal from every source after 100
-  consecutive failures, which a throttle per core would weaken by the cores' count. It becomes an `Arc<Mutex>` locked once per
-  authentication, never per request. Atomics cannot hold its two maps, and asking the owner would add a hop to every login; the
-  lock departs from the preference for lock-free state, and the owner may overrule it.
+- The failed-authentication counts stay one for the frontend, in its owner thread (D15).
 - A core's thread is spawned as compute's and storage's are, with the same `clippy::disallowed_methods` expectation and reason.
 - **The target (owner, 2026-11-09):** as close to the in-process 127,695 relations a second at 12 partitions as the roles can come,
   measured like for like: storage alone on 12 CPUs, as `wal_bench`'s partitions had them, and the frontend, its owner, compute and
@@ -298,6 +295,25 @@ frontend used one for its whole client path. The owner chose to fix it in this c
   made at 6 partitions: storage alone on a 6-CPU `container` machine, the frontend with its owner, the config service and compute
   on another of 6, the clients on a third of 2, two cores left to macOS (`--cpus 5` and `--cpus 1`, as `container` gives one CPU
   more than asked). The target is `wal_bench`'s rate at 6 partitions on the storage machine itself, its CPUs and disk.
+
+### D15. Failed logins: throttled, then banned, in the owner (owner's decision, 2026-11-09)
+
+Spreading the frontend over cores (D14) split the throttle of failed authentications, which lived on the one endpoint core: per
+core, a source's doubling delay restarted on each fresh core and the lockout of a name needed its failures on every core. The owner
+chose to keep the counts in the owner thread, where every core's logins already ask for the name's verifier, and a new posture:
+
+- **Per source**, an IPv4 address or an IPv6 /64 (one attacker holds a whole /64): consecutive failures counted, a success clearing
+  them. The first `[endpoint] auth_failures_before_throttle` (50) wait nothing; the next `auth_throttled_failures_before_ban` (20)
+  each wait a delay doubling from 100 ms to at most 30 s; then the source is banned for `auth_ban_ms` (24 hours), each of its
+  connections closed as accepted, before TLS or any frame. The ban ends on its own and clears the count, as a source behind a shared
+  address (a NAT, a load balancer rewriting source addresses) may hold other clients. Each setting is at least 1.
+- **No lockout per principal**, and `refusal_interval_ms` is gone with it.
+- **By message**: the verifier's ask carries the source and answers the delay with the verifier; the session reports each
+  authentication's outcome without waiting for an answer; each accepted connection asks whether its source is banned on its own
+  task, so accepting never waits on the owner. Times travel in the messages from the asking core's clock.
+- **Bounded**: at most 65,536 sources; a full table drops sources counting failures before it would drop a ban, and with only bans
+  left a new source goes uncounted. In memory: a restart forgets the counts; several frontends (stage 8) would share them through
+  the metadata group.
 
 ## Risks / Trade-offs
 

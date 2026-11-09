@@ -131,10 +131,13 @@ connection with code 22: its open transactions abort, and its sessions carry ove
 - A failed authentication says nothing of what failed, and takes as long for an unknown principal as for a known one:
   the server answers an unknown name with a verifier derived from a secret the metadata group draws at the cluster's first
   start and holds durably, so every core and restart, and from stage 8 every frontend, answers one name with one salt.
-- Failed attempts are throttled per principal and per source address, with a growing delay. After 100 consecutive
-  failures (NIST SP 800-63B-4), a principal's authentications are refused from every source for a configured interval,
-  15 minutes by default, and a success resets the count. The interval ends on its own, so an attacker cannot lock an
-  administrator out for good.
+- Failed attempts are counted per source, an IPv4 address or an IPv6 /64, by the frontend's owner for every endpoint core,
+  and a success resets the count. Past `[endpoint] auth_failures_before_throttle` failures, 50 by default, each further
+  attempt waits a delay doubling from 100 ms to at most 30 s; past `auth_throttled_failures_before_ban` more, 20 by default,
+  the source is banned for `auth_ban_ms`, 24 hours by default, its connections closed as they are accepted, before TLS or
+  any frame. The ban ends on its own, so clients sharing an address with a broken one (a NAT, a load balancer rewriting
+  source addresses) recover without an operator. There is no lockout per principal (owner's decision, 2026-11-09): guessing
+  one name from many sources meets each source's own throttle and ban.
 - A connection that has not completed its authentication within a configured time, 60 seconds by default as
   PostgreSQL's `authentication_timeout`, is refused with code 20 and closed. Before it authenticates, a connection
   holds no stream and no transaction.

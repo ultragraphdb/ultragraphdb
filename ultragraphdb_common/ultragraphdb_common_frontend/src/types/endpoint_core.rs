@@ -3,12 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::net::IpAddr;
 use std::rc::{Rc, Weak};
 
 use ultragraphdb_common_role::OpenRequests;
 
 use crate::traits::authorizer::Authorizer;
-use crate::types::auth_throttle::AuthThrottle;
 use crate::types::endpoint_limits::EndpointLimits;
 use crate::types::one_frame_phases::OneFramePhases;
 use crate::types::owner_handle::OwnerHandle;
@@ -16,7 +16,7 @@ use crate::types::role_links::RoleLinks;
 use crate::types::tenant_gate::TenantGate;
 
 /// What a client session shares on its endpoint core: the way to the owner, the connections to the other roles, the gate, the
-/// limits, the throttle, the count of open requests a stop waits on and the phases of the one-frame writes it relays. The way to the owner is shared by an `Rc` on the core, so what outlives the core's sessions can hold it
+/// limits, the count of open requests a stop waits on and the phases of the one-frame writes it relays. The way to the owner is shared by an `Rc` on the core, so what outlives the core's sessions can hold it
 /// weakly and keep no owner from stopping.
 #[derive(Debug, Clone)]
 pub struct EndpointCore<A> {
@@ -24,7 +24,6 @@ pub struct EndpointCore<A> {
     links: RoleLinks,
     gate: TenantGate<A>,
     limits: EndpointLimits,
-    throttle: AuthThrottle,
     open: OpenRequests,
     phases: OneFramePhases,
 }
@@ -43,7 +42,6 @@ impl<A: Authorizer> EndpointCore<A> {
             links,
             gate,
             limits,
-            throttle: AuthThrottle::new(limits.refusal_interval()),
             open: OpenRequests::default(),
             phases: OneFramePhases::default(),
         }
@@ -53,14 +51,6 @@ impl<A: Authorizer> EndpointCore<A> {
     #[must_use]
     pub fn with_core(mut self, core: usize) -> Self {
         self.phases = self.phases.with_core(core);
-        self
-    }
-
-    /// The core sharing `throttle` with the frontend's other endpoint cores, so failed authentications count across them all
-    /// (design D14).
-    #[must_use]
-    pub fn with_throttle(mut self, throttle: AuthThrottle) -> Self {
-        self.throttle = throttle;
         self
     }
 
@@ -103,10 +93,13 @@ impl<A> EndpointCore<A> {
         &self.limits
     }
 
-    /// The throttle of failed authentications.
-    #[must_use]
-    pub fn throttle(&self) -> &AuthThrottle {
-        &self.throttle
+    /// Whether a connection accepted from `peer` may go on: one with no address, over a Unix socket, always; one from a banned
+    /// source not, as its owner says (design D15). The frontend asks before TLS or any frame.
+    pub async fn admits(&self, peer: Option<IpAddr>) -> bool {
+        match peer {
+            Some(peer) => self.owner.admits(peer).await,
+            None => true,
+        }
     }
 
     /// The count of open requests a stop waits on.

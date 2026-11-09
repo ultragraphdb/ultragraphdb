@@ -495,7 +495,12 @@ fn test_a_subscription_takes_announcements_and_evictions() -> TestResult {
         let heard = |refusal: ultragraphdb_protocol_wire::ErrorReply| {
             TestError::new(refusal.message().to_string())
         };
-        let ann = handle.verifier("ann".to_string()).await.context("ann")?.0;
+        let ann = handle
+            .verifier("ann".to_string(), None)
+            .await
+            .0
+            .context("ann")?
+            .0;
         handle.register_session(1, ann).await.map_err(heard)?;
         handle.register_session(2, ann).await.map_err(heard)?;
         let _version = handle

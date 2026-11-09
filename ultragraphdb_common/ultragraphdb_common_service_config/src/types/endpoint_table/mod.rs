@@ -16,7 +16,9 @@ pub struct EndpointTable {
     plaintext: Option<bool>,
     connections_max: Option<u32>,
     held_bytes: Option<u64>,
-    refusal_interval_ms: Option<u64>,
+    auth_failures_before_throttle: Option<u32>,
+    auth_throttled_failures_before_ban: Option<u32>,
+    auth_ban_ms: Option<u64>,
 }
 
 impl EndpointTable {
@@ -31,7 +33,11 @@ impl EndpointTable {
             plaintext: reader.boolean("endpoint", "plaintext")?,
             connections_max: reader.u32("endpoint", "connections_max")?,
             held_bytes: reader.u64("endpoint", "held_bytes")?,
-            refusal_interval_ms: reader.u64("endpoint", "refusal_interval_ms")?,
+            auth_failures_before_throttle: reader
+                .u32("endpoint", "auth_failures_before_throttle")?,
+            auth_throttled_failures_before_ban: reader
+                .u32("endpoint", "auth_throttled_failures_before_ban")?,
+            auth_ban_ms: reader.u64("endpoint", "auth_ban_ms")?,
         })
     }
 
@@ -72,10 +78,22 @@ impl EndpointTable {
         self.held_bytes
     }
 
-    /// `refusal_interval_ms`: how long a principal past its failed authentications is refused.
+    /// `auth_failures_before_throttle`: the consecutive failed authentications of one source before its attempts wait.
     #[must_use]
-    pub fn refusal_interval_ms(&self) -> Option<u64> {
-        self.refusal_interval_ms
+    pub fn auth_failures_before_throttle(&self) -> Option<u32> {
+        self.auth_failures_before_throttle
+    }
+
+    /// `auth_throttled_failures_before_ban`: the failed authentications of one source, past the throttle's, before it is banned.
+    #[must_use]
+    pub fn auth_throttled_failures_before_ban(&self) -> Option<u32> {
+        self.auth_throttled_failures_before_ban
+    }
+
+    /// `auth_ban_ms`: how long a banned source's connections are closed as accepted.
+    #[must_use]
+    pub fn auth_ban_ms(&self) -> Option<u64> {
+        self.auth_ban_ms
     }
 
     /// How the endpoint speaks. Clear text is only ever chosen by name, so an endpoint deciding nothing does not start.

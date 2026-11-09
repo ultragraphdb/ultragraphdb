@@ -3,6 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::net::IpAddr;
+use std::time::Duration;
+
 use futures::channel::{mpsc, oneshot};
 use ultragraphdb_cluster_placement::PlacementMap;
 use ultragraphdb_cluster_sequencer::Close;
@@ -13,6 +16,7 @@ use ultragraphdb_protocol_wire::{
 
 use crate::types::asked::Asked;
 pub use crate::types::asked::DropStep;
+use crate::types::login_asked::LoginAsked;
 use crate::types::report_asked::ReportAsked;
 use crate::types::tenant_facts::TenantFacts;
 
@@ -134,11 +138,41 @@ impl OwnerHandle {
             .await
     }
 
-    /// The principal holding `name`, and its verifier; `None` when none does or the owner stopped.
-    pub async fn verifier(&self, name: String) -> Option<(u64, ScramVerifier)> {
-        self.ask(|reply| Asked::Verifier { name, reply })
+    /// The principal holding `name` and its verifier, `None` when none does or the owner stopped, and how long the attempt from
+    /// `source` waits first (design D15).
+    pub async fn verifier(
+        &self,
+        name: String,
+        source: Option<IpAddr>,
+    ) -> (Option<(u64, ScramVerifier)>, Duration) {
+        self.ask(|reply| {
+            Asked::Login(LoginAsked::Verifier {
+                name,
+                source,
+                reply,
+            })
+        })
+        .await
+        .unwrap_or((None, Duration::ZERO))
+    }
+
+    /// Whether a connection from `source`, accepted now, may go on: not while its source is banned, nor once the owner stopped.
+    pub async fn admits(&self, source: IpAddr) -> bool {
+        let at = crate::types::client_session::now();
+        self.ask(|reply| Asked::Login(LoginAsked::Admit { source, at, reply }))
             .await
-            .flatten()
+            .unwrap_or(false)
+    }
+
+    /// Tells the owner an authentication from `source` ended now, `succeeded` or failed; nothing is answered.
+    pub fn login_outcome(&self, source: IpAddr, succeeded: bool) {
+        let at = crate::types::client_session::now();
+        // An owner that stopped counts nothing more, and the frontend is stopping.
+        let _sent = self.inbox.unbounded_send(Asked::Login(LoginAsked::Outcome {
+            source,
+            at,
+            succeeded,
+        }));
     }
 
     /// Registers `session` for `principal`, answered once durable. A full registry evicts its oldest session with no commit in

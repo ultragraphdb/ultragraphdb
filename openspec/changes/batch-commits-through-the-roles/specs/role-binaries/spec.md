@@ -7,9 +7,9 @@ chosen from those the process is permitted, as a container's cpuset restricts th
 and never a condition of correctness: where the platform cannot bind a thread, as macOS cannot, offering only a
 cache-locality hint, the role SHALL run unpinned and say so. The frontend SHALL accept and serve clients on each of its runtimes,
 one per CPU it may use, on one client address bound once: its role address, its connections back and its readiness on the first,
-each role that joins made known to every one, each dialling its own connections to the other roles, and its throttle of failed
-authentications one for all of them, so a principal is refused from every source after the same failures whatever cores they
-reached (`SECURITY.md`).
+each role that joins made known to every one, each dialling its own connections to the other roles, and its counts of failed
+authentications held by its owner for all of them (client-endpoint, "Connections authenticate against the metadata group's
+principals").
 At start each role SHALL log, per runtime, the CPU it asked for and what it has, read back from the operating system where
 it can be.
 

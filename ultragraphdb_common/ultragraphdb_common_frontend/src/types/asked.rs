@@ -6,11 +6,11 @@
 use futures::channel::oneshot::Sender;
 use ultragraphdb_cluster_placement::PlacementMap;
 use ultragraphdb_cluster_sequencer::Close;
-use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_protocol_wire::{
     Catalog, Declared, Describe, ErrorReply, Join, Members, Placement,
 };
 
+use crate::types::login_asked::LoginAsked;
 use crate::types::report_asked::ReportAsked;
 use crate::types::tenant_facts::TenantFacts;
 
@@ -86,13 +86,8 @@ pub enum Asked {
         /// Its answer.
         reply: Sender<Result<Close, ErrorReply>>,
     },
-    /// The principal holding `name`, and its verifier.
-    Verifier {
-        /// The SASLprep-prepared name.
-        name: String,
-        /// Its answer.
-        reply: Sender<Option<(u64, ScramVerifier)>>,
-    },
+    /// What a login asks or tells (design D15).
+    Login(LoginAsked),
     /// Register a session for a principal, once durable.
     RegisterSession {
         /// The session.

@@ -11,8 +11,8 @@ use compio::runtime::spawn;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
-    AskedCredentials, AuthThrottle, ClientSession, CoreJoins, EndpointCore, EndpointLimits,
-    EveryAuthenticated, JoinFanOut, OwnerHandle, OwnerStart, RoleLinks, RoleSession, RoleShared,
+    AskedCredentials, ClientSession, CoreJoins, EndpointCore, EndpointLimits, EveryAuthenticated,
+    JoinFanOut, LoginLimits, OwnerHandle, OwnerStart, RoleLinks, RoleSession, RoleShared,
     TenantGate, start_owner,
 };
 use ultragraphdb_common_role::{
@@ -128,13 +128,12 @@ pub(crate) async fn frontend_role(
 }
 
 /// What every endpoint core serves its clients with: its handle of the client socket, the server, the transport's security, the
-/// limits, the authentication throttle the cores share and the count of open requests a stop waits on.
+/// limits and the count of open requests a stop waits on.
 struct Clients {
     listener: CoreListener,
     server: Server,
     security: EndpointSecurity,
     limits: EndpointLimits,
-    throttle: AuthThrottle,
     open: OpenRequests,
 }
 
@@ -158,7 +157,6 @@ impl Clients {
                 .with_open(open.clone()),
             security,
             limits,
-            throttle: AuthThrottle::new(limits.refusal_interval()),
             open: open.clone(),
         })
     }
@@ -170,7 +168,6 @@ impl Clients {
             server: self.server.clone(),
             security: self.security.clone(),
             limits: self.limits,
-            throttle: self.throttle.clone(),
             open: self.open.clone(),
         })
     }
@@ -190,7 +187,6 @@ impl Clients {
         )
         .with_open(self.open.clone())
         .with_core(core)
-        .with_throttle(self.throttle.clone())
     }
 }
 
@@ -302,11 +298,24 @@ fn endpoint_limits(config: &ServiceConfig) -> EndpointLimits {
         .storage()
         .scan_stall_ms()
         .unwrap_or(SCAN_STALL_MS_DEFAULT);
-    let limits = EndpointLimits::new(held, Duration::from_millis(stall));
-    match config.endpoint().refusal_interval_ms() {
-        Some(interval) => limits.with_refusal_interval(Duration::from_millis(interval)),
-        None => limits,
-    }
+    EndpointLimits::new(held, Duration::from_millis(stall))
+}
+
+/// When a source's failed authentications wait and when they ban it, as the settings say (design D15); the settings' check
+/// refuses 0 for each.
+fn login_limits(config: &ServiceConfig) -> LoginLimits {
+    let endpoint = config.endpoint();
+    LoginLimits::new(
+        endpoint
+            .auth_failures_before_throttle()
+            .unwrap_or(LoginLimits::BEFORE_THROTTLE_DEFAULT),
+        endpoint
+            .auth_throttled_failures_before_ban()
+            .unwrap_or(LoginLimits::THROTTLED_BEFORE_BAN_DEFAULT),
+        endpoint
+            .auth_ban_ms()
+            .map_or(LoginLimits::BAN_DEFAULT, Duration::from_millis),
+    )
 }
 
 /// The server clients connect to, answering unknown names from the secret the metadata group holds, and past its bound of connections
@@ -370,7 +379,8 @@ fn owner_start(config: &ServiceConfig) -> Result<OwnerStart, RoleError> {
             .with_catalog_check_ms(ms)
             .map_err(|error| refused(&error))?;
     }
-    let owner = OwnerStart::new(metadata, sequencer, partition_count);
+    let owner =
+        OwnerStart::new(metadata, sequencer, partition_count).with_logins(login_limits(config));
     Ok(match table.bootstrap_secret_file() {
         Some(file) => owner.with_bootstrap_file(file),
         None => owner,
@@ -429,9 +439,15 @@ async fn accept_clients(
         let carrier = pace.accept("client", || listener.accept()).await;
         let server = server.clone();
         let credentials = AskedCredentials::default();
-        let session = ClientSession::new(core.clone(), credentials.clone(), carrier.peer_ip());
-        let acceptor = acceptor.clone();
+        let peer = carrier.peer_ip();
+        let session = ClientSession::new(core.clone(), credentials.clone(), peer);
+        let (acceptor, core) = (acceptor.clone(), core.clone());
         spawn(async move {
+            // A banned source's connection closes as accepted, before TLS or any frame (design D15); asked on the connection's own
+            // task, so accepting never waits on the owner.
+            if !core.admits(peer).await {
+                return tracing::debug!(?peer, "a banned source's connection was closed");
+            }
             let Some(acceptor) = acceptor else {
                 return serve_connection(carrier, &server, credentials, session).await;
             };

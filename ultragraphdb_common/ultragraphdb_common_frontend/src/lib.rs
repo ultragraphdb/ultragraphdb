@@ -26,6 +26,7 @@ pub use crate::types::endpoint_limits::EndpointLimits;
 pub use crate::types::every_authenticated::EveryAuthenticated;
 pub use crate::types::gate_scope::GateScope;
 pub use crate::types::join_fan_out::JoinFanOut;
+pub use crate::types::login_limits::LoginLimits;
 pub use crate::types::membership::Membership;
 pub use crate::types::one_frame_phases::{ONE_FRAME_PHASES, OneFramePhases};
 pub use crate::types::owner::Owner;

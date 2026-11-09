@@ -140,8 +140,9 @@ pub(crate) async fn with_principal(owner: &mut SimOwner, name: &str) -> TestResu
 /// The identity of the principal `name`.
 pub(crate) async fn principal(handle: &OwnerHandle, name: &str) -> TestResult<u64> {
     Ok(handle
-        .verifier(name.to_string())
+        .verifier(name.to_string(), None)
         .await
+        .0
         .context("the principal")?
         .0)
 }

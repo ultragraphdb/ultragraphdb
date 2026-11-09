@@ -3,6 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::net::IpAddr;
+use std::time::{Duration, Instant};
+
 use futures::channel::oneshot::Sender;
 use ultragraphdb_cluster_placement::{PartitionId, TenantRun as PlacedRun};
 use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
@@ -15,6 +18,8 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_traits_log::OrderedLog;
 
 use crate::types::asked::Asked;
+use crate::types::auth_throttle::AuthThrottle;
+use crate::types::login_asked::LoginAsked;
 use crate::types::owner::{Durable, Owner, stopped};
 use crate::types::tenant_facts::TenantFacts;
 
@@ -44,7 +49,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             Asked::CloseRequest { epoch, reply } => drop(reply.send(self.close_request(epoch))),
             Asked::Subscribe { from, reply } => drop(reply.send(self.subscribe(from))),
             Asked::NextClose { after, reply } => self.next_close(after, reply),
-            Asked::Verifier { name, reply } => drop(reply.send(self.verifier(&name))),
+            Asked::Login(login) => self.take_login(login),
             Asked::RegisterSession {
                 session,
                 principal,
@@ -145,6 +150,43 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             .state()
             .principal(name)
             .map(|principal| (principal.id(), principal.verifier().clone()))
+    }
+
+    /// Answers a login's ask from the principals and the failed authentications every core counts here, or counts what it tells.
+    fn take_login(&mut self, login: LoginAsked) {
+        match login {
+            LoginAsked::Verifier {
+                name,
+                source,
+                reply,
+            } => {
+                let delay = source.map_or(Duration::ZERO, |source| self.logins.delay(source));
+                drop(reply.send((self.verifier(&name), delay)));
+            }
+            LoginAsked::Admit { source, at, reply } => {
+                let _unheard: Result<(), bool> = reply.send(self.logins.admits(source, at));
+            }
+            LoginAsked::Outcome {
+                source,
+                at,
+                succeeded,
+            } => self.login_outcome(source, at, succeeded),
+        }
+    }
+
+    /// Counts an authentication's outcome from `source`, logging the ban a failure begins.
+    fn login_outcome(&mut self, source: IpAddr, at: Instant, succeeded: bool) {
+        if succeeded {
+            return self.logins.succeeded(source);
+        }
+        if self.logins.failed(source, at) {
+            tracing::warn!(
+                target: "audit",
+                event = "ban",
+                source = %AuthThrottle::source_of(source),
+                "a source past its failed authentications is banned"
+            );
+        }
     }
 
     /// A session's registration, kept for the turn's sync.

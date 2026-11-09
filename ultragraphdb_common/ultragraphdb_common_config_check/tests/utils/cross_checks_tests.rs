@@ -332,6 +332,25 @@ fn test_each_metadata_bound_is_checked() {
     }
 }
 
+/// Each of a frontend's settings of failed authentications, its counts before a throttle and a ban and the ban's time, is refused
+/// at 0 (design D15).
+#[test]
+fn test_each_failed_login_setting_is_at_least_1() {
+    for setting in [
+        "auth_failures_before_throttle",
+        "auth_throttled_failures_before_ban",
+        "auth_ban_ms",
+    ] {
+        let zero = format!("{FRONTEND}[endpoint]\n{setting} = 0\n");
+        says(
+            &checked(&with(valid(), "frontend", &zero), None),
+            &[&format!(
+                "instance frontend, setting endpoint.{setting}: it holds 0; it must be at least 1"
+            )],
+        );
+    }
+}
+
 /// A frontend's partition count lies from 1 to the placement's most, and a storage instance's partitions within it.
 #[test]
 fn test_a_partition_count_bounds_the_partitions_held() {

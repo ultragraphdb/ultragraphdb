@@ -6,6 +6,8 @@
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 
+use crate::types::login_limits::LoginLimits;
+
 /// What the owner is configured with.
 #[derive(Debug, Clone)]
 pub struct OwnerStart {
@@ -14,6 +16,7 @@ pub struct OwnerStart {
     partition_count: u32,
     bootstrap_file: Option<String>,
     tenants: Vec<u64>,
+    logins: LoginLimits,
 }
 
 impl OwnerStart {
@@ -26,7 +29,21 @@ impl OwnerStart {
             partition_count,
             bootstrap_file: None,
             tenants: Vec::new(),
+            logins: LoginLimits::default(),
         }
+    }
+
+    /// The start counting failed authentications by `logins` (design D15).
+    #[must_use]
+    pub fn with_logins(mut self, logins: LoginLimits) -> Self {
+        self.logins = logins;
+        self
+    }
+
+    /// When a source's failed authentications wait and when they ban it.
+    #[must_use]
+    pub fn logins(&self) -> LoginLimits {
+        self.logins
     }
 
     /// The start creating the bootstrap administrator from the secret file at `file`, when the group holds no principal.

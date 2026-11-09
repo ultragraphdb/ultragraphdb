@@ -21,6 +21,8 @@ pub mod every_authenticated;
 pub mod gate_scope;
 pub mod join_fan_out;
 pub mod link_event;
+pub mod login_asked;
+pub mod login_limits;
 pub mod membership;
 pub mod one_frame_phases;
 pub mod owner;
