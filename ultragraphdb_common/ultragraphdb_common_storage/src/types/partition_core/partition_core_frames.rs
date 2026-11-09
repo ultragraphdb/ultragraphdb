@@ -83,6 +83,7 @@ impl PartitionCore<'_> {
         pushes: Pushes,
         max_frame: u32,
     ) {
+        self.taking = self.mark();
         if frame.command() != Command::Abort.number() && self.parked.contains_key(&key) {
             let behind = self.copied(key.0, frame.bytes());
             if let Some(parked) = self.parked.get_mut(&key) {
@@ -108,13 +109,15 @@ impl PartitionCore<'_> {
                     // Each request behind is a copy counted in its connection's parked bytes, whose bound stops the
                     // connection's reads, so that bound limits its length.
                     behind: VecDeque::new(),
+                    taken: self.taking,
                 };
                 let _none = self.parked.insert(key, parked);
                 Answer::Open
             }
             RequestStep::InCommit(ticket) => {
                 let held = frame.bytes().to_vec();
-                self.committing_one_frame(key, held, ONE_FRAME_ATTEMPTS, ticket, pushes);
+                let taken = self.taking;
+                self.committing_one_frame(key, (held, taken), ONE_FRAME_ATTEMPTS, ticket, pushes);
                 Answer::Open
             }
         };
@@ -257,6 +260,7 @@ impl PartitionCore<'_> {
     /// transaction, drops them.
     fn resume_parked(&mut self, key: BoundKey, mut parked: Parked) {
         loop {
+            self.taking = parked.taken;
             match self.resumed_step(key, &parked) {
                 RequestStep::Parks { tenant, work } => {
                     parked.tenant = tenant;
@@ -266,7 +270,14 @@ impl PartitionCore<'_> {
                 }
                 RequestStep::InCommit(ticket) => {
                     let held = parked.frame.into_bytes();
-                    self.committing_one_frame(key, held, ONE_FRAME_ATTEMPTS, ticket, parked.pushes);
+                    let taken = parked.taken;
+                    self.committing_one_frame(
+                        key,
+                        (held, taken),
+                        ONE_FRAME_ATTEMPTS,
+                        ticket,
+                        parked.pushes,
+                    );
                     return;
                 }
                 RequestStep::Answered(Answer::Reply(reply)) => {
@@ -449,6 +460,8 @@ impl PartitionCore<'_> {
                 pushes: pushes.clone(),
                 retry: None,
                 dropped: None,
+                taken: self.taking,
+                stepped: self.mark(),
             },
         );
         Ok(Answer::Open)

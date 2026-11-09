@@ -27,8 +27,8 @@ use ultragraphdb_common_role::{
 };
 use ultragraphdb_common_service::Stopping;
 use ultragraphdb_common_storage::{
-    CoreChannels, CoreMessage, CoreParts, PartitionCore, Peers, RefillBlocks, Retention,
-    StorageHost, StoragePartition, StorageSession,
+    CoreChannels, CoreMessage, CoreParts, LogIo, PartitionCore, Peers, RefillBlocks, Retention,
+    StorageHost, StoragePartition, StorageSession, TimedStorage,
 };
 use ultragraphdb_core_ids::{Epoch, SystemId, TypePrefix};
 use ultragraphdb_core_keys::{Graph, QuadKey};
@@ -249,12 +249,10 @@ async fn host_of<'a>(
     Sender<PartitionMessage>,
 )> {
     let id = partition.id();
-    let (log, _) = Wal::open(
-        CompioStorage,
-        dir.join("wal"),
-        WalConfig::new(CLUSTER, false),
-    )
-    .await?;
+    // The log's I/O timed on the runtime's clock, as the role times it.
+    let origin = compio::time::interval(Duration::from_secs(1)).tick().await;
+    let storage = TimedStorage::new(CompioStorage, LogIo::default(), origin);
+    let (log, _) = Wal::open(storage, dir.join("wal"), WalConfig::new(CLUSTER, false)).await?;
     let pipeline = Pipeline::new(partition.applier(), log, RoundBounds::new(1 << 20, 1 << 10))?
         .with_partition(id.get(), Epoch::ZERO, CloseRequest::default(), &[])
         .bound(id, partition.placement());

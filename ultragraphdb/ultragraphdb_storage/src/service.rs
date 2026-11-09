@@ -25,9 +25,9 @@ use ultragraphdb_common_role::{
 use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
 use ultragraphdb_common_service_config::{ServiceConfig, StorageTable, partition_address};
 use ultragraphdb_common_storage::{
-    CoreChannels, CoreEnds, CoreMessage, CoreParts, FrontendAsk, HeldCatalogs, PartitionCore,
-    Peers, RefillBlocks, Retention, SCAN_STALL_MS_DEFAULT, StorageHost, StoragePartition,
-    StorageSession,
+    CoreChannels, CoreEnds, CoreMessage, CoreParts, FrontendAsk, HeldCatalogs, LogIo,
+    PartitionCore, Peers, RefillBlocks, Retention, SCAN_STALL_MS_DEFAULT, StorageHost,
+    StoragePartition, StorageSession, TimedStorage,
 };
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix, Version};
@@ -283,9 +283,7 @@ async fn serve_core(
     let discarding = spawn_discards(own, Arc::clone(&partition), raised)?;
     let config = WalConfig::new(cluster.id(), false);
     let bounds = RoundBounds::new(config.round_bytes(), config.round_transactions());
-    let (mut log, _) = Wal::open(CompioStorage, dir.join("wal"), config)
-        .await
-        .map_err(|error| RoleError::io(format!("the partition {} log: {error}", own.get())))?;
+    let (mut log, log_io) = open_log(own, &dir, config).await?;
     // A frontend that is not there yet, or stops under the start, is asked again until the join deadline, as joining is.
     let Some(held) = retry_until(cluster, &name, &stopping, || {
         held_versions(&start.frontend, cluster, &name, &tenants)
@@ -323,6 +321,7 @@ async fn serve_core(
         joined,
         discards,
         tenants,
+        log_io,
     };
     let outcome = serve_partition(&start, served, &stopping).await;
     // The core is gone, and its sender with it, so the thread ends past the write it may be in.
@@ -332,13 +331,30 @@ async fn serve_core(
     outcome
 }
 
+/// The write-ahead log of partition `own` in `dir`, as `config` says, and where its writes and syncs are counted, for the core's
+/// report of its commits' phases.
+///
+/// A future dropped at the open leaves what [`Wal::open`] leaves, which the next start opens again.
+async fn open_log(
+    own: PartitionId,
+    dir: &Path,
+    config: WalConfig,
+) -> Result<(Wal<TimedStorage<CompioStorage>>, LogIo), RoleError> {
+    let io = LogIo::default();
+    let storage = TimedStorage::new(CompioStorage, io.clone(), now());
+    let (log, _) = Wal::open(storage, dir.join("wal"), config)
+        .await
+        .map_err(|error| RoleError::io(format!("the partition {} log: {error}", own.get())))?;
+    Ok((log, io))
+}
+
 /// `partition`'s catalog versions loaded and its log replayed over them: the version it applied through.
 ///
 /// A future dropped at the replay leaves the store holding the rounds applied so far, which a recovery replays again
 /// from the log.
 async fn replayed(
     partition: &StoragePartition,
-    log: &mut Wal<CompioStorage>,
+    log: &mut Wal<TimedStorage<CompioStorage>>,
     held: &HeldCatalogs,
     tenants: &[u64],
 ) -> Result<u64, RoleError> {
@@ -434,6 +450,7 @@ struct Serving<'a> {
     joined: oneshot::Sender<()>,
     discards: std::sync::mpsc::Sender<u64>,
     tenants: Vec<u64>,
+    log_io: LogIo,
 }
 
 /// Listens at the partition's address, leases its first blocks, joins the frontend and subscribes to its closes, then runs
@@ -510,13 +527,10 @@ async fn serve_partition(
         asks_tx,
         serving.discards,
     );
-    let core = PartitionCore::new(core_parts(
-        start,
-        serving.host,
-        channels,
-        peers,
-        serving.tenants,
-    ));
+    let core = PartitionCore::new(
+        core_parts(start, serving.host, channels, peers, serving.tenants)
+            .with_log_io(serving.log_io),
+    );
     until_lost(core.run(stopping), lost).await
 }
 

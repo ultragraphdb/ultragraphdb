@@ -11,7 +11,7 @@ the architecture notes speak to it, and the stage-5 material it starts from. Tha
 moved verbatim from the change: the single-server draft as it stood, kept as a record of what was considered, not as a
 decision.
 
-Stage 5.5's change (`openspec/changes/stage-5-5-three-role-refactor`) specified and built items 2 (the client
+Stage 5.5's change (`openspec/changes/archive/2026-11-09-stage-5-5-three-role-refactor`) specified and built items 2 (the client
 endpoint), 3 (authentication and principals, the principals in the metadata group), 4 (reads), 9 (the Rust client
 against the cluster) and 10 (identity and the metadata group), and the parts of items 1 and 11 its design gave it; the
 Shard-per-Core note's *What stage 5.5 built* names each with its crates and files. Items 1 and 11 hold what remains of
@@ -83,6 +83,46 @@ partitions in one process (P5's first step). To specify for stage 8, in order:
 3. The node's runtime: partition cores and the reserve (P4), three replicas per core with leadership spread (P8),
    every replica applying on its core (P6), one LSM instance per core within a node budget (P11).
 4. `wal_bench` measuring followers, then cross-partition commits (P5's second and third steps).
+
+### 18. What the measurements through the binaries leave open
+
+Stage 5.5 measured `wal_bench` on the VM disk and the three binaries through the real client (the Shard-per-Core note's
+*Stage 5.5 on the VM disk (2026-11-08)* and *A commit's phases through the binaries (experiment X1)*; the archived
+change's `notes/group-12.md`, 12.5 and 12.5b). Each question below names the figure it rests on.
+
+- **Batching.** Every commit through the binaries has a log sync of its own, and one partition commits at most about 1,300
+  a second with no thread busy: a partition takes one request per turn from the frontend's one connection to it, and at
+  16 connections 17.2 ms of a 19.9 ms commit waits before the core. Does a connection hand over several requests within
+  its parked-bytes bound, does the core take its inbox while the sync is in flight, or does the frontend open several
+  connections per partition?
+- **The owner's sync.** The frontend's checks wait on the owner's sync of an epoch close; epochs of 50 to 100 ms in place
+  of 2 to 10 ms take a one-relation commit from 3.93 to 2.69 ms. Does the owner answer asks that read nothing unsynced
+  ahead of its sync, or does the endpoint cache a tenant's facts between closes?
+- **Referrer-set reads.** `referrer_candidates` reads each hub's referrer set at execution and again at apply: 47% of one
+  partition's profile, and one partition's relations per second 29 to 64% below stage 5's, falling as the sets grow.
+  Is the read cached, or skipped for a bucket group the round already names?
+- **A turn's cost.** The 256 KiB per-turn budget counts bytes: a commit behind one Scan of lists read from the store waits
+  35 ms at the mean and 297 ms at p99, and 89% of that Scan's time loads and checksums a block per key in
+  `Lists::read_store`. Is a turn charged for each list read from the store, or ended on elapsed time, and does
+  `read_store` read a page of lists through one iterator?
+- **Two first references in flight.** With 10% of edges crossing partitions, 0.01% to 5.1% of commits abort with
+  `Conflict` of kind `List`, none without crossing edges. Should the second of two in-flight first references from one
+  bucket group abort, and which key conflicts?
+- **Pin Scans (decision 18).** A pin costs 5 to 20 µs of storage CPU per partition per read; at 16 connections over 16
+  partitions, level snapshot reads 13% fewer. Do 16 ranges and the next pin opened before the last closes stay, and are
+  a snapshot read's pins delayed as monotonic-fast delays them?
+- **The predicate list's rewrite (decision 19).** Readers stopped by a limit abort 96 to 97% beside a writer under an
+  existing predicate, 18% without the rewrite; readers of every row abort 99% either way. Does the rewrite stay, or is the
+  list posted in commit order where the round is applied?
+- **The frontend's worst case (decision 24).** A stalled connection costs 5.6 to 5.9 MiB against 4.08 MiB counted, an idle
+  one 1.0 to 1.1 MiB. Does `PROTOCOL.md` §11.12 state the worst case as connections × (`held_bytes` + `max_frame` + about
+  1.5 MiB), about 26 GiB at 4,096 connections?
+- **The bound walks.** `sweep_bound` and `resend_bound` each walk every bound transaction per turn, and each registration
+  answer once more: 37 µs at 10,000 open, 1.2 ms at 100,000. How many open transactions must a partition hold, and are the
+  bound transactions indexed by ticket and by deadline past that?
+- **Unexplained.** About 70 KB written by the storage process per one-relation commit against a 4,096-byte log round;
+  the log's `O_DIRECT` write and `fdatasync` at 2 ms against 0.5 ms buffered on the VM; better scaling of 12 partitions
+  in one process than in separate processes. What writes the rest, and does either hold on physical Linux?
 
 ### 5. Transactions across replica groups
 
@@ -159,7 +199,8 @@ fast path as an experiment.
   how a latest-state read avoids a deposed primary, and flexible quorums.
 - Architecture: *Replication and runtime model*.
 - Roadmap: *Improvements, clustering*, items 1 and 4; Aeron's stream position meets this protocol at `Prepare`.
-- Stage 5.5 supplies X1, per-phase timing in task 12.5b.
+- X1's result, a commit timed per phase through the three binaries, is in the Distribution Protocol note's *X1's result*
+  and the Shard-per-Core note's *A commit's phases through the binaries (experiment X1)*.
 
 ### 13. The frontend's owner check crosses the network (stage 10)
 

@@ -247,6 +247,18 @@ then review and commit the changed `apko.lock.json`.
 and `io_uring_register`. Docker's own default refuses those three, so a role under it runs on the polling driver. To take a
 newer default, copy `seccomp/default.json` of the new tag and add the same rule after its first.
 
+A runtime reads a profile from its host, so no image holds it. Each image's `push` publishes it as a referrer of the image:
+`seccomp_referrer` in `//bazel/container:img.bzl` declares an OCI artifact of type
+`application/vnd.ultragraphdb.seccomp-profile.v1+json` whose one layer is `ultragraphdb.json` (`:profile_layer`) and whose
+subject is the image index, and the push's `referrers` sends it to the image's repository in the same `bazel run`, bound to
+the image's digest. A registry serving the OCI referrers API lists it there; one that does not receives the referrers tag
+`sha256-<index digest>`. Either way:
+
+```bash
+oras discover --artifact-type application/vnd.ultragraphdb.seccomp-profile.v1+json <repo>:<tag>
+oras pull <repo>@<artifact digest>
+```
+
 ## The role images and the development image
 
 Each role's package, `//ultragraphdb/ultragraphdb_frontend`, `_compute` and `_storage`, declares `<role>_multiarch`, its

@@ -9,7 +9,7 @@ roles. `SECURITY.md` beside this file describes the security architecture the pr
 authorization and encryption.
 
 This file leads the code: group 8 of stage 5.5 brings the crates and the golden frames to it
-(`../../openspec/changes/stage-5-5-three-role-refactor/tasks.md`).
+(`../../openspec/changes/archive/2026-11-09-stage-5-5-three-role-refactor/tasks.md`).
 
 ## Contents
 

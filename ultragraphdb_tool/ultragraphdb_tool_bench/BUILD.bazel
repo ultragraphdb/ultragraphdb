@@ -63,6 +63,28 @@ static_binary(
     deps = [":ultragraphdb_tool_bench"] + all_crate_deps(normal = True),
 )
 
+# Task 12.5b's requests through the three binaries with the real client, run by hand against a running cluster with
+# `client_bench --address <host:port> --password-file <path> --op direct|transaction|read`; no test runs it.
+static_binary(
+    name = "client_bench",
+    srcs = ["src/bin/client_bench.rs"],
+    main = "src/bin/client_bench.rs",
+    tags = ["bench"],
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_tool_bench"] + all_crate_deps(normal = True),
+)
+
+# Task 12.5b's count of the allocations between a DirectWrite's frame and its record, under a counting global
+# allocator, run by hand with `alloc_bench --dir <path>`; no test runs it.
+static_binary(
+    name = "alloc_bench",
+    srcs = ["src/bin/alloc_bench.rs"],
+    main = "src/bin/alloc_bench.rs",
+    tags = ["bench"],
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_tool_bench"] + all_crate_deps(normal = True),
+)
+
 # The log's benchmark as a multi-arch scratch image, so it runs on a Linux host's own drives (the sync cost on drives
 # with and without power-loss protection, backlog item 7). Build with `-c opt`.
 scratch_multiarch_img(

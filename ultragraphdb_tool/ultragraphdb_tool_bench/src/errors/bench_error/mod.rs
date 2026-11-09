@@ -10,7 +10,7 @@ mod bench_error_from;
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_apply::ChangesetError;
 
-/// Why a run of `store_bench` or `wal_bench` stopped.
+/// Why a run of `store_bench`, `wal_bench`, `client_bench` or `alloc_bench` stopped.
 #[derive(Debug)]
 pub struct BenchError(pub BenchErrorEnum);
 
@@ -27,6 +27,8 @@ pub enum BenchErrorEnum {
     Io(String),
     /// The commit pipeline, a transaction or the write-ahead log refused an operation, as its text.
     Commit(String),
+    /// The client's connection or one of its requests failed, as its text.
+    Client(String),
     /// A declaration's index build had not ended after `waited_ms` milliseconds.
     BuildStuck {
         /// How long the run waited.
@@ -63,6 +65,12 @@ impl BenchError {
     #[must_use]
     pub fn commit(reason: String) -> Self {
         Self(BenchErrorEnum::Commit(reason))
+    }
+
+    /// The client's connection or one of its requests failed, as its text `reason`.
+    #[must_use]
+    pub fn client(reason: String) -> Self {
+        Self(BenchErrorEnum::Client(reason))
     }
 
     /// A declaration's index build had not ended after `waited_ms` milliseconds.

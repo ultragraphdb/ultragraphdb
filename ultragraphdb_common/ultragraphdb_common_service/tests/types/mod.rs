@@ -14,6 +14,10 @@ mod health_service_tests;
 #[cfg(test)]
 mod inbox_turn_tests;
 #[cfg(test)]
+mod latency_histogram_tests;
+#[cfg(test)]
+mod phase_window_tests;
+#[cfg(test)]
 mod readiness;
 #[cfg(test)]
 mod role_identity_tests;

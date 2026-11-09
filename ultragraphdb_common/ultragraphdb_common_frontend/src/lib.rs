@@ -25,6 +25,7 @@ pub use crate::types::endpoint_limits::EndpointLimits;
 pub use crate::types::every_authenticated::EveryAuthenticated;
 pub use crate::types::gate_scope::GateScope;
 pub use crate::types::membership::Membership;
+pub use crate::types::one_frame_phases::{ONE_FRAME_PHASES, OneFramePhases};
 pub use crate::types::owner::Owner;
 pub use crate::types::owner_handle::DropStep;
 pub use crate::types::owner_handle::OwnerHandle;

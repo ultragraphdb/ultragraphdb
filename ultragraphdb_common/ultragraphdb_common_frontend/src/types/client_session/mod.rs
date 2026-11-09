@@ -52,6 +52,9 @@ struct OneFrame {
     route: Option<(RoleLink, u64)>,
     /// When it passes `transaction_ms`, until it has.
     limit: Option<Instant>,
+    /// When the session took its frame, and when it first left for its partition.
+    began: Instant,
+    relayed: Option<Instant>,
 }
 
 /// A Drop on its way to its partition.

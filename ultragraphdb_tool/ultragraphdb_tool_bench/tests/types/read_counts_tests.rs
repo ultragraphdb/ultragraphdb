@@ -17,3 +17,13 @@ fn test_lookups_hits_and_store_reads_are_counted_apart() {
     counts.empty_read();
     assert_eq!(counts.get(), (3, 2, 2, 1));
 }
+
+#[test]
+fn test_point_reads_are_counted_apart_from_list_reads() {
+    let counts = ReadCounts::new();
+    assert_eq!(counts.point_reads(), 0);
+    counts.point_reads_of(1);
+    counts.point_reads_of(3);
+    assert_eq!(counts.point_reads(), 4);
+    assert_eq!(counts.get(), (0, 0, 0, 0));
+}

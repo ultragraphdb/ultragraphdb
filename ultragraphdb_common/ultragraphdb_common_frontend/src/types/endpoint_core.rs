@@ -10,12 +10,13 @@ use ultragraphdb_common_role::OpenRequests;
 use crate::traits::authorizer::Authorizer;
 use crate::types::auth_throttle::AuthThrottle;
 use crate::types::endpoint_limits::EndpointLimits;
+use crate::types::one_frame_phases::OneFramePhases;
 use crate::types::owner_handle::OwnerHandle;
 use crate::types::role_links::RoleLinks;
 use crate::types::tenant_gate::TenantGate;
 
 /// What a client session shares on its endpoint core: the way to the owner, the connections to the other roles, the gate, the
-/// limits, the throttle and the count of open requests a stop waits on. The way to the owner is shared by an `Rc` on the core, so what outlives the core's sessions can hold it
+/// limits, the throttle, the count of open requests a stop waits on and the phases of the one-frame writes it relays. The way to the owner is shared by an `Rc` on the core, so what outlives the core's sessions can hold it
 /// weakly and keep no owner from stopping.
 #[derive(Debug, Clone)]
 pub struct EndpointCore<A> {
@@ -25,6 +26,7 @@ pub struct EndpointCore<A> {
     limits: EndpointLimits,
     throttle: AuthThrottle,
     open: OpenRequests,
+    phases: OneFramePhases,
 }
 
 impl<A: Authorizer> EndpointCore<A> {
@@ -43,6 +45,7 @@ impl<A: Authorizer> EndpointCore<A> {
             limits,
             throttle: AuthThrottle::new(limits.refusal_interval()),
             open: OpenRequests::default(),
+            phases: OneFramePhases::default(),
         }
     }
 
@@ -95,5 +98,16 @@ impl<A> EndpointCore<A> {
     #[must_use]
     pub fn open(&self) -> &OpenRequests {
         &self.open
+    }
+
+    /// The phases of the one-frame writes its sessions relay, which [`EndpointCore::report_phases`] logs.
+    #[must_use]
+    pub fn phases(&self) -> &OneFramePhases {
+        &self.phases
+    }
+
+    /// Logs the phases of the one-frame writes its sessions relayed, once they are due ([`OneFramePhases::report`]).
+    pub fn report_phases(&self) {
+        self.phases.report(crate::types::client_session::now());
     }
 }

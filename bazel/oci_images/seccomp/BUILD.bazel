@@ -1,7 +1,18 @@
+load("@rules_img//img:oras.bzl", "oras_file_layer")
+
 # The seccomp profile the roles run under, held here since a runtime reads a profile from its host: Docker's default profile, moby/profiles seccomp/v0.3.0
 # (commit 4b8214fc4971e06172938a1f1554ccff6647ee80), with one rule added after its first, allowing io_uring_setup,
 # io_uring_enter and io_uring_register. Run a role with `--security-opt seccomp=<path to ultragraphdb.json>`.
 exports_files(
     ["ultragraphdb.json"],
+    visibility = ["//visibility:public"],
+)
+
+# The profile as the one layer of an OCI artifact, titled `ultragraphdb.json`, so `oras pull` writes it under that name. Each
+# image's push carries it as a referrer of the image (`seccomp_referrer` in //bazel/container:img.bzl).
+oras_file_layer(
+    name = "profile_layer",
+    src = "ultragraphdb.json",
+    media_type = "application/json",
     visibility = ["//visibility:public"],
 )

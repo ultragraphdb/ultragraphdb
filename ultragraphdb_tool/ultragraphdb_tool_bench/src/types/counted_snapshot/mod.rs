@@ -12,7 +12,7 @@ use ultragraphdb_store_kv::{FjallScan, FjallSnapshot};
 use crate::types::read_counts::ReadCounts;
 
 /// A fjall snapshot with every read of a key's versions counted, and those that found none: how a list is read from
-/// the store, by a cache miss or a rollup.
+/// the store, by a cache miss or a rollup; and every point read of a key's newest version.
 pub struct CountedSnapshot {
     inner: FjallSnapshot,
     /// Shared with the store and the cache the snapshot's reads are counted beside.

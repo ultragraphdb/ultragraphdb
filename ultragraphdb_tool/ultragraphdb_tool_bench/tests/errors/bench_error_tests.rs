@@ -28,6 +28,10 @@ fn test_each_reason_says_what_failed() {
     assert!(matches!(&store.0, BenchErrorEnum::Store(e) if *e == StoreError::ts_too_old()));
     assert_eq!(store.to_string(), "store: Transaction is too old");
     assert_eq!(
+        BenchError::client("127.0.0.1:7080: refused".to_string()).to_string(),
+        "client: 127.0.0.1:7080: refused"
+    );
+    assert_eq!(
         BenchError::build_stuck(600).to_string(),
         "an index build had not ended after 600 ms"
     );
@@ -41,6 +45,7 @@ fn test_each_variant_is_built_by_its_constructor() {
     assert!(matches!(BenchError::usage("u".into()).0, BenchErrorEnum::Usage(r) if r == "u"));
     assert!(matches!(BenchError::io("i".into()).0, BenchErrorEnum::Io(r) if r == "i"));
     assert!(matches!(BenchError::commit("c".into()).0, BenchErrorEnum::Commit(r) if r == "c"));
+    assert!(matches!(BenchError::client("k".into()).0, BenchErrorEnum::Client(r) if r == "k"));
     assert!(matches!(
         BenchError::store(StoreError::ts_too_old()).0,
         BenchErrorEnum::Store(e) if e == StoreError::ts_too_old()

@@ -2410,6 +2410,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "stats_alloc"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c0e04424e733e69714ca1bbb9204c1a57f09f5493439520f9f68c132ad25eec"
+
+[[package]]
 name = "stringprep"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3776,15 +3782,22 @@ dependencies = [
  "mimalloc",
  "oxrdf",
  "serde_json",
+ "stats_alloc",
+ "ultragraphdb_client_compio",
+ "ultragraphdb_cluster_metadata",
  "ultragraphdb_cluster_partition",
  "ultragraphdb_cluster_placement",
  "ultragraphdb_cluster_sequencer",
+ "ultragraphdb_common_frontend",
+ "ultragraphdb_common_service_config",
  "ultragraphdb_common_telemetry",
  "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_terms",
  "ultragraphdb_error_store",
+ "ultragraphdb_protocol_scram",
+ "ultragraphdb_protocol_wire",
  "ultragraphdb_store_apply",
  "ultragraphdb_store_kv",
  "ultragraphdb_store_posting",

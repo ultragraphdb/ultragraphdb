@@ -8,7 +8,7 @@
 | 3. Website and public repository | ✅ |
 | 4. Data model and quad storage | ✅ |
 | 5. Transactions, WAL and the zero-copy binary protocol | ✅ |
-| 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage) | `in progress` |
+| 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage) | ✅ |
 | 6. UGS: the full data definition and its implementation | `open` |
 | 6.5. Harden transactions  with chaos testing against multiple UGS schemata | `open` |
 | 7. Query core: SPARQL and GQL where they overlap | `open` |
@@ -41,8 +41,9 @@ SPARQL and GQL; UltraQL follows stage 10. What the next stages must specify is t
   the supervisor runs them in the development image, and the config service holds every role's settings as numbered
   revisions, validated whole, with a CLI that runs the same checks. The Rust client runs against the three binaries
   with session tokens, the level, token and deadline a transaction names on Begin, commits in doubt and TLS 1.3, and
-  `wal_bench` runs N partitions in one process. The stage closes once its measurements, the development container end
-  to end and the final test run are recorded.
+  `wal_bench` runs N partitions in one process. Its measurements on the VM disk and through the three binaries, the
+  development image killed and restarted with every acknowledged commit read back, and its final test run are recorded
+  in the change's notes (`openspec/changes/archive/2026-11-09-stage-5-5-three-role-refactor/notes/group-12.md`).
 - **6 UGS.** The schema language, specified in `specification/schema/SCHEMA.md` and prepared in
   `openspec/notes/prepare-stage-6.md`. Stage 6 builds what `SCHEMA.md` section 14 assigns it: the modelling core, local
   constraints, bitemporal statements, units, geometry, indexes and the RDF view, with the protocol's Install and

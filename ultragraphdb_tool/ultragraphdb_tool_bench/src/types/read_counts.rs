@@ -6,8 +6,9 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// What the run's lookups and list reads found: lookups of the posting cache, by reads and by commits, and the entries
-/// they found; the store's reads of a key's versions, by cache misses and rollups, and those that found none. Shared by
-/// the cache and the store the run opens.
+/// they found; the store's reads of a key's versions, by cache misses and rollups, and those that found none; and the
+/// store's point reads of a key's newest version, such as a referrer set's. Shared by the cache and the store the run
+/// opens.
 ///
 /// Atomics, since the apply, source and rollup threads read through one cache and one store, and a count is read only
 /// once a run's threads are done; each count is independent of the others, so relaxed ordering suffices.
@@ -17,6 +18,7 @@ pub struct ReadCounts {
     hits: AtomicU64,
     store_reads: AtomicU64,
     empty_reads: AtomicU64,
+    point_reads: AtomicU64,
 }
 
 impl ReadCounts {
@@ -41,6 +43,17 @@ impl ReadCounts {
     /// A read of a key's versions that found none.
     pub fn empty_read(&self) {
         let _empty_reads: u64 = self.empty_reads.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// `keys` point reads of a key's newest version from the store.
+    pub fn point_reads_of(&self, keys: u64) {
+        let _point_reads: u64 = self.point_reads.fetch_add(keys, Ordering::Relaxed);
+    }
+
+    /// The point reads so far.
+    #[must_use]
+    pub fn point_reads(&self) -> u64 {
+        self.point_reads.load(Ordering::Relaxed)
     }
 
     /// The lookups, hits, store reads and empty reads so far.

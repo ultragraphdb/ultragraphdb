@@ -3,12 +3,19 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod alloc_args;
 pub mod apply_args;
+pub mod bound_args;
+pub mod client_args;
+pub mod client_op;
+pub mod client_shape;
 pub mod command;
 pub mod commit_shape;
 pub mod counted_snapshot;
 pub mod counting_cache;
 pub mod dir_sizes;
+pub mod inbound_args;
+pub mod owner_args;
 pub mod pacer;
 pub mod partition_args;
 pub mod partition_shape;

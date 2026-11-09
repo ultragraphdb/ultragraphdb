@@ -48,8 +48,13 @@ to the reverse list of `p` for `o`, deleting it SHALL remove `a`, and overwritin
 ### Requirement: Count indexes
 For a predicate the catalog declares an exact count index on, a subject SHALL be listed under the forward count key of
 its current number of objects when that number is above zero and under no count key otherwise, a single-valued
-predicate counting as one, and an object SHALL be listed likewise under the reverse count key of its number of
-subjects. A write that adds no object SHALL leave the counts unchanged.
+predicate counting as one. An object SHALL be listed, in each partition, under the reverse count key of the number of
+that partition's own subjects pointing at it when that number is above zero and under no count key otherwise
+(partitions, "A partition owns every entry its subjects' writes derive"), so its exact number of subjects is the sum
+of the counts of the partitions its referrer set names, and a lookup by reverse count, compute's own read for the query
+core, called through compute's API since no client request names one in this stage, SHALL ask every partition of the
+tenant and sum each object's counts before it compares them. A write that adds no object SHALL leave the counts
+unchanged.
 
 #### Scenario: Adding a third object moves the count
 - **WHEN** `friend` has an exact count index, `a` holds two objects of it, and a third is written
@@ -61,7 +66,12 @@ subjects. A write that adds no object SHALL leave the counts unchanged.
 
 #### Scenario: Reverse counts are kept
 - **WHEN** `friend` has an exact count index and gains `<a> <friend> <b>`
-- **THEN** the reverse count keys of `b` reflect one more subject
+- **THEN** the reverse count keys of `b` in `<a>`'s partition reflect one more subject
+
+#### Scenario: A reverse count sums the referrers' partitions
+- **WHEN** `friend` has an exact count index, two subjects in partition 1 and one in partition 2 hold `friend` to `<b>`,
+  and compute's API looks up the objects of reverse count 3
+- **THEN** partition 1 lists `<b>` under reverse count 2 and partition 2 under 1, and the lookup returns `<b>`
 
 ### Requirement: Deleting all of a predicate for a subject
 A delete by the pattern of a subject and predicate SHALL remove every object of the predicate for the subject in its

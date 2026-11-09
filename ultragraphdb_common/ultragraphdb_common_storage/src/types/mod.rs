@@ -3,10 +3,15 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod commit_mark;
+pub mod commit_phase;
+pub mod commit_phases;
 pub mod core_ends;
 pub mod core_message;
 pub mod entries_fill;
 pub mod held_catalogs;
+pub mod log_io;
+pub mod log_io_totals;
 pub(crate) mod one_frame_view;
 pub(crate) mod open_scan;
 pub(crate) mod parked_frame;
@@ -19,4 +24,6 @@ pub mod scan_key;
 pub(crate) mod scan_read;
 pub(crate) mod scan_state;
 pub mod storage_session;
+pub mod timed_file;
+pub mod timed_storage;
 pub mod turn_budget;

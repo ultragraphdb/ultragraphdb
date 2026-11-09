@@ -58,7 +58,10 @@ fn test_reads_of_a_keys_versions_are_counted_and_those_that_found_none() -> Test
         .map(|item| item.map(|i| i.version()))
         .collect();
     assert_eq!(many, [None, Some(4)]);
+    // A point read counts once a key; a scan and a versionless read count nothing.
+    assert_eq!(counts.point_reads(), 4);
     assert_eq!(snapshot.get_versionless(b"k")?, Some(b"kv".to_vec()));
+    assert_eq!(counts.point_reads(), 4);
     assert_eq!(snapshot.read_ts(), 9);
     assert_eq!(store.snapshot(3)?.read_ts(), 3);
     assert_eq!(counts.get(), (0, 0, 3, 1));

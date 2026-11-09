@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use compio::runtime::spawn;
 use ultragraphdb_common_role::Answer;
@@ -38,6 +38,8 @@ struct OneFrameFacts<'t> {
     request: u64,
     tenant: u64,
     token: Option<&'t SessionToken>,
+    /// When the session took its frame.
+    began: Instant,
 }
 
 impl<A: Authorizer + Clone> ClientSession<A> {
@@ -59,6 +61,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             request: write.request(),
             tenant: write.tenant(),
             token: write.token(),
+            began: now(),
         };
         self.check_one_frame(&facts).await?;
         let checked = (|| -> Result<Destination, ErrorReply> {
@@ -98,6 +101,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             request: write.request(),
             tenant: write.tenant(),
             token: write.token(),
+            began: now(),
         };
         self.check_one_frame(&facts).await?;
         let checked = (|| -> Result<Destination, ErrorReply> {
@@ -180,6 +184,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 attempt: 0,
                 route: None,
                 limit: Some(now() + limit),
+                began: facts.began,
+                relayed: None,
             },
         );
         match self.place_one_frame(destination, facts) {
@@ -257,6 +263,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         let opened = link.open(CountedFrame::uncounted(frame), sink);
         if let Some(sent) = self.one_frames.get_mut(&stream) {
             sent.route = Some((link, opened));
+            // The first relay's time stays: a resend after a refusal naming another owner is the partition's phase.
+            let _first: &mut Instant = sent.relayed.get_or_insert_with(now);
         }
     }
 
@@ -290,6 +298,12 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             one.route = None;
             self.refresh_map(stream);
             return;
+        }
+        if command_of(&frame) == Some(Command::Commit)
+            && let Some(one) = self.one_frames.get(&stream)
+            && let Some(relayed) = one.relayed
+        {
+            self.core.phases().record(one.began, relayed, now());
         }
         self.one_frame_answered(stream);
         // A frame the framer took holds its header.

@@ -13,10 +13,15 @@
 mod types;
 mod utils;
 
+pub use crate::types::commit_mark::CommitMark;
+pub use crate::types::commit_phase::CommitPhase;
+pub use crate::types::commit_phases::CommitPhases;
 pub use crate::types::core_ends::CoreEnds;
 pub use crate::types::core_message::CoreMessage;
 pub use crate::types::entries_fill::EntriesFill;
 pub use crate::types::held_catalogs::HeldCatalogs;
+pub use crate::types::log_io::LogIo;
+pub use crate::types::log_io_totals::LogIoTotals;
 pub use crate::types::partition_core::{
     CLOSES_PER_TURN_MAX, CoreChannels, CoreParts, FrontendAsk, PartitionCore, Peers,
     REMOTE_PER_TURN_MAX, SCAN_STALL_MS_DEFAULT, StorageHost, StoragePartition,
@@ -26,6 +31,8 @@ pub use crate::types::retention::Retention;
 pub use crate::types::scan_board::ScanBoard;
 pub use crate::types::scan_key::ScanKey;
 pub use crate::types::storage_session::StorageSession;
+pub use crate::types::timed_file::TimedFile;
+pub use crate::types::timed_storage::TimedStorage;
 pub use crate::types::turn_budget::{TURN_BYTES, TurnBudget};
 pub use crate::utils::error_reply::{error_reply, registration_outcome, scan_refusal};
 pub use crate::utils::scan_version::{scan_named, scan_version};

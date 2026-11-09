@@ -1,35 +1,57 @@
 # key-encoding Specification
 
 ## Purpose
-The byte layout of Dgraph's keys, as the port writes and parses them: data, index, reverse, count, schema, type
-and split keys, namespaced attribute names, and the reserved and pre-defined predicates.
+The byte layout of the store's keys, as the port writes and parses them: each keyspace's byte, the tenant and the fields
+that keyspace defines, every ID a 128-bit system ID in 16 big-endian bytes, split keys addressing the parts of a split
+posting list, and a truncated key refused.
+
 ## Requirements
 ### Requirement: Keys parse back into their parts
 Parsing a key SHALL return its keyspace, tenant and the fields its keyspace defines: graph, predicate, subject,
-object, tokenizer and token, direction and count, node, or statement ID. A key whose UIDs, other than the default
-graph's, are 0, or whose fields are shorter than their keyspace defines, SHALL be refused with an error naming the key's
-bytes.
+object, tokenizer and token, direction and count, node, statement ID, a mark key's entity and bucket group, or a
+referrer key's entity. A mark key SHALL be its keyspace byte, the tenant's 8 big-endian bytes, the entity's 16-byte
+ID and the bucket group as 3 big-endian bytes holding its 18 bits. Every ID in a key SHALL be a 128-bit system ID
+written as its 16 big-endian bytes. A key whose IDs, other than the default graph's, are invalid system IDs, or whose
+fields are shorter than their keyspace defines, SHALL be refused with an error naming the key's bytes.
 
 #### Scenario: A forward key round-trips
-- **WHEN** a forward key for tenant 133, the default graph, predicate UID 7 and subject UID 42 is parsed
-- **THEN** the result is a forward key with tenant 133, graph 0, predicate 7 and subject 42
+- **WHEN** a forward key for tenant 133, the default graph, the predicate with ID (type 1, bucket 7, sequence 7) and
+  the subject with ID (type 1, bucket 42, sequence 42) is parsed
+- **THEN** the result is a forward key with tenant 133, the default graph, and those predicate and subject IDs
 
-#### Scenario: A subject UID of zero is refused
-- **WHEN** a forward key carrying subject UID 0 is parsed
+#### Scenario: An invalid subject ID is refused
+- **WHEN** a forward key carrying a subject ID whose sequence is 0 is parsed
 - **THEN** parsing fails with an error naming the key's bytes
 
 #### Scenario: A literal object round-trips
 - **WHEN** a reverse key whose object is the encoding of `"Ann"@en` is built and parsed
-- **THEN** the parsed object decodes to `"Ann"@en`
+- **THEN** the parsed object decodes to `"Ann"@en`, and the key ends with the object's encoding
+
+#### Scenario: A mark key round-trips and stays apart from object predicates
+- **WHEN** a mark key for tenant 7, the entity with ID (type 1, bucket 42, sequence 9) and bucket group 0x2_ABCD is
+  built and parsed, and the object-predicates keys of the graph with that same ID are scanned by prefix
+- **THEN** the parse returns the marks keyspace, tenant 7, that ID and group 0x2_ABCD from the bytes `02 AB CD`, and
+  the prefix scan returns no mark key
+
+#### Scenario: A referrer key round-trips
+- **WHEN** a referrer key for tenant 7 and the entity with ID (type 1, bucket 42, sequence 9) is built and parsed
+- **THEN** the parse returns the referrers keyspace, tenant 7 and that entity's ID
 
 ### Requirement: Split keys address the parts of a split posting list
-A split key SHALL be the base key with the split flag set in its keyspace byte and the part's start appended: a UID as
-a u64 big-endian for lists of UIDs, a 64-bit fingerprint for lists of literals. Only keys of list keyspaces SHALL be
-split.
+A split key SHALL be the base key with the split flag set in its keyspace byte, then a kind byte naming the part's
+start, then the start: kind 1 and a 64-bit fingerprint as its 8 big-endian bytes for a part starting at a literal, kind
+2 and an ID as its 16 big-endian bytes for a part starting at an ID, so a list's split keys sort as their starts do. A
+value-index key's start SHALL always be an ID, its last 17 bytes, since its token runs to it. A kind byte other than 1
+or 2 SHALL be refused with an error naming the key's bytes. Only keys of list keyspaces SHALL be split.
 
 #### Scenario: A split key round-trips
-- **WHEN** the split key for a forward key and start 1000 is built and parsed
-- **THEN** the parse returns the base key's parts and start 1000
+- **WHEN** the split key for a forward key and the start ID (type 1, bucket 5, sequence 1000) is built and parsed
+- **THEN** the parse returns the base key's parts and that start ID
+
+#### Scenario: An ID start cut by 8 bytes is refused
+- **WHEN** the split key of a forward key at the start ID (type 1, bucket 5, sequence 1000) loses its last 8 bytes and is
+  parsed
+- **THEN** parsing fails with an error naming the key's bytes
 
 #### Scenario: A split key with a trailing byte is refused
 - **WHEN** one byte is appended to a valid split forward key and the result is parsed
@@ -42,4 +64,8 @@ proper prefix of a valid key, other than one that is itself a valid key of a key
 #### Scenario: Every prefix of a key fails cleanly
 - **WHEN** every proper prefix of a forward, reverse, value-index and statement key is parsed
 - **THEN** each parse fails with an error, and nothing panics
+
+#### Scenario: Every prefix of a 128-bit ID field fails cleanly
+- **WHEN** a forward key is cut inside its subject ID, at each of the ID's 15 inner positions, and parsed
+- **THEN** each parse fails with an error naming the key's bytes
 

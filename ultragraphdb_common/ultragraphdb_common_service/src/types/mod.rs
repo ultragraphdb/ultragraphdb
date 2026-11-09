@@ -9,6 +9,8 @@ pub mod cpu_binding;
 pub mod fetch_failure;
 pub mod health_service;
 pub mod inbox_turn;
+pub mod latency_histogram;
+pub mod phase_window;
 pub mod readiness;
 pub mod role_identity;
 pub mod role_kind;

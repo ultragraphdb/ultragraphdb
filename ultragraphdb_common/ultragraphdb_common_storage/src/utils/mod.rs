@@ -5,6 +5,7 @@
 
 pub(crate) mod commit_body;
 pub mod error_reply;
+pub(crate) mod micros_since;
 pub mod operation_of;
 pub(crate) mod scan_check;
 pub mod scan_version;

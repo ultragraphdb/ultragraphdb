@@ -199,6 +199,43 @@ it comes late. Each result below feeds one gate.
 | X6 | Is the fast path correct? | Stage 10, after G1, on stage 8's classification | The Lean model extended with witnesses, against "No acknowledged commit is invisible", the epoch inequality and exactly-once; simulator differential against the base protocol on the same history; Jepsen | Gate G2 |
 | X7 | What does the fast path gain? | Stage 10, on X5's harness and X2's workload | Median and p99 latency and throughput, with X2's real mix and its conflict rate, against the base protocol at the same load, with and without batching | Gate G2 |
 
+**X1's result** (stage 5.5, task 12.5b, 2026-11-09). Each commit through the three binaries timed per phase: the client's
+latency from `client_bench`, the frontend's checks and its relay from the frontend's `one-frame write phases`, the
+partition's time and its log's writes and syncs from the storage core's `commit phases`. The machine is the OrbStack VM
+`ugdb-linux`, data on its virtual disk; one partition, DirectWrites through a session, the `dev` profile's epochs of 2 to
+10 ms; medians of three 20-second runs, the range in parentheses. The Shard-per-Core note's *A commit's phases
+through the binaries* holds the full tables.
+
+| Relations per commit, connections | Client mean | The partition's log sync | Its log write | Sync and write, share of the client mean |
+|---|---|---|---|---|
+| 1, 1 | 4.25 ms (1.61–5.01) | 2.06 ms (1.05–2.27) | 0.10 ms | 51% (48–67) |
+| 10, 1 | 6.28 ms (3.71–6.51) | 2.08 ms | 0.14 ms | 39% (34–46) |
+| 50, 1 | 8.41 ms (6.65–8.81) | 2.01 ms | 0.07 ms | 28% (25–28) |
+| 1, 16 | 19.9 ms (14.2–36.5) | 1.05 ms | 0.07 ms | 6% (6–6) |
+| 1, 16, four partitions | 10.9 ms (6.3–11.7) | 1.87 ms | 0.11 ms | 20% (18–20) |
+
+- **At one connection the partition's sync is half of a one-relation commit and a quarter of a 50-relation one.** The
+  sync's length does not grow with the round (2.0 ms at 4 KiB and at 36 KiB), so its share falls as a commit carries
+  more work. Memory acknowledgement can take at most that share off a commit's latency: about 2× at one relation, 1.4× at
+  50, on this disk.
+- **A second sync stands in the way: the owner's.** The frontend asks the owner for the tenant's facts and the session's
+  check before relaying, and the owner answers once the turn it is in ends, a turn that syncs the sequencer's log at an
+  epoch close (inferred from the checks' shape and from the epochs below; the owner itself is not timed). These checks take 1.4 to 4.1 ms on average at one connection, bimodal: tens of microseconds when the owner is
+  idle, an owner sync's length when it is not. With epochs of 50 to 100 ms in place of 2 to 10 ms they fall to 0.20 to 0.25 ms,
+  the client's mean falls from 3.93 to 2.69 ms, and the partition's sync becomes 75% (73–76) of a one-relation commit and
+  58% (56–62) of a ten-relation one. With both syncs counted, syncs are about 85% of a one-connection commit at the `dev`
+  epochs.
+- **Under load the sync's share collapses, because commits do not batch.** Every run measured one sync per commit: a
+  partition takes one request per turn from each role connection, and the frontend sends all its clients' writes to a
+  partition over one connection, so 16 connections queue in front of the partition (17 ms of a 19.9 ms commit at one
+  partition) and each commit gets a round and a sync of its own. Until a partition takes several requests of a connection
+  per turn, memory acknowledgement gains little under load: the queue, not the disk, sets the latency.
+- **No drive without power-loss protection was measured**, none being attached. The VM disk's sync, 0.5 ms for a buffered
+  4 KiB write and 2 ms for the log's direct write at a quiet moment, lies between the host SSD's `fsync` without a cache
+  flush (20 µs) and its `F_FULLFSYNC` (6.2 ms), so whether the VM's sync reaches the host drive's cache flush is not
+  known. Estimated, not measured: a drive flushing its cache at 6.2 ms per sync would make the partition's sync 75 to 90%
+  of a one-connection, one-relation commit.
+
 **Theorems X3 proves.** An acknowledged round is lost only if `f + 1` replicas lose their memory before reacting; such a loss is at
 most `W`; a group with `f + 1` amnesiac replicas serves nothing until a loss is declared; a `recovering` replica's vote is never
 counted; the epoch inequality and reverse-read completeness hold.

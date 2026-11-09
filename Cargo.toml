@@ -147,6 +147,9 @@ compio = { version = "0.19", default-features = false, features = ["runtime", "i
 # The allocator of every shipped binary, set as its `#[global_allocator]`: musl's own allocator contends under threads,
 # measured 31% fewer commits per second than glibc's on `wal_bench` (2026-11-01). 
 mimalloc = { version = "0.1", features = ["local_dynamic_tls"] }
+# A counting wrapper over the system allocator, `alloc_bench`'s `#[global_allocator]`: it counts the allocations between a
+# frame and its record (stage 5.5, task 12.5b) with no `unsafe` of this workspace's own. Pure Rust, no dependencies.
+stats_alloc = "0.1.10"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 rustix = { version = "1.1", default-features = false, features = ["fs", "process"] }
 socket2 = "0.6"

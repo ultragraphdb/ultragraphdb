@@ -7,7 +7,7 @@ load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_img//img:load.bzl", "image_load")
 load("@rules_img//img:push.bzl", "image_push")
 load("//bazel:binary.bzl", "static_binary")
-load("//bazel/container:img.bzl", "glibc_multiarch_img", "sha256_tag")
+load("//bazel/container:img.bzl", "glibc_multiarch_img", "seccomp_referrer", "sha256_tag")
 
 # No library: `main`, and `service`, the role's work.
 static_binary(
@@ -51,10 +51,18 @@ image_load(
     visibility = ["//visibility:public"],
 )
 
-# `bazel build` only produces the pusher; `bazel run -c opt` publishes. Credentials come from the Docker configuration.
+# The shipped seccomp profile, pushed with the image as its referrer.
+seccomp_referrer(
+    name = "ultragraphdb_compute_seccomp",
+    image = ":ultragraphdb_compute_multiarch",
+)
+
+# `bazel build` only produces the pusher; `bazel run -c opt` publishes the image and its seccomp profile. Credentials come from
+# the Docker configuration.
 image_push(
     name = "push",
     image = ":ultragraphdb_compute_multiarch",
+    referrers = [":ultragraphdb_compute_seccomp"],
     registry = "index.docker.io",
     repository = "hansenmarvin/ultragraphdb_compute",
     tag_file = ":ultragraphdb_compute_tag",

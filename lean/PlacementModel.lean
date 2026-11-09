@@ -17,7 +17,7 @@ to each partition in order, catalog versions and placement versions announced wi
 above the latest delivered close, registrations with their replies, marks and generations, referrer sets under MVCC, commits writing an
 edge's forward and local reverse entries together, reverse reads at closed epochs, tombstones and reclamation, under
 every interleaving, delay, duplication, reordering or loss of messages and crashes after durable steps. The
-specification is `openspec/changes/stage-5-5-three-role-refactor/specs/transaction-verification/spec.md`, "A Lean
+specification is `openspec/specs/transaction-verification/spec.md`, "A Lean
 model of placement".
 
 | Module | Holds |

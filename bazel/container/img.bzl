@@ -10,6 +10,9 @@ SCRATCH_BASE = "//bazel/oci_images/scrach_base:scratch_base"
 # glibc, its loader, libgcc and CA certificates from Wolfi, built by rules_apko from a lock file (D7).
 GLIBC_BASE = "//bazel/oci_images/glibc_base:glibc_base_index"
 
+# The artifact type of the seccomp profile pushed as a referrer of each image, which `oras discover --artifact-type` filters on.
+SECCOMP_ARTIFACT_TYPE = "application/vnd.ultragraphdb.seccomp-profile.v1+json"
+
 # The glibc triples the server image is built for. Must also be in RUST_PLATFORMS.
 GNU_PLATFORMS = [
     "@rules_rs//rs/platforms:x86_64-unknown-linux-gnu",
@@ -98,6 +101,30 @@ def glibc_multiarch_img(name, binary, **kwargs):
         name = name,
         manifests = [name + "_manifest"],
         platforms = GNU_PLATFORMS,
+        **kwargs
+    )
+
+def seccomp_referrer(name, image, **kwargs):
+    """The shipped seccomp profile as an OCI artifact whose subject is `image`, for an `image_push`'s `referrers`.
+
+    A runtime reads a profile from its host, so no image holds it; pushed as a referrer, it lands in the image's repository
+    beside the image, bound to the image's digest, by the same `bazel run`. `oras discover` lists it under the image and
+    `oras pull` fetches `ultragraphdb.json` from it.
+
+    Args:
+        name: The artifact's manifest target.
+        image: The image index the artifact refers to, the one the push pushes.
+        **kwargs: Forwarded to the manifest target.
+    """
+
+    # No platform: the artifact describes no container, so its descriptor names none, and the empty config is inlined.
+    image_manifest(
+        name = name,
+        artifact_type = SECCOMP_ARTIFACT_TYPE,
+        config_media_type = "application/vnd.oci.empty.v1+json",
+        layers = ["//bazel/oci_images/seccomp:profile_layer"],
+        omit_platform = True,
+        subject = image,
         **kwargs
     )
 

@@ -1058,6 +1058,7 @@
       "spin_0.9.9": "{\"dependencies\":[{\"kind\":\"dev\",\"name\":\"criterion\",\"req\":\"^0.4\"},{\"name\":\"lock_api_crate\",\"optional\":true,\"package\":\"lock_api\",\"req\":\"^0.4\"},{\"default_features\":false,\"name\":\"portable-atomic\",\"optional\":true,\"req\":\"^1\"}],\"features\":{\"barrier\":[\"mutex\"],\"default\":[\"lock_api\",\"mutex\",\"spin_mutex\",\"rwlock\",\"once\",\"lazy\",\"barrier\"],\"fair_mutex\":[\"mutex\"],\"lazy\":[\"once\"],\"lock_api\":[\"lock_api_crate\"],\"mutex\":[],\"once\":[],\"portable_atomic\":[\"portable-atomic\"],\"rwlock\":[],\"spin_mutex\":[\"mutex\"],\"std\":[],\"ticket_mutex\":[\"mutex\"],\"use_ticket_mutex\":[\"mutex\",\"ticket_mutex\"]}}",
       "stable_deref_trait_1.2.1": "{\"dependencies\":[],\"features\":{\"alloc\":[],\"default\":[\"std\"],\"std\":[\"alloc\"]}}",
       "static_assertions_1.1.0": "{\"dependencies\":[],\"features\":{\"nightly\":[]}}",
+      "stats_alloc_0.1.10": "{\"dependencies\":[],\"features\":{\"default\":[],\"nightly\":[]}}",
       "stringprep_0.1.5": "{\"dependencies\":[{\"name\":\"unicode-bidi\",\"req\":\"^0.3\"},{\"name\":\"unicode-normalization\",\"req\":\"^0.1\"},{\"name\":\"unicode-properties\",\"req\":\"^0.1.1\"}],\"features\":{}}",
       "strsim_0.11.1": "{\"dependencies\":[],\"features\":{}}",
       "subtle_2.6.1": "{\"dependencies\":[{\"kind\":\"dev\",\"name\":\"rand\",\"req\":\"^0.8\"}],\"features\":{\"const-generics\":[],\"core_hint_black_box\":[],\"default\":[\"std\",\"i128\"],\"i128\":[],\"nightly\":[],\"std\":[]}}",

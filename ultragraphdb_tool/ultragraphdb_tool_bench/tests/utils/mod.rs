@@ -4,7 +4,17 @@
  */
 
 #[cfg(test)]
+mod alloc_run_tests;
+#[cfg(test)]
 mod apply_run_tests;
+#[cfg(test)]
+mod bound_run_tests;
+#[cfg(test)]
+mod client_run_tests;
+#[cfg(test)]
+mod inbound_run_tests;
+#[cfg(test)]
+mod owner_run_tests;
 #[cfg(test)]
 mod partitions_run_tests;
 #[cfg(test)]

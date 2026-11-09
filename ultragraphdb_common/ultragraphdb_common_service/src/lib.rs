@@ -16,6 +16,8 @@ pub use crate::types::bootstrap::{Bootstrap, PARENT_PID};
 pub use crate::types::cpu_binding::CpuBinding;
 pub use crate::types::health_service::HealthService;
 pub use crate::types::inbox_turn::InboxTurn;
+pub use crate::types::latency_histogram::LatencyHistogram;
+pub use crate::types::phase_window::{PHASES_QUIET_US, PHASES_WINDOW_US, PhaseWindow};
 pub use crate::types::readiness::Readiness;
 pub use crate::types::role_identity::RoleIdentity;
 pub use crate::types::role_kind::RoleKind;

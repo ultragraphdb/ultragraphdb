@@ -83,6 +83,7 @@ pub(crate) async fn frontend_role(
     }
     let listening = readiness.clone();
     let shared = RoleShared::new(cluster.clone(), handle.clone(), links.clone(), readiness);
+    let mut reporting = None;
     let mut accepting = vec![spawn(accept_roles(
         listen(role_address).await?,
         roles,
@@ -104,11 +105,14 @@ pub(crate) async fn frontend_role(
         let clients =
             client_server(cluster.id(), config.endpoint(), unknown_secret)?.with_open(open.clone());
         let listener = listen(address).await?;
+        reporting = Some(core.clone());
         accepting.push(spawn(accept_clients(listener, clients, core, security)));
     }
     listening.set_listening();
     // What the owner made durable it answered for, so a stop leaves nothing to flush but the answers on their way.
     while !stopping.is_stopping() {
+        // The phases of the writes the endpoint relays, logged as they fall due.
+        reporting.iter().for_each(EndpointCore::report_phases);
         match stopped.try_recv() {
             Ok(Some(outcome)) => return outcome,
             Ok(None) => compio::time::sleep(OWNER_POLL).await,

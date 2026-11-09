@@ -1905,9 +1905,8 @@ counterparty.
 - `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`, the quad layout, datatypes by value, the data dictionary
 - `../../openspec/notes/review-stages-5.5-and-6.md`, D1–D6 and the findings on the note
 - `../binary_protocol/PROTOCOL.md`, sections 1, 4.6, 6.5, 8.3, 10.4, 10.5, 11.2a, 11.7, 11.11–11.13, 13.7
-- `../../openspec/changes/stage-5-5-three-role-refactor/specs`: `system-identity`, `metadata-group`, `catalog`,
-  `term-dictionary`; `openspec/specs/`: `mapping-contract`, `schema-changes`, `schema-storage`, `vector-index`,
-  `tokenizers`
+- `openspec/specs/`: `system-identity`, `metadata-group`, `catalog`, `term-dictionary`, `mapping-contract`,
+  `schema-changes`, `schema-storage`, `vector-index`, `tokenizers`
 - RDF 1.2 Concepts, SPARQL 1.1, SHACL, OWL 2, GeoSPARQL 1.1, QUDT, ISO/IEC 39075 GQL, XML Schema 1.1 Part 2, UCUM,
   RFC 3986, BCP 47
 - Bailis et al., *Coordination Avoidance in Database Systems* (VLDB 2015); Whittaker and Hellerstein, *Interactive

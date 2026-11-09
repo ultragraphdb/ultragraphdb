@@ -10,7 +10,7 @@ load("@rules_img//img:layer.bzl", "file_metadata", "image_layer", "layer_from_ta
 load("@rules_img//img:load.bzl", "image_load")
 load("@rules_img//img:push.bzl", "image_push")
 load("//bazel:binary.bzl", "static_binary")
-load("//bazel/container:img.bzl", "GLIBC_BASE", "GNU_PLATFORMS", "sha256_tag")
+load("//bazel/container:img.bzl", "GLIBC_BASE", "GNU_PLATFORMS", "seccomp_referrer", "sha256_tag")
 
 # No library: `main` and `service`, the start, the watch and the stop of what the development container runs.
 static_binary(
@@ -119,10 +119,18 @@ image_load(
     visibility = ["//visibility:public"],
 )
 
-# `bazel build` only produces the pusher; `bazel run -c opt` publishes. Credentials come from the Docker configuration.
+# The shipped seccomp profile, pushed with the image as its referrer.
+seccomp_referrer(
+    name = "development_seccomp",
+    image = ":development_multiarch",
+)
+
+# `bazel build` only produces the pusher; `bazel run -c opt` publishes the image and its seccomp profile. Credentials come from
+# the Docker configuration.
 image_push(
     name = "push",
     image = ":development_multiarch",
+    referrers = [":development_seccomp"],
     registry = "index.docker.io",
     repository = "hansenmarvin/ultragraphdb_development",
     tag_file = ":development_tag",

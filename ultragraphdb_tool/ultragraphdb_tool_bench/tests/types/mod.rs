@@ -4,6 +4,14 @@
  */
 
 #[cfg(test)]
+mod alloc_args_tests;
+#[cfg(test)]
+mod bound_args_tests;
+#[cfg(test)]
+mod client_args_tests;
+#[cfg(test)]
+mod client_shape_tests;
+#[cfg(test)]
 mod command_tests;
 #[cfg(test)]
 mod commit_shape_tests;
@@ -13,6 +21,10 @@ mod counted_snapshot_tests;
 mod counting_cache_tests;
 #[cfg(test)]
 mod dir_sizes_tests;
+#[cfg(test)]
+mod inbound_args_tests;
+#[cfg(test)]
+mod owner_args_tests;
 #[cfg(test)]
 mod pacer_tests;
 #[cfg(test)]

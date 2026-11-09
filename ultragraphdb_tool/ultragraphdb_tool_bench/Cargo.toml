@@ -20,9 +20,13 @@ autobins = false
 workspace = true
 
 [dependencies]
+ultragraphdb_client_compio = { workspace = true }
+ultragraphdb_cluster_metadata = { workspace = true }
 ultragraphdb_cluster_partition = { workspace = true }
 ultragraphdb_cluster_placement = { workspace = true }
 ultragraphdb_cluster_sequencer = { workspace = true }
+ultragraphdb_common_frontend = { workspace = true }
+ultragraphdb_common_service_config = { workspace = true }
 ultragraphdb_common_telemetry = { workspace = true }
 oxrdf = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }
@@ -30,6 +34,8 @@ ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_core_mapping = { workspace = true }
 ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_error_store = { workspace = true }
+ultragraphdb_protocol_scram = { workspace = true }
+ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_store_apply = { workspace = true }
 ultragraphdb_store_kv = { workspace = true }
 ultragraphdb_store_posting = { workspace = true }
@@ -41,11 +47,12 @@ ultragraphdb_transactions_commit = { workspace = true }
 ultragraphdb_transactions_log = { workspace = true }
 ultragraphdb_transactions_txn = { workspace = true }
 compio = { workspace = true }
+futures = { workspace = true }
 mimalloc = { workspace = true }
+stats_alloc = { workspace = true }
 
 [dev-dependencies]
 cucumber = { workspace = true }
-futures = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 serde_json = { workspace = true }
 
@@ -59,6 +66,16 @@ path = "src/bin/store_bench.rs"
 [[bin]]
 name = "wal_bench"
 path = "src/bin/wal_bench.rs"
+
+# Sends requests through the three binaries with the real client and prints what it measured; never run by a test.
+[[bin]]
+name = "client_bench"
+path = "src/bin/client_bench.rs"
+
+# Counts the allocations between a DirectWrite's frame and its record and prints them; never run by a test.
+[[bin]]
+name = "alloc_bench"
+path = "src/bin/alloc_bench.rs"
 
 [[test]]
 name = "unit"

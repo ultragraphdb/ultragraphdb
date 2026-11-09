@@ -95,42 +95,6 @@ write SHALL count as durable once a sync has covered it.
 - **WHEN** one batch writes key `a` at version 12 and key `b` at version 13
 - **THEN** a read at 12 finds `a` and not `b`, and a read at 13 finds both
 
-### Requirement: Prefix drops and banned namespaces
-Dropping prefixes SHALL remove every stored version of every key under them, physically. Commits to the prefixes SHALL
-be blocked while the drop runs; the drop SHALL write a drop record (its prefixes, its timestamp and the entries to write
-once the prefixes are empty) to the metadata keyspace and sync it, remove the versions with lsm-tree removals in as many
-batches as needed, write the record's entries, sync, and delete the record; at open, a remaining record SHALL make the
-store finish the drop before it serves. A read below the drop's timestamp SHALL find nothing of the dropped data.
-Dropping everything SHALL follow the same pattern around clearing the data keyspace, SHALL leave only the entries it is
-given, and SHALL clear the banned set, the discard timestamp, the tombstone horizon and the applied timestamp. A batch
-SHALL drop the writes addressed to a banned tenant and write the rest, and a banned tenant SHALL be absent from
-reads and scans; Badger refuses such writes with `ErrBannedKey`, and Dgraph ignores the error and loses the rest of the
-Badger transaction.
-
-#### Scenario: A dropped prefix is gone after reopening
-- **WHEN** a prefix is dropped and the store is closed and reopened
-- **THEN** no key under the prefix is found
-
-#### Scenario: A drop interrupted by a crash finishes at open
-- **WHEN** a prefix drop has synced its record and written part of its removals, and the process is killed
-- **THEN** on reopening, the store finishes the drop before it serves a read, and no key under the prefix is found
-
-#### Scenario: A read below a drop finds nothing of it
-- **WHEN** a key under a prefix holds a version at 3, the prefix is dropped at 8, and the key is read at 5
-- **THEN** the read finds nothing
-
-#### Scenario: Dropping everything keeps only its entries
-- **WHEN** everything is dropped with one entry to write at timestamp 1, and the store is closed and reopened
-- **THEN** that entry is the only key found, and the applied timestamp and the discard timestamp are 0
-
-#### Scenario: A banned tenant ignores writes
-- **WHEN** tenant 5 is banned and a batch writes a key in it and a key in tenant 6
-- **THEN** the batch succeeds, the key in tenant 5 is not found and the key in tenant 6 is
-
-#### Scenario: Dropping everything clears the banned set
-- **WHEN** tenant 5 is banned, everything is dropped, and a batch then writes a key in tenant 5
-- **THEN** the key is found
-
 ### Requirement: Garbage collection below the discard timestamp
 Given a discard timestamp `D` and a tombstone horizon `H` at or below it, compaction SHALL drop every version of a key
 older than its newest discard-flagged or deletion version at or below `D`, SHALL never drop a deletion, and SHALL keep
@@ -201,4 +165,40 @@ what it changed, so that no read returns a value a commit replaced or removed.
 #### Scenario: A cached value gives way to the write that replaces it
 - **WHEN** a key without a version is read, then rewritten with another value, then removed
 - **THEN** the read after the rewrite returns the new value and the read after the removal returns nothing
+
+### Requirement: Prefix drops and banned tenants
+Dropping prefixes SHALL remove every stored version of every key under them, physically. Commits to the prefixes SHALL
+be blocked while the drop runs; the drop SHALL write a drop record (its prefixes, its timestamp and the entries to write
+once the prefixes are empty) to the metadata keyspace and sync it, remove the versions with lsm-tree removals in as many
+batches as needed, write the record's entries, sync, and delete the record; at open, a remaining record SHALL make the
+store finish the drop before it serves. A read below the drop's timestamp SHALL find nothing of the dropped data.
+Dropping everything SHALL follow the same pattern around clearing the data keyspace, SHALL leave only the entries it is
+given, and SHALL clear the banned set, the discard timestamp, the tombstone horizon and the applied timestamp. A batch
+SHALL drop the writes addressed to a banned tenant and write the rest, and a banned tenant SHALL be absent from
+reads and scans; Badger refuses such writes with `ErrBannedKey`, and Dgraph ignores the error and loses the rest of the
+Badger transaction.
+
+#### Scenario: A dropped prefix is gone after reopening
+- **WHEN** a prefix is dropped and the store is closed and reopened
+- **THEN** no key under the prefix is found
+
+#### Scenario: A drop interrupted by a crash finishes at open
+- **WHEN** a prefix drop has synced its record and written part of its removals, and the process is killed
+- **THEN** on reopening, the store finishes the drop before it serves a read, and no key under the prefix is found
+
+#### Scenario: A read below a drop finds nothing of it
+- **WHEN** a key under a prefix holds a version at 3, the prefix is dropped at 8, and the key is read at 5
+- **THEN** the read finds nothing
+
+#### Scenario: Dropping everything keeps only its entries
+- **WHEN** everything is dropped with one entry to write at timestamp 1, and the store is closed and reopened
+- **THEN** that entry is the only key found, and the applied timestamp and the discard timestamp are 0
+
+#### Scenario: A banned tenant ignores writes
+- **WHEN** tenant 5 is banned and a batch writes a key in it and a key in tenant 6
+- **THEN** the batch succeeds, the key in tenant 5 is not found and the key in tenant 6 is
+
+#### Scenario: Dropping everything clears the banned set
+- **WHEN** tenant 5 is banned, everything is dropped, and a batch then writes a key in tenant 5
+- **THEN** the key is found
 

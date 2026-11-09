@@ -25,8 +25,8 @@ use ultragraphdb_common_role::{
 };
 use ultragraphdb_common_service::Stopping;
 use ultragraphdb_common_storage::{
-    CoreChannels, CoreMessage, CoreParts, FrontendAsk, PartitionCore, Peers, RefillBlocks,
-    Retention, StoragePartition, StorageSession,
+    CoreChannels, CoreMessage, CoreParts, FrontendAsk, LogIo, PartitionCore, Peers, RefillBlocks,
+    Retention, StoragePartition, StorageSession, TimedStorage,
 };
 use ultragraphdb_core_ids::{Epoch, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
@@ -150,7 +150,10 @@ pub(crate) fn with_core_then(
             let _applied = applier.apply_round(vec![(last.to_u64(), nothing)])?;
         }
         let config = WalConfig::new(CLUSTER, false);
-        let (log, _) = Wal::open(CompioStorage, dir.path().join("wal"), config).await?;
+        // The log's I/O timed on the runtime's clock, as the role times it.
+        let origin = compio::time::interval(Duration::from_secs(1)).tick().await;
+        let storage = TimedStorage::new(CompioStorage, LogIo::default(), origin);
+        let (log, _) = Wal::open(storage, dir.path().join("wal"), config).await?;
         let pipeline = Pipeline::new(partition.applier(), log, RoundBounds::new(1 << 20, 1 << 10))?
             .with_partition(PARTITION, Epoch::ZERO, CloseRequest::default(), &[])
             .bound(id, partition.placement());

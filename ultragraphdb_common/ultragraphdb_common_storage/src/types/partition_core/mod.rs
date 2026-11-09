@@ -40,24 +40,30 @@ use ultragraphdb_traits_catalog::DefaultEntry;
 use ultragraphdb_traits_store::Store;
 use ultragraphdb_transactions_log::{CompioStorage, Wal};
 
+use crate::types::commit_mark::CommitMark;
+use crate::types::commit_phase::CommitPhase;
+use crate::types::commit_phases::CommitPhases;
 use crate::types::core_message::{CoreMessage, Pushes};
+use crate::types::log_io::LogIo;
 use crate::types::open_scan::OpenScan;
 use crate::types::parked_frame::ParkedFrame;
 use crate::types::refill_blocks::RefillBlocks;
 use crate::types::retention::Retention;
 use crate::types::scan_board::ScanBoard;
+use crate::types::timed_storage::TimedStorage;
 use crate::types::turn_budget::TURN_BYTES;
 use crate::utils::commit_body::commit_body;
 use crate::utils::error_reply::error_reply;
+use crate::utils::micros_since::micros_since;
 
 /// A partition of the storage role, over fjall.
 pub type StoragePartition =
     Partition<FjallStore, MokaListCache<CachedList>, ThreadExecutor, RefillBlocks>;
 
-/// Its host, over the write-ahead log.
+/// Its host, over the write-ahead log, its I/O timed.
 pub type StorageHost<'a> = PartitionHost<
     'a,
-    Wal<CompioStorage>,
+    Wal<TimedStorage<CompioStorage>>,
     FjallStore,
     MokaListCache<CachedList>,
     ThreadExecutor,
@@ -160,6 +166,8 @@ struct Parked {
     pushes: Pushes,
     max_frame: u32,
     behind: VecDeque<ParkedFrame>,
+    /// Where the core stood when it took the request.
+    taken: CommitMark,
 }
 
 /// A Reference a home is answering, one registration at a time.
@@ -182,6 +190,9 @@ struct Committing {
     retry: Option<OneFrameRetry>,
     /// A Drop's request, which its reply is built from.
     dropped: Option<DropCommand>,
+    /// Where the core stood when it took the request, and when the request entered the commit step.
+    taken: CommitMark,
+    stepped: CommitMark,
 }
 
 /// What the core's connections to others share: the address of each partition, and the connections it has open.
@@ -270,6 +281,14 @@ pub struct PartitionCore<'a> {
     retention: Retention,
     /// Where a higher discard version goes: the store's synced write of it runs off the core, so no read waits for it.
     discards: Sender<u64>,
+    /// What its log spends in its I/O, which its log's storage counts.
+    log_io: LogIo,
+    /// How long the core has waited on its inbox since it began, in microseconds.
+    waited_us: u64,
+    /// Where the core stood when it took the request it runs.
+    taking: CommitMark,
+    /// The phases of its commits since its last report.
+    phases: CommitPhases,
 }
 
 impl std::fmt::Debug for PartitionCore<'_> {
@@ -327,6 +346,7 @@ pub struct CoreParts<'a> {
     scan_stall_ms: u64,
     retention: Retention,
     tenants: BTreeSet<u64>,
+    log_io: LogIo,
 }
 
 impl<'a> CoreParts<'a> {
@@ -352,7 +372,16 @@ impl<'a> CoreParts<'a> {
             scan_stall_ms: SCAN_STALL_MS_DEFAULT,
             retention,
             tenants: BTreeSet::new(),
+            log_io: LogIo::default(),
         }
+    }
+
+    /// The core reading what its log spends in its I/O from `io`, which its log's [`TimedStorage`] counts into; without it the
+    /// core reports its commits' phases with no log I/O.
+    #[must_use]
+    pub fn with_log_io(mut self, io: LogIo) -> Self {
+        self.log_io = io;
+        self
     }
 
     /// The core taking Binds of `tenants`, those the placement map's runs list.
@@ -399,16 +428,21 @@ impl<'a> PartitionCore<'a> {
             scan_stall_ms: parts.scan_stall_ms,
             retention: parts.retention,
             discards: parts.channels.discards,
+            log_io: parts.log_io,
+            waited_us: 0,
+            taking: CommitMark::default(),
+            phases: CommitPhases::new(),
         }
     }
 
     /// The microseconds since the core began.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the shell reads the clock and tells the partition's host, which reads none"
-    )]
     fn now_us(&self) -> u64 {
-        u64::try_from(self.clock.elapsed().as_micros()).unwrap_or(u64::MAX)
+        micros_since(self.clock)
+    }
+
+    /// Where the core stands now.
+    fn mark(&self) -> CommitMark {
+        CommitMark::new(self.now_us(), self.log_io.totals(), self.waited_us)
     }
 
     /// Serves until `stopping` says otherwise, then ends what is open and syncs what its log holds through its store.
@@ -426,10 +460,21 @@ impl<'a> PartitionCore<'a> {
         stopping: &ultragraphdb_common_service::Stopping,
     ) -> Result<(), RoleError> {
         while !stopping.is_stopping() {
-            if self.scan_ready() {
+            let waiting = self.now_us();
+            let first = if self.scan_ready() {
                 // A Scan's next frame is due, so no time is waited away: only its connection gets to run.
                 yield_once().await;
-            } else if let Ok(Some(first)) = compio::time::timeout(TICK, self.inbox.next()).await {
+                None
+            } else {
+                compio::time::timeout(TICK, self.inbox.next())
+                    .await
+                    .ok()
+                    .flatten()
+            };
+            self.waited_us = self
+                .waited_us
+                .saturating_add(self.now_us().saturating_sub(waiting));
+            if let Some(first) = first {
                 self.take(first);
             }
             // At most MESSAGES_PER_TURN_MAX, the rest waiting for the next turn (Ultra rule 2).
@@ -487,7 +532,59 @@ impl<'a> PartitionCore<'a> {
         self.next_version();
         self.serve_scans();
         self.raise_discard(now);
+        self.report_phases();
         Ok(())
+    }
+
+    /// Logs the phases of the commits since the last report once they are due ([`CommitPhases::is_due`]), and starts counting
+    /// again: one event a second after a run of commits, or a minute into one, so the cost to the log is bounded whatever the load.
+    fn report_phases(&mut self) {
+        if !self.phases.is_due(self.now_us()) {
+            return;
+        }
+        let phases = &self.phases;
+        let figures = |phase: CommitPhase| phases.figures(phase);
+        let (total, before, step) = (
+            figures(CommitPhase::Total),
+            figures(CommitPhase::BeforeStep),
+            figures(CommitPhase::InStep),
+        );
+        let (write, sync, waited) = (
+            figures(CommitPhase::LogWrite),
+            figures(CommitPhase::LogSync),
+            figures(CommitPhase::Waited),
+        );
+        let log = phases.log();
+        tracing::info!(
+            partition = self.id.get(),
+            commits = phases.commits(),
+            window_us = phases.window_us(),
+            total_p50_us = total.0,
+            total_p99_us = total.1,
+            total_mean_us = total.2,
+            before_step_p50_us = before.0,
+            before_step_p99_us = before.1,
+            before_step_mean_us = before.2,
+            in_step_p50_us = step.0,
+            in_step_p99_us = step.1,
+            in_step_mean_us = step.2,
+            log_write_p50_us = write.0,
+            log_write_p99_us = write.1,
+            log_write_mean_us = write.2,
+            log_sync_p50_us = sync.0,
+            log_sync_p99_us = sync.1,
+            log_sync_mean_us = sync.2,
+            waited_p50_us = waited.0,
+            waited_p99_us = waited.1,
+            waited_mean_us = waited.2,
+            log_writes = log.writes(),
+            log_written_bytes = log.written_bytes(),
+            log_write_us = log.write_us(),
+            log_syncs = log.syncs(),
+            log_sync_us = log.sync_us(),
+            "commit phases"
+        );
+        self.phases.clear();
     }
 
     /// Raises the discard version to what the retention allows at `now`, at most the visibility watermark: a read at the watermark
@@ -546,6 +643,7 @@ impl<'a> PartitionCore<'a> {
     /// Each commit's reply, durable now, to who asked. A one-frame write's conflict over what it tested runs it again instead.
     fn hand_out(&mut self) {
         let no_terms = TermTable::new();
+        let answered = self.mark();
         for outcome in self.host.take_outcomes() {
             if let Some((contents, refusals)) = self.installing.remove(&outcome.ticket()) {
                 self.version_decided(contents, &refusals, outcome.outcome().is_ok());
@@ -565,6 +663,8 @@ impl<'a> PartitionCore<'a> {
                 .with_flags(FLAG_LAST);
             let frame = match outcome.outcome() {
                 Ok(version) => {
+                    self.phases
+                        .record(&committing.taken, &committing.stepped, &answered);
                     let (token, results, terms) =
                         outcome.reply().map_or((None, &[][..], &no_terms), |reply| {
                             (reply.token(), reply.results(), reply.terms())

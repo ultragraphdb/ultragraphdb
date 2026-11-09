@@ -86,6 +86,288 @@ A single commit step fed by execution on every core is bounded by what stays ser
 about 1.9× with execution off the commit thread, about 2.7× with the apply on a thread of its own, and above that only
 with the apply itself split, until validation's 11% bounds it.
 
+### Stage 5.5 on the VM disk (2026-11-08)
+
+The runs of task 12.5, on the machine above: `ugdb-linux`, aarch64, 12 vCPUs, kernel 7.2.12-orbstack, data on the VM
+disk (`/var/tmp`, btrfs on the virtual disk `vdb`); `wal_bench` built by Bazel with `-c opt` for
+`aarch64-unknown-linux-gnu`, glibc with mimalloc, from commit `b010b64f` (the throughput runs) and from the same commit
+with the inbound probe added (the probes); 2026-11-08, 20:44 to 21:56 UTC. Each figure is the median of three
+30-second runs at an offered 50,000 commits a second per pipeline or partition, the range of the three beside it in
+parentheses; the repetitions were interleaved. The host's 1-minute load was 4 to 5 with the VM idle, from the host's
+own background processes, and 4 to 13 during the series, the VM's busy vCPUs counted in it; the VM's own load was 0.2
+before the first run and up to 15 after the 12-partition runs. The pipeline's first repetition, started with the VM
+idle, and its later ones, started after 12-partition runs, differ by under 4%.
+
+#### One partition against stage 5
+
+| Relations per commit | Stage 5, relations/s (2026-11-01, *One commit thread* and *The stored key*) | Pipeline run, relations/s | `--partitions 1`, relations/s | Log bytes per relation, stage 5 → now | Journal bytes per relation, stage 5 → now |
+|---|---|---|---|---|---|
+| 1 | 16,706; 15,696 after the stored key | 11,881 (11,561–12,070) | 14,170 (13,937–14,482) | 2,002–2,010 → 1,175 (1,169–1,183) | 1,780 → 1,546 (1,500–1,575) |
+| 10 | 39,043; 41,217 | 14,202 (14,019–14,380) | 21,374 (21,316–21,945) | not measured → 736 | not measured → 1,218 (1,204–1,222) |
+| 50 | 38,501; 40,491 | 14,235 (14,222–14,250) | 27,640 (22,972–28,063) | 1,100–1,106 → 696 | 1,035–1,036 → 1,159 |
+
+The pipeline run is stage 5's workload through stage 5's path, now over 128-bit IDs: 1,000 hubs, ten relation types,
+the predicates declared. Stage 5's bytes per relation are the macOS runs of stage 5's task 12.5 (64-bit IDs, before the
+stored key's zero runs, which cut the journal by 23%); a byte count does not depend on the machine's load.
+
+- **The log writes 41% fewer bytes per relation at one relation per commit and 37% fewer at 50.** Its record is the
+  logical record of P9 and P18, resolved quads with their system IDs, in place of stage 5's write sets.
+- **The journal writes 13% fewer bytes at one relation per commit and 12% more at 50** than stage 5 before the stored
+  key, the 128-bit IDs and P24's entries (marks, referrer sets, the local reverse index) against the shorter stored
+  key.
+- **The pipeline commits 29% fewer relations a second at one relation per commit and 64% fewer at 10 and 50**, outside
+  every spread. The profile names the cause: `wal_bench_profile` under `perf record -e cpu-clock -g` (as root, the VM
+  having no hardware counters), one 30-second run at 10 relations per commit, 14,236 relations a second. 78% of the
+  samples are the commit thread's, 21% fjall's workers. `Store::get_at`, a point read through a snapshot, takes 47% of
+  all samples, about 60% of the commit thread: `referrer_candidates` (`ultragraphdb_store_apply`) reads the referrer
+  set of every entity an edge points at that the partition owns, here a hub, at execution and again when the round
+  applies (32% inclusive), and each read loads and checksums table blocks from the file (`__arch_copy_to_user` 18%,
+  `xxh3` 15%, the block index's iteration 14–17%). A hub's referrer set grows to the 2^10 bucket groups and takes a new
+  version at each group added, so the reads cost more as a run goes on: a 3-second trial run commits 35,984 relations a
+  second at 10 per commit, a 30-second run 14,202. Without those reads the commit thread would spend about 40% of its
+  present time per commit, an estimate from the profile that puts the rate near stage 5's. Serving the read from a cache, or skipping it for a group the round
+  already names, is a design choice left open here.
+- **`--partitions 1` commits more than the pipeline run at 10 and 50 relations per commit** on its own workload: 64
+  hubs per partition, the predicates undeclared, each node's string its only other entry. It was not profiled.
+
+#### 1 to 12 partitions in one process
+
+`wal_bench --partitions N`, each partition on a pinned compio runtime with its own store, log and generator, the main
+thread closing an epoch every 10 ms. Relations per second, no edge crossing partitions, beside the side-by-side table
+above (separate processes, each stage 5's pipeline):
+
+| Partitions | 1 relation per commit | 10 relations | 50 relations | Separate processes, 2026-11-01: 1 / 10 / 50 |
+|---|---|---|---|---|
+| 1 | 14,170 (13,937–14,482) | 21,374 (21,316–21,945) | 27,640 (22,972–28,063) | 16,706 / 39,043 / 38,501 |
+| 2 | 31,996 (30,670–32,433) | 48,340 (47,577–50,574) | 61,691 (60,121–64,581) | 26,400 / 76,677 / 77,047 |
+| 4 | 58,017 (41,949–62,444) | 100,579 (94,064–101,442) | 116,770 (108,030–119,750) | 55,755 / 139,509 / 141,021 |
+| 6 | 81,352 (80,960–83,424) | 138,485 (129,501–141,749) | 164,296 (153,750–165,837) | 62,806 / 192,503 / 201,654 |
+| 8 | 105,504 (88,788–108,776) | 166,750 (154,941–175,392) | 209,891 (183,983–211,709) | 88,189 / 241,292 / 199,514 |
+| 10 | 108,974 (104,653–110,597) | 186,567 (171,063–200,340) | 220,642 (205,209–230,396) | 99,412 / 271,578 / 252,924 |
+| 12 | 125,391 (124,057–129,360) (8.8×) | 185,630 (179,162–203,082) (8.7×) | 222,105 (216,121–229,102) (8.0×) | 107,130 (6.4×) / 276,836 (7.1×) / 263,196 (6.8×) |
+
+- **One process scales further than separate processes:** at 12 partitions each keeps 67–74% of one partition's rate,
+  where each separate pipeline kept 53–59%. The cause was not profiled.
+- **The totals at 10 and 50 relations stay below the separate processes'**, since one partition commits less (the
+  table above); at one relation per commit they are above from 2 partitions on.
+- The rows are the side-by-side table's partition counts; 3, 5, 7, 9 and 11 partitions were not run.
+- The log's bytes per relation are each partition's alone and equal at every count: 1,168 at one relation per commit,
+  861 at 10, 712 at 50; with the store's files, at 1 and at 12 partitions, 3,806 and 3,960, 2,816 and 2,721, 2,153
+  and 2,947.
+- With no edge crossing, a partition still registers the predicates and `rdf:type` homed elsewhere, once each: 287 to
+  1,843 registrations a second at 12 partitions, averaged over the run.
+
+With 10% of edges pointing at hubs other partitions home (`--cross-percent 10`):
+
+| Partitions | Relations per commit | Relations/s at 0% | Relations/s at 10% | Registrations/s | First-reference wait, p50 (range) / p99, ms | Refused |
+|---|---|---|---|---|---|---|
+| 2 | 1 | 31,996 (30,670–32,433) | 27,608 (27,086–27,696) | 1,588 (1,574–1,592) | 15 (15–16) / 67 | 0.01% |
+| 2 | 10 | 48,340 (47,577–50,574) | 37,827 (37,435–38,064) | 1,906 (1,900–1,906) | 76 (73–76) / 251 | 0.39% |
+| 2 | 50 | 61,691 (60,121–64,581) | 42,312 (32,024–50,187) | 1,988 (1,787–2,092) | 257 (253–405) / 727 | 5.11% |
+| 4 | 1 | 58,017 (41,949–62,444) | 53,521 (37,706–55,583) | 3,713 (2,938–3,818) | 16 (16–25) / 94 | 0.01% |
+| 4 | 10 | 100,579 (94,064–101,442) | 77,892 (76,290–78,511) | 4,874 (4,821–4,892) | 82 (80–83) / 258 | 0.30% |
+| 4 | 50 | 116,770 (108,030–119,750) | 72,742 (71,866–80,501) | 4,778 (4,728–5,024) | 374 (272–382) / 764 | 4.66% |
+| 6 | 1 | 81,352 (80,960–83,424) | 66,769 (63,688–73,841) | 5,135 (4,944–5,484) | 21 (18–21) / 134 | 0.01% |
+| 6 | 10 | 138,485 (129,501–141,749) | 110,577 (106,598–113,759) | 7,533 (7,384–7,640) | 86 (86–89) / 251 | 0.29% |
+| 6 | 50 | 164,296 (153,750–165,837) | 103,563 (103,320–106,304) | 7,416 (7,392–7,537) | 397 (383–403) / 615 | 4.43% |
+| 8 | 1 | 105,504 (88,788–108,776) | 84,808 (73,554–88,494) | 6,682 (6,005–6,915) | 21 (20–23) / 130 | 0.01% |
+| 8 | 10 | 166,750 (154,941–175,392) | 136,977 (123,566–140,935) | 9,857 (9,288–10,024) | 90 (88–100) / 329 | 0.29% |
+| 8 | 50 | 209,891 (183,983–211,709) | 133,055 (125,152–158,046) | 9,900 (9,530–10,877) | 398 (300–437) / 774 | 4.49% |
+| 10 | 1 | 108,974 (104,653–110,597) | 96,272 (91,380–99,554) | 7,829 (7,518–8,020) | 23 (21–23) / 182 | 0.01% |
+| 10 | 10 | 186,567 (171,063–200,340) | 150,115 (142,342–156,794) | 11,500 (11,181–11,860) | 96 (89–104) / 429 | 0.32% |
+| 10 | 50 | 220,642 (205,209–230,396) | 150,911 (138,496–157,107) | 11,897 (11,285–12,130) | 434 (417–466) / 904 | 4.54% |
+| 12 | 1 | 125,391 (124,057–129,360) | 108,387 (92,092–110,210) | 8,929 (7,906–9,098) | 24 (24–26) / 175 | 0.01% |
+| 12 | 10 | 185,630 (179,162–203,082) | 152,569 (141,683–160,877) | 12,565 (11,950–13,000) | 107 (102–115) / 518 | 0.33% |
+| 12 | 50 | 222,105 (216,121–229,102) | 158,244 (152,803–165,389) | 13,188 (12,798–13,589) | 477 (445–501) / 1,058 | 4.69% |
+
+- **A tenth of edges crossing costs 8–20% of the relations at one relation per commit, 18–23% at 10 and 29–38% at
+  50.** A commit waits for every first reference it makes; at 50 relations a commit holds about five crossing edges,
+  and its wait is the slowest home's.
+- **The first-reference wait is 15–24 ms at the median with one relation per commit**, one to two epochs of 10 ms:
+  the home's durable round, then the close the reply names. It grows with the commit's size, 76–107 ms at 10 and
+  257–477 ms at 50, as each home's rounds grow and the round holding the registration syncs later.
+- **Registrations run at 6–8% of the relations a second**, most crossing edges: over 30 seconds the 768 hubs of 12
+  partitions and their 2^10 bucket groups each, 786,432 pairs, are far from all marked, so most crossing edges are
+  still a first reference. P24's bound of one registration per entity and bucket group caps the count over a run's
+  life, not within these runs.
+- **Refusals appear only with crossing edges:** the commit step's `Conflict` of kind `List`, 0.01% of commits at one
+  relation per commit, 0.3% at 10 and 4.4–5.1% at 50. A commit under a registration reply reads its mark (the
+  `partitions` spec), so of two commits in flight referencing one entity from one bucket group, the second to commit
+  conflicts; the key the conflict names was not recorded. The bench counts these as refused and does not retry them.
+
+#### The inbound point read beside P24's estimate
+
+P24 estimates an inbound point read at "about 20× the store probes of one reverse list at in-degree 20".
+`wal_bench --inbound 1000 --partitions 12` writes, for in-degrees 1, 20 and 1,000, an object with that many subjects
+pointing at it through one predicate, each subject homed by its bucket and its edge one commit of its partition through
+the partitions' hosts and logs, registering at the object's home; then it reads each object's subjects at the last
+closed epoch, through `Fanout`, a thousand times, beside the same read on one partition holding every commit. The
+probes are counted at the stores: posting lists read (each a cache lookup, a store read on a miss) and point reads.
+Three runs with the posting cache at 128 MiB and three without one; the counts were the same in every run, the times
+are medians of the three runs' medians.
+
+| In-degree | Partitions asked of 12 | Probes, fan-out | Probes, one partition | Ratio | Time, 128 MiB cache: fan-out / one partition | Time, no cache: fan-out / one partition |
+|---|---|---|---|---|---|---|
+| 1 | 1 | 3: the referrer set, then 2 lists | 2 lists | 1.5× | 1.2 µs / 0.5 µs | 3.6 µs / 3.1 µs |
+| 20 | 9 | 19: the referrer set, then 2 lists a partition | 2 | 9.5× | 6.2 µs / 2.3 µs | 37.4 µs / 17.3 µs |
+| 1,000 | 12 | 25 | 2 | 12.5× | 80 µs / 48 µs | 783 µs / 717 µs |
+
+- **Each partition asked reads two lists**, the object's predicates list, which proves the predicate before the reverse
+  list is read, and the reverse list; one partition reads the same two. The ratio is `(1 + 2k) / 2` for `k`
+  partitions asked, which reaches P24's 20× at `k` = 20: with 20 or more partitions, an in-degree of 20 spreads over up
+  to 20 of them.
+- **On 12 partitions the 20 subjects fall in 9**, the bench's fixed names; 20 subjects in random buckets fall in about
+  10.4 of 12 on average.
+- **The time grows less than the probes**: 2.7× at in-degree 20 with the cache and 2.2× without, 1.7× and 1.1× at
+  1,000, where decoding the subjects outweighs the lookups. These reads run in one process; across nodes in stage 8,
+  each node asked adds a network round, and the referrer set's read at the home one round before them.
+- **The writes of the probe** committed every one of the 1,021 edges after 124 to 316 retries of refused commits, the
+  same `Conflict` of kind `List`: up to 83 first references to one object from one partition were in flight together.
+
+#### Through the three binaries with the real client
+
+Task 12.5b's runs, on the same VM and disk, 2026-11-08, 22:18 to 23:44 UTC: the role binaries built `-c opt` from
+`b010b64f`, started by the supervisor over the `dev` profile (epochs 2 to 10 ms, unpinned, roles over Unix sockets, the
+client endpoint over TCP on the loopback), and `client_bench`, the compio client, each connection sending its requests one
+after another and timing each to its answer. Each commit writes `r` new nodes, each an edge to one of 1,000 hubs and a
+string, every node and hub of a commit in one partition, so no commit spans partitions. Medians of three 20-second runs,
+interleaved, the range in parentheses; the host's 1-minute load 1.8 to 4.7, the VM's 0.9 to 2.5 before a run.
+
+| Partitions | Requests | Connections | Commits or reads/s | Relations/s | Latency p50 / p99, ms |
+|---|---|---|---|---|---|
+| 1 | DirectWrite, 1 relation | 1 | 232 (224–689) | 232 | 3.15 / 15.8 |
+| 1 | DirectWrite, 1 relation | 16 | 287 (205–1,123) | 287 | 56.1 / 145 |
+| 1 | DirectWrite, 1 relation | 64 | 590 (250–1,334) | 590 | 90.5 / 412 |
+| 1 | DirectWrite, 50 relations | 16 | 108 (99–235) | 5,392 (4,968–11,733) | 144 / 189 |
+| 1 | Begin, Write, Commit, 1 relation | 1 | 184 (135–192) | 184 | 4.69 / 17.8 |
+| 1 | Read-only: Begin, Read, Abort | 1 | 1,032 (1,013–1,047) | — | 0.42 / 5.3 |
+| 1 | Read-only | 16 | 3,773 (3,770–4,542) | — | 3.91 / 7.3 |
+| 4 | DirectWrite, 1 relation | 1 | 164 (161–230) | 164 | 5.52 / 14.1 |
+| 4 | DirectWrite, 1 relation | 16 | 1,775 (1,736–2,637) | 1,775 | 5.37 / 49.5 |
+| 4 | DirectWrite, 1 relation | 64 | 3,281 (476–3,324) | 3,281 | 16.6 / 57 |
+| 4 | DirectWrite, 50 relations | 16 | 770 (657–830) | 38,510 (32,851–41,477) | 16.6 / 91 |
+| 4 | Begin, Write, Commit, 1 relation | 1 | 244 (233–286) | 244 | 2.83 / 13.1 |
+| 4 | Read-only | 16 | 7,936 (4,344–20,945) | — | 1.56 / 5.6 |
+| 4 | Read-only | 64 | 11,932 (4,149–25,850) | — | 4.17 / 12.5 |
+
+- **Through the binaries one partition commits 2 to 20% of the in-process relations of the tables above, and four
+  partitions 6 to 33%.** The in-process runs offer each partition 50,000 commits a second with no client, network or
+  epoch in a commit's path; a client's commit waits for its acknowledgement, 1 to 6 ms at one connection, about an epoch
+  and a sync.
+- **One partition stops at about 1,300 commits a second whatever the connections**, its latency growing with them, while
+  no thread is busy: under 16 connections the partition's thread used 18% of a core and waited in `io_cqring_wait`, the
+  frontend's threads under 2%. Four partitions take 16 connections at 5.4 ms. The commits queue in front of the
+  partition, one taken per turn from the frontend's connection, each with a sync of its own (*A commit's phases*
+  below).
+- **The owner check takes 17 µs at the median and 25 µs at the 99th percentile** (`wal_bench --owner-checks`, the
+  production owner over its logs on the VM disk), 0.3 to 1.6% of a one-connection commit; end to end, commits with and
+  without a session differ by less than their spread.
+- **A DirectWrite and Begin, Write and Commit differ by less than their spread**; the Begin's round trip is 0.03 to 0.09 ms.
+- **Between a DirectWrite's frame and its record, a term costs 52 to 86 allocations** (`alloc_bench`, a counting global
+  allocator): 6 to 10 to read the frame whatever its size, then 65 to 94 per relation in the transaction's write and 110
+  to 158 in its commit, 258 for a one-relation frame of 5 terms.
+- **Writes vary up to 3× between repetitions** with the length of the disk's sync, which every commit pays once (*A
+  commit's phases* below). The storage process writes about 70 KB per one-relation commit, of which the log's round is
+  4,096 bytes; the rest is not attributed.
+
+
+#### A commit's phases through the binaries (experiment X1)
+
+Task 12.5b's second runs, 2026-11-09, 00:10 to 00:30 UTC, on the same VM and disk, the role binaries built `-c opt` from
+`b010b64f` with the phase timing below, the cluster and `client_bench` as above: DirectWrites through a session unless
+noted, epochs of 2 to 10 ms. Medians of three 20-second runs, interleaved, the range in parentheses; the host's 1-minute
+load 1.1 to 3.1, the VM's 0.1 to 3.9 before a run.
+
+Each commit is timed in three places. `client_bench` times it from the call to its answer. The frontend logs `one-frame
+write phases` per window of writes: its checks (the gate's tenant facts and the session's check, both asked of the owner,
+the terms and the route), and its relay, from the frame leaving for the partition to the partition's answer. The
+partition's core logs `commit phases`: its whole stay, from the request taken to the reply handed out, and within it the
+log's writes and syncs, timed by `TimedStorage` around the log's storage, and the core's waits on its inbox. Both logs
+come once a second after a run of writes, or a minute into one, at the `info` level. Times in milliseconds, means.
+
+| Partitions | Relations, connections | Commits/s | Client | Frontend checks | Frontend relay | Partition core | Log sync | Log write | Core, rest | Queue before the core | Log share |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 1, 1 | 235 (199–619) | 4.25 (1.61–5.01) | 1.62 (0.36–2.07) | 2.54 (1.22–2.81) | 2.43 (1.17–2.67) | 2.06 (1.05–2.27) | 0.10 | 0.27 | 0.10 | 51% (48–67) |
+| 1 | 1, 1, no session | 229 (135–262) | 4.37 (3.81–7.40) | 1.60 (1.33–3.25) | 2.68 (2.40–3.96) | 2.57 (2.30–3.73) | 2.21 (2.02–2.98) | 0.10 | 0.25 | 0.11 | 53% (43–55) |
+| 1 | 10, 1 | 159 (153–269) | 6.28 (3.71–6.51) | 2.45 (1.20–2.67) | 3.69 (2.45–3.71) | 3.54 (2.37–3.57) | 2.08 (1.64–2.29) | 0.14 | 1.10 | 0.15 | 39% (34–46) |
+| 1 | 50, 1 | 118 (113–150) | 8.41 (6.65–8.81) | 2.46 (1.53–2.98) | 5.72 (5.04–5.87) | 5.62 (4.97–5.78) | 2.01 (1.77–2.34) | 0.07 | 3.17 | 0.09 | 28% (25–28) |
+| 1 | 1, 16 | 803 (438–1,125) | 19.9 (14.2–36.5) | 1.46 (0.55–3.35) | 18.4 (13.6–33.1) | 1.24 (0.89–2.28) | 1.05 (0.76–1.89) | 0.07 | 0.11 | 17.2 (12.7–30.8) | 6% (6–6) |
+| 1 | 50, 16 | 147 (131–276) | 108 (58–121) | 1.11 (1.03–1.78) | 106 (57–120) | 6.79 (3.62–7.60) | 1.69 (1.55–1.89) | 0.08 | 4.82 | 99.5 (53.0–112.2) | 2% (1–3) |
+| 4 | 1, 1 | 238 (155–251) | 4.19 (3.98–6.44) | 1.57 (1.48–2.94) | 2.54 (2.42–3.32) | 2.43 (2.33–3.16) | 2.11 (2.02–2.66) | 0.08 | 0.24 | 0.10 | 52% (44–53) |
+| 4 | 1, 16 | 1,465 (1,362–2,527) | 10.9 (6.3–11.7) | 2.31 (0.65–3.14) | 7.69 (5.62–9.35) | 2.13 (1.37–2.51) | 1.87 (1.23–2.29) | 0.11 | 0.10 | 5.56 (4.25–6.84) | 20% (18–20) |
+| 4 | 50, 16 | 863 (707–876) | 18.5 (18.2–22.6) | 2.40 (1.86–4.28) | 16.5 (15.7–18.2) | 4.05 (3.89–4.59) | 1.98 (1.95–2.46) | 0.14 | 1.97 | 12.5 (11.8–13.6) | 12% (11–12) |
+
+(The queue before the core is the frontend's relay less the core's stay: the role connection, the storage process's
+connection task and the core's inbox. The log share is the log's sync and write over the client's mean. Client to frontend
+and back, the client's mean less the frontend's whole, is 0.03 to 0.19 ms in every run. The core waited on its inbox 0.00 ms
+during a commit's stay in every run.)
+
+- **Every commit has a round and a sync of its own**: one sync per commit in every run, at 16 connections and 50
+  relations alike. A storage connection hands its core one request at a time and reads the next frame once the core has
+  taken it, and the core takes requests between turns, each turn syncing its round, so a partition takes one request per
+  turn from each connection; the frontend sends all its clients' writes for a partition over one role connection. At 16
+  connections 17 ms of a 19.9 ms commit is that queue, and the partition commits one round per stay of 1.24 ms, 803 a
+  second; part 1's 1,300 a second is the same bound under shorter syncs. Four partitions
+  have four connections, hence four queues. This is the saturation without a busy thread of part 1. Letting a connection
+  hand over several requests per turn is a design choice left open here.
+- **The partition's sync is 2.0 ms whatever the round**, 4 KiB or 36 KiB, and the log's write 0.07 to 0.14 ms; at one
+  connection it is half of a one-relation commit, 39% of a ten-relation one and 28% of a 50-relation one. The core's rest,
+  execution, decision and apply, grows with the relations: 0.27, 1.10 and 3.17 ms.
+- **The frontend's checks wait on the owner's syncs.** They are bimodal, tens of microseconds at the median of most runs
+  and the length of a sync at the median of others, and the same without a session, so the gate's tenant facts alone
+  meet it. With epochs of 50 to 100 ms in place of 2 to 10 ms (same build, three runs each, interleaved, host load 1.5 to
+  1.8):
+
+| Epochs | Relations | Commits/s | Client | Frontend checks | Partition core | Log sync | Log share |
+|---|---|---|---|---|---|---|---|
+| 2–10 ms | 1 | 254 (237–271) | 3.93 (3.69–4.22) | 1.44 (1.33–1.65) | 2.30 (2.20–2.37) | 2.03 (1.94–2.06) | 54% (51–55) |
+| 50–100 ms | 1 | 371 (342–407) | 2.69 (2.45–2.92) | 0.20 (0.18–0.21) | 2.32 (2.09–2.50) | 2.04 (1.80–2.18) | 79% (77–79) |
+| 2–10 ms | 10 | 110 (109–140) | 9.08 (7.10–9.11) | 4.14 (3.05–4.22) | 4.48 (3.74–4.54) | 2.72 (2.43–2.75) | 32% (32–36) |
+| 50–100 ms | 10 | 263 (241–314) | 3.79 (3.17–4.13) | 0.25 (0.20–0.26) | 3.31 (2.81–3.63) | 2.21 (1.97–2.33) | 62% (60–65) |
+
+  Each epoch close is synced in the sequencer's log on the owner's thread, and an owner ask meeting that sync waits for
+  it; ten times fewer closes take 1.2 to 3.9 ms off the checks. The owner was not timed itself.
+- **The spread between repetitions follows the disk.** The fastest one-connection run (619 commits a second) had syncs of
+  1.05 ms against 2.06 to 2.27 ms in the others, and its owner waits shrank with them; every commit pays one sync, so the
+  rate follows its length.
+- **The disk's syncs.** On the VM disk at a quiet moment (VM load 0.7), 1,000 syncs each: a 4 KiB `O_DIRECT` write into a
+  segment reserved by `fallocate` and `fdatasync`, the log's pattern, 1.9 to 2.3 ms at the median (p99 5 to 12 ms), the
+  same into blocks written before alike; a buffered 4 KiB write and `fdatasync` 0.5 ms (p99 8 to 11 ms), and 2.6 ms
+  under a host load of 3 to 6. On the host's internal SSD (APPLE SSD AP8192Z), `fsync` 20 µs and `F_FULLFSYNC` 6.2 ms
+  at the median. No drive without power-loss protection is attached; whether the VM's sync reaches the host drive's cache
+  flush is not known.
+- **The timing costs no measurable throughput:** the same runs on the binaries without it, after the series, committed
+  274 (198–380) a second at one connection and 559 (297–786) at 16, against 235 (199–619) and 803 (438–1,125) with it,
+  inside each other's spread.
+
+#### Turns, pins, bound walks, the frontend's memory and readers' aborts through the binaries
+
+Task 12.5b's third runs, 2026-11-09, 00:56 to 02:17 UTC, on the same VM and disk, with part 2's role binaries and the
+`dev` profile as above; medians of three runs, interleaved, the range in parentheses; the host's 1-minute load 1.6 to 5.1,
+above 2 for most of the series. The full tables are in the change's group-12 notes.
+
+| What | Measured | Against |
+|---|---|---|
+| A one-relation commit's queue before the core, beside Scans of `?s <w> ?o` over lists in the 64 MiB posting cache | 0.10 ms alone; 1.28 (1.21–1.31) beside 1 Scan, 3.06 (2.94–3.14) beside 4, 2.92 (2.68–3.04) beside 16; p99 12 → 20 ms | `TURN_BYTES`' estimate, 130 to 260 µs a turn |
+| The same over lists past that cache (367,600 nodes) | 34.8 ms beside 1 Scan (p99 297 ms), 272 ms beside 4 (p99 0.9 to 1.1 s) | the same |
+| A Pin Scan, snapshot level against monotonic-fast | 5 to 20 µs of storage CPU per partition per read; at 16 partitions and 16 connections 13% fewer reads, 1.1 ms slower | 16 ranges, pins at once |
+| `sweep_bound`, and `bound_answered`'s walk | 4 to 12 ns per open transaction: 4 to 7 µs at 1,000 open, 37 µs at 10,000, 1.2 ms at 100,000; two such walks a turn, `resend_bound` the second | — |
+| The frontend's memory per stalled client connection | 5.6 to 5.9 MiB at 16, 64 and 256 connections; 1.0 to 1.1 MiB with nothing held | `held_bytes` and one frame, 4.08 MiB |
+| `<hot> ?p ?o` readers aborted beside a writer under an existing predicate, about 200 commits a second | every row: 99%, with or without the list's rewrite; one row: 97% with it, 18% without it | — |
+
+- **A turn's length is its store reads, which `TurnBudget` does not count.** A profile of the partition's thread over a
+  cold Scan puts 89% in fjall loading and checksumming a block per list (`Lists::read_store` opens a range per key); with
+  lists cached the Scan reads 400,000 rows a second, past the cache 11,000 to 40,000. One frame per Scan per turn holds:
+  16 Scans add no more to a commit's wait than 4.
+- **A pin's cost is per partition per read**, 22% of a 16-partition read's storage CPU; one partition's read pays it once.
+- **The walks are free below a few thousand open transactions** and cost a commit as much as its own work at ten
+  thousand.
+- **The bound per client connection holds**, its memory returned within 12 s of the partition continuing; the frontend's
+  worst case is connections × (`held_bytes` + `max_frame` + about 1.5 MiB), about 26 GiB at 4,096 connections, not 16.
+- **The predicates' list's rewrite costs only readers that stop before the written predicate**: a reader of every row
+  conflicts on the written forward list anyway; a reader stopped at one row conflicts on the list alone (A/B against a
+  storage binary that leaves the list alone when it names the predicate).
+
 ## The model: one partition per core
 
 **References.** ScyllaDB runs one shard per core on Seastar: each shard owns a share of the data and its own memory,
@@ -958,7 +1240,9 @@ facts it points at, only the guarantee that it grows before they are written.
 **Accepted costs.**
 
 - An inbound point read touches `min(d, partitions)` partitions for an in-degree `d` and needs one extra round, `R(o)`
-  at the home first: about 20× the store probes of one reverse list at in-degree 20.
+  at the home first: about 20× the store probes of one reverse list at in-degree 20. Measured on stage 5.5 (*The
+  inbound point read beside P24's estimate*): `1 + 2k` probes for `k` partitions asked against one partition's 2, 9.5×
+  at in-degree 20 on 12 partitions, which asked 9, and 2.7× the time in one process.
 - A partition's first reference to an entity it does not own waits for one durable round at the entity's home. Later
   references find the mark and wait for nothing; a hub's home answers at most 2^10 registrations per tenant run for
   it over its life, one per bucket group, whatever the ingest.
@@ -1011,7 +1295,7 @@ facts it points at, only the guarantee that it grows before they are written.
 
 ## What stage 5.5 built
 
-Stage 5.5's change (`openspec/changes/stage-5-5-three-role-refactor`) built every decision P20 and P24 assign it, each
+Stage 5.5's change (`openspec/changes/archive/2026-11-09-stage-5-5-three-role-refactor`) built every decision P20 and P24 assign it, each
 group on one replica; P20's list of what stage 8 builds is backlog item 11. Each row names the decision, what runs and
 where.
 

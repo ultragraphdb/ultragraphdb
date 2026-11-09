@@ -7,13 +7,30 @@ load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_img//img:load.bzl", "image_load")
 load("@rules_img//img:push.bzl", "image_push")
 load("//bazel:binary.bzl", "static_binary")
-load("//bazel/container:img.bzl", "glibc_multiarch_img", "sha256_tag")
+load("//bazel/container:img.bzl", "glibc_multiarch_img", "seccomp_referrer", "sha256_tag")
 
 # No library: `main`, and `service`, the role's work.
 static_binary(
     name = "ultragraphdb_storage",
     srcs = glob(["src/**/*.rs"]),
     tags = ["role_binary"],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)
+
+# The storage role for a profiler: the release optimisation with its symbols, line tables and frame pointers kept, so
+# `perf record -g` resolves the partition core's stacks (task 12.5b). Build with `-c opt`; no image ships it.
+static_binary(
+    name = "ultragraphdb_storage_profile",
+    srcs = glob(["src/**/*.rs"]),
+    release_flags = [
+        "-Copt-level=3",
+        "-Ccodegen-units=1",
+        "-Cdebuginfo=line-tables-only",
+        "-Cforce-frame-pointers=yes",
+        "-Cpanic=unwind",
+    ],
+    tags = ["bench"],
     visibility = ["//visibility:public"],
     deps = all_crate_deps(normal = True),
 )
@@ -51,10 +68,18 @@ image_load(
     visibility = ["//visibility:public"],
 )
 
-# `bazel build` only produces the pusher; `bazel run -c opt` publishes. Credentials come from the Docker configuration.
+# The shipped seccomp profile, pushed with the image as its referrer.
+seccomp_referrer(
+    name = "ultragraphdb_storage_seccomp",
+    image = ":ultragraphdb_storage_multiarch",
+)
+
+# `bazel build` only produces the pusher; `bazel run -c opt` publishes the image and its seccomp profile. Credentials come from
+# the Docker configuration.
 image_push(
     name = "push",
     image = ":ultragraphdb_storage_multiarch",
+    referrers = [":ultragraphdb_storage_seccomp"],
     registry = "index.docker.io",
     repository = "hansenmarvin/ultragraphdb_storage",
     tag_file = ":ultragraphdb_storage_tag",

@@ -15,6 +15,7 @@ use ultragraphdb_store_apply::DropRequest;
 use ultragraphdb_transactions_commit::{CommitError, CommitErrorEnum, StoredReply};
 use ultragraphdb_transactions_txn::{FrameChanges, FrameTerms};
 
+use crate::types::commit_mark::CommitMark;
 use crate::types::core_message::Pushes;
 use crate::types::one_frame_view::OneFrameView;
 use crate::types::partition_core::partition_core_frames::{built, last};
@@ -202,11 +203,11 @@ impl PartitionCore<'_> {
             .map_err(|refusal| error_reply(&refusal))
     }
 
-    /// A run in the commit step under `ticket`, its frame kept for the conflict that runs it again.
+    /// A run in the commit step under `ticket`, its frame kept for the conflict that runs it again, its request taken at `taken`.
     pub(super) fn committing_one_frame(
         &mut self,
         key: BoundKey,
-        bytes: Vec<u8>,
+        (bytes, taken): (Vec<u8>, CommitMark),
         attempts: u32,
         ticket: u64,
         pushes: Pushes,
@@ -232,6 +233,8 @@ impl PartitionCore<'_> {
                     attempts: attempts.saturating_sub(1),
                 }),
                 dropped: None,
+                taken,
+                stepped: self.mark(),
             },
         );
     }
@@ -282,7 +285,8 @@ impl PartitionCore<'_> {
         match ran {
             Ok(OneFrameStep::InCommit(ticket)) => {
                 let pushes = committing.pushes.clone();
-                self.committing_one_frame(key, frame, attempts, ticket, pushes);
+                let taken = committing.taken;
+                self.committing_one_frame(key, (frame, taken), attempts, ticket, pushes);
                 true
             }
             Ok(OneFrameStep::Waiting(_)) => {
@@ -343,6 +347,8 @@ impl PartitionCore<'_> {
                 pushes: pushes.clone(),
                 retry: None,
                 dropped: Some(body),
+                taken: self.taking,
+                stepped: self.mark(),
             },
         );
         Ok(Answer::Open)

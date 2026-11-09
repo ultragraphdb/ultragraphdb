@@ -10,7 +10,7 @@
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
@@ -74,6 +74,18 @@ const OBJECT: &str = "http://ex.org/b";
 /// How many read-only transactions a read of a fresh write takes at most, each at a newer snapshot, 20 ms apart.
 const SNAPSHOTS: u32 = 250;
 
+/// The subjects the kill scenario commits, one statement `<prefix><n> <knows> <b>` per commit.
+const KILLED_SUBJECTS: &str = "http://ex.org/killed/";
+
+/// How many commits the client has had acknowledged when the development container is killed, the writes still going on.
+const ACKNOWLEDGED_BEFORE_KILL: usize = 500;
+
+/// The most commits the kill scenario sends: `docker kill` cuts them long before.
+const COMMITS_MAX: u64 = 10_000;
+
+/// The reads one read-only transaction of the kill scenario's read-back sends, well inside a stream's requests.
+const READS_PER_TRANSACTION: usize = 100;
+
 static RUNS: AtomicU32 = AtomicU32::new(0);
 
 /// One image: the load target that puts it in the daemon, and the name it loads as.
@@ -134,6 +146,8 @@ pub(crate) struct Containers {
     secrets: PathBuf,
     /// What the scenario's storage image holds and declares.
     image: ImageFacts,
+    /// The commits the client had acknowledged when the kill scenario's container was killed, by their number.
+    acknowledged: Vec<u64>,
 }
 
 /// What a role image holds and declares, read from the daemon and from the image's index.
@@ -355,11 +369,12 @@ fn published(container: &str, port: &str) -> TestResult<String> {
     Ok(first.trim().replace("0.0.0.0", "127.0.0.1"))
 }
 
-/// Waits for the development container `container` to say every role is ready.
-fn until_every_role_ready(c: &mut Containers, container: &str) -> TestResult {
+/// Waits for the development container `container` to say every role is ready for the `start`th time: its log holds every
+/// start's lines.
+fn until_every_role_ready(c: &mut Containers, container: &str, start: usize) -> TestResult {
     for _ in 0..START_SECONDS * 4 {
         c.log = logs(container)?;
-        if c.log.contains(EVERY_ROLE_READY) {
+        if c.log.matches(EVERY_ROLE_READY).count() >= start {
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(250));
@@ -408,7 +423,7 @@ pub(crate) fn start_development(c: &mut Containers, seccomp: Seccomp) -> TestRes
     args.push(DEVELOPMENT_IMAGE.name);
     act(&args)?;
     c.started.push(container.clone());
-    until_every_role_ready(c, &container)?;
+    until_every_role_ready(c, &container, 1)?;
     c.endpoint = published(&container, ENDPOINT_PORT)?;
     c.cluster = setting(&profile("dev/frontend.toml")?, "id")?.parse()?;
     let secret = setting(&profile("dev/frontend.toml")?, "bootstrap_secret_file")?.to_string();
@@ -497,14 +512,20 @@ pub(crate) fn on_driver(c: &Containers, driver: &str, other: &str) -> TestResult
     Ok(())
 }
 
+/// The client the scenarios connect with.
+type ImageClient = Client<TcpConnector, ScramLogin<fn() -> Result<String, ScramError>>>;
+
 /// A client of the scenario's cluster, logged in as the bootstrap administrator.
-async fn client(
-    c: &Containers,
-) -> TestResult<Client<TcpConnector, ScramLogin<fn() -> Result<String, ScramError>>>> {
+async fn client(c: &Containers) -> TestResult<ImageClient> {
+    connect(&c.endpoint, &c.password, c.cluster).await
+}
+
+/// A client of the cluster `cluster` at `endpoint`, logged in as the bootstrap administrator with `password`.
+async fn connect(endpoint: &str, password: &str, cluster: u64) -> TestResult<ImageClient> {
     let nonces: fn() -> Result<String, ScramError> = system_nonce;
-    let login = ScramLogin::new(ADMIN, &c.password, nonces)?;
-    let config = ClientConfig::new(c.cluster, "ultragraphdb-image-tests");
-    let mut connected = Client::new(TcpConnector::new(c.endpoint.parse()?), config, login, 16);
+    let login = ScramLogin::new(ADMIN, password, nonces)?;
+    let config = ClientConfig::new(cluster, "ultragraphdb-image-tests");
+    let mut connected = Client::new(TcpConnector::new(endpoint.parse()?), config, login, 16);
     connected.connect().await?;
     Ok(connected)
 }
@@ -534,10 +555,10 @@ fn rows_of(batch: &ResultView<'_>) -> Vec<Vec<String>> {
         .collect()
 }
 
-/// The read of `<a> <knows> ?o` in `transaction`.
-fn read_of(transaction: &Transaction) -> Read {
+/// The read of `<subject> <knows> ?o` in `transaction`.
+fn read_of(transaction: &Transaction, subject: &str) -> Read {
     let mut terms = TermTable::new();
-    let subject = PatternSlot::Bound(terms.iri(SUBJECT));
+    let subject = PatternSlot::Bound(terms.iri(subject));
     let predicate = PatternSlot::Bound(terms.iri(KNOWS));
     let pattern = QuadPattern::new(
         PatternSlot::DefaultGraph,
@@ -571,7 +592,7 @@ pub(crate) fn write_and_read(c: &Containers) -> TestResult<Vec<Vec<String>>> {
                     reader.level()
                 )));
             }
-            let stream = connected.read(&reader, &read_of(&reader)).await?;
+            let stream = connected.read(&reader, &read_of(&reader, SUBJECT)).await?;
             let mut rows = Vec::new();
             while let Some(batch) = connected.next_batch(&stream, rows_of).await? {
                 rows.extend(batch);
@@ -756,4 +777,127 @@ pub(crate) fn same_rows_over_both(c: &mut Containers) -> TestResult {
     assert_eq!(objects(&over_tcp), [OBJECT], "over tcp://");
     assert_eq!(over_tcp, over_unix, "over tcp:// and over unix://");
     Ok(())
+}
+
+/// The write of `<prefix><n> <knows> <b>`, the kill scenario's commit `n`.
+fn killed_write(n: u64) -> TestResult<DirectWrite> {
+    let mut table = TermTable::new();
+    let change = WriteChange::Insert {
+        graph: None,
+        subject: table.iri(&format!("{KILLED_SUBJECTS}{n}")),
+        predicate: table.iri(KNOWS),
+        object: table.intern(RequestTerm::Iri(OBJECT.to_string()))?,
+    };
+    Ok(DirectWrite::new(TENANT, table, vec![change]))
+}
+
+/// Commits `<prefix><n> <knows> <b>` for `n` from 0 through `c`'s endpoint, one after another in one frame each through no
+/// session; once [`ACKNOWLEDGED_BEFORE_KILL`] are acknowledged, starts `docker kill` on `container` and commits on until a
+/// write fails. The numbers acknowledged, the kill's process and what the failed write was answered with.
+fn commit_until_killed(c: &Containers, container: &str) -> TestResult<(Vec<u64>, Child, String)> {
+    Runtime::new()?.block_on(async {
+        let mut connected = client(c).await?;
+        let mut acknowledged = Vec::new();
+        let mut kill = None;
+        for n in 0..COMMITS_MAX {
+            if let Err(error) = connected.direct_write(killed_write(n)?, None).await {
+                let started = kill.ok_or_else(|| {
+                    TestError::new(format!("commit {n} failed before the kill: {error}"))
+                })?;
+                return Ok((acknowledged, started, error.to_string()));
+            }
+            acknowledged.push(n);
+            if kill.is_none() && acknowledged.len() == ACKNOWLEDGED_BEFORE_KILL {
+                let started = Command::new("docker")
+                    .args(["kill", container])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()?;
+                kill = Some(started);
+            }
+        }
+        Err(TestError::new(format!(
+            "{COMMITS_MAX} commits acknowledged, and `docker kill` never cut them"
+        )))
+    })
+}
+
+/// Starts the development image and commits through it; once [`ACKNOWLEDGED_BEFORE_KILL`] commits are acknowledged, the
+/// writes still going on, kills the container with `docker kill`, then starts the same container again, its `/data` as the
+/// kill left it, until every role is ready once more. Notes the commits acknowledged before the client saw the cut.
+pub(crate) fn commit_through_a_kill(c: &mut Containers) -> TestResult {
+    start_development(c, Seccomp::Default)?;
+    let container = c
+        .started
+        .last()
+        .context("the development container")?
+        .clone();
+    let (acknowledged, kill, cut) = commit_until_killed(c, &container)?;
+    let killed = bounded(kill, "docker kill", DOCKER_SECONDS)?;
+    if !killed.success() {
+        return Err(TestError::new(format!("docker kill exited {killed}")));
+    }
+    let code = docker(&["wait", &container])?;
+    act(&["start", &container])?;
+    until_every_role_ready(c, &container, 2)?;
+    c.endpoint = published(&container, ENDPOINT_PORT)?;
+    println!(
+        "{} commits acknowledged before `docker kill` ended the container with code {}; the next was answered: {cut}",
+        acknowledged.len(),
+        code.trim()
+    );
+    c.acknowledged = acknowledged;
+    Ok(())
+}
+
+/// Reads `<prefix><n> <knows> ?o` for every commit acknowledged before the kill, [`READS_PER_TRANSACTION`] to a read-only
+/// transaction at the default level, until a snapshot holds them all: each reads back `<b>` alone.
+pub(crate) fn every_acknowledged_commit_reads_back(c: &Containers) -> TestResult {
+    let expected: Vec<u64> = (0..).take(c.acknowledged.len()).collect();
+    assert!(
+        c.acknowledged.len() >= ACKNOWLEDGED_BEFORE_KILL && c.acknowledged == expected,
+        "the acknowledged commits, each once in order: {:?}",
+        c.acknowledged
+    );
+    Runtime::new()?.block_on(async {
+        let mut connected = client(c).await?;
+        let mut missing = c.acknowledged.clone();
+        for _ in 0..SNAPSHOTS {
+            let mut unread = Vec::new();
+            for chunk in missing.chunks(READS_PER_TRANSACTION) {
+                let reader = connected.begin(TENANT, true).await?;
+                for &n in chunk {
+                    let subject = format!("{KILLED_SUBJECTS}{n}");
+                    let stream = connected.read(&reader, &read_of(&reader, &subject)).await?;
+                    let mut rows = Vec::new();
+                    while let Some(batch) = connected.next_batch(&stream, rows_of).await? {
+                        rows.extend(batch);
+                    }
+                    if rows.is_empty() {
+                        unread.push(n);
+                    } else {
+                        assert_eq!(objects(&rows), [OBJECT], "{subject}");
+                    }
+                }
+                connected.abort(reader).await?;
+            }
+            missing = unread;
+            if missing.is_empty() {
+                println!(
+                    "every one of the {} acknowledged commits read back after the restart",
+                    c.acknowledged.len()
+                );
+                return Ok(());
+            }
+            compio::time::sleep(Duration::from_millis(20)).await;
+        }
+        Err(TestError::new(format!(
+            "{} of the {} acknowledged commits never read back, the first {:?}:\n{}",
+            missing.len(),
+            c.acknowledged.len(),
+            missing.first(),
+            c.log
+        )))
+    })
 }

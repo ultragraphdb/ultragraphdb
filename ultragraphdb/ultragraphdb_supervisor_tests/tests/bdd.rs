@@ -1073,6 +1073,18 @@ fn role_under_pid_1(w: &mut Steps) -> TestResult {
     images::roles_run_on_under_pid_1(&w.containers)
 }
 
+#[when(
+    "a client commits through the development container until `docker kill` ends it, and the container starts again"
+)]
+fn development_killed(w: &mut Steps) -> TestResult {
+    images::commit_through_a_kill(&mut w.containers)
+}
+
+#[then("every commit acknowledged before the kill reads back through the restarted container")]
+fn acknowledged_held(w: &mut Steps) -> TestResult {
+    images::every_acknowledged_commit_reads_back(&w.containers)
+}
+
 /// `bdd` runs every feature but those tagged `@image`; `image_bdd` runs those and the ones tagged `@docker`, in Docker, and
 /// says so plainly when no daemon answers, as scrith's container tests skip.
 fn main() -> TestResult {

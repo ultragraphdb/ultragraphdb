@@ -24,8 +24,8 @@ use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
 use ultragraphdb_common_role::{Answer, ParkedBytes, RoleCluster, RoleSecret};
 use ultragraphdb_common_service::Stopping;
 use ultragraphdb_common_storage::{
-    CoreChannels, CoreMessage, CoreParts, FrontendAsk, PartitionCore, Peers, RefillBlocks,
-    Retention, StoragePartition,
+    CoreChannels, CoreMessage, CoreParts, FrontendAsk, LogIo, PartitionCore, Peers, RefillBlocks,
+    Retention, StoragePartition, TimedStorage,
 };
 use ultragraphdb_core_ids::{Epoch, TypePrefix};
 use ultragraphdb_core_mapping::RandomSource;
@@ -501,7 +501,9 @@ async fn core_of<'a>(
     UnboundedReceiver<FrontendAsk>,
 )> {
     let id = partition.id();
-    let (log, _) = Wal::open(CompioStorage, dir, WalConfig::new(CLUSTER, false)).await?;
+    let io = LogIo::default();
+    let storage = TimedStorage::new(CompioStorage, io.clone(), clock);
+    let (log, _) = Wal::open(storage, dir, WalConfig::new(CLUSTER, false)).await?;
     let pipeline = Pipeline::new(
         partition.applier(),
         log,
@@ -521,6 +523,7 @@ async fn core_of<'a>(
     let peers = Peers::new(cluster.clone(), frontend, "storage".to_string(), answers);
     let channels = CoreChannels::new(inbox, remote, own, closes, asks_to, discards);
     let parts = CoreParts::new(host, id, CLUSTER, clock, channels, peers, Retention::new(0))
-        .with_tenants([TENANT]);
+        .with_tenants([TENANT])
+        .with_log_io(io);
     Ok((PartitionCore::new(parts), to_core, asks))
 }

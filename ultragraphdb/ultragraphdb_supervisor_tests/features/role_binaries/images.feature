@@ -25,3 +25,7 @@ Feature: The role-binaries scenarios that need an image
   Scenario: A role whose parent is PID 1 runs on
     When the development image starts, the supervisor at PID 1
     Then the supervisor names process 1 to each role it starts, and every role reaches readiness and stays there
+
+  Scenario: A killed development container keeps every acknowledged commit
+    When a client commits through the development container until `docker kill` ends it, and the container starts again
+    Then every commit acknowledged before the kill reads back through the restarted container

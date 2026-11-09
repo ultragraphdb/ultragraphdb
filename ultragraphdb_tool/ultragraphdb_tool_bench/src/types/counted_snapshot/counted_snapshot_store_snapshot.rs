@@ -18,10 +18,13 @@ impl StoreSnapshot for CountedSnapshot {
     }
 
     fn get(&self, key: &[u8]) -> Result<Option<Item>, StoreError> {
+        self.counts.point_reads_of(1);
         self.inner.get(key)
     }
 
     fn get_many<K: AsRef<[u8]>>(&self, keys: &[K]) -> Result<Vec<Option<Item>>, StoreError> {
+        // A slice's length into a `u64`, lossless.
+        self.counts.point_reads_of(keys.len() as u64);
         self.inner.get_many(keys)
     }
 
