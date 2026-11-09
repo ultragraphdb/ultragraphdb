@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 
 use std::collections::BTreeMap;
@@ -83,6 +83,20 @@ pub struct ClientArgs {
     value_bytes: usize,
 }
 
+/// `address`, a host's IP and a port or a host's name and a port, as the run dials it: a name, a Kubernetes Service's in a bench
+/// Job, resolved once, at start, to its first address.
+fn resolved(address: &str) -> Result<SocketAddr, BenchError> {
+    if let Ok(socket) = address.parse() {
+        return Ok(socket);
+    }
+    let usage = || BenchError::usage(format!("--address takes a host and a port, not {address}"));
+    address
+        .to_socket_addrs()
+        .map_err(|_| usage())?
+        .next()
+        .ok_or_else(usage)
+}
+
 impl ClientArgs {
     /// The run of `args`, the program's name left out: `--address`, `--password-file` and `--op` required.
     ///
@@ -110,11 +124,7 @@ impl ClientArgs {
         let partitions = bounded(&flags, "--partitions", (1, 1), PARTITIONS_MAX)?;
         let relations = bounded(&flags, "--relations", (1, 1), RELATIONS_MAX)?;
         Ok(Self {
-            address: address.parse().map_err(|_| {
-                BenchError::usage(format!(
-                    "--address takes a host's IP and a port, not {address}"
-                ))
-            })?,
+            address: resolved(address)?,
             password_file: PathBuf::from(required("--password-file")?),
             op,
             connections: bounded(&flags, "--connections", (1, 1), CONNECTIONS_MAX)?,

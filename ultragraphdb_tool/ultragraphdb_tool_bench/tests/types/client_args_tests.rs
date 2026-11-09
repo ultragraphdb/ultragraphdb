@@ -170,7 +170,7 @@ fn test_what_cannot_run_is_refused_by_name() {
             "65537",
             "--value-bytes takes at most 65536",
         ),
-        ("--address", "localhost", "a host's IP and a port"),
+        ("--address", "localhost", "a host and a port"),
         ("--connections", "0", "--connections must be at least 1"),
         ("--connections", "1025", "--connections takes at most 1024"),
         ("--relations", "1001", "--relations takes at most 1000"),
@@ -199,4 +199,23 @@ fn test_what_cannot_run_is_refused_by_name() {
             "{missing}"
         );
     }
+}
+
+/// A host's name and a port are resolved at start, as a bench Job dials a Service by its name.
+#[test]
+fn test_an_address_by_name_is_resolved() -> TestResult {
+    let args: Vec<&str> = REQUIRED
+        .iter()
+        .map(|flag| {
+            if *flag == "127.0.0.1:7080" {
+                "localhost:7080"
+            } else {
+                *flag
+            }
+        })
+        .collect();
+    let parsed = parsed(&args)?;
+    assert!(parsed.address().ip().is_loopback(), "{}", parsed.address());
+    assert_eq!(parsed.address().port(), 7080);
+    Ok(())
 }

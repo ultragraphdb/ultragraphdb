@@ -101,6 +101,15 @@ glibc_multiarch_img(
     visibility = ["//visibility:public"],
 )
 
+# `client_bench` on the glibc base the roles ship on, run as a Kubernetes Job against the frontend's client Service
+# (batch-commits-through-the-roles, design D7). Build with `-c opt`; its `oci_tarball` output group loads into `container`.
+glibc_multiarch_img(
+    name = "client_bench_multiarch",
+    binary = ":client_bench",
+    tags = ["bench"],
+    visibility = ["//visibility:public"],
+)
+
 # Loads the glibc image into the local Docker daemon: `bazel run -c opt :wal_bench_glibc_load`.
 image_load(
     name = "wal_bench_glibc_load",

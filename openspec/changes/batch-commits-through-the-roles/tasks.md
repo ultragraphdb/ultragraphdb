@@ -58,9 +58,10 @@
 
 ## 4. The bench and its image → `ultragraphdb_tool_bench`
 
-- [ ] 4.1 `client_bench` takes its password from a file or the environment a Job's Secret provides, and reports the partition's
-  syncs per commit when given the phase log's figures, or the measurement script derives them from the log
-- [ ] 4.2 An image of `client_bench` on the glibc base, tagged `bench` as its binary is, with its `oci_tarball`
+- [x] 4.1 `client_bench` in a Job: its password from the file the bootstrap Secret mounts (`--password-file`, as it was), the
+  frontend's client Service dialled by its name (`--address` resolves a host's name at start, an IP as before); syncs per commit
+  derived by the measurement from the partition's `commit phases` log, whose `commits` and `log_syncs` give them
+- [x] 4.2 An image of `client_bench` on the glibc base, tagged `bench` as its binary is, with its `oci_tarball`
 
 ## 5. The Kubernetes deployment → `deploy/kubernetes/`, `ultragraphdb_config`
 
