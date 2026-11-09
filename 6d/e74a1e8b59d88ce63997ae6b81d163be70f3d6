@@ -1,0 +1,16 @@
+"papers/How to Write to SSD_2603.09927v3.pdf"
+  h_080fb89ca1f0c4 1-15347
+"papers/The Bi-Channel Networking Paradigm-2606.19969v1.pdf"
+  h_080fb89ca1f0c4 1-7783
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6de74a1e8b59d88ce63997ae6b81d163be70f3d6",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
