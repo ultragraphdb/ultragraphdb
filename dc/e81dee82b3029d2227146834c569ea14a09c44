@@ -1,0 +1,81 @@
+openspec/changes/batch-commits-through-the-roles/design.md
+  s_6c9dcf457e80d9::t_df74d61f39f62d 285,299-317
+openspec/changes/batch-commits-through-the-roles/notes/group-6.md
+  s_6c9dcf457e80d9::t_dbcf0c7e0c9fcb 236-250
+openspec/changes/batch-commits-through-the-roles/specs/client-endpoint/spec.md
+  s_6c9dcf457e80d9::t_8ba2c1822e1f35 1-30
+openspec/changes/batch-commits-through-the-roles/specs/role-binaries/spec.md
+  s_6c9dcf457e80d9::t_e8a429ba6995b5 10-12
+openspec/changes/batch-commits-through-the-roles/tasks.md
+  s_6c9dcf457e80d9::t_d63c9f96ee4e67 119-122
+openspec/notes/SECURITY.md
+  s_6c9dcf457e80d9::t_57e79876af2e99 134-140
+specification/binary_protocol/PROTOCOL.md
+  s_6c9dcf457e80d9::t_b79b0b753362dc 1633-1635,1957-1959
+ultragraphdb/ultragraphdb_frontend/src/service.rs
+  s_6c9dcf457e80d9::t_b187f04ca4cb5a 14-15,131,301-318,382-383,442-444,446-450
+ultragraphdb_common/ultragraphdb_common_config_check/src/utils/cross_checks.rs
+  s_6c9dcf457e80d9::t_43065336c7d030 274-276,296-316
+ultragraphdb_common/ultragraphdb_common_config_check/tests/utils/cross_checks_tests.rs
+  s_6c9dcf457e80d9::t_3d6b0a09568f52 335-353
+ultragraphdb_common/ultragraphdb_common_frontend/src/lib.rs
+  s_6c9dcf457e80d9::t_8b5621622839af 29
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/asked.rs
+  s_6c9dcf457e80d9::t_cf54487c523445 13,89-90
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/auth_throttle/mod.rs
+  s_6c9dcf457e80d9::t_6b6df257c5d355 7,10-12,15,18-19,21-23,25,27,29,32-35,38-39,43,45,47-48,52,54-60,64-65,67-72,76-85,89,91-96,99-106,109-116,119-120,122-123,126-128
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_session.rs
+  s_6c9dcf457e80d9::t_32a7a48fb9dc7a 8,21-23,25-29,33-34,40,47
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/endpoint_core.rs
+  s_6c9dcf457e80d9::t_a91d3d0253c9f8 6,19,96-102
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/login_asked.rs
+  s_6c9dcf457e80d9::t_8fb11e199ca6a8 1-43
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/login_limits.rs
+  s_6c9dcf457e80d9::t_e27b348b7a424f 1-62
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/mod.rs
+  s_6c9dcf457e80d9::t_28602ec3767577 24-25
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/owner/mod.rs
+  s_6c9dcf457e80d9::t_49495f294cd13f 26,84-85,166
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/owner/owner_answer.rs
+  s_6c9dcf457e80d9::t_7f57303898d99d 6-8,21-22,52,155-191
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/owner_handle.rs
+  s_6c9dcf457e80d9::t_94e29a9d65f92f 6-8,19,141-162,164-175
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/owner_start.rs
+  s_6c9dcf457e80d9::t_b4a9430186dcae 9-10,19,32,36-48
+ultragraphdb_common/ultragraphdb_common_frontend/tests/bdd.rs
+  s_6c9dcf457e80d9::t_be7e6798456299 107,109
+ultragraphdb_common/ultragraphdb_common_frontend/tests/endpoint_steps_requests.rs
+  s_6c9dcf457e80d9::t_5b3ba68d5384eb 2127,2129
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/auth_throttle_tests.rs
+  s_6c9dcf457e80d9::t_93d1b0c2b150a2 9,13-18,28-29,32-34,37,39-44,46-54,57-58,60-61,63-65,67-69,71-80,83,85-86,88-89,91-94,97,99-103,105-107,109-112,115,117-124,126,129,131-135
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/client_session_tests.rs
+  s_6c9dcf457e80d9::t_b220dbc1679903 7,13-15,41,44-46,69-77,81,156-157,159-160,164,166-167,173-189,191-197,199-207
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/owner/mod.rs
+  s_6c9dcf457e80d9::t_916cc1bf482c20 143,145
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/owner_tests.rs
+  s_6c9dcf457e80d9::t_30660a0768ff80 256
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/role_session_tests.rs
+  s_6c9dcf457e80d9::t_80ddcf72f5e2e9 498-503
+ultragraphdb_common/ultragraphdb_common_service_config/src/types/endpoint_table/mod.rs
+  s_6c9dcf457e80d9::t_b432693207c5c9 19-21,36-40,81,83-96
+ultragraphdb_common/ultragraphdb_common_service_config/tests/types/service_config/service_config_tests.rs
+  s_6c9dcf457e80d9::t_1138ce4c1b3dcd 27-29,77-79
+doc/web_drafts/blog_why.md
+  s_6c9dcf457e80d9::t_1a3e1963debc1a 1-170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dce81dee82b3029d2227146834c569ea14a09c44",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
