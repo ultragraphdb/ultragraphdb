@@ -90,11 +90,6 @@ Stage 5.5 measured `wal_bench` on the VM disk and the three binaries through the
 *Stage 5.5 on the VM disk (2026-11-08)* and *A commit's phases through the binaries (experiment X1)*; the archived
 change's `notes/group-12.md`, 12.5 and 12.5b). Each question below names the figure it rests on.
 
-- **Batching.** Every commit through the binaries has a log sync of its own, and one partition commits at most about 1,300
-  a second with no thread busy: a partition takes one request per turn from the frontend's one connection to it, and at
-  16 connections 17.2 ms of a 19.9 ms commit waits before the core. Does a connection hand over several requests within
-  its parked-bytes bound, does the core take its inbox while the sync is in flight, or does the frontend open several
-  connections per partition?
 - **The owner's sync.** The frontend's checks wait on the owner's sync of an epoch close; epochs of 50 to 100 ms in place
   of 2 to 10 ms take a one-relation commit from 3.93 to 2.69 ms. Does the owner answer asks that read nothing unsynced
   ahead of its sync, or does the endpoint cache a tenant's facts between closes?

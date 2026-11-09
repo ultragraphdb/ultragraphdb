@@ -340,6 +340,43 @@ during a commit's stay in every run.)
   274 (198–380) a second at one connection and 559 (297–786) at 16, against 235 (199–619) and 803 (438–1,125) with it,
   inside each other's spread.
 
+#### Commits batched through the binaries (batch-commits-through-the-roles)
+
+The change `batch-commits-through-the-roles`, 2026-11-09, answers X1's one sync per commit. A storage connection hands its
+partition's core every request it reads, bounded by the connection's parked bytes, and the core pushes each answer as it is
+given; the commits one turn takes from the inbox share one round and one sync (`commit-rounds`, *Commits a turn takes together
+share one round*); the frontend serves clients on an endpoint core per CPU. Its `notes/group-6.md` holds every run; medians of
+three, the range in parentheses.
+
+One partition, one relation a commit, a fresh cluster, the roles on one `container` machine, the frontend still on one core (6.4):
+
+| Connections | Commits/s | p50 ms | Commits a sync | Share of in-process |
+|---|---|---|---|---|
+| 16 | 9,915 | 1.47 | 6.6 | 68% |
+| 64 | 14,005 | 4.27 | 23.0 | 97% |
+| 256 | 15,371 | 14.86 | 64.3 | 106% |
+
+X1's 803 a second at 16 connections becomes 9,915 on that machine, and one partition reaches its in-process rate at 64
+connections. Six partitions with storage alone on 6 CPUs, the frontend and compute on 6, the clients on 2, every role over
+TCP (6.8, the in-process rate `wal_bench` on the storage machine):
+
+| Relations | Connections | Commits/s | Relations/s | p50 ms | Commits a sync | Share of in-process |
+|---|---|---|---|---|---|---|
+| 1 | 256 | 32,658 (32,362–33,670) | 32,658 | 6.7 | 13.7 | 38% |
+| 1 | 1,024 | 41,515 (40,306–41,865) | 41,515 | 14.9 | 28.8 | 48% |
+| 10 | 256 | 9,939 (9,863–10,027) | 99,390 | 18.0 | 8.8 | 86% |
+| 10 | 1,024 | 10,679 (10,567–10,882) | 106,790 | 62.8 | 22.8 | 93% |
+
+On the same layout a single client commits 411 (396–448) a second, p50 2.24 ms, p90 3.42 ms, p99 4.96 ms: about 1.0 ms in
+storage (the log's write 0.21 ms and sync 0.35 ms), 0.6 ms between the frontend and storage, 0.5 ms between the client and
+the frontend, 0.1 ms in the frontend's checks.
+
+- **At one relation a commit the rest of the gap is storage's.** No role is busy: a partition's core alternates its own
+  work, about 2.3 ms a round of 29 commits, with its log's write and sync, about 1.3 ms. 24.5% of storage's samples load
+  and checksum a store block for a term's lookup (xxhash), which the in-process rate pays as well.
+- **The core's wait in its sync is what fills a round.** Executing the next round while one syncs ran 7 to 17% below
+  inline syncs at every point: a sync's commits halved, its syncs doubled, each slower (0.7 to 1.8 ms). It was reverted.
+
 #### Turns, pins, bound walks, the frontend's memory and readers' aborts through the binaries
 
 Task 12.5b's third runs, 2026-11-09, 00:56 to 02:17 UTC, on the same VM and disk, with part 2's role binaries and the

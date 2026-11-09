@@ -308,6 +308,29 @@ frontend, 0.1 ms in the frontend's checks. 6.1's single client, 2,330 commits a 
 a log sync of 115 µs; here each request crosses two machines' virtual network twice and the storage machine's sync takes three times
 as long. Sixteen clients see a lower median than one; not chased.
 
-## Still open for 6.5
+## 6.9 The frontend's cost a commit: profiled, no cut (the owner, 2026-11-09)
 
-The Shard-per-Core note beside X1's figures and backlog item 18's *Batching* bullet, once the owner has decided on the frontend.
+The frontend bounds neither figure 6.9 is kept on. At 1,024 connections its endpoint cores take 155% of its 600% while about 340
+requests wait ahead of storage's six cores (6.8), so a cheaper frontend leaves the commits a second where they are. Its whole checks
+phase is 115 µs of one client's 2.2 ms (5%) and 611 µs of the 14.9 ms median at 1,024 connections (4%); one client's median varies
+from 2,039 to 2,302 µs between runs, so even checks costing nothing stay within the spread. The profile (6.8) shows no symbol above
+4.5%: the timer armed per request 4.5%, SipHash in the wire crate 2.5%, `session_principal` on the owner 2.3%, allocation about 3%.
+
+Each DirectWrite with a session asks the owner twice, one after the other: the gate's `tenant_facts`, then `begin_commit`, with
+`commit_ended` sent once it is answered. One ask holding the tenant, the token and the session would save a cross-thread round trip
+a write, tens of microseconds; it belongs with 7.5, which takes the owner's asks off the commit path. The owner closed 6.9 without a
+cut.
+
+## 6.4 Closed
+
+The shares far below the in-process rate have their causes. The data a cluster keeps (1) goes to 7.2. The frontend's one endpoint
+runtime (3) was fixed by D14. Like for like (6.8) ten relations a commit reach 86 to 93% of the in-process rate and one relation 38
+to 48%, every role below its CPUs. What remains at one relation is storage's: a partition's core alternates its own work, about
+2.3 ms a round, with its log's write and sync, about 1.3 ms, and 24.5% of storage's samples load and checksum a store block for a
+term's lookup. Executing the next round during the sync (6.11) halved a sync's commits and was reverted; pinning fjall's
+filter and index blocks moved nothing (dropped, above). The core's own work is group 7's (7.1 to 7.4), the store's block reads roadmap stage 6.5's.
+
+## 6.5 Recorded
+
+These notes; the Shard-per-Core note's *Commits batched through the binaries*, beside X1; backlog item 18's *Batching* bullet closed
+by it.

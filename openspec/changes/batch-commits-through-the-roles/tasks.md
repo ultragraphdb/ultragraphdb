@@ -124,11 +124,12 @@
   WAL's, the pipeline's and the host's; `PartitionCore::run` waiting on its sync and its inbox together; tests of a detached sync,
   of requests executed during a held sync, and of a stop during one; measured as 6.8, kept on its figures. Measured 7% to 17%
   below inline syncs, half the commits a sync: reverted (`notes/group-6.md`)
-- [ ] 6.9 The frontend's cost a commit profiled (`ultragraphdb_frontend_profile`, a symbol build as storage's) and cut, each change
-  kept only where 6.8's figures rise outside their spread
-- [ ] 6.4 Any share of the in-process rate far below it chased to its cause (design D9): the phase that grows or the time no phase
+- [x] 6.9 The frontend's cost a commit profiled (`ultragraphdb_frontend_profile`, a symbol build as storage's) and cut, each change
+  kept only where 6.8's figures rise outside their spread. Profiled; no cut: the frontend bounds neither figure, its checks 4 to 5%
+  of a commit's latency; the owner closed it (`notes/group-6.md`)
+- [x] 6.4 Any share of the in-process rate far below it chased to its cause (design D9): the phase that grows or the time no phase
   accounts for, profiled with the symbol builds where the phases stop short, and fixed here or brought to the owner with its figures
-- [ ] 6.5 The results in `notes/group-6.md`, the Shard-per-Core note beside X1's figures, and backlog item 18's *Batching* bullet
+- [x] 6.5 The results in `notes/group-6.md`, the Shard-per-Core note beside X1's figures, and backlog item 18's *Batching* bullet
   closed with what this change built and measured
 
 ## 7. Performance keeping the guarantees
