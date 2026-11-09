@@ -14,7 +14,6 @@ mod utils;
 
 pub use crate::types::compute_core::ComputeCore;
 pub use crate::types::compute_session::ComputeSession;
-pub use crate::types::core_listener::CoreListener;
 pub use crate::types::frontier::Frontier;
 pub use crate::types::lookup_at::LookupAt;
 pub use crate::types::read_times::ReadTimes;

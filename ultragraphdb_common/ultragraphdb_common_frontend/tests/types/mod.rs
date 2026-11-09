@@ -9,6 +9,8 @@ mod auth_throttle_tests;
 #[cfg(test)]
 mod client_session_tests;
 #[cfg(test)]
+mod join_fan_out_tests;
+#[cfg(test)]
 mod membership_tests;
 #[cfg(test)]
 mod one_frame_phases_tests;

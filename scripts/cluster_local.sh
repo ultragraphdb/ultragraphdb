@@ -6,7 +6,9 @@
 # The roles on a local Kubernetes cluster of Apple's `container` (macOS on Apple silicon), deployed from the Helm chart
 # `deploy/helm/ultragraphdb`:
 #
-#   cluster_local.sh up [--cpus N] [--memory SIZE]   creates the cluster when absent, builds and loads the images, deploys, waits
+#   cluster_local.sh up [--cpus N] [--memory SIZE] [--partitions N]
+#                                                     creates the cluster when absent, builds and loads the images, deploys, waits;
+#                                                     a node of N CPUs, the storage instance holding N partitions
 #   cluster_local.sh bench [client_bench arguments]   runs client_bench as a Job inside the cluster and prints its JSON line
 #   cluster_local.sh status                           the cluster, its nodes, the pods and the I/O driver each role runs on
 #   cluster_local.sh down                             deletes the cluster
@@ -105,8 +107,9 @@ create_cluster() {
   local cpus="$1" memory="$2"
   mkdir -p "${STATE}"
   echo "Creating the cluster ${CLUSTER}: ${cpus} CPUs, ${memory} memory"
+  # `container` 1.7.1 gives a node one CPU more than --cpus asks for.
   KUBECONFIG="${STATE}/kubeconfig" container cluster create --name "${CLUSTER}" --shared-image-store \
-    --cpus "${cpus}" --memory "${memory}"
+    --cpus "$((cpus - 1))" --memory "${memory}"
   kube apply -f /kind/manifests/default-storage.yaml
 }
 
@@ -173,12 +176,13 @@ report() {
 }
 
 up() {
-  local cpus=12 memory=16g
+  local cpus=12 memory=16g partitions=1
   while [ $# -gt 0 ]; do
     case "$1" in
       --cpus) cpus="$2"; shift 2 ;;
       --memory) memory="$2"; shift 2 ;;
-      *) fail "up takes --cpus and --memory, not $1" ;;
+      --partitions) partitions="$2"; shift 2 ;;
+      *) fail "up takes --cpus, --memory and --partitions, not $1" ;;
     esac
   done
   build_and_load
@@ -193,7 +197,7 @@ up() {
   forget_node_images
   node_sh "kubectl get namespace ${NAMESPACE} >/dev/null 2>&1 || kubectl create namespace ${NAMESPACE}" </dev/null
   create_secrets
-  render --set secrets.create=false | kube apply -f -
+  render --set secrets.create=false --set partitions="${partitions}" | kube apply -f -
   if [ "${existed}" = true ]; then
     # The images keep their names across a rebuild, so the pods start again to run the ones just loaded.
     kube -n "${NAMESPACE}" rollout restart "${WORKLOADS[@]}"

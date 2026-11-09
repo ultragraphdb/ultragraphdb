@@ -8,6 +8,8 @@ mod admin_service_tests;
 #[cfg(test)]
 mod bootstrap_tests;
 #[cfg(test)]
+mod core_listener_tests;
+#[cfg(test)]
 mod cpu_binding_tests;
 #[cfg(test)]
 mod health_service_tests;

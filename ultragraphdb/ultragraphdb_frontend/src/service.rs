@@ -11,14 +11,15 @@ use compio::runtime::spawn;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
-    AskedCredentials, ClientSession, EndpointCore, EndpointLimits, EveryAuthenticated, OwnerStart,
-    RoleLinks, RoleSession, RoleShared, TenantGate, start_owner,
+    AskedCredentials, AuthThrottle, ClientSession, CoreJoins, EndpointCore, EndpointLimits,
+    EveryAuthenticated, JoinFanOut, OwnerHandle, OwnerStart, RoleLinks, RoleSession, RoleShared,
+    TenantGate, start_owner,
 };
 use ultragraphdb_common_role::{
     ConnectionBound, OpenRequests, ROLE_ITERATIONS, RoleCluster, RoleCredentials, Server,
     finish_open, listen, serve_connection,
 };
-use ultragraphdb_common_service::{Readiness, RoleStart, Stopping};
+use ultragraphdb_common_service::{CoreListener, Readiness, RoleStart, Stopping, core_runtime};
 use ultragraphdb_common_service_config::{EndpointSecurity, EndpointTable, ServiceConfig};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{AUTHENTICATION_TIMEOUT, Endpoint};
@@ -39,9 +40,9 @@ const SCAN_STALL_MS_DEFAULT: u64 = 30_000;
 const CONNECTIONS_MAX_DEFAULT: u32 = 4_096;
 
 /// The frontend role: it recovers its owner, then listens at `[frontend] role_address` for the roles joining and at
-/// `[endpoint] address`, when set, for clients, over TLS 1.3 or clear text as the table says. It is ready once it has connected
-/// back to a partition, and runs until its owner stops or the service does, when it stops accepting connections and finishes its
-/// open requests.
+/// `[endpoint] address`, when set, for clients, over TLS 1.3 or clear text as the table says, on an endpoint core per CPU (design
+/// D14). It is ready once it has connected back to a partition, and runs until its owner stops or the service does, when every
+/// core stops accepting connections and the open requests are finished.
 ///
 /// # Errors
 ///
@@ -76,13 +77,20 @@ pub(crate) async fn frontend_role(
     let roles = Server::new(cluster.id(), "frontend", Endpoint::Frontend)?
         .with_iterations(ROLE_ITERATIONS)
         .with_open(open.clone());
-    let links = RoleLinks::new(cluster.clone(), "frontend".to_string())
-        .with_dial_ms(endpoint_limits(config).transaction_ms());
-    if let Some(map) = handle.map().await {
-        links.set_map(map);
-    }
+    let links = core_links(&cluster, config, &handle).await;
+    let clients = match config.endpoint().address() {
+        Some(address) => {
+            Some(Clients::bind(config, address, cluster.id(), unknown_secret, &open).await?)
+        }
+        None => None,
+    };
+    let cores = match &clients {
+        Some(clients) => start_cores(config, &cluster, &handle, clients, &stopping)?,
+        None => JoinFanOut::new(),
+    };
     let listening = readiness.clone();
-    let shared = RoleShared::new(cluster.clone(), handle.clone(), links.clone(), readiness);
+    let shared = RoleShared::new(cluster.clone(), handle.clone(), links.clone(), readiness)
+        .with_cores(cores);
     let mut reporting = None;
     let mut accepting = vec![spawn(accept_roles(
         listen(role_address).await?,
@@ -90,23 +98,15 @@ pub(crate) async fn frontend_role(
         credentials,
         shared,
     ))];
-    if let Some(address) = config.endpoint().address() {
-        let security = config
-            .endpoint()
-            .security()
-            .map_err(|error| RoleError::configuration(error.to_string()))?;
-        let core = EndpointCore::new(
-            handle,
-            links,
-            TenantGate::new(EveryAuthenticated),
-            endpoint_limits(config),
-        )
-        .with_open(open.clone());
-        let clients =
-            client_server(cluster.id(), config.endpoint(), unknown_secret)?.with_open(open.clone());
-        let listener = listen(address).await?;
+    if let Some(clients) = clients {
+        let core = clients.core(handle, links, 0);
         reporting = Some(core.clone());
-        accepting.push(spawn(accept_clients(listener, clients, core, security)));
+        accepting.push(spawn(accept_clients(
+            clients.listener.on_this_core()?,
+            clients.server,
+            core,
+            clients.security,
+        )));
     }
     listening.set_listening();
     // What the owner made durable it answered for, so a stop leaves nothing to flush but the answers on their way.
@@ -125,6 +125,171 @@ pub(crate) async fn frontend_role(
     }
     let _left = finish_open(accepting, &open, FINISH_LIMIT).await;
     Ok(())
+}
+
+/// What every endpoint core serves its clients with: its handle of the client socket, the server, the transport's security, the
+/// limits, the authentication throttle the cores share and the count of open requests a stop waits on.
+struct Clients {
+    listener: CoreListener,
+    server: Server,
+    security: EndpointSecurity,
+    limits: EndpointLimits,
+    throttle: AuthThrottle,
+    open: OpenRequests,
+}
+
+impl Clients {
+    /// The endpoint at `address`, bound once for every core.
+    async fn bind(
+        config: &ServiceConfig,
+        address: &str,
+        cluster: u64,
+        unknown_secret: [u8; 32],
+        open: &OpenRequests,
+    ) -> Result<Self, RoleError> {
+        let security = config
+            .endpoint()
+            .security()
+            .map_err(|error| RoleError::configuration(error.to_string()))?;
+        let limits = endpoint_limits(config);
+        Ok(Self {
+            listener: CoreListener::bind(address).await?,
+            server: client_server(cluster, config.endpoint(), unknown_secret)?
+                .with_open(open.clone()),
+            security,
+            limits,
+            throttle: AuthThrottle::new(limits.refusal_interval()),
+            open: open.clone(),
+        })
+    }
+
+    /// The same endpoint for another core, on its own handle of the socket.
+    fn another(&self) -> Result<Self, RoleError> {
+        Ok(Self {
+            listener: self.listener.another()?,
+            server: self.server.clone(),
+            security: self.security.clone(),
+            limits: self.limits,
+            throttle: self.throttle.clone(),
+            open: self.open.clone(),
+        })
+    }
+
+    /// Endpoint core `core`, asking `owner` and reaching the roles through `links`.
+    fn core(
+        &self,
+        owner: OwnerHandle,
+        links: RoleLinks,
+        core: usize,
+    ) -> EndpointCore<EveryAuthenticated> {
+        EndpointCore::new(
+            owner,
+            links,
+            TenantGate::new(EveryAuthenticated),
+            self.limits,
+        )
+        .with_open(self.open.clone())
+        .with_core(core)
+        .with_throttle(self.throttle.clone())
+    }
+}
+
+/// What an endpoint core past the first starts on its thread with.
+struct CoreStart {
+    config: ServiceConfig,
+    cluster: RoleCluster,
+    owner: OwnerHandle,
+    clients: Clients,
+    stopping: Stopping,
+    joins: CoreJoins,
+    core: usize,
+}
+
+/// A core's links to the other roles, dialling as the frontend, holding the owner's placement map.
+async fn core_links(
+    cluster: &RoleCluster,
+    config: &ServiceConfig,
+    owner: &OwnerHandle,
+) -> RoleLinks {
+    let links = RoleLinks::new(cluster.clone(), "frontend".to_string())
+        .with_dial_ms(endpoint_limits(config).transaction_ms());
+    if let Some(map) = owner.map().await {
+        links.set_map(map);
+    }
+    links
+}
+
+/// Starts an endpoint core on each CPU the process may use but the first, the service's own; what reaches them every role
+/// that joins.
+fn start_cores(
+    config: &ServiceConfig,
+    cluster: &RoleCluster,
+    owner: &OwnerHandle,
+    clients: &Clients,
+    stopping: &Stopping,
+) -> Result<JoinFanOut, RoleError> {
+    let mut cores = JoinFanOut::new();
+    for core in 1..std::thread::available_parallelism().map_or(1, usize::from) {
+        let start = CoreStart {
+            config: config.clone(),
+            cluster: cluster.clone(),
+            owner: owner.clone(),
+            clients: clients.another()?,
+            stopping: stopping.clone(),
+            joins: cores.add_core(),
+            core,
+        };
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a core is a real thread, which no simulation replays"
+        )]
+        let spawned = std::thread::Builder::new()
+            .name(format!("frontend-{core}"))
+            .spawn(move || {
+                let served = core_runtime(&start.config, core).map(|(runtime, _cpu)| {
+                    runtime.block_on(serve_core(start));
+                });
+                if let Err(error) = served {
+                    tracing::error!(core, %error, "an endpoint core did not start");
+                }
+            });
+        drop(spawned.map_err(|error| RoleError::unavailable(format!("a core's thread: {error}")))?);
+    }
+    Ok(cores)
+}
+
+/// Serves clients on this core until the service stops, then stops accepting and waits for the open requests, as core 0 does.
+///
+/// A future dropped at a wait, as its runtime's end drops it, leaves the core's connections to that end.
+async fn serve_core(start: CoreStart) {
+    let CoreStart {
+        config,
+        cluster,
+        owner,
+        clients,
+        stopping,
+        joins,
+        core,
+    } = start;
+    let links = core_links(&cluster, &config, &owner).await;
+    spawn(joins.follow(links.clone())).detach();
+    let endpoint = clients.core(owner, links, core);
+    let listener = match clients.listener.on_this_core() {
+        Ok(listener) => listener,
+        Err(error) => return tracing::error!(core, %error, "an endpoint core does not listen"),
+    };
+    let accepting = spawn(accept_clients(
+        listener,
+        clients.server,
+        endpoint.clone(),
+        clients.security,
+    ));
+    while !stopping.is_stopping() {
+        // The phases of the writes the core relays, logged as they fall due.
+        endpoint.report_phases();
+        compio::time::sleep(OWNER_POLL).await;
+    }
+    let _left = finish_open(vec![accepting], &clients.open, FINISH_LIMIT).await;
 }
 
 /// What bounds a client connection, as the settings say.

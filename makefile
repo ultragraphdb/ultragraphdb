@@ -19,7 +19,7 @@ help:
 	@echo '    make test   	Tests across all crates.'
 	@echo ''
 	@echo ' Local Kubernetes (Apple container, macOS on Apple silicon):'
-	@echo '    make cluster-local   	Creates the cluster, loads the images and deploys deploy/helm/ultragraphdb (CPUS=12 MEMORY=16g).'
+	@echo '    make cluster-local   	Creates the cluster, loads the images and deploys deploy/helm/ultragraphdb (CPUS=12 MEMORY=16g PARTITIONS=1).'
 	@echo '    make cluster-local-bench	Runs client_bench as a Job in the cluster (BENCH="--op direct --connections 16 --seconds 20").'
 	@echo '    make cluster-local-status	Shows the cluster, its pods and the I/O driver each role runs on.'
 	@echo '    make cluster-local-down	Deletes the cluster.'
@@ -58,11 +58,12 @@ update:
 
 CPUS ?= 12
 MEMORY ?= 16g
+PARTITIONS ?= 1
 BENCH ?=
 
 .PHONY: cluster-local
 cluster-local:
-	@source scripts/cluster_local.sh up --cpus $(CPUS) --memory $(MEMORY)
+	@source scripts/cluster_local.sh up --cpus $(CPUS) --memory $(MEMORY) --partitions $(PARTITIONS)
 
 .PHONY: cluster-local-bench
 cluster-local-bench:

@@ -18,6 +18,7 @@ use ultragraphdb_protocol_wire::{
     RequestTermView, RoleKind, SubscribeView,
 };
 
+use crate::types::join_fan_out::JoinFanOut;
 use crate::types::owner_handle::OwnerHandle;
 use crate::types::report_asked::ReportAsked;
 use crate::types::role_links::RoleLinks;
@@ -25,13 +26,15 @@ use crate::types::role_links::RoleLinks;
 /// How long a failed connection back waits before the next.
 const RETRY: std::time::Duration = std::time::Duration::from_millis(100);
 
-/// What a frontend's role connections share on their core: the connections back, and its readiness.
+/// What a frontend's role connections share on their core: the connections back, its readiness, and the way each other
+/// endpoint core hears of a role that joined.
 #[derive(Debug, Clone)]
 pub struct RoleShared {
     cluster: RoleCluster,
     owner: OwnerHandle,
     links: RoleLinks,
     readiness: Readiness,
+    cores: JoinFanOut,
 }
 
 impl RoleShared {
@@ -48,7 +51,16 @@ impl RoleShared {
             owner,
             links,
             readiness,
+            cores: JoinFanOut::new(),
         }
+    }
+
+    /// What the core's role connections share, each `Join` they register also sent to the other endpoint cores over `cores`,
+    /// so every core routes to what joined (design D14).
+    #[must_use]
+    pub fn with_cores(mut self, cores: JoinFanOut) -> Self {
+        self.cores = cores;
+        self
     }
 }
 
@@ -81,6 +93,7 @@ impl RoleSession {
         let join = joined(&view);
         self.shared.owner.join(join.clone()).await?;
         self.shared.links.joined(&join);
+        self.shared.cores.send(&join);
         spawn(connect_back(
             self.shared.clone(),
             join.address().to_string(),

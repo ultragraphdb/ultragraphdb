@@ -10,6 +10,9 @@ images:
   bench: ultragraphdb/client_bench:local
 imagePullPolicy: IfNotPresent
 
+# The partitions the storage instance holds and the frontend places across, one core each.
+partitions: 1
+
 # The cluster's DNS domain, which the role addresses end in.
 clusterDomain: cluster.local
 

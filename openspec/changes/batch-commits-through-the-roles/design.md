@@ -263,6 +263,42 @@ spread keeps and finishes it, in turn; anything else takes it out again, with it
 graph storage engine: KV stores suit a graph's adjacency poorly, and building on one served the architecture until now
 (owner, 2026-11-09).
 
+### D14. The frontend serves clients on every core (owner's decision, 2026-11-09)
+
+Group 6 found the frontend's one endpoint runtime the cluster's ceiling: 98.8% of a core relaying every client's frames, about
+27 µs a one-frame write, near 37,000 single-relation commits a second whatever the partitions or the clients, while twelve
+partition cores ran at 23% each (`notes/group-6.md`, 6.4). `role-binaries` has each role run one runtime per core it uses; the
+frontend used one for its whole client path. The owner chose to fix it in this change.
+
+- The frontend runs an endpoint core per CPU the process may use, as compute runs a compute core per CPU: core 0 on the service's
+  runtime, each other on a thread of its own with its runtime (`core_runtime`, pinned when `pin_cores` asks). The client listener
+  is bound once and each core accepts on a handle of the same socket (`CoreListener`, moved from `ultragraphdb_common_compute` to
+  `ultragraphdb_common_service` so the frontend need not depend on compute's crate); the kernel spreads connections over them,
+  and a connection's requests stay on its core.
+- Each core holds what its sessions share on one thread: its `EndpointCore`, its `RoleLinks` with the placement map read from the
+  owner at its start, its tenant gate, and the phases of the writes it relays, logged with its core's number. Each core dials its
+  own role link to each partition and compute process, so a partition takes one role connection per frontend core.
+- The role listener, the connections back and readiness stay on core 0. A `Join` reaches every other core's `RoleLinks` by
+  message, an unbounded channel per core drained by a task of that core, so every core routes to what has joined.
+- Every core stops accepting when the service stops, and its runtime stays up until the open requests a stop waits on are
+  answered.
+- The failed-authentication throttle stays one for the frontend: `SECURITY.md` refuses a principal from every source after 100
+  consecutive failures, which a throttle per core would weaken by the cores' count. It becomes an `Arc<Mutex>` locked once per
+  authentication, never per request. Atomics cannot hold its two maps, and asking the owner would add a hop to every login; the
+  lock departs from the preference for lock-free state, and the owner may overrule it.
+- A core's thread is spawned as compute's and storage's are, with the same `clippy::disallowed_methods` expectation and reason.
+- **The target (owner, 2026-11-09):** as close to the in-process 127,695 relations a second at 12 partitions as the roles can come,
+  measured like for like: storage alone on 12 CPUs, as `wal_bench`'s partitions had them, and the frontend, its owner, compute and
+  the clients on CPUs of their own, over the network; the figure with every role on one 12-CPU machine is reported beside it.
+  The CPU per commit measured at 33,649 commits a second, about 81 µs on the partitions, 29 µs on the frontend's endpoint thread
+  and 3 µs on its owner, puts one 12-CPU machine near 106,000 commits a second at best, so the shared figure also waits on group 7.
+  Spreading the frontend over cores lifts its one thread's cap; its 29 µs a commit is then profiled (a symbol build of the frontend,
+  as storage has) and cut, each change kept on its figures. `client_bench` is one thread, so a run toward the target uses several.
+- **The layout on this Mac (owner, 2026-11-09):** its 16 cores hold no 12 for storage beside the frontend's, so the comparison is
+  made at 6 partitions: storage alone on a 6-CPU `container` machine, the frontend with its owner, the config service and compute
+  on another of 6, the clients on a third of 2, two cores left to macOS (`--cpus 5` and `--cpus 1`, as `container` gives one CPU
+  more than asked). The target is `wal_bench`'s rate at 6 partitions on the storage machine itself, its CPUs and disk.
+
 ## Risks / Trade-offs
 
 - [The frontend reads a storage connection's replies one at a time (`RoleClient`'s pool of one buffer), and a round now answers

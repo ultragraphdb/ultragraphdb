@@ -13,6 +13,7 @@ mod utils;
 
 pub use crate::types::admin_service::AdminService;
 pub use crate::types::bootstrap::{Bootstrap, PARENT_PID};
+pub use crate::types::core_listener::CoreListener;
 pub use crate::types::cpu_binding::CpuBinding;
 pub use crate::types::health_service::HealthService;
 pub use crate::types::inbox_turn::InboxTurn;

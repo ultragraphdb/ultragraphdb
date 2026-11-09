@@ -49,6 +49,21 @@ impl<A: Authorizer> EndpointCore<A> {
         }
     }
 
+    /// The core numbered `core` among the frontend's endpoint cores, which its phases' log names.
+    #[must_use]
+    pub fn with_core(mut self, core: usize) -> Self {
+        self.phases = self.phases.with_core(core);
+        self
+    }
+
+    /// The core sharing `throttle` with the frontend's other endpoint cores, so failed authentications count across them all
+    /// (design D14).
+    #[must_use]
+    pub fn with_throttle(mut self, throttle: AuthThrottle) -> Self {
+        self.throttle = throttle;
+        self
+    }
+
     /// The core counting what its sessions relay and have not yet answered in `open`, the count its connections' server keeps,
     /// so a stop waits for those answers too.
     #[must_use]

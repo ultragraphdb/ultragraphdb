@@ -6,10 +6,11 @@
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::UnixListener;
 
-use ultragraphdb_common_service::bind_tcp;
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Scheme};
 use ultragraphdb_protocol_transport_compio::Listener;
+
+use crate::utils::listen::bind_tcp;
 
 /// Mode 0600: a role's socket opens to the user the roles run as (`PROTOCOL.md` §11.12).
 const SOCKET_MODE: u32 = 0o600;

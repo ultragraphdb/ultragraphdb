@@ -3,10 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 /// The first failure's delay on the next attempt from its address.
@@ -31,14 +30,15 @@ struct NameFailures {
     refused_until: Option<Instant>,
 }
 
-/// Repeated failed authentications, on one core, by source address and by name: each failure doubles what the next attempt
-/// waits, and a success forgets them. An address's owes nothing to the name tried, so it tells a prober nothing of it; a name's
+/// Repeated failed authentications, on every endpoint core of the frontend, by source address and by name: each failure doubles
+/// what the next attempt waits, and a success forgets them. The cores share one throttle, so a prober's connections spread over
+/// them count as one prober's; each table is locked once per authentication, never per request (design D14). An address's owes nothing to the name tried, so it tells a prober nothing of it; a name's
 /// count holds for a name no principal holds, so it tells nothing either. A name past `NAME_FAILURES_MAX` is refused from every
 /// source until its interval ends on its own (`SECURITY.md`).
 #[derive(Debug, Clone)]
 pub struct AuthThrottle {
-    failures: Rc<RefCell<HashMap<IpAddr, u32>>>,
-    names: Rc<RefCell<HashMap<String, NameFailures>>>,
+    failures: Arc<Mutex<HashMap<IpAddr, u32>>>,
+    names: Arc<Mutex<HashMap<String, NameFailures>>>,
     interval: Duration,
 }
 
@@ -47,8 +47,8 @@ impl AuthThrottle {
     #[must_use]
     pub fn new(interval: Duration) -> Self {
         Self {
-            failures: Rc::default(),
-            names: Rc::default(),
+            failures: Arc::default(),
+            names: Arc::default(),
             interval,
         }
     }
@@ -67,13 +67,13 @@ impl AuthThrottle {
     /// What `address`'s next attempt waits.
     #[must_use]
     pub fn delay(&self, address: IpAddr) -> Duration {
-        let failures = self.failures.borrow().get(&address).copied().unwrap_or(0);
+        let failures = held(&self.failures).get(&address).copied().unwrap_or(0);
         Self::delay_after(failures)
     }
 
     /// `address` failed once more.
     pub fn failed(&self, address: IpAddr) {
-        let mut failures = self.failures.borrow_mut();
+        let mut failures = held(&self.failures);
         if failures.len() >= ADDRESSES_MAX && !failures.contains_key(&address) {
             failures.clear();
         }
@@ -83,13 +83,13 @@ impl AuthThrottle {
 
     /// `address` authenticated.
     pub fn succeeded(&self, address: IpAddr) {
-        let _forgotten = self.failures.borrow_mut().remove(&address);
+        let _forgotten = held(&self.failures).remove(&address);
     }
 
     /// What an attempt naming `name` waits: nothing while it is refused, which answers at once.
     #[must_use]
     pub fn name_delay(&self, name: &str) -> Duration {
-        match self.names.borrow().get(name) {
+        match held(&self.names).get(name) {
             Some(held) if held.refused_until.is_none() => Self::delay_after(held.count),
             Some(_) | None => Duration::ZERO,
         }
@@ -98,7 +98,7 @@ impl AuthThrottle {
     /// Whether `name` is refused at `now`, from every source; a refusal whose interval ended forgets its failures.
     #[must_use]
     pub fn name_refused(&self, name: &str, now: Instant) -> bool {
-        let mut names = self.names.borrow_mut();
+        let mut names = held(&self.names);
         match names.get(name).and_then(|held| held.refused_until) {
             Some(until) if now < until => true,
             Some(_) => {
@@ -111,7 +111,7 @@ impl AuthThrottle {
 
     /// `name` failed once more at `now`. A failure during its refusal does not extend it.
     pub fn name_failed(&self, name: &str, now: Instant) {
-        let mut names = self.names.borrow_mut();
+        let mut names = held(&self.names);
         if names.len() >= NAMES_MAX && !names.contains_key(name) {
             // Room comes from names counting failures and refusals ended, never from a refusal still running; with none to free,
             // the new name goes uncounted, its address's delay still holding it back.
@@ -132,6 +132,11 @@ impl AuthThrottle {
 
     /// `name` authenticated.
     pub fn name_succeeded(&self, name: &str) {
-        let _forgotten = self.names.borrow_mut().remove(name);
+        let _forgotten = held(&self.names).remove(name);
     }
+}
+
+/// `table`, locked; a lock a panicking holder left poisoned still holds the counts, which stay as true as any other's.
+fn held<T>(table: &Mutex<T>) -> MutexGuard<'_, T> {
+    table.lock().unwrap_or_else(PoisonError::into_inner)
 }

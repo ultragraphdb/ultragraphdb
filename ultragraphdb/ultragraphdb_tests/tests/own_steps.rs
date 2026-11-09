@@ -201,6 +201,91 @@ fn refused_as_evicted(w: &mut Steps) -> TestResult {
     release(w)
 }
 
+/// The clients of the many-cores scenario, each over a connection of its own.
+const CORE_CLIENTS: usize = 32;
+
+/// How long the frontend has to log the phases of the writes once they end: a window is due a second after its last write.
+const PHASES_DUE: Duration = Duration::from_secs(10);
+
+/// The values of `key=` on each line of `log` holding `marker`, as numbers.
+fn logged(log: &str, marker: &str, key: &str) -> Vec<u64> {
+    log.lines()
+        .filter(|line| line.contains(marker))
+        .filter_map(|line| {
+            line.split_whitespace()
+                .find_map(|field| field.strip_prefix(key))
+                .and_then(|value| value.parse().ok())
+        })
+        .collect()
+}
+
+#[when(
+    "32 clients each commit a write over a connection of their own to a frontend of two partitions"
+)]
+fn commits_on_every_core(w: &mut Steps) -> TestResult {
+    own(w, &Spec::over(2))?;
+    let at = cluster(w)?.client.clone();
+    let before = cluster(w)?.frontend_log()?.len();
+    let writes = (0..CORE_CLIENTS)
+        .map(|n| direct_of(&w.iri(&format!("a{n}")), &w.iri("p"), &iri(&w.iri("b"))))
+        .collect::<TestResult<Vec<_>>>()?;
+    w.seen.commits = run(async {
+        // Every connection open before the first write, so each is accepted while the others are, by whichever core the kernel
+        // hands it to.
+        let mut clients = Vec::new();
+        for _ in 0..CORE_CLIENTS {
+            clients.push(client(&at).await?);
+        }
+        let mut commits = Vec::new();
+        for (client, write) in clients.iter_mut().zip(writes) {
+            commits.push(client.direct_write(write, None).await?);
+        }
+        Ok(commits)
+    })?;
+    let started = clock();
+    loop {
+        let log = cluster(w)?.frontend_log()?;
+        let since = log.get(before..).unwrap_or_default();
+        let relayed: u64 = logged(since, "one-frame write phases", "writes=")
+            .iter()
+            .sum();
+        if relayed >= CORE_CLIENTS as u64 || started.elapsed() >= PHASES_DUE {
+            w.seen.facts = vec![log.clone(), since.to_string()];
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[then(
+    "every write is committed, the frontend logs a runtime per CPU, and more than one of its cores relays the writes"
+)]
+fn served_on_every_core(w: &mut Steps) -> TestResult {
+    assert_eq!(w.seen.commits.len(), CORE_CLIENTS, "{}", w.over());
+    let [log, since] = [0, 1].map(|at| w.seen.facts.get(at).cloned().unwrap_or_default());
+    let mut runtimes = logged(&log, "a runtime on the", "core=");
+    runtimes.sort_unstable();
+    runtimes.dedup();
+    let cpus = std::thread::available_parallelism().map_or(1, usize::from);
+    assert_eq!(runtimes.len(), cpus, "a runtime per CPU: {runtimes:?}");
+    let writing = logged(&since, "one-frame write phases", "core=");
+    let relayed: u64 = logged(&since, "one-frame write phases", "writes=")
+        .iter()
+        .sum();
+    assert_eq!(
+        relayed, CORE_CLIENTS as u64,
+        "every write relayed once:\n{since}"
+    );
+    let mut cores = writing.clone();
+    cores.sort_unstable();
+    cores.dedup();
+    assert!(
+        cores.len() > 1 || cpus == 1,
+        "relayed by cores {cores:?}:\n{since}"
+    );
+    release(w)
+}
+
 #[when(
     "a session is evicted while a connection on another core holds it, and that connection commits next"
 )]

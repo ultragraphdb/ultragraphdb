@@ -93,7 +93,7 @@
 
 ## 6. Measurements
 
-- [ ] 6.1 Design D9 on a `container` Linux machine against the baseline the Shard-per-Core note records (*Stage 5.5 on the VM
+- [x] 6.1 Design D9 on a `container` Linux machine against the baseline the Shard-per-Core note records (*Stage 5.5 on the VM
   disk*, *Through the three binaries with the real client*, *A commit's phases through the binaries (experiment X1)*): the role
   binaries built with `-c opt`, one partition and four, DirectWrites at 1, 16 and 64 connections and transactions at 16, three
   interleaved 20 s runs, medians and ranges, the loads, the machine and the log's sync time stated; syncs per commit and the phases
@@ -101,10 +101,23 @@
   1 and 10 relations per commit and 64 and 256 connections, on a machine of 12 CPUs, each point reported as the share of the note's
   in-process rate at the same partitions and relations per commit (at 12: 124,057–129,360 and 179,162–203,082 relations a second),
   the roles' implied overhead
-- [ ] 6.2 The same matrix on the `container` cluster through the bench Job, one storage instance, the driver and node sizes stated
-- [ ] 6.3 The reply path (design D10), in the series of 6.1 and 6.2: per run the residual, the frontend's relay-to-answer less the
+- [x] 6.2 The same matrix on the `container` cluster through the bench Job, one storage instance, the driver and node sizes stated
+- [x] 6.3 The reply path (design D10), in the series of 6.1 and 6.2: per run the residual, the frontend's relay-to-answer less the
   partition's read-to-reply, its median and 99th percentile against commits per sync, beside the one-connection runs' residual at
   one commit per round; the burst test's figures; whether the reply path keeps up, and, if not, the figures to the owner
+- [x] 6.6 The frontend serves clients on every core (design D14): `CoreListener` moved to `ultragraphdb_common_service`; an
+  endpoint core per CPU, core 0 keeping the role listener, the connections back and readiness; `Join` passed to every core;
+  each core's map, links, gate and phases (logged with its core); every core stops accepting on a stop; the authentication
+  throttle one for the frontend
+- [x] 6.7 The frontend battery: writes over many connections answered with several endpoint cores serving and each core's runtime
+  logged; a partition joining after the start reached from every core; failed authentications counted across cores; a stop
+  refusing new connections on every core; the `role-binaries` requirement stating it
+- [x] 6.8 Like for like (design D14): storage alone on a 6-CPU `container` machine, the frontend, its owner, the config service and
+  compute on another of 6, the clients (several `client_bench` processes) on a third of 2, over the network; 6 partitions at 1 and
+  10 relations a commit against `wal_bench` at 6 partitions on the storage machine, the threads' time on a CPU, and the 12-CPU
+  shared figure beside it
+- [ ] 6.9 The frontend's cost a commit profiled (`ultragraphdb_frontend_profile`, a symbol build as storage's) and cut, each change
+  kept only where 6.8's figures rise outside their spread
 - [ ] 6.4 Any share of the in-process rate far below it chased to its cause (design D9): the phase that grows or the time no phase
   accounts for, profiled with the symbol builds where the phases stop short, and fixed here or brought to the owner with its figures
 - [ ] 6.5 The results in `notes/group-6.md`, the Shard-per-Core note beside X1's figures, and backlog item 18's *Batching* bullet

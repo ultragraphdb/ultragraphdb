@@ -6,7 +6,6 @@
 pub mod access;
 pub mod compute_core;
 pub mod compute_session;
-pub mod core_listener;
 pub mod frontier;
 pub mod graph_slot;
 pub mod link;

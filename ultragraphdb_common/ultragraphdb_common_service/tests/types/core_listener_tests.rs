@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use compio::runtime::{Runtime, spawn};
-use ultragraphdb_common_compute::CoreListener;
+use ultragraphdb_common_service::CoreListener;
 use ultragraphdb_error_role::RoleErrorEnum;
 use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_tool_bdd::{TestError, TestResult};

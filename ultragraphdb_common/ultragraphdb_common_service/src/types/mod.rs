@@ -5,6 +5,7 @@
 
 pub mod admin_service;
 pub mod bootstrap;
+pub mod core_listener;
 pub mod cpu_binding;
 pub mod fetch_failure;
 pub mod health_service;

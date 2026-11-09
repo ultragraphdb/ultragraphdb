@@ -18,6 +18,23 @@ static_binary(
     deps = all_crate_deps(normal = True),
 )
 
+# The frontend for a profiler: the release optimisation with its symbols, line tables and frame pointers kept, so
+# `perf record -g` resolves the endpoint cores' stacks (design D14, task 6.9). Build with `-c opt`; no image ships it.
+static_binary(
+    name = "ultragraphdb_frontend_profile",
+    srcs = glob(["src/**/*.rs"]),
+    release_flags = [
+        "-Copt-level=3",
+        "-Ccodegen-units=1",
+        "-Cdebuginfo=line-tables-only",
+        "-Cforce-frame-pointers=yes",
+        "-Cpanic=unwind",
+    ],
+    tags = ["bench"],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)
+
 # Buid for amd64 and arm64 with `-c opt`.
 glibc_multiarch_img(
     name = "ultragraphdb_frontend_multiarch",

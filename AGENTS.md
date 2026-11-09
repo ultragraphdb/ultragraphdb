@@ -2,13 +2,13 @@
 
 UltraGraphDB is a next generation distributed graph database written in Rust.
 UltraGraphDB aims for
-- Ultra Correct
-- Ultra Performance
+- Ultra Speed
 - Ultra Scale
+- Ultra Robust and Reliable
 
 When a system is correct, it is fast and it can scale to make it even faster.
 
-Correctness, performance, scale, developer experience, in that order. All three matter, and the order decides the rare case where they conflict.
+Correctness, speed, scale, developer experience, in that order. All three matter, and the order decides the rare case where they conflict.
 
 The key properties of the UltraGraphDB design:
 - Zero copy binary protocol for network and WAL to eliminate serialization overhead; writing to the KV store derives its keys and values and copies them, unavoidably
@@ -319,14 +319,15 @@ pod's name under its headless Service, set in the chart's `kube` profile, `profi
 shipped profiles and whose namespace and cluster domain the chart replaces by the release's. The chart draws the keys, the role
 secret and the bootstrap password at the first install and keeps them through upgrades and an uninstall (`secrets.create: false`
 expects them to exist). The roles run as 65532 and the config service as 65534, read-only, with no capability, under the shipped
-seccomp profile as a `Localhost` profile, so they run on io_uring; `values.yaml` sets the images, the pull policy, the cluster
-domain, the volumes, the seccomp profile and the bench.
+seccomp profile as a `Localhost` profile, so they run on io_uring; `values.yaml` sets the images, the pull policy, the storage
+instance's partitions, the cluster domain, the volumes, the seccomp profile and the bench.
 
 `scripts/cluster_local.sh`, behind the four `cluster-local` make targets, needs Apple's `container` (1.7 or later) on a Mac with
 Apple silicon and `helm` on the host. It renders the chart with `helm template` and drives the cluster `ultragraphdb` from inside
 its control-plane node, so the host needs no `kubectl`:
 
-* `up` (`make cluster-local CPUS=12 MEMORY=16g`) builds each image's `oci_tarball` with `-c opt`, loads it into `container`'s
+* `up` (`make cluster-local CPUS=12 MEMORY=16g PARTITIONS=1`, a node of that many CPUs, as the script asks `container` for one
+  fewer, since it gives a machine one more than asked) builds each image's `oci_tarball` with `-c opt`, loads it into `container`'s
   image store and tags its arm64 manifest `ultragraphdb/<role>:local`; creates the cluster when absent with
   `--shared-image-store`, its kubeconfig in `target/cluster_local/`; applies kind's `standard` StorageClass; installs the seccomp
   profile on every node; drops each node's record of the images, so the pods take the ones just loaded; makes the namespace and

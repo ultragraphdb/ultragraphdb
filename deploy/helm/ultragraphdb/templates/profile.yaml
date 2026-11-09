@@ -1,6 +1,6 @@
 {{- /*
 The `kube` profile, the chart's profile/ directory, which the config battery checks: its addresses name the namespace
-`ultragraphdb` and the domain `cluster.local`, replaced by the release's.
+`ultragraphdb` and the domain `cluster.local`, replaced by the release's, and its one partition `partitions`.
 */ -}}
 apiVersion: v1
 kind: ConfigMap
@@ -13,5 +13,5 @@ data:
   {{- $names := printf ".%s.svc.%s" .Release.Namespace .Values.clusterDomain }}
   {{- range $path, $_ := .Files.Glob "profile/**.toml" }}
   {{ base $path }}: |
-    {{- $.Files.Get $path | replace ".ultragraphdb.svc.cluster.local" $names | nindent 4 }}
+    {{- $.Files.Get $path | replace ".ultragraphdb.svc.cluster.local" $names | replace "partition_count = 1" (printf "partition_count = %d" (int $.Values.partitions)) | nindent 4 }}
   {{- end }}

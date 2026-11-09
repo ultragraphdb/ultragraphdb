@@ -6,7 +6,6 @@
 mod access_tests;
 mod compute_core;
 mod compute_session_tests;
-mod core_listener_tests;
 mod frontier_tests;
 mod link_tests;
 mod lookup_at_tests;

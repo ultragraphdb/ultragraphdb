@@ -17,7 +17,7 @@ use crate::types::client_session::now;
 pub const ONE_FRAME_PHASES: [&str; 3] = ["checks", "partition", "total"];
 
 /// The phases of the DirectWrites and ConditionalWrites an endpoint core relays, over a window ([`PhaseWindow`]), logged once it is
-/// due. A clone shares the window.
+/// due, with the number of the core it counts. A clone shares the window.
 ///
 /// The sessions of one endpoint core run on its one thread and each records a write once its answer arrives, so `Rc` lets them all
 /// hold the window, and `RefCell` lets each add to it; a borrow lasts one record or one report, never across an await.
@@ -25,6 +25,7 @@ pub const ONE_FRAME_PHASES: [&str; 3] = ["checks", "partition", "total"];
 pub struct OneFramePhases {
     window: Rc<RefCell<PhaseWindow<{ ONE_FRAME_PHASES.len() }>>>,
     origin: Instant,
+    core: usize,
 }
 
 impl Default for OneFramePhases {
@@ -40,7 +41,15 @@ impl OneFramePhases {
         Self {
             window: Rc::new(RefCell::new(PhaseWindow::new())),
             origin,
+            core: 0,
         }
+    }
+
+    /// The window of endpoint core `core`, which its log names.
+    #[must_use]
+    pub fn with_core(mut self, core: usize) -> Self {
+        self.core = core;
+        self
     }
 
     /// Counts a write taken at `began`, relayed at `relayed` and answered at `answered`.
@@ -74,6 +83,7 @@ impl OneFramePhases {
         };
         let [checks, partition, total] = [0, 1, 2].map(|index| window.figures(index));
         tracing::info!(
+            core = self.core,
             writes = window.count(),
             window_us = window.window_us(),
             checks_p50_us = checks.0,

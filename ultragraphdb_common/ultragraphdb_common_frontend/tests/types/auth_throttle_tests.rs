@@ -189,3 +189,23 @@ fn test_refusals_ending_make_room_in_a_full_name_table() {
     throttle.name_failed(NAME, ended);
     assert_eq!(throttle.name_delay(NAME), AuthThrottle::delay_after(1));
 }
+
+/// Every endpoint core holds a clone of one throttle, so failures counted on one hold back the next attempt on another, and a
+/// name refused on one is refused on all: a prober's connections spread over the cores count as one prober's (design D14).
+#[test]
+fn test_cores_sharing_a_throttle_count_failures_together() {
+    fn shared_across_threads<T: Send + Sync>(_: &T) {}
+    let first = AuthThrottle::new(INTERVAL);
+    let second = first.clone();
+    shared_across_threads(&first);
+    first.failed(PEER);
+    first.failed(PEER);
+    assert_eq!(second.delay(PEER), AuthThrottle::delay_after(2));
+    let now = start();
+    for _ in 0..FAILURES {
+        first.name_failed(NAME, now);
+    }
+    assert!(second.name_refused(NAME, now), "refused on every core");
+    second.succeeded(PEER);
+    assert_eq!(first.delay(PEER), std::time::Duration::ZERO);
+}
