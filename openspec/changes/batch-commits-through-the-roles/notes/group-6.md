@@ -248,6 +248,66 @@ Tests: the throttle's six (no wait within the threshold, a doubling one past it,
 source, its next connection closes before any frame, and it authenticates once the ban has ended; the settings' check refusing 0
 for each of the three. `make test`: doc 21, unit 79, BDD 37, integration 7, all pass.
 
+## fjall's block cache and filter pinning: dropped
+
+The owner's rule: a quick test, dropped under 2%. `wal_bench` at 6 partitions, one relation a commit, 30 s, on the storage machine
+(Debian, 6 CPUs), three runs each interleaved: fjall's defaults 72,497 (72,271–77,306) relations a second; every keyspace's filter
+and index blocks pinned at every level and a block cache of 256 MiB in place of 32 MiB, 73,157 (72,303–78,732): +0.9%, within the
+spread. The change was built for the test alone and is not kept; the storage engine is replaced at roadmap stage 6.5.
+
+## 6.11 The next round during the sync: measured and not kept (design D16)
+
+Built as D16 states: `OrderedLog::detach_sync` and `attach_sync`, the WAL's `WalSynced`, the pipeline's and the host's, and
+`PartitionCore::run` waiting on its sync and its inbox together; the tests passed, among them a read answered while a round's sync
+was held. Measured as 6.8, the 6/6/2 layout, fresh cluster a run, three runs a point interleaved, medians with their ranges; the
+storage binary the only difference.
+
+The first version (the core attaching a finished sync between turns), against inline syncs:
+
+| Relations | Connections | Inline: commits/s | Overlap: commits/s | Change | Commits a sync | Log sync p50 µs | p50 ms |
+|---|---|---|---|---|---|---|---|
+| 1 | 256 | 29,211 (28,002–32,058) | 26,862 (24,637–27,534) | −8% | 14.3 → 9.8 | 745 → 1,832 | 7.9 → 5.9 |
+| 1 | 1,024 | 39,106 (38,644–39,510) | 32,683 (32,312–33,650) | −16% | 36.3 → 15.3 | 681 → 1,875 | 17.5 → 11.5 |
+| 10 | 256 | 8,607 (8,373–8,938) | 7,918 (7,412–8,203) | −8% | 9.9 → 5.7 | 465 → 2,759 | 20.5 → 10.2 |
+| 10 | 1,024 | 9,368 (8,809–10,434) | 8,555 (6,711–8,832) | −9% | 25.3 → 9.3 | 479 → 3,295 | 70.5 → 60.2 |
+
+compio reaps a completion only when its task yields, so a refinement yielded every four requests the core took while a sync was in
+flight and attached a finished one at once. All three, interleaved:
+
+| Relations | Connections | Inline | First version | Refined | Commits a sync (inline, first, refined) | Log sync p50 µs |
+|---|---|---|---|---|---|---|
+| 1 | 1,024 | 40,199 (37,171–40,538) | 34,370 (34,038–34,634), −15% | 33,445 (32,188–33,591), −17% | 33.1, 14.0, 13.6 | 697, 2,055, 1,800 |
+| 10 | 256 | 9,132 (8,993–9,562) | 7,750 (7,712–8,002), −15% | 8,509 (8,435–8,627), −7% | 9.5, 4.6, 4.9 | 481, 2,530, 2,608 |
+
+Every overlap figure lies below the inline range. The overlap halves the commits a sync carries and so doubles the syncs: at one
+relation and 1,024 connections a partition syncs about 200 times a second inline (6,700 commits a second a partition at 33.1) and
+about 410 times with the overlap (5,570 at 13.6), and each sync then takes 1.8 ms where it took 0.7. The inline core's wait is what
+gathers a sync's commits: the inbox fills while the core sits in `sync`, and the next intake closes them as one round (D12). Run
+during the sync, the core closes each round with what arrived in one shorter sync's time, and the log's device spends about 0.74 s a
+second a partition syncing where it spent 0.14. The median latency falls (17 to 10 ms at 1,024 connections) as commits wait less in
+the inbox, at a lower rate. The change is reverted: the code, its tests and the commit-rounds scenario; the patch is kept outside the
+repository.
+
+## Latency at few clients (the owner, 2026-11-09)
+
+The 6/6/2 layout, the tree with 6.11 reverted, the frontend on every core, 6 partitions, one `client_bench` process, a fresh cluster a
+run, three 20 s runs a point interleaved; `client_bench` now reports p90 beside p50 and p99. Latencies are the client's, a commit
+sent and its reply read, one commit in flight per connection.
+
+| Relations | Clients | Commits/s | p50 µs | p90 µs | p99 µs | Max µs | Commits a sync |
+|---|---|---|---|---|---|---|---|
+| 1 | 1 | 411 (396–448) | 2,235 (2,039–2,302) | 3,424 (3,193–3,580) | 4,958 (4,841–5,163) | 27,341 (15,560–30,424) | 1.0 |
+| 1 | 16 | 8,638 (7,367–8,649) | 1,679 (1,655–1,781) | 2,403 (2,311–3,291) | 5,876 (5,579–8,198) | 157,331 (85,221–230,837) | 1.5 |
+| 1 | 64 | 16,522 (15,664–17,833) | 3,293 (3,247–3,316) | 5,016 (4,819–5,420) | 9,910 (9,047–11,375) | 321,013 (103,933–693,620) | 4.0 |
+| 10 | 1 | 353 (349–363) | 2,637 (2,627–2,709) | 3,885 (3,851–4,014) | 5,298 (5,129–6,063) | 20,331 (19,858–171,084) | 1.0 |
+
+One client's 2.2 ms by the roles' phase logs (the second run): the frontend's `one-frame write phases` total p50 1,727 µs, of which
+its checks 115 and the partition's answer 1,599; storage's read-to-answer p50 about 1,000 µs, of which the commit's log write 207 and
+sync 351 (`commit phases`). So about 1.0 ms in storage, 0.6 ms between the frontend and storage, 0.5 ms between the client and the
+frontend, 0.1 ms in the frontend's checks. 6.1's single client, 2,330 commits a second at 0.39 ms, ran every role on one machine with
+a log sync of 115 µs; here each request crosses two machines' virtual network twice and the storage machine's sync takes three times
+as long. Sixteen clients see a lower median than one; not chased.
+
 ## Still open for 6.5
 
 The Shard-per-Core note beside X1's figures and backlog item 18's *Batching* bullet, once the owner has decided on the frontend.

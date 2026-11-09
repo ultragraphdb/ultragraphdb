@@ -557,8 +557,9 @@ fn report(args: &ClientArgs, tallies: &[Tally], elapsed: Duration) -> String {
 /// `summary` as a JSON object.
 fn summary_json(summary: &Summary) -> String {
     format!(
-        "{{\"p50\":{},\"p99\":{},\"max\":{},\"mean\":{:.1}}}",
+        "{{\"p50\":{},\"p90\":{},\"p99\":{},\"max\":{},\"mean\":{:.1}}}",
         summary.p50(),
+        summary.p90(),
         summary.p99(),
         summary.max(),
         summary.mean()

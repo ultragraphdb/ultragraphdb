@@ -120,6 +120,10 @@
   `refusal_interval_ms`; the owner's counts per source (IPv4 address, IPv6 /64); the verifier's ask answering the delay, each
   outcome reported, each accepted connection admitted or closed; tests of the posture and of a banned source's connection closed,
   another source served; `SECURITY.md` and the client-endpoint requirement
+- [x] 6.11 A partition executes the next round while its log syncs (design D16): `OrderedLog::detach_sync` and `attach_sync`, the
+  WAL's, the pipeline's and the host's; `PartitionCore::run` waiting on its sync and its inbox together; tests of a detached sync,
+  of requests executed during a held sync, and of a stop during one; measured as 6.8, kept on its figures. Measured 7% to 17%
+  below inline syncs, half the commits a sync: reverted (`notes/group-6.md`)
 - [ ] 6.9 The frontend's cost a commit profiled (`ultragraphdb_frontend_profile`, a symbol build as storage's) and cut, each change
   kept only where 6.8's figures rise outside their spread
 - [ ] 6.4 Any share of the in-process rate far below it chased to its cause (design D9): the phase that grows or the time no phase

@@ -8,6 +8,7 @@
 pub struct Summary {
     count: usize,
     p50: u64,
+    p90: u64,
     p99: u64,
     max: u64,
     mean: f64,
@@ -30,11 +31,13 @@ impl Summary {
         let summary = Self {
             count: n,
             p50: rank(0.5),
+            p90: rank(0.9),
             p99: rank(0.99),
             max: values.last().copied().unwrap_or_default(),
             mean: values.iter().map(|&v| v as f64).sum::<f64>() / n as f64,
         };
-        debug_assert!(summary.p50 <= summary.p99);
+        debug_assert!(summary.p50 <= summary.p90);
+        debug_assert!(summary.p90 <= summary.p99);
         debug_assert!(summary.p99 <= summary.max);
         summary
     }
@@ -47,6 +50,11 @@ impl Summary {
     /// The nearest-rank median.
     pub fn p50(&self) -> u64 {
         self.p50
+    }
+
+    /// The nearest-rank 90th percentile.
+    pub fn p90(&self) -> u64 {
+        self.p90
     }
 
     /// The nearest-rank 99th percentile.

@@ -2,11 +2,19 @@
 
 UltraGraphDB is a next generation distributed graph database written in Rust.
 UltraGraphDB aims for
+
+- Ultra Safe
 - Ultra Speed
 - Ultra Scale
-- Ultra Robust and Reliable
 
-When a system is correct, it is fast and it can scale to make it even faster.
+Ultra Safe
+To be safe, a program must not only run correctly. It must apply defense-in-depth and verify itself while running, to run correctly or else shut down if it detects that it has violated expectations.
+
+Ultra Speed
+Think about performance from the outset. The time to solve performance, and get the 1000x wins, is in the design phase, when you can't profile. It's hard to fix a system after implementation, and the gains are less. Have mechanical sympathy.
+
+Ultra Scale
+A day of design is worth weeks or months in production. Therefore, go slow to go fast. Optimize the total cost of software ownership, not for those who write it once, but for those who read and run it many times. Trade linear deadlines for exponential quality.
 
 Correctness, speed, scale, developer experience, in that order. All three matter, and the order decides the rare case where they conflict.
 

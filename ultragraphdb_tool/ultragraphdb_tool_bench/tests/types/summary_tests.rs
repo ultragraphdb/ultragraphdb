@@ -25,6 +25,19 @@ fn test_the_summary_takes_nearest_rank_percentiles() {
         (500, 990, 1_000, 1_000)
     );
     assert_eq!(s.mean(), 500.5);
+    // ceil(0.9 * 1000) = 900.
+    assert_eq!(s.p90(), 900);
+}
+
+#[test]
+fn test_p90_takes_the_rank_rounded_up_between_the_median_and_p99() {
+    // n = 10: ceil(9) = 9. n = 11: ceil(9.9) = 10. n = 1: rank 1.
+    let mut ten: Vec<u64> = (1..=10).collect();
+    assert_eq!(Summary::of(&mut ten).p90(), 9);
+    let mut eleven: Vec<u64> = (1..=11).rev().collect();
+    assert_eq!(Summary::of(&mut eleven).p90(), 10);
+    assert_eq!(Summary::of(&mut [42]).p90(), 42);
+    assert_eq!(Summary::of(&mut []).p90(), 0);
 }
 
 #[test]

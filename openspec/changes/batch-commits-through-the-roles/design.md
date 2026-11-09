@@ -315,6 +315,30 @@ chose to keep the counts in the owner thread, where every core's logins already 
   left a new source goes uncounted. In memory: a restart forgets the counts; several frontends (stage 8) would share them through
   the metadata group.
 
+### D16. A partition executes the next round while its log syncs (owner's decision, 2026-11-09)
+
+6.8 found each partition core alternating its work and its log's I/O: a round's execution, about 2.3 ms at 29 commits, then its
+write and sync, about 1.3 ms, the core idle meanwhile, at about 60% of a core. The commit step already admits commits while a round is
+in flight and closes the next only once that round is synced (`OrderedLog`: "the commit step resolves round k + 1 while round k's
+sync is pending"), but `OrderedLog::sync` borrows the log for its whole wait, and through it the pipeline, the host and the core, so
+the core takes nothing until the sync is answered.
+
+- `OrderedLog` gains `detach_sync`, which takes the staged rounds and the segment files they go to out of the log and returns a
+  future borrowing nothing that writes and syncs them, and `attach_sync`, which takes its outcome back: the files returned, the
+  rounds durable or the log poisoned, as `sync` leaves them. A round going to a segment not yet open is not detached: that sync runs
+  inline, as before, a segment's first round being rare. While a sync is detached nothing is appended, as the commit step closes
+  no round while one is in flight.
+- `Pipeline` and `PartitionHost` detach and attach as they sync; `sync` stays for the metadata group, the sequencer and the tests.
+- `PartitionCore::run` keeps the detached sync and waits on it and its inbox together: while a round syncs it takes and executes
+  the next requests, which the commit step keeps for the next round; once the sync is answered the round is applied and its
+  replies handed out, and the next round closes and syncs. A reply still goes out only after its round's sync, and rounds keep their
+  order: strict serializability and the sync before each acknowledgement are unchanged. A stop waits for the sync in flight.
+
+Measured and not kept. Through the binaries the overlap ran 7% to 17% below inline syncs at every point, also with the core
+attaching a finished sync every four requests: a partition's commits a sync halved and its syncs doubled, each slower (0.7 ms to
+1.8 ms and more). The core's wait in `sync` is what gathers the next round's commits in its inbox, so a partition's log keeps its
+inline sync; the figures are in `notes/group-6.md`.
+
 ## Risks / Trade-offs
 
 - [The frontend reads a storage connection's replies one at a time (`RoleClient`'s pool of one buffer), and a round now answers
