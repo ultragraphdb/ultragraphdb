@@ -1,0 +1,17 @@
+[cluster]
+id = 1
+role_secret_file = "/secrets/role.secret"
+partition_count = 1
+[observability]
+address = "tcp://0.0.0.0:8081"
+[endpoint]
+address = "tcp://0.0.0.0:7080"
+plaintext = true
+[frontend]
+role_address = "tcp://frontend-0.frontend.ultragraphdb.svc.cluster.local:7081"
+data_dir = "/data"
+[metadata]
+bootstrap_secret_file = "/secrets/bootstrap.secret"
+[sequencer]
+epoch_ms_min = 2
+epoch_ms_max = 10

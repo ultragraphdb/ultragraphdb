@@ -1,0 +1,8 @@
+[cluster]
+id = 1
+role_secret_file = "/secrets/role.secret"
+frontend_address = "tcp://frontend.ultragraphdb.svc.cluster.local:7081"
+[observability]
+address = "tcp://0.0.0.0:8082"
+[compute]
+role_address = "tcp://compute.compute.ultragraphdb.svc.cluster.local:7082"

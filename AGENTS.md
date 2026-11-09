@@ -301,10 +301,41 @@ The project uses `make` for common development tasks:
 * `make doc`: Builds the documentation and runs the doc tests
 * `make count`: Counts lines of code
 * `make update`: Updates the Rust toolchain and Cargo dependencies
+* `make cluster-local`, `make cluster-local-bench`, `make cluster-local-status`, `make cluster-local-down`: the roles on a local
+  Kubernetes cluster of Apple's `container`, from the Helm chart; see *Local Kubernetes* below. None runs in `make test`
 
 Bazel is the build of record; Cargo serves the IDE. Bazel resolves external crates through
 `all_crate_deps()` reading the Cargo manifests, so a dependency added to a member `Cargo.toml` needs no
 `BUILD.bazel` edit.
+
+### Local Kubernetes
+
+`deploy/helm/ultragraphdb` is the Helm chart of one cluster of the roles, one release per namespace, as its objects take fixed
+names: the config service, the frontend and the storage instance `storage` as StatefulSets of one replica, each with a volume for
+its data directory; compute as a Deployment; a headless Service per workload, publishing not-ready addresses; the client Service
+`frontend-client` on 7080; the four Secrets; the ConfigMap `ultragraphdb-profile`; and, with `bench.enabled`, one run of
+`client_bench` (`//ultragraphdb_tool/ultragraphdb_tool_bench:client_bench_multiarch`) as a Job. Each role's role address is its
+pod's name under its headless Service, set in the chart's `kube` profile, `profile/`, which the config battery checks beside the
+shipped profiles and whose namespace and cluster domain the chart replaces by the release's. The chart draws the keys, the role
+secret and the bootstrap password at the first install and keeps them through upgrades and an uninstall (`secrets.create: false`
+expects them to exist). The roles run as 65532 and the config service as 65534, read-only, with no capability, under the shipped
+seccomp profile as a `Localhost` profile, so they run on io_uring; `values.yaml` sets the images, the pull policy, the cluster
+domain, the volumes, the seccomp profile and the bench.
+
+`scripts/cluster_local.sh`, behind the four `cluster-local` make targets, needs Apple's `container` (1.7 or later) on a Mac with
+Apple silicon and `helm` on the host. It renders the chart with `helm template` and drives the cluster `ultragraphdb` from inside
+its control-plane node, so the host needs no `kubectl`:
+
+* `up` (`make cluster-local CPUS=12 MEMORY=16g`) builds each image's `oci_tarball` with `-c opt`, loads it into `container`'s
+  image store and tags its arm64 manifest `ultragraphdb/<role>:local`; creates the cluster when absent with
+  `--shared-image-store`, its kubeconfig in `target/cluster_local/`; applies kind's `standard` StorageClass; installs the seccomp
+  profile on every node; drops each node's record of the images, so the pods take the ones just loaded; makes the namespace and
+  the chart's Secrets where absent, as `helm template` reads no cluster and would draw new values; applies the rest of the chart
+  with `imagePullPolicy: Never`, restarting the workloads when the cluster already ran; waits for every rollout; and reports the
+  `container` version, the nodes' sizes, the pods and the driver each role's runtimes started on.
+* `bench` (`make cluster-local-bench BENCH="--op direct --connections 16 --seconds 20"`, those arguments the default) renders the
+  chart's bench Job with those arguments, runs it against `frontend-client` and prints its JSON line.
+* `status` and `down` report on and delete the cluster.
 
 Two tools run through Cargo, as approved exceptions to building and testing with Bazel alone, because neither is
 hermetic nor has a fixed end:

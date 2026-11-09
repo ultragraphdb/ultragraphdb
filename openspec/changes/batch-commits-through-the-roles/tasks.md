@@ -63,16 +63,16 @@
   derived by the measurement from the partition's `commit phases` log, whose `commits` and `log_syncs` give them
 - [x] 4.2 An image of `client_bench` on the glibc base, tagged `bench` as its binary is, with its `oci_tarball`
 
-## 5. The Kubernetes deployment → `deploy/kubernetes/`, `ultragraphdb_config`
+## 5. The Kubernetes deployment → `deploy/helm/ultragraphdb`, `ultragraphdb_config`
 
-- [ ] 5.1 The `kube` profile in `ultragraphdb/ultragraphdb_config/profiles/`: the config service's file, `targets.toml` and the role
+- [x] 5.1 The `kube` profile in `ultragraphdb/ultragraphdb_config/profiles/`: the config service's file, `targets.toml` and the role
   files, one storage instance and one partition, addresses the headless Services' names; validated by the config service's checks
   and its CLI in a test, as the other profiles are
-- [ ] 5.2 The manifests and their `kustomization.yaml`: namespace, the config service, frontend and storage StatefulSets with a
+- [x] 5.2 The manifests and their `kustomization.yaml`: namespace, the config service, frontend and storage StatefulSets with a
   volume each, compute as a Deployment, headless Services publishing not-ready addresses, the client Service, the profile's
   ConfigMap, the Secrets' names (no values), the bootstrap variables, the probes, the security context, `imagePullPolicy: Never`,
   and the seccomp profile as 0.2 decided; the bench Job
-- [ ] 5.3 `scripts/cluster_local.sh up|down|bench|status` behind the make targets `cluster-local`, `cluster-local-down`,
+- [x] 5.3 `scripts/cluster_local.sh up|down|bench|status` behind the make targets `cluster-local`, `cluster-local-down`,
   `cluster-local-bench` and `cluster-local-status`, listed in `make help`; `deploy/kubernetes/` holds no script: checks for `container`
   and names it when missing; builds the images'
   `oci_tarball`s with `-c opt`, loads them and tags each arm64 manifest by its digest; creates the cluster with
@@ -80,12 +80,16 @@
   `default-storage.yaml` and installs the seccomp profile on every node; draws the keys and secrets from `/dev/urandom` into
   Secrets; applies the manifests and waits for every role's readiness, all through `kubectl` inside the control-plane node; reports
   the driver each role runs on, the node sizes and the `container` version; `down` deletes the cluster
-- [ ] 5.4 The kubernetes-deployment scenarios run by hand on this Mac and recorded with their output in `notes/group-5.md`: up
+- [x] 5.4 The kubernetes-deployment scenarios run by hand on this Mac and recorded with their output in `notes/group-5.md`: up
   and down; a pod runs unprivileged; a storage pod restarts at its address; a recovering storage pod is alive and unready; a storage
   pod killed under writes keeps every acknowledged commit; a missing role secret stops a role with code 78; no secret under
   `deploy/kubernetes/`; a missing tool is named; the roles run on io_uring; a bench Job reports
-- [ ] 5.5 `AGENTS.md`: the deployment, the script, the `kube` profile and the bench image; `bazel/README_BAZEL.md`: the
+- [x] 5.5 `AGENTS.md`: the deployment, the script, the `kube` profile and the bench image; `bazel/README_BAZEL.md`: the
   `oci_tarball` output group as the path into `container`
+- [x] 5.6 The Helm chart `deploy/helm/ultragraphdb` in place of the plain manifests (the owner, 2026-11-09): the workloads, the
+  Services, the `kube` profile moved into the chart and its ConfigMap, the Secrets drawn at the first install and kept, the bench
+  Job; `scripts/cluster_local.sh` renders it with `helm template` and applies it in the node, making the Secrets only where absent;
+  the config battery checks the chart's profile; recorded in `notes/group-5.md`
 
 ## 6. Measurements
 

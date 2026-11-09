@@ -24,7 +24,7 @@ deployment without a remote cluster.
   a sync share one log append and one sync, as the commit step already requires of commits arriving during a sync.
 - `PROTOCOL.md` §11.12, *Parked requests*, states that a partition reads a role connection's next frame before its core
   has taken the last, and counts those frames against `held_bytes`. No frame and no command changes on the wire.
-- A Kubernetes deployment of the roles under `deploy/kubernetes/`: the config service, the frontend and storage as
+- A Kubernetes deployment of the roles, the Helm chart `deploy/helm/ultragraphdb`: the config service, the frontend and storage as
   StatefulSets with a volume each, compute as a Deployment, a headless Service per role for stable role addresses, the
   role secret as a Secret, and the probes on `/livez` and `/readyz`.
 - The deployment runs on a local Apple `container` cluster: the images built by Bazel are loaded into the local image
@@ -55,9 +55,9 @@ deployment without a remote cluster.
 - `ultragraphdb_common_role`: `Session::next_push` carries a stream's end with no frame as well as a frame, and `serve`
   ends the stream on it, as it does for `Answer::Done`.
 - `specification/binary_protocol/PROTOCOL.md` §11.12.
-- New `deploy/kubernetes/` (manifests), Bazel targets exporting each role's image as an OCI tarball for
-  `container image load`, and `scripts/cluster_local.sh` behind `make cluster-local` and its siblings, which creates the cluster,
-  loads the images, deploys and tears down; `deploy/kubernetes/` holds the manifests alone.
+- New `deploy/helm/ultragraphdb` (the chart, holding the `kube` profile), Bazel targets exporting each role's image as an OCI
+  tarball for `container image load`, and `scripts/cluster_local.sh` behind `make cluster-local` and its siblings, which creates the
+  cluster, loads the images, renders the chart and deploys it, and tears down; `deploy/helm/` holds the chart alone.
 - `ultragraphdb_tool_bench`: `client_bench` runs in a Job, so its image is built as the roles' are.
 - Tests: the storage BDD suite gains the batching scenarios; the Kubernetes runs are by hand on a Mac with Apple silicon
   and `container`, outside `make test`, since they need the host's `container` and `kubectl`.

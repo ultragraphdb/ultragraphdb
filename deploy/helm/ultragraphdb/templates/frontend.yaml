@@ -1,0 +1,84 @@
+{{- /*
+The frontend, with the metadata group and the sequencer it hosts: one replica, as each holds one in this stage. Its role address
+is its pod's name under the headless Service `frontend`; storage and compute dial the Service's name. Clients reach its endpoint
+through the Service `frontend-client`.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ultragraphdb.labels" (dict "name" "frontend" "root" .) | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "ultragraphdb.selector" (dict "name" "frontend") | nindent 4 }}
+  ports:
+    - name: role
+      port: 7081
+    - name: observability
+      port: 8081
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-client
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ultragraphdb.labels" (dict "name" "frontend" "root" .) | nindent 4 }}
+spec:
+  selector:
+    {{- include "ultragraphdb.selector" (dict "name" "frontend") | nindent 4 }}
+  ports:
+    - name: endpoint
+      port: 7080
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: frontend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ultragraphdb.labels" (dict "name" "frontend" "root" .) | nindent 4 }}
+spec:
+  serviceName: frontend
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ultragraphdb.selector" (dict "name" "frontend") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ultragraphdb.labels" (dict "name" "frontend" "root" .) | nindent 8 }}
+    spec:
+      {{- include "ultragraphdb.podSecurity" (dict "user" 65532 "root" .) | nindent 6 }}
+      containers:
+        - name: frontend
+          image: {{ .Values.images.frontend }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          # The last lines of a failed start's log stay in the pod's status, naming what stopped it.
+          terminationMessagePolicy: FallbackToLogsOnError
+          env:
+            {{- include "ultragraphdb.bootstrap" (dict "name" "frontend" "root" .) | nindent 12 }}
+          ports:
+            - {name: endpoint, containerPort: 7080}
+            - {name: role, containerPort: 7081}
+            - {name: observability, containerPort: 8081}
+          {{- include "ultragraphdb.containerSecurity" . | nindent 10 }}
+          {{- include "ultragraphdb.probes" (dict "port" 8081 "startup" 90) | nindent 10 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: secrets, mountPath: /secrets, readOnly: true}
+      volumes:
+        # Each Secret optional, so a missing one leaves its file absent and the role names it as it exits with code 78, rather
+        # than the pod waiting unstarted.
+        - name: secrets
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret: {name: ultragraphdb-read-key, optional: true}
+              - secret: {name: ultragraphdb-role-secret, optional: true}
+              - secret: {name: ultragraphdb-bootstrap-secret, optional: true}
+  {{- include "ultragraphdb.dataClaim" . | nindent 2 }}

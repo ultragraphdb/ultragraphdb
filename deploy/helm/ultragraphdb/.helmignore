@@ -1,0 +1,2 @@
+# Bazel's package file, which reads the profile for the config battery, is no part of the chart.
+BUILD.bazel

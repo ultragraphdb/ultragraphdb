@@ -1,0 +1,10 @@
+# The config service of the `kube` profile, the Helm chart `deploy/helm/ultragraphdb`, in clear text inside the cluster's network,
+# for development only: what the config service's pod starts it on. The keys are the chart's Secrets, mounted under `/secrets`;
+# the profile is its ConfigMap, mounted under `/etc/ultragraphdb/profiles/kube`.
+[config]
+address = "tcp://0.0.0.0:8090"
+plaintext = true
+data_dir = "/data/config"
+read_key_file = "/secrets/read.key"
+admin_key_file = "/secrets/admin.key"
+targets_file = "/etc/ultragraphdb/profiles/kube/targets.toml"

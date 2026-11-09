@@ -280,6 +280,19 @@ docker cp ultragraphdb:/data/config/bootstrap.secret .
 A load target loads every platform of its index unless `--platform` names one, and Docker's own store takes one platform
 at a time. `//ultragraphdb/ultragraphdb_supervisor_tests:image_bdd` runs the `@image` scenarios against these images.
 
+Apple's `container` takes an image from its index's `oci_tarball` output group, the whole index as an OCI layout tar, with no
+Docker daemon and no registry:
+
+```bash
+bazel build -c opt //ultragraphdb/ultragraphdb_storage:ultragraphdb_storage_multiarch --output_groups=oci_tarball
+container image load -i target-bzl/bin/ultragraphdb/ultragraphdb_storage/ultragraphdb_storage_multiarch_oci_layout.tar
+container image tag untagged@<the arm64 manifest's digest> ultragraphdb/storage:local
+```
+
+The tar's `index.json` names no reference, so `container` stores each platform's manifest as an untagged image of its own;
+tagging the arm64 manifest by its digest, read from that `index.json`, names it. `scripts/cluster_local.sh` does this for every
+role and the bench before it deploys the Helm chart `deploy/helm/ultragraphdb` (`AGENTS.md`, *Local Kubernetes*).
+
 ## Checking an image
 
 `docker buildx imagetools inspect <ref>` reads a pushed index from the registry: expect one entry per platform,

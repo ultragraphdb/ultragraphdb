@@ -42,6 +42,10 @@ const REQUESTS_PER_SECOND_MAX: u64 = 1_000_000;
 /// snapshot, [`READY_PAUSE`] apart.
 const READY_READS: u32 = 500;
 const READY_PAUSE: Duration = Duration::from_millis(20);
+/// How many resends resolve a commit in doubt at most, [`RESOLVE_PAUSE`] apart: a minute, longer than a partition takes to
+/// restart and recover.
+const RESOLVE_ATTEMPTS: u32 = 600;
+const RESOLVE_PAUSE: Duration = Duration::from_millis(100);
 
 type BenchLogin = ScramLogin<fn() -> Result<String, ScramError>>;
 type BenchClient = Client<TcpConnector, BenchLogin>;
@@ -63,6 +67,8 @@ struct Tally {
     /// Each transaction's Begin, from its call to its answer, in microseconds.
     begin_us: Vec<u64>,
     refused: u64,
+    /// The commits left in doubt and then resolved by a resend.
+    in_doubt: u64,
     first_refusal: Option<String>,
     /// The refusals by their code and detail, `Conflict/1` say.
     refusals: BTreeMap<String, u64>,
@@ -81,8 +87,10 @@ struct Tally {
 pub fn run_client(args: &ClientArgs) -> Result<String, BenchError> {
     let password = std::fs::read_to_string(args.password_file())
         .map_err(|error| BenchError::io(format!("{}: {error}", args.password_file().display())))?;
-    // The process's ID in every name, so two runs against one cluster write distinct nodes.
-    let tag = format!("{}-{}", args.seed(), std::process::id());
+    // A draw from the system's random source in every name, so two runs against one cluster write distinct nodes: a process ID
+    // does not tell runs apart, as every run in a container of its own is process 1.
+    let run = system_nonce().map_err(|error| BenchError::io(error.to_string()))?;
+    let tag = format!("{}-{run}", args.seed());
     let runtime = compio::runtime::Runtime::new()?;
     runtime.block_on(run_connections(args, &password, &tag))
 }
@@ -281,11 +289,16 @@ impl Connection {
         tally: &mut Tally,
     ) -> Result<(), ClientError> {
         match request {
-            Request::Direct(write) => self
-                .client
-                .direct_write(write, self.session)
-                .await
-                .map(|_| ()),
+            Request::Direct(write) => {
+                let written = self.client.direct_write(write, self.session).await;
+                match (written, self.session) {
+                    (Err(error), Some(session)) if in_doubt(&error) => {
+                        tally.in_doubt += 1;
+                        self.resolve(session).await
+                    }
+                    (written, _) => written.map(|_| ()),
+                }
+            }
             Request::Transaction(write) => self.transaction(None, &write, clock, tally).await,
             Request::ListRead(read, write) => {
                 self.transaction(Some(&read), &write, clock, tally).await
@@ -296,6 +309,19 @@ impl Connection {
                 tally.rows += rows;
                 tally.empty += u64::from(rows == 0);
                 Ok(())
+            }
+        }
+    }
+
+    /// Resolves `session`'s commit in doubt as a client does, by resending it with its number until the server answers it
+    /// committed or refused: so a commit cut off by a partition's restart is counted once, as acknowledged or refused.
+    async fn resolve(&mut self, session: Session) -> Result<(), ClientError> {
+        let mut attempt = 1;
+        loop {
+            compio::time::sleep(RESOLVE_PAUSE).await;
+            match self.client.resolve(session).await {
+                Err(error) if attempt < RESOLVE_ATTEMPTS && in_doubt(&error) => attempt += 1,
+                resolved => return resolved.map(|_| ()),
             }
         }
     }
@@ -453,6 +479,11 @@ fn micros(elapsed: Duration) -> u64 {
     u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX)
 }
 
+/// Whether `error` leaves a commit in doubt.
+fn in_doubt(error: &ClientError) -> bool {
+    matches!(error.0, ClientErrorEnum::InDoubt { .. })
+}
+
 /// A request's failure as the run's.
 fn failed(error: &ClientError) -> BenchError {
     BenchError::client(error.to_string())
@@ -471,6 +502,7 @@ fn report(args: &ClientArgs, tallies: &[Tally], elapsed: Duration) -> String {
         .collect();
     let requests = request_us.len() as u64;
     let refused: u64 = tallies.iter().map(|t| t.refused).sum();
+    let in_doubt: u64 = tallies.iter().map(|t| t.in_doubt).sum();
     let relations = match args.op() {
         ClientOp::Direct | ClientOp::Transaction | ClientOp::ListRead | ClientOp::Stall => {
             requests * args.relations() as u64
@@ -495,7 +527,7 @@ fn report(args: &ClientArgs, tallies: &[Tally], elapsed: Duration) -> String {
     format!(
         concat!(
             "{{\"run\":\"client\",\"op\":\"{}\",\"connections\":{},\"partitions\":{},\"relations_per_commit\":{},",
-            "\"session\":{},\"level\":{},\"limit\":{},\"seconds\":{:.2},\"requests\":{},\"refused\":{},",
+            "\"session\":{},\"level\":{},\"limit\":{},\"seconds\":{:.2},\"requests\":{},\"refused\":{},\"in_doubt\":{},",
             "\"refusals\":{{{}}},\"requests_per_s\":{:.0},\"relations_per_s\":{:.0},\"latency_us\":{},",
             "\"begin_us\":{},\"rows\":{},\"empty_reads\":{},\"sent_bytes\":{},\"first_refusal\":\"{}\"}}"
         ),
@@ -509,6 +541,7 @@ fn report(args: &ClientArgs, tallies: &[Tally], elapsed: Duration) -> String {
         elapsed.as_secs_f64(),
         requests,
         refused,
+        in_doubt,
         refusals,
         requests as f64 / secs,
         relations as f64 / secs,

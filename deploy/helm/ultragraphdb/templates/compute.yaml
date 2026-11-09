@@ -1,0 +1,69 @@
+{{- /*
+Compute: no data directory, so a Deployment. Its role address, which it binds and announces to the frontend, is
+`compute.compute.<namespace>.svc.<domain>`: the pod's `hostname` under the headless Service `compute` as its `subdomain`. One
+replica, replaced by `Recreate`, so no two pods hold that name at once.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: compute
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ultragraphdb.labels" (dict "name" "compute" "root" .) | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "ultragraphdb.selector" (dict "name" "compute") | nindent 4 }}
+  ports:
+    - name: role
+      port: 7082
+    - name: observability
+      port: 8082
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: compute
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ultragraphdb.labels" (dict "name" "compute" "root" .) | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ultragraphdb.selector" (dict "name" "compute") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ultragraphdb.labels" (dict "name" "compute" "root" .) | nindent 8 }}
+    spec:
+      hostname: compute
+      subdomain: compute
+      {{- include "ultragraphdb.podSecurity" (dict "user" 65532 "root" .) | nindent 6 }}
+      containers:
+        - name: compute
+          image: {{ .Values.images.compute }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          # The last lines of a failed start's log stay in the pod's status, naming what stopped it.
+          terminationMessagePolicy: FallbackToLogsOnError
+          env:
+            {{- include "ultragraphdb.bootstrap" (dict "name" "compute" "root" .) | nindent 12 }}
+          ports:
+            - {name: role, containerPort: 7082}
+            - {name: observability, containerPort: 8082}
+          {{- include "ultragraphdb.containerSecurity" . | nindent 10 }}
+          {{- include "ultragraphdb.probes" (dict "port" 8082 "startup" 90) | nindent 10 }}
+          volumeMounts:
+            - {name: secrets, mountPath: /secrets, readOnly: true}
+      volumes:
+        # Each Secret optional, so a missing one leaves its file absent and the role names it as it exits with code 78, rather
+        # than the pod waiting unstarted.
+        - name: secrets
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret: {name: ultragraphdb-read-key, optional: true}
+              - secret: {name: ultragraphdb-role-secret, optional: true}

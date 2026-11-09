@@ -1,0 +1,82 @@
+{{- /*
+The config service: one process over one data directory, which it holds locked, so one replica. It runs as its image's user,
+`nobody` (65534), and reads the `kube` profile from the ConfigMap and its two keys from the Secrets; it starts again when the
+profile changes, as it reads the profile at start.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ultragraphdb.labels" (dict "name" "config" "root" .) | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "ultragraphdb.selector" (dict "name" "config") | nindent 4 }}
+  ports:
+    - name: api
+      port: 8090
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ultragraphdb.labels" (dict "name" "config" "root" .) | nindent 4 }}
+spec:
+  serviceName: config
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ultragraphdb.selector" (dict "name" "config") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ultragraphdb.labels" (dict "name" "config" "root" .) | nindent 8 }}
+      annotations:
+        checksum/profile: {{ include (print $.Template.BasePath "/profile.yaml") . | sha256sum }}
+    spec:
+      {{- include "ultragraphdb.podSecurity" (dict "user" 65534 "root" .) | nindent 6 }}
+      containers:
+        - name: config
+          image: {{ .Values.images.config }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          # The last lines of a failed start's log stay in the pod's status, naming what stopped it.
+          terminationMessagePolicy: FallbackToLogsOnError
+          args: ["--config", "/etc/ultragraphdb/config/kube.toml"]
+          ports:
+            - name: api
+              containerPort: 8090
+          {{- include "ultragraphdb.containerSecurity" . | nindent 10 }}
+          {{- include "ultragraphdb.probes" (dict "port" 8090 "startup" 60) | nindent 10 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: service-file, mountPath: /etc/ultragraphdb/config, readOnly: true}
+            - {name: profile, mountPath: /etc/ultragraphdb/profiles/kube, readOnly: true}
+            - {name: secrets, mountPath: /secrets, readOnly: true}
+      volumes:
+        - name: service-file
+          configMap:
+            name: ultragraphdb-profile
+            items:
+              - {key: kube.toml, path: kube.toml}
+        - name: profile
+          configMap:
+            name: ultragraphdb-profile
+            items:
+              - {key: targets.toml, path: targets.toml}
+              - {key: frontend.toml, path: frontend.toml}
+              - {key: storage.toml, path: storage.toml}
+              - {key: compute.toml, path: compute.toml}
+        # Each Secret optional, so a missing one leaves its file absent and the process names it as it exits with code 78,
+        # rather than the pod waiting unstarted.
+        - name: secrets
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret: {name: ultragraphdb-read-key, optional: true}
+              - secret: {name: ultragraphdb-admin-key, optional: true}
+  {{- include "ultragraphdb.dataClaim" . | nindent 2 }}

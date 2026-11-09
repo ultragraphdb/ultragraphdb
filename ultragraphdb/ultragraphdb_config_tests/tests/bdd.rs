@@ -837,13 +837,16 @@ fn no_settings_file_named(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("an administrator checks the `dev` and `dev-net` profiles")]
+#[when("an administrator checks the `dev`, `dev-net` and `kube` profiles")]
 fn profiles(w: &mut Steps) -> TestResult {
     let binary = Path::new(ROOT_PATH).join(CLI);
-    for profile in ["dev", "dev-net"] {
-        let central = Path::new("ultragraphdb/ultragraphdb_config/profiles")
-            .join(profile)
-            .join("targets.toml");
+    // The shipped profiles, and the Helm chart's.
+    for (profile, directory) in [
+        ("dev", "ultragraphdb/ultragraphdb_config/profiles"),
+        ("dev-net", "ultragraphdb/ultragraphdb_config/profiles"),
+        ("kube", "deploy/helm/ultragraphdb/profile"),
+    ] {
+        let central = Path::new(directory).join(profile).join("targets.toml");
         let output = Command::new(&binary).arg(central).env_clear().output()?;
         let text = String::from_utf8_lossy(&output.stdout);
         assert_eq!(output.status.code(), Some(0), "{profile}: {text}");
@@ -859,8 +862,10 @@ fn profiles_pass(w: &mut Steps) {
         &[
             "dev: ",
             "dev-net: ",
+            "kube: ",
             "target dev: compute, frontend, storage",
             "target dev-net: compute, frontend, storage",
+            "target kube: compute, frontend, storage",
         ],
     );
 }

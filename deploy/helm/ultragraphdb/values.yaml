@@ -1,0 +1,39 @@
+# One cluster of the roles in the release's namespace, one release per namespace: the objects take fixed names, `config`,
+# `frontend`, `storage` and `compute`, which the role addresses of the `kube` profile name.
+
+# Each role's image, and the bench's.
+images:
+  config: ultragraphdb/config:local
+  frontend: ultragraphdb/frontend:local
+  storage: ultragraphdb/storage:local
+  compute: ultragraphdb/compute:local
+  bench: ultragraphdb/client_bench:local
+imagePullPolicy: IfNotPresent
+
+# The cluster's DNS domain, which the role addresses end in.
+clusterDomain: cluster.local
+
+# The volume of each data directory: the config service's, the frontend's and the storage instance's. An empty class takes
+# the cluster's default.
+persistence:
+  storageClassName: ""
+  size: 1Gi
+
+# The seccomp profile every pod runs under. The shipped profile, bazel/oci_images/seccomp/ultragraphdb.json, installed on
+# every node under the kubelet's seccomp directory, lets the roles run on io_uring; under RuntimeDefault they run on the polling
+# driver.
+seccompProfile:
+  type: Localhost
+  localhostProfile: profiles/ultragraphdb.json
+
+# The config service's read and admin keys, the role secret and the bootstrap administrator's password: drawn at random at the
+# first install and kept by every upgrade and by an uninstall. `create: false` makes none; the four Secrets,
+# ultragraphdb-read-key (read.key), ultragraphdb-admin-key (admin.key), ultragraphdb-role-secret (role.secret) and
+# ultragraphdb-bootstrap-secret (bootstrap.secret), must then exist, each value at least 32 bytes.
+secrets:
+  create: true
+
+# One run of client_bench against the frontend's client Service, as a Job, its JSON line its log.
+bench:
+  enabled: false
+  args: ["--op", "direct", "--connections", "16", "--seconds", "20"]

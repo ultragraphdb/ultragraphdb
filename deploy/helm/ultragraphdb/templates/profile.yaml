@@ -1,0 +1,17 @@
+{{- /*
+The `kube` profile, the chart's profile/ directory, which the config battery checks: its addresses name the namespace
+`ultragraphdb` and the domain `cluster.local`, replaced by the release's.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ultragraphdb-profile
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ultragraphdb.labels" (dict "name" "config" "root" .) | nindent 4 }}
+data:
+  {{- $names := printf ".%s.svc.%s" .Release.Namespace .Values.clusterDomain }}
+  {{- range $path, $_ := .Files.Glob "profile/**.toml" }}
+  {{ base $path }}: |
+    {{- $.Files.Get $path | replace ".ultragraphdb.svc.cluster.local" $names | nindent 4 }}
+  {{- end }}

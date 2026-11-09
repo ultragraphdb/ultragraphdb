@@ -17,6 +17,12 @@ help:
 	@echo '    make format   	Formats all code according to cargo fmt style.'
 	@echo '    make update   	Update rust, pulls from git remote.'
 	@echo '    make test   	Tests across all crates.'
+	@echo ''
+	@echo ' Local Kubernetes (Apple container, macOS on Apple silicon):'
+	@echo '    make cluster-local   	Creates the cluster, loads the images and deploys deploy/helm/ultragraphdb (CPUS=12 MEMORY=16g).'
+	@echo '    make cluster-local-bench	Runs client_bench as a Job in the cluster (BENCH="--op direct --connections 16 --seconds 20").'
+	@echo '    make cluster-local-status	Shows the cluster, its pods and the I/O driver each role runs on.'
+	@echo '    make cluster-local-down	Deletes the cluster.'
 
 .PHONY: build
 build:
@@ -49,3 +55,23 @@ test:
 .PHONY: update
 update:
 	@source scripts/update.sh
+
+CPUS ?= 12
+MEMORY ?= 16g
+BENCH ?=
+
+.PHONY: cluster-local
+cluster-local:
+	@source scripts/cluster_local.sh up --cpus $(CPUS) --memory $(MEMORY)
+
+.PHONY: cluster-local-bench
+cluster-local-bench:
+	@source scripts/cluster_local.sh bench $(BENCH)
+
+.PHONY: cluster-local-status
+cluster-local-status:
+	@source scripts/cluster_local.sh status
+
+.PHONY: cluster-local-down
+cluster-local-down:
+	@source scripts/cluster_local.sh down

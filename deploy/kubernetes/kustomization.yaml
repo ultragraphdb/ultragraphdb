@@ -1,0 +1,13 @@
+# One cluster of the roles in the namespace `ultragraphdb`: `kubectl apply -k deploy/kubernetes/`. Applied by
+# `scripts/cluster_local.sh`, which first creates what these manifests name and do not hold: the ConfigMap `ultragraphdb-profile`,
+# the `kube` profile of `ultragraphdb/ultragraphdb_config/profiles/`, and the four Secrets, drawn at random. The bench Job,
+# `bench/job.yaml`, is applied apart, per run.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ultragraphdb
+resources:
+  - namespace.yaml
+  - config.yaml
+  - frontend.yaml
+  - storage.yaml
+  - compute.yaml

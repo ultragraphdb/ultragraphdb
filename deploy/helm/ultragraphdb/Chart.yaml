@@ -1,0 +1,8 @@
+apiVersion: v2
+name: ultragraphdb
+description: >-
+  One cluster of UltraGraphDB's roles: the config service, one frontend, one storage instance of one partition and one
+  compute, over TCP in clear text, for development only.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

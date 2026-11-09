@@ -105,7 +105,7 @@ Feature: The config service and its CLI as processes
     Then it exits with code 78 and an error naming the file
 
   Scenario: The profiles ship and pass
-    When an administrator checks the `dev` and `dev-net` profiles
+    When an administrator checks the `dev`, `dev-net` and `kube` profiles
     Then each passes, listing its frontend, storage and compute
 
   Scenario: An edit made through the API is downloaded and saved

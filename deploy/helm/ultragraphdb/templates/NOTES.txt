@@ -1,0 +1,5 @@
+UltraGraphDB's roles are starting in the namespace {{ .Release.Namespace }}: the config service, the frontend, the storage
+instance and compute. Clients reach the frontend at frontend-client.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}:7080,
+in clear text, logging in as `admin` with the bootstrap password:
+
+  kubectl -n {{ .Release.Namespace }} get secret ultragraphdb-bootstrap-secret -o jsonpath='{.data.bootstrap\.secret}' | base64 -d

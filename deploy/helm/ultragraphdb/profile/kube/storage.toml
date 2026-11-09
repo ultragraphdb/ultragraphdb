@@ -1,0 +1,11 @@
+[cluster]
+id = 1
+role_secret_file = "/secrets/role.secret"
+frontend_address = "tcp://frontend.ultragraphdb.svc.cluster.local:7081"
+[observability]
+address = "tcp://0.0.0.0:8083"
+[storage]
+partition_first = 1
+partition_count = 1
+role_address = "tcp://storage-0.storage.ultragraphdb.svc.cluster.local:7100"
+data_dir = "/data/storage"

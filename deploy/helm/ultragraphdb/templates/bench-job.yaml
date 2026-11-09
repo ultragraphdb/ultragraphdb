@@ -1,0 +1,45 @@
+{{- /*
+One run of client_bench against the frontend's client Service, inside the cluster, when `bench.enabled`; its log is the run's
+one JSON line. A Job's pod template cannot change, so a run after another deletes the Job first.
+*/ -}}
+{{- if .Values.bench.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bench
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ultragraphdb.labels" (dict "name" "bench" "root" .) | nindent 4 }}
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        {{- include "ultragraphdb.labels" (dict "name" "bench" "root" .) | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      {{- include "ultragraphdb.podSecurity" (dict "user" 65532 "root" .) | nindent 6 }}
+      containers:
+        - name: bench
+          image: {{ .Values.images.bench }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          # The last lines of a failed start's log stay in the pod's status, naming what stopped it.
+          terminationMessagePolicy: FallbackToLogsOnError
+          args:
+            - --address
+            - {{ printf "frontend-client.%s.svc.%s:7080" .Release.Namespace .Values.clusterDomain }}
+            - --password-file
+            - /secrets/bootstrap.secret
+            {{- range .Values.bench.args }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- include "ultragraphdb.containerSecurity" . | nindent 10 }}
+          volumeMounts:
+            - {name: secrets, mountPath: /secrets, readOnly: true}
+      volumes:
+        - name: secrets
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret: {name: ultragraphdb-bootstrap-secret}
+{{- end }}

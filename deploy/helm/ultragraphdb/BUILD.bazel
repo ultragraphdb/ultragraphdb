@@ -1,0 +1,11 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+# The chart's `kube` profile, which the config battery checks as it checks the shipped profiles.
+filegroup(
+    name = "profile",
+    srcs = glob(["profile/**/*.toml"]),
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,7 @@
+# The `kube` profile: one frontend, one storage instance of one partition and one compute, each a pod of the namespace
+# `ultragraphdb`, over TCP in clear text, for development only. A role address is its pod's name under its headless Service; the
+# chart puts its release's namespace and cluster domain in place of `ultragraphdb.svc.cluster.local`.
+[kube]
+frontend = "frontend.toml"
+storage = "storage.toml"
+compute = "compute.toml"

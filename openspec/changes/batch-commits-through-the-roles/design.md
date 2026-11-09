@@ -44,7 +44,7 @@ No manifest exists yet.
   it, and it means splitting `Pipeline::sync` so the log's sync no longer borrows the pipeline. Measured first, decided after.
 - The other open items of backlog item 18 (the owner's epoch-close sync, referrer-set reads, a Scan turn's cost), each its own
   question.
-- A production Kubernetes deployment: TLS between roles (stage 8), more than one frontend, an operator, Helm charts, amd64
+- A production Kubernetes deployment: TLS between roles (stage 8), more than one frontend, an operator, amd64
   nodes, autoscaling. The manifests deploy one cluster of the stage-5.5 roles for test.
 - Power-loss durability on the cluster's disks; the node VMs' disks are what they are.
 
@@ -104,13 +104,27 @@ count against `held_bytes` with the parked ones. A peer sees the same frames in 
   directory; compute is a Deployment. A storage instance's name is `storage_<label>` and comes from the pod's environment
   (`ULTRAGRAPHDB_CONFIG_INSTANCE`); a StatefulSet's ordinal gives `storage-0`, which no instance may be named, so each instance
   is its own StatefulSet. The frontend is one replica because the metadata group and the sequencer it hosts hold one.
+- Compute's pod sets `hostname: compute` and `subdomain: compute`, so its role address is
+  `compute.compute.<namespace>.svc.cluster.local` as a StatefulSet pod's is `<pod>.<service>.<namespace>.svc.cluster.local`; the
+  kubelet writes that name into the pod's `/etc/hosts`, so the role binds it before any DNS record exists. One replica, replaced
+  by `Recreate`, so no two pods hold the name at once.
+- The config service runs as its image's user, 65534, as `config-service` states; the roles as 65532.
+- Every Secret is mounted `optional`, so a missing one leaves its file absent and the role exits with code 78 naming it, rather
+  than the pod waiting unstarted; the chart draws the Secrets' values at install, so `deploy/helm/` holds none.
 - A headless Service per workload gives the stable names the role addresses use; `publishNotReadyAddresses: true` lets a role
   resolve and bind its own name before it is ready (role addresses accept host names, resolved as the connection opens, and 12.6
   ran the roles bound to their containers' names).
-- A `kube` profile beside `dev` and `dev-net` in `ultragraphdb/ultragraphdb_config/profiles/`, its addresses the Services'
-  names, validated by the config service and its CLI like the others. The profile lives in a ConfigMap; keys and secrets are
-  Secrets the script draws from `/dev/urandom` at first creation.
-- Plain manifests with a `kustomization.yaml` (`kubectl apply -k`, built into `kubectl`): no Helm, no operator. Pods run as user
+- A Helm chart, `deploy/helm/ultragraphdb` (the owner's choice, 2026-11-09, replacing the plain manifests and `kustomization.yaml`
+  first written: one definition, installable on any cluster). Its objects take fixed names, `config`, `frontend`, `storage`,
+  `compute`, which the role addresses name, so one release per namespace. Its values: the images and pull policy, the cluster
+  domain, the volumes' class and size, the seccomp profile, `secrets.create`, the bench Job.
+- The `kube` profile is the chart's, `profile/`, its addresses the Services' names in the namespace `ultragraphdb` under
+  `cluster.local`, which the chart replaces by the release's; the config battery checks it beside `dev` and `dev-net`. It lives in
+  a ConfigMap; the config service's pod restarts when it changes, by a checksum annotation.
+- The chart draws the keys and secrets (`randAlphaNum 64`) at the first install and reads them back on an upgrade (`lookup`); each
+  carries `helm.sh/resource-policy: keep`, as the volumes outlive an uninstall and the frontend's metadata holds the bootstrap
+  administrator's verifier. `helm template` reads no cluster and draws anew on each render, so the script creates the Secrets only
+  where absent. No operator. Pods run as user
   65532, read-only root, all capabilities dropped, no privilege escalation; probes on `/health` (startup, liveness) and `/ready`
   (readiness).
 - Volumes use the `standard` StorageClass of kind's local-path provisioner. A `container` cluster does not install it, but its node
@@ -130,6 +144,11 @@ untagged image; it reads the arm64 manifest's digest from the tar's `index.json`
 take the images from the local store; `imagePullPolicy: Never` makes a missing image an error rather than a pull. Probed on the
 compute and the development image (`notes/group-0.md`, 3).
 
+Two behaviours of `container` 1.7.1 the script works around (`notes/group-5.md`): it refuses to load an image its store already
+holds ("File exists"), so an unchanged image is only tagged; and a node's containerd keeps the image it first resolved a name to,
+never reading the store's tag again, so on every `up` the script drops each node's record of the images (`crictl rmi`) before the
+workloads restart, and each pod resolves the name afresh.
+
 Alternatives:
 - *`container build` with a Containerfile* (the owner's suggestion; it builds multi-platform images without Docker). It would be
   a second definition of each image, its base, user and files, beside `rules_img`'s, and the cluster would test images that do
@@ -142,15 +161,22 @@ Alternatives:
 frontend's client Service, its password from the bootstrap Secret. Measuring from inside avoids a port forward on the path, and
 the cluster's networking from the host is not documented. Its JSON line is the Job's log.
 
+Two changes to `client_bench`, found running it so: a run's names carried the process's ID to keep runs apart, and in a Job every
+run is process 1, so runs rewrote one another's quads; the names now carry a draw from the system's random source. And a commit a
+storage pod's kill leaves in doubt ended the run; the run now resolves it as a client does, resending with its number until it is
+answered, and counts it (`in_doubt`), so its `requests` are the commits acknowledged, each once.
+
 ### D8. The script drives the cluster from inside its node, outside Bazel tests and `make test`
 
 `scripts/cluster_local.sh up|down|bench|status`, behind `make cluster-local`, `make cluster-local-down`, `make cluster-local-bench`
 and `make cluster-local-status`, runs `kubectl` inside the control-plane node through `container exec -i`,
-against `/etc/kubernetes/admin.conf`, manifests on standard input. It so needs no `kubectl` on the host and no network path from
+against `/etc/kubernetes/admin.conf`, the chart rendered by `helm template` on the host and passed on standard input. It so needs
+no `kubectl` on the host and no network path from
 the host to the cluster, which this Mac lacks until macOS's Local Network permission is granted to `container-runtime-linux`
 (apple/container #1702, #2067; `notes/group-0.md`, 4). It creates the cluster with `KUBECONFIG` naming a file of its own, since
 `container cluster create` merges the cluster's context into whatever file `KUBECONFIG` names. It needs the host's `container`,
-which a hermetic, sandboxed Bazel test cannot use and CI hosts will not have, so it checks for it and names it when missing, and
+and `helm`, which a hermetic, sandboxed Bazel test cannot use and CI hosts will not have, so it checks for each and names it when
+missing, and
 it stays outside `make test`. Images are built by Bazel; the script only runs `bazel build` for them. Node CPUs and memory are its
 arguments, stated in what it reports (the default node is 4 CPUs and 32 GB here).
 
