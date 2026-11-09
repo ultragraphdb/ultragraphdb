@@ -23,7 +23,8 @@ already held. The dictionary SHALL hold that IRI as the reifier's name, mapping 
 client addresses the statement's properties, or one of several parallel edges, through it.
 
 #### Scenario: A statement ID's reifier is a skolem IRI
-- **WHEN** `<a> <knows> <b>` gains the property `<since> 2020` and so receives a statement ID
+- **WHEN**, in a tenant with no schema, `<a> <knows> <b>` gains the property `<since> 2020` and so receives a statement
+  ID
 - **THEN** the dictionary holds a skolem IRI `…/tenant/{n}/.well-known/genid/{bucket}-{random}` for it, whose bucket is `<a>`'s,
   mapping to the statement ID and back, and a write naming that IRI as the reifier adds properties to the statement
 
@@ -51,19 +52,49 @@ client addresses the statement's properties, or one of several parallel edges, t
 - **THEN** the dictionary maps `https://example.org/deep_brain#Node/ORG%3Aacme` to an ID whose type prefix is
   `Company`'s, in the bucket computed from `Node`'s prefix and the canonical key
 
+### Requirement: The dictionary is a keyspace without versions
+The dictionary SHALL map term to system ID, system ID to term and literal hash to string in a keyspace without versions,
+read by point lookups. Its keys SHALL be its keyspace byte, the tenant's 8 big-endian bytes, a kind byte and then:
+for an IRI or a reifier's name, the term's 128-bit hash (SHA-256 truncated to 16 bytes), its value the system ID: a
+`Resource` ID for an IRI naming no instance of a declared type, the instance's ID, of its concrete type's prefix, for
+one that does, and for a reifier's name a statement ID of the built-in `Statement` prefix or of its declared relation's; for an ID, its 16 bytes, its value the term's text;
+for a literal, its 128-bit hash, its value the string. It SHALL be naming state only: whether an entity exists, and
+which types it has, SHALL be read from committed data, never from a dictionary entry, so an entry created for a write
+that then aborted names nothing that exists. A literal's entry SHALL be written blind: equal strings write equal keys
+and values. An ID's ID-to-term entry SHALL never change once written, since IDs are never reused, so any partition holds
+a copy of another partition's ID-to-IRI entry without invalidation. A delete SHALL remove no entry: an ID-to-term entry stays for good,
+and an IRI-to-ID entry stays until its IRI is created again, when it SHALL be rewritten to the new ID, whose record
+names the ID it replaced, so a read naming the IRI at a version below the delete resolves the replaced ID. The
+reclamation of stage 8 removes entries.
+
+#### Scenario: An aborted write leaves nothing that exists
+- **WHEN** a write creating `<gone>` is refused at commit, and a read then asks for every statement naming `<gone>`
+- **THEN** the read returns nothing, whether or not the dictionary holds an entry for `<gone>`
+
+#### Scenario: A read at an older version is unaffected by a newer term
+- **WHEN** `<late>` is first written at epoch 10 and a read at epoch 5 lists every statement of the default graph
+- **THEN** the read returns no statement naming `<late>`
+
+#### Scenario: A recreated IRI names its new instance and keeps its old one readable
+- **WHEN** an aviation `Engine` is deleted and an `Engine` with the same `serial` is created
+- **THEN** the IRI's entry names the new ID, the old ID's entry still names the IRI, and the new instance's record names
+  the old ID
+
 ## ADDED Requirements
 
 ### Requirement: Handle IRIs are held both ways
 A keyless instance's handle IRI SHALL be minted by its creating partition into its type's IRI space,
-`{base}{Type}/{bucket}-{random}`, drawn as a blank node's skolem IRI is drawn and drawn again when the dictionary holds
-it. The dictionary SHALL hold the IRI as the instance's name, mapping it to the ID and back; a result SHALL name the
+`{base}{Type}/{bucket}-{random}`: its random bits drawn as a blank node's are, and drawn again when the dictionary holds
+the IRI; its bucket drawn so for an entity, and the anchor's for an unkeyed relation instance. The dictionary SHALL hold the IRI as the instance's name, mapping it to the ID and back; a result SHALL name the
 instance by it as an IRI, never as a blank node; and a request naming it SHALL be accepted when the dictionary of the
-partition owning the bucket it states holds it, and refused with code 7 when it does not.
+partition owning the bucket it states holds it, and refused at the write naming it, with code 7 and `detail` the
+term's index, when it does not.
 
 #### Scenario: A handle is presented as an IRI
 - **WHEN** a `Supply` instance is created from a blank node and its triples are read
 - **THEN** every row names it by `https://example.org/aviation#Supply/` and its handle, a term of kind IRI
 
 #### Scenario: A handle the dictionary does not hold is refused
-- **WHEN** a write names `https://example.org/aviation#Supply/00a1f3-00000000000000000000000000`, which no instance holds
-- **THEN** it is refused with code 7, naming the IRI
+- **WHEN** a Write names a handle IRI of `Supply`'s space whose bucket lies in the tenant's run and which no instance
+  holds
+- **THEN** the Write is refused with code 7, `detail` the term's index, before any commit

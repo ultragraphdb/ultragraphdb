@@ -16,10 +16,11 @@ accepted: the declaration is recorded in the catalog version and reported with `
 - **THEN** the Install succeeds, its warnings hold `UGS0902` naming `Embedding` and stage 8, and no vector index exists
 
 ### Requirement: Every request naming a tenant passes one gate
-Every request naming a tenant, Begin, Prepare, Describe, Install, Drop, DirectWrite and ConditionalWrite, SHALL pass one gate at
+Every request naming a tenant SHALL pass one gate, Begin, Prepare, Describe, Install, Drop, DirectWrite,
+ConditionalWrite, Purge and Migrate alike, at
 the frontend before it reaches another role or any state: whether the connection's principal may do the request's action
 in that tenant. A refusal SHALL be code 21 (PermissionDenied) on the request's stream, `detail` 1, `read`, for Begin,
-Prepare and Describe, 3, `declare`, for an Install, 2, `write`, for a one-frame write and 4, `drop`, for a Drop. The gate SHALL fail closed on an
+Prepare and Describe, 3, `declare`, for an Install and a Migrate, 7, `purge`, for a Purge, 2, `write`, for a one-frame write and 4, `drop`, for a Drop. The gate SHALL fail closed on an
 action or a scope it does not know. In this stage it SHALL allow every authenticated principal, and stage 7's grants
 fill it in. A request the gate passes naming a tenant the metadata group does not hold SHALL then be refused with code 7
 (Refused), `detail` the tenant, the message naming it, so a principal holding no grant in a number learns nothing of

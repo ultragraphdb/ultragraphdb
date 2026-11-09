@@ -45,7 +45,9 @@ catalog does not declare SHALL be refused with `UQL0101`, the message listing th
 declared only on a subtype of the selector's type with `UQL0103`; a comparison or an assignment of a value to a type
 it does not fit with `UQL0201`; and a parameter whose uses disagree on its type, or whose type no use fixes, with
 `UQL0202`. A literal SHALL take the type of the field it is compared with or assigned to. A parameter the text uses
-and the request does not give, or gives and the text does not use, SHALL be refused with code 11 (Parameters).
+and the request does not give, or gives and the text does not use, and a parameter's term that does not fit its
+inferred type, SHALL be refused with code 11 (Parameters), `detail` 0. Nesting of lists and selectors past 64 SHALL be
+refused with `UQL0001`.
 
 #### Scenario: An unknown attribute lists the nearest names
 - **WHEN** a client sends `Company(id = "ORG:acme") { lable }` under Gen5
@@ -102,22 +104,24 @@ commit's, refused with its `UGS1xxx` number. An insert SHALL answer one Result o
 - **THEN** the Query is answered, and the Commit is refused with code 7, `detail` 1010
 
 #### Scenario: Statements of one transaction commit together
-- **WHEN** a client begins a transaction, sends `insert Post { id: "POST:cto" }` and `insert PostIn { post: Post(id =
+- **WHEN** the `Company` `ORG:acme` exists and a client begins a transaction, sends `insert Post { id: "POST:cto" }` and `insert PostIn { post: Post(id =
   "POST:cto"), organisation: Company(id = "ORG:acme") }`, and commits
 - **THEN** the commit succeeds; and the first statement committed alone is refused with `UGS1014`
 
 ### Requirement: A root query reads instances by type and filter
 `T(filters) { shape }` SHALL answer the live instances of `T` and its subtypes in the working graph that satisfy every
 filter item, at the transaction's read point: an item comparing an own attribute or `iri` with a value by `=`, `<>`,
-`<`, `<=`, `>` or `>=`, `is S` narrowing to the subtype `S`, a role binding on a relation type, and `with retracted`
-admitting retracted instances. A selector fixing its type's whole key or `iri` by equality SHALL be a point lookup
+`<`, `<=`, `>` or `>=`, `is S` narrowing to the subtype `S`, a role binding on a relation type, by a point selector (`UQL0507` otherwise), and `with retracted` admitting retracted
+instances. A selector fixing its type's whole key or `iri` by equality SHALL be a point lookup
 routed to the instance's home with no scan; a relation selector binding its anchor role SHALL be a forward read, one binding another role a reverse read
 as `PROTOCOL.md` section 11.11 serves one, and one binding no role a scan of its type. The shape SHALL hold attributes of the selector's type, the built-in fields `type`, `iri`,
-`asserted` and `live`, an alias before any of them, and `..` for every attribute the type declares. The reply SHALL be
+`asserted` and `live`, an alias before any of them, and `..` for every attribute the type declares; a derived name in a shape SHALL be refused
+with `UQL0901`, and `..` SHALL leave derived names out. A set's members SHALL be written in the ascending order of
+their term encodings. The reply SHALL be
 Result batches of one row per instance and one column per shape field, named by its alias or its name: a scalar or an
 enum member as its term, `type` as the concrete type's name, `iri` as an IRI, or `ABSENT` for an edge-encoded instance that holds no reifier, a record, interval, list or set as one
-`rdf:JSON` literal in `SCHEMA.md` section 11.2's canonical form, and an absent optional value as `ABSENT`. `limit n`
-SHALL end the rows after `n`. No row SHALL hold a system ID.
+`rdf:JSON` literal in `SCHEMA.md` section 11.2's canonical form, and an absent optional value as `ABSENT`. The lesser of the Query's `limit` and the text's SHALL end the rows; the subset SHALL take no resume key, and a
+Query of `language` 3 carrying one SHALL be refused with Error 1 (Protocol), the message naming it. No row SHALL hold a system ID.
 
 #### Scenario: A point lookup by key
 - **WHEN** the `Company` `ORG:acme` with `label` `Acme` exists and a client sends `Company(id = "ORG:acme") { id label
@@ -150,6 +154,14 @@ SHALL end the rows after `n`. No row SHALL hold a system ID.
 #### Scenario: An edge without a reifier has no iri
 - **WHEN** an aviation `PartOf` exists and a client sends `PartOf(part: Asset(serial = "EN-4471-B")) { iri type }`
 - **THEN** the reply is one row whose `iri` cell is `ABSENT` and whose `type` is `"PartOf"`
+
+#### Scenario: A role binding needs a point selector
+- **WHEN** a client sends `MemberOf(member: Person(rank = normal)) { iri }`
+- **THEN** it is refused with `UQL0507` naming `member`
+
+#### Scenario: A derived name waits for the query core
+- **WHEN** a client sends `Company(id = "ORG:acme") { closed }`
+- **THEN** it is refused with `UQL0901` naming `closed`
 
 #### Scenario: An interval is read as its record
 - **WHEN** a `Company` is read with `{ asserted }`
@@ -204,7 +216,7 @@ columns and no rows, flagged `LAST`.
 #### Scenario: An update by filter revises each selected instance
 - **WHEN** three `Company` instances hold `rank` `normal` and a client sends `update Company(rank = normal) { rank:
   deprecated }` and commits
-- **THEN** all three read back with `rank` `deprecated` and `closed` `true`
+- **THEN** all three read back with `rank` `deprecated`, and a Read of `db:closed` answers `true` for each
 
 #### Scenario: A write in a read-only transaction is refused
 - **WHEN** a client sends `insert Company { id: "ORG:x" }` in a transaction begun read-only
@@ -216,9 +228,10 @@ datasets, up to the naming of handles and reifiers, and a write the commit refus
 with the same `UGS1xxx` number through the other.
 
 #### Scenario: The corpus's instance sets through both surfaces
-- **WHEN** each instance set of the corpus that the subset can express is written through UQL into one tenant and as
-  quads into another holding the same schema
-- **THEN** the two tenants' RDF views are equal up to the naming of handles and reifiers
+- **WHEN** each instance set of the corpus that the subset can express is written through UQL and every quad read, the
+  tenant is emptied by a Drop of kind 4 and its schema installed again, and the set is written as quads and every quad
+  read
+- **THEN** the two readings are equal up to the naming of handles and reifiers
 
 #### Scenario: A rule refuses alike through both surfaces
 - **WHEN** each rule-breaking instance set of the corpus that the subset can express is written through UQL and as

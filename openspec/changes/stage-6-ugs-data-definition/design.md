@@ -66,8 +66,9 @@ longer current is refused with code 2, kind Catalog (`PROTOCOL.md` section 8.4).
 version takes effect, an Install fences the tenant's writes with code 31, so no data is written ungoverned in between
 (user, 2026-11-10).
 
-- *Consequence:* a schema under development is installed into a fresh tenant, and a tenant's schemas are removed by a
-  Drop of kind 4, which sets its catalog to the initial one (`PROTOCOL.md` section 6.5).
+- *Consequence:* this stage has one tenant, tenant 0, since further tenants arrive with stage 7's administration
+  commands (`metadata-group`, "The metadata group holds the tenants"). A schema under development is changed by a Drop
+  of kind 4, naming the catalog version it drops under, and a new Install, or installed into a fresh cluster.
 - *Consequence:* the compiler's phase 8 has nothing to compare, and prefixes are allocated once per tenant. Phase 9
   still allocates through the metadata group's log, so stage 9.5 extends an allocation that already never reissues.
 - The catalog encoding defines the entry kinds a stage 6 compiler emits, Describe's kinds 1 to 19. The retired-name
@@ -214,9 +215,11 @@ partitions in one process, with instances placed in two partitions.
 
 ### 11. The catalog on the commit path
 
-A partition holds the catalog version in effect decoded once into arrays indexed by type prefix and by predicate ID,
-with a type's fields, roles, checks and prefix ranges reached by index. Validation of an instance looks nothing up by
-name and allocates nothing in the catalog. Group 7 measures the cost per instance and per triple against the baseline
+A partition holds the catalog version in effect as views over its bytes, built once when the version loads: the
+version's own index reaches a Type entry by type prefix, a table the partition builds reaches a predicate's entry by
+predicate ID, and a type's fields, roles, checks and prefix ranges follow by index. A check is a verified postfix
+program run in a loop. Validation of an instance looks nothing up by name, parses nothing and allocates nothing in
+the catalog. Group 7 measures the cost per instance and per triple against the baseline
 `openspec/benches/benches-2026-11-09.md` before group 8 adds index writes.
 
 ### 12. Group A is the model in `lean/schema`
@@ -234,6 +237,23 @@ derived from principles those files already hold: the seven gaps of this change'
 them. This change's capability specifications are written to them. The preparation's G2, the statements placing evolution
 at stage 9.5 with the fence of a first schema, and Operation kinds 5 and 6 are applied to those files too. Group 0
 still carries the corpus, the oracle's files and the rest of the UQL subset's marks.
+
+### 14. The review's resolutions
+
+`notes/review-resolutions.md` holds the review of this change by the standards of Paul and Elder's guide, and the
+resolutions the user accepted on 2026-11-10, each chosen by the tenets' order, correctness, speed, scale, developer
+experience:
+
+| | Resolution | Where it lands |
+|---|---|---|
+| R1 | One tenant in this stage; a schema is changed by Drop and Install; isolation between tenants is tested where tenants can be made | Tasks 5.7 and 12; `ugs-catalog`, `uql-crud` |
+| R2 | A Drop removes a container with its history, names the catalog version it drops under and is audited | `SCHEMA.md` 8.4; `PROTOCOL.md` 6.5; `schema-changes` |
+| R3 | The catalog version's bytes are specified before group 4, by the six rules of `SCHEMA.md` section 10.2 | Task 0.12; `ugs-catalog`; decision 11 |
+| R4 | The report is records of the catalog version, rendered for the reply | `SCHEMA.md` 9.5; `ugs-semantics` |
+| R5 | One evaluation of expressions: two-valued, vacuous over an absent attribute value, failing closed | `SCHEMA.md` 4; `ugs-enforcement`, `ugs-semantics` |
+| R6 | `with retracted` reads each instance's newest version | `QUERY-ULTRA-QL.md` 11.2 |
+| R7 | A declared relation's edge-encoded instance is named by its handle IRI | `PROTOCOL.md` 4.6, 9.1, 10.2; `SCHEMA.md` 7.3, 11.1 |
+| D1 to D19 | The four independent reviews' nineteen decisions, `statement` as a contextual keyword first, and their corrections to the capability specifications | The specification files; every capability of this change |
 
 ## Risks / Trade-offs
 
@@ -265,5 +285,4 @@ before the next wave starts.
 
 ## Open Questions
 
-- Is the reifier of a declared relation's edge-encoded instance named by a handle IRI of its type, or by a skolem IRI
-  as a statement's is (`notes/specification-gaps.md`, gap G)? Group 6 needs the answer.
+- None at present.

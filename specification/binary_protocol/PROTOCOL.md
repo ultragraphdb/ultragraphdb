@@ -423,7 +423,7 @@ the body's string list; `ABSENT` is written where the table says so.
 | 1 | Insert a statement | 0 | graph (term or `ABSENT` for the default graph), subject, predicate, object: 4 terms |
 | 2 | Insert an edge with properties | 0 | graph, subject, predicate, object, then a property term and its value term per pair: 4 + 2p |
 | 3 | Delete a statement without a statement ID, by its quad | 0 | graph, subject, predicate, object |
-| 4 | Delete a statement with a statement ID, by its reifier | 0 | graph, the reifier's skolem IRI: 2 terms |
+| 4 | Delete a statement with a statement ID, by its reifier | 0 | graph, the reifier's IRI (section 10.2): 2 terms |
 | 5 | Delete every statement of a subject and predicate | 0 | graph, subject, predicate |
 | 6 | Set a statement's property | bit 0: by quad | the statement, then the property's predicate term, then its value term |
 | 7 | Delete a statement's property | bit 0: by quad | the statement, then the predicate term, then the value term or `ABSENT` for every value |
@@ -431,10 +431,10 @@ the body's string list; `ABSENT` is written where the table says so.
 | 9 | Declare an entity type | bit 0: abstract | names: the type's IRI; the parent's IRI or `ABSENT` |
 | 10 | Declare a relation | 0 | names: the relation's IRI, then each role's IRI: 1 + r |
 
-"The statement" of kinds 6 and 7 is, with bit 0 clear, graph and the reifier's skolem IRI (2 terms), naming a
+"The statement" of kinds 6 and 7 is, with bit 0 clear, graph and the reifier's IRI (2 terms), naming a
 statement that holds a statement ID; with bit 0 set, graph, subject, predicate and object (4 terms), naming the
 statement of that quad without a statement ID, which gains one with its first property. A record names a statement by
-its terms alone, never by a statement ID: a reifier's skolem IRI is the one a result batch named it by (section 9.1),
+its terms alone, never by a statement ID: a reifier's IRI is the one a result batch named it by (section 9.1),
 which the server accepts as section 4.4's IRI rule states.
 
 A receiver checks the records' section is a whole number of 16-byte records (`SectionLength`), then each record in
@@ -694,13 +694,15 @@ its read version below the drop's version, aborts with Conflict, kind Drop.
 | 32 | 8 | `request` | u64 | as Commit's |
 | 40 | 8 | `commit_version` | u64 | as Commit's |
 | 48 | 24 | `token` | session token (section 4.8) | as Commit's: zero in a request; in a reply through a session, a token whose `epoch` is `commit_version >> 22`; in a reply through no session, the zero token (`FieldValue` `"token"`) |
+| 72 | 8 | `catalog` | u64 | kinds 3 and 4: the tenant's catalog version the client drops under, 0 for a tenant holding none; kinds 1 and 2: 0 (`FieldValue` `"catalog"`) |
 
 | Section | Contents |
 |---|---|
 | 0 | the term table's records (section 4.4): one IRI, the predicate's for kind 1 and the graph's for kind 2; none for kinds 3 and 4 |
 | 1 | the term table's text |
 
-Order: unused bytes 1–7 and 72–127 zero; `request`; `kind`; `token` (section 4.8, then its rule above); sections;
+Order: unused bytes 1–7 and 80–127 zero; `request`; `kind`; `catalog`, 0 for kinds 1 and 2 (`FieldValue` `"catalog"`);
+`token` (section 4.8, then its rule above); sections;
 the term table; one entry for drop kinds 1 and 2, none for 3 and 4 (`CountMismatch` `"drop terms"`); the entry of kind
 1, an IRI (`FieldValue` `"drop term"`, the entry's kind).
 
@@ -716,6 +718,13 @@ is refused with code 7 (Refused), `detail` 0, the message naming the predicate a
 is a destructive schema change (`schema/SCHEMA.md` section 13.2). A predicate `@open` admitted is dropped as any other.
 A Drop of kind 4 removes the tenant's schemas with its data and its default-entry records (section 11.13), after
 which the tenant takes an Install again (section 8.4).
+
+A Drop of a tenant's data or of everything in a tenant names in `catalog` the catalog version it drops under. The
+frontend refuses one whose `catalog` is not the tenant's current version with code 2 (Conflict), kind 5 (Catalog),
+before any partition sees it, dropping nothing, so a Drop aimed at an earlier schema never removes the data of a later
+one. A Drop removes a container whole: the history of `@bitemporal` and `@append_only` types goes with the graph or the
+tenant's data that held it, which no delete or retraction removes (`../schema/SCHEMA.md` section 8.4). A Drop of kind 3
+or 4 is an audit event naming the principal, the tenant and that version (`../../openspec/notes/SECURITY.md`, *Audit*).
 
 ### 6.6 DirectWrite (20)
 
@@ -753,9 +762,11 @@ A write to a predicate the catalog in effect declares unique is conditional on t
 refused with code 7 (Refused), `detail` the term's index, the message naming the predicate and ConditionalWrite. The frame declares the
 client's intent and the catalog checks it, so a request named direct never runs a condition the client did not ask for.
 In a tenant that holds a schema the same rule reads the catalog's request-typing facts (`../schema/SCHEMA.md` section 9.6): a
-DirectWrite carries changes whose every predicate is blind, and one holding a change that claims a key or a `@unique`
-value, or that a check or a bound reads, is refused with code 7, `detail` the term's index, the message naming the
-predicate and a read-write transaction.
+DirectWrite carries changes whose every predicate is blind. A rule over the instance's own fields is validated in the
+frame's turn and refuses it with code 7 and the rule's number, as a commit's would. A change that claims a key or a
+`@unique` value, or that a rule reading beyond the instance reads, a bound, a `@limit`, `@no_overlap`, `@acyclic` or a
+participant's field, is refused with code 7, `detail` the term's index, the message naming the predicate and a
+read-write transaction.
 
 The frontend checks the session and the rights as for a Commit (section 11.5), chooses the partition as for a transaction's first
 request (section 11.12, *Writes*), and relays the frame on a new stream to that partition's role address with `principal` filled and
@@ -1088,7 +1099,8 @@ answer that does not fit one frame within the client's `max_frame` continues in 
 | 20 | Retired name: a name an item held in an earlier version (`../schema/SCHEMA-EVOLUTION.md` section 4.2), by that name | whole for a type or a graph; for an attribute, a role or a navigation name, where it holds `read` on the predicates of the item holding the name now |
 
 Kinds 1 to 18 hold the entry's bytes as the catalog version encodes them, in the canonical encoding of `../schema/SCHEMA.md`
-section 10.2, which the protocol carries opaque as Catalog carries a version's bytes (section 13.7). Kind 19 holds the
+section 10.2, laid out in `../schema/CATALOG.md`, which the protocol carries opaque as Catalog carries a version's bytes
+(section 13.7). Kind 19 holds the
 source's text, UTF-8, the migration sources installed with a target among them. Kind 20 holds 24 bytes:
 
 | Retired name offset | Width | Field | Type |
@@ -1288,8 +1300,8 @@ texts those encodings name but do not hold, so the batch names every IRI and bla
 statement the pattern matched, or one property of a statement when the pattern's bound subject is its reifier (section
 11.12); the columns are the pattern's unbound slots, in slot order, then the reifier column. A
 row names its statement by its subject, predicate, object and graph, bound in the pattern or in its columns, and, when
-the statement holds a statement ID, by its reifier's skolem IRI in the reifier column, tagged as a blank node
-(`0x02`, section 10.2); a statement without a statement ID has `ABSENT` there. No row carries a statement ID: parallel
+the statement holds a statement ID, by its reifier's IRI in the reifier column: a skolem IRI tagged as a blank node (`0x02`), or, for an instance of a
+declared relation, the handle IRI of its type tagged as an IRI (`0x01`, section 10.2); a statement without a statement ID has `ABSENT` there. No row carries a statement ID: parallel
 edges of one quad are told apart by their reifiers. Rows come in the store's key order, one object's by ascending
 statement ID. The stream's last batch carries the header flag `LAST`. Only that batch holds a resume key, and only when
 its read stopped at `limit` where rows may remain: a partition reads no further to tell, since that would widen what a read-write
@@ -1327,7 +1339,7 @@ list or a record as an `rdf:JSON` literal; null as `ABSENT`. An update's reply i
 
 A term's `text` is what its encoding names by hash: an IRI's text, a blank node's or a reifier's skolem IRI, or the
 lexical form of a literal held by hash. Its `annotation` is a language tag held by hash, or the IRI of a datatype held
-by hash (section 10.3). A client names a statement with a statement ID again by its reifier's skolem IRI, in Write's
+by hash (section 10.3). A client names a statement with a statement ID again by its reifier's IRI, in Write's
 change records 4, 6 and 7 (section 4.6). `epoch` and `partition` tell the frontend, which relays the batch, where a
 transaction's later reads start from (section 11.12); neither is a system ID.
 
@@ -1341,7 +1353,7 @@ each cell `ABSENT` or below the term count (`IndexOutOfRange`, section 0); with 
 term's offset (or the section's end) hold exactly one whole encoding of section 10.1 (`BadTerm`, section 2, the term);
 each text index `ABSENT` or below the string count (`IndexOutOfRange`, section 3); each term's `text` and `annotation` a
 string index where section 10.3's table names one and `ABSENT` elsewhere (`FieldValue` `"term text"`, the term's index);
-for a pattern's batch, each cell of the reifier column, the last, `ABSENT` or a term of tag `0x02` (`FieldValue`
+for a pattern's batch, each cell of the reifier column, the last, `ABSENT` or a term of tag `0x01` or `0x02` (`FieldValue`
 `"reifier"`); section 6 empty
 in a frame not flagged `LAST` (`FieldValue` `"resume key"`).
 
@@ -1423,7 +1435,7 @@ and the value, already within the room, is not cut again.
 | 25 | LevelRefused | no | as code 23's | A read-only transaction at level 1 (latest) whose read reaches another partition than the one its first read bound it to, or more than one; the message names the level and the partitions (section 11.11) |
 | 26 | WrongPartition | yes, after refreshing the placement map | the bucket in bits 0–23, bits 24–31 zero, the partition owning it in bits 32–63; all 0 for a registration refused at a home, whose owner the registrant does not know | A key outside the receiving partition's bucket ranges, from a sender whose placement map is stale; a later subject of a request whose first lies inside them is code 23 (section 11.12). Between roles; a client receives it when the owner refuses the frontend's one resend too, or from a registration refused at a home (section 13.15), and runs its transaction again after a delay (section 11.12) |
 | 27 | AheadOfWatermark | no | the watermark | A read version is above the visibility watermark of the partition answering, in an epoch that partition has not closed: refused at once when the client named it; the message names the version and the watermark (sections 6.2, 13.13) |
-| 28 | SchemaRefused | no | the count of diagnostics | An Install's sources were refused: the message holds the diagnostics of `../schema/SCHEMA.md` section 10.4, each with its code and location, and nothing was installed |
+| 28 | SchemaRefused | no | the count of diagnostics of kind error | An Install's sources were refused: the message holds the diagnostics of `../schema/SCHEMA.md` section 10.4, each with its code and location, and nothing was installed |
 | 29 | QueryRefused | no | the diagnostic's number, with the language in bits 16–23, as the table of languages below gives | A query or prepared text was refused: the message begins with the diagnostic's code (`../query/QUERY-GQL-CORE.md` section 11, `query/QUERY-SPARQL-CORE.md` section 11, `query/QUERY-ULTRA-QL.md` section 18) and its `line:column`, then the reason and the fix; a feature outside the core is named |
 | 30 | EntityDeleted | no | 0 | A write names an entity a delete has tombstoned at its home: a commit referencing the deleted entity's ID, or a registration naming it (sections 12.2, 13.15); the transaction aborts and writes nothing, and the message names the entity's IRI. Run again, a transaction resolves the IRI anew, and one creating the instance creates a new one with a new ID (`../schema/SCHEMA.md` section 8.5) |
 | 31 | Fenced | yes, after a delay | 0 | A write reaches a namespace a migration's run has fenced, in its states `fenced` and `catching_up` (section 8.6); it writes nothing, and the message names the namespace and the run's `staged`. After the cutover the write executes against the target. Or a write reaches a tenant whose first schema is installed and not yet in effect (section 8.4): it writes nothing, the message names the tenant, and after the version's effective epoch the write is validated against the schema |
@@ -1532,7 +1544,8 @@ byte 1 to 12, and the bytes hold exactly the length the table gives. A Result re
 |---|---|
 | IRI | `0x01`, with the IRI's text as the term's `text`; a keyless instance's handle IRI, drawn or derived, among them (section 4.4) |
 | Blank node | `0x02`, with its skolem IRI (RDF 1.1 §3.5) as the term's `text`: the tenant's skolem base, `https://w3id.org/ultragraphdb/ns/tenant/{n}/`, then `.well-known/genid/{bucket}-{random}`, `{n}` the tenant in decimal, `{bucket}` the node's bucket in 6 lowercase hexadecimal digits and `{random}` 104 random bits in 26, both zero-padded. The partition minting the node draws both from its random source, the bucket among those it owns in the tenant's run, and draws again when the IRI names one its dictionary holds; the IRI holds no part of the node's system ID beyond its bucket. A request names the node again by that IRI, as an IRI (section 4.4) |
-| A statement's reifier, in the reifier column (section 9.1) | `0x02`, with the reifier's skolem IRI as the term's `text`, of the same form: `{bucket}` the statement's bucket, its subject's, and `{random}` 104 random bits the subject's partition draws, drawn again when the IRI names one its dictionary holds. The dictionary holds the IRI as the reifier's name, mapping it to the statement ID and back; the IRI holds no part of the statement ID beyond its bucket. A request names the statement again by that IRI, as an IRI (sections 4.4, 4.6) |
+| The reifier of an edge-encoded instance of a declared relation (`../schema/SCHEMA.md` sections 7.3 and 11.1), in the reifier column and wherever a term names it | `0x01`, with the instance's handle IRI, `{base}{Type}/{handle}`, as the term's `text`: an instance has one name, and its reifier is its identity. The handle states the statement's bucket, its subject's, as a skolem IRI does |
+| The reifier of any other statement, in the reifier column (section 9.1) | `0x02`, with the reifier's skolem IRI as the term's `text`, of the same form: `{bucket}` the statement's bucket, its subject's, and `{random}` 104 random bits the subject's partition draws, drawn again when the IRI names one its dictionary holds. The dictionary holds the IRI as the reifier's name, mapping it to the statement ID and back; the IRI holds no part of the statement ID beyond its bucket. A request names the statement again by that IRI, as an IRI (sections 4.4, 4.6) |
 | `xsd:string` literal | `0x20` up to 15 bytes, else `0x21` |
 | Language-tagged literal | by tag length, then lexical form length, as the table gives |
 | Literal of datatypes `0x10` to `0x1F` whose lexical form is the canonical form of its value (section 10.5) and whose value the payload holds exactly: an integer within i64, a decimal of at most 18 fraction digits within the i128 payload, a date, time or duration within its payload, and no timezone offset of −00:01, whose minutes would read as the payload's "no timezone" | the by-value tag |
@@ -1939,7 +1952,7 @@ first byte:
 | Section | Contents |
 |---|---|
 | 0 | the last row: five u32 indices into the key's term table, its graph (`ABSENT` for the default graph), subject, predicate, object and reifier (`ABSENT` for none), bound positions included |
-| 1 | the term table's records (section 4.4), a blank node or a reifier as an IRI entry holding its skolem IRI |
+| 1 | the term table's records (section 4.4), a blank node or a reifier as an IRI entry holding its skolem IRI, or a declared relation's instance its handle IRI |
 | 2 | the term table's text |
 
 Compute checks, in order: the checksum; the body layout (section 4.1); section 0 of 20 bytes (`CountMismatch`
@@ -2252,6 +2265,7 @@ row that fits:
 |---|---|
 | reads or writes a subject it names by an IRI or a skolem IRI | the partition owning the subject's bucket: an IRI's computed from its text and the tenant, or, for an IRI a keyed type of the tenant's catalog mints, from the key space and the key it states (`../schema/SCHEMA.md` sections 7.2 and 7.3), a blank node's or a reifier's the bucket its skolem IRI states, a keyless instance's the bucket its handle IRI states (section 4.4) |
 | claims a value by an insert-if-absent or upsert-and-link, and names no subject but new blank nodes | the partition owning the claimed value's bucket |
+| creates, under a new blank node, an instance of an unkeyed, node-encoded relation of the tenant's catalog (`../schema/SCHEMA.md` sections 9.1 and 11.1) | the partition owning the bucket of the instance's anchor participant, the object of its anchor role's triple, so the instance lives where its anchor does |
 | writes only new blank nodes as subjects | a partition the frontend chooses in turn, round-robin over the partitions holding the tenant's run, which draws the nodes' buckets from its own |
 | names no subject otherwise | the partition owning the tenant's whole run, when one does; when none does, the request aborts the transaction with code 23 |
 
@@ -2339,7 +2353,7 @@ the term's first. It chooses the partitions a read asks by its bound positions:
 
 | Pattern | Partitions asked |
 |---|---|
-| A bound subject that is a reifier's skolem IRI | the partition its bucket names, for the statement's record in the statements keyspace, one row per property matching the pattern, with `ABSENT` in the reifier column |
+| A bound subject that is a reifier's skolem IRI, or the handle IRI of an edge-encoded instance, which the catalog's Type entry tells from a node-encoded one | the partition its bucket names, for the statement's record in the statements keyspace, one row per property matching the pattern, with `ABSENT` in the reifier column |
 | A bound subject | the subject's partition alone |
 | An unbound subject and a bound IRI or blank-node object, a reverse read | first the object's home, for its referrer set at the read's epoch `e`, once the home has closed `e`, or, at a named version of epoch `e`, its set at the home's latest applied version (`at` 2, waiting for nothing), since a set only grows and an edge at that version may have its member above it in the home's own order; then the partitions the set's bucket groups resolve to through the placement map in effect at `e`, for their reverse or object-predicates entries of the object at `e`, batched per address, each once it has closed `e`. A partition the set does not name is not asked. A reverse list's records hold their statement IDs as a forward list's do, so this read takes no further Scan for them |
 | An unbound subject and a bound vector object | every partition holding a bucket of the tenant's run, for the forward lists of the predicate, or of every predicate when it is unbound, compute keeping the objects equal to the vector's encoding, since no reverse key names a vector |
@@ -2622,7 +2636,8 @@ entry whatever its object holds, and `statements_per_object_max` (section 11.9) 
   the operation writes the entity's tombstone, the statement record `schema/SCHEMA.md` section 12.4 keeps at the home under
   its ID. The tombstone fences the ID for good: a later commit referencing it aborts with code 30 (EntityDeleted), a
   registration naming it is answered with outcome 30 or, in get-only mode, as deleted (section 13.15), and a write
-  creating its IRI again allocates a new ID. A delete whose entity's referrer set names a bucket group another partition
+  creating its IRI again allocates a new ID, whose record names the ID it replaced; the tombstone holds the delete's
+  version, and a read naming the IRI at a version below it resolves the replaced ID (`../schema/SCHEMA.md` section 8.5). A delete whose entity's referrer set names a bucket group another partition
   holds is cross-partition, code 23, until stage 8 sends each member a sequenced share that fences the ID there.
 - **A retraction**, which a transaction asks for by Operation kind 6 (section 7.3), is statements alone and has no
   operation of its own: sections 0 and 2 hold the `asserted` end it writes on the instance and on each relation
@@ -2886,8 +2901,8 @@ partitions differ).
 
 ### 13.7 Catalog (518)
 
-A tenant's catalog version from the metadata group: its number, the epoch it applies from and its bytes, which the
-protocol carries opaque. The requester names the tenant and the version, 0 for the tenant's current one, with
+A tenant's catalog version from the metadata group: its number, the epoch it applies from and its bytes, which
+`../schema/CATALOG.md` lays out and the protocol carries opaque. The requester names the tenant and the version, 0 for the tenant's current one, with
 `epoch` and `position` 0 and section 0 empty. A version's bytes, at most `catalog_bytes_max` (section 11.9), that do not
 fit one frame within the requester's `max_frame` continue in further Catalog frames on the stream, each with the first's
 command header, the last alone flagged `LAST`; the requester reads section 0 as the concatenation of every frame's, in

@@ -2,28 +2,35 @@
 
 ### Requirement: A source is bounded UTF-8 text
 A UGS source SHALL be UTF-8 text of at most 16 MiB with lines of at most 64 KiB, line breaks `\n` or `\r\n`, and
-nesting of braces, brackets and parentheses together of at most 64 levels. An identifier SHALL be at most 128 bytes,
-and a string literal, an `@iri` template and a `@pattern` at most 4 KiB. A source past any of these bounds SHALL be
+nesting of braces, brackets and parentheses together of at most 64 levels; a line's length SHALL not count its line
+break. An identifier SHALL be at most 128 bytes, a string literal, an `@iri` template and a `@pattern` at most 4 KiB, a
+union at most 32 members, an enum at most 4,096, a key at most 8 components, a derivation path at most 32 steps and a
+function at most 32 parameters. A source past any of these bounds SHALL be
 refused with `UGS0013`, naming the bound, as `SCHEMA.md` section 3.7 lists them. The parser SHALL read a source in one
-pass, SHALL hold its recursion within the nesting bound, and SHALL return a diagnostic, never panic, on any byte
-sequence.
+pass, SHALL hold its recursion within the nesting bound, and SHALL return a diagnostic, never panic, on any byte sequence: text that
+is not UTF-8 SHALL be refused with `UGS0001` at its first invalid byte.
 
 #### Scenario: Nesting past 64 levels is refused
-- **WHEN** a source holds an expression nested in 65 pairs of parentheses
+- **WHEN** a `derive` body is an expression nested in 65 pairs of parentheses
 - **THEN** it is refused with `UGS0013` at the 65th opening parenthesis, naming the nesting bound of 64
 
 #### Scenario: A line past 64 KiB is refused
-- **WHEN** a source holds a line of 65,537 bytes
+- **WHEN** a source holds a line of 65,537 bytes before its line break
 - **THEN** it is refused with `UGS0013` naming the line and the bound
 
 #### Scenario: Bytes that are not UTF-8 are refused without a panic
 - **WHEN** the bytes `FF FE 00` are given as a source
-- **THEN** the parser returns a diagnostic naming byte offset 0 and no syntax tree
+- **THEN** it is refused with `UGS0001` at line 1, column 1, and the parser returns no syntax tree
+
+#### Scenario: A union of 33 members is refused
+- **WHEN** a role's participant is a union of 33 types
+- **THEN** the source is refused with `UGS0013` naming the bound of 32
 
 ### Requirement: Comments and documentation comments
 `//` SHALL run to the end of its line and `/*` … `*/` SHALL nest. A run of consecutive lines beginning with `///`
-SHALL attach to the declaration, field, role, enum member, graph or header that follows it as its `doc`: the marker and
-one following space removed per line, the lines joined by `\n`. A `///` run followed by anything else SHALL be dropped
+SHALL attach to the declaration, field, role, enum member or graph, or to the `schema` or `module` line, that follows
+it as its `doc`: the marker and
+one following space removed per line, the lines joined by `\n`. A `///` run followed by anything else, an `import`, a `prefix` or a `reserve` among them, SHALL be dropped
 with the warning `UGS0804`. An unterminated comment SHALL be refused with `UGS0002`.
 
 #### Scenario: A documentation comment attaches to its declaration
@@ -38,17 +45,34 @@ with the warning `UGS0804`. An unterminated comment SHALL be refused with `UGS00
 - **WHEN** a `///` run is followed by the end of the source
 - **THEN** the source parses, and the diagnostics hold one warning `UGS0804` at the run
 
+#### Scenario: A documentation comment before an import warns
+- **WHEN** a `///` run precedes an `import` line
+- **THEN** the source parses, and the diagnostics hold one warning `UGS0804` at the run
+
 ### Requirement: Identifiers, reserved words and contextual keywords
-An identifier SHALL be an ASCII letter or `_` followed by ASCII letters, digits and `_`, case sensitive. The twenty
-words of `SCHEMA.md` section 3.4's reserved list SHALL never be identifiers (`UGS0007`). `import`, `unit` and
+An identifier SHALL be an ASCII letter or `_` followed by ASCII letters, digits and `_`, case sensitive. The nineteen
+words of `SCHEMA.md` section 3.4's reserved list SHALL never be identifiers (`UGS0007`). `statement` SHALL be a keyword
+after `abstract` and an identifier everywhere else. `import`, `unit` and
 `version` SHALL be keywords where a header or a declaration begins, and `version` after a schema's or module's name,
 and identifiers everywhere else. Every other quoted word of the grammar SHALL be a keyword in the position the grammar
-names and an identifier elsewhere. A name differing from a reserved word by case alone, and a name against the naming
-convention of section 3.3, SHALL warn with `UGS0805`; unit names SHALL be left unchecked.
+names and an identifier elsewhere. A name against the naming convention of section 3.3 SHALL warn with
+`UGS0805`, unit names left unchecked. A name differing from a reserved word by case alone SHALL be a name; where the
+grammar expects a keyword and finds an identifier differing from it by case alone, the refusal, `UGS0006`, SHALL name
+the keyword as its fix.
 
 #### Scenario: A reserved word is refused as a name
 - **WHEN** a source declares `entity relation { }`
 - **THEN** it is refused with `UGS0007` at `relation`
+
+#### Scenario: A role is named statement
+- **WHEN** Gen5 declares `relation AssertedBy` with the role `statement: Statement -> asserted_by?`, and `abstract
+  statement Statement` above it
+- **THEN** the source parses, with a role named `statement` and a statement type named `Statement`, and no warning for
+  either name
+
+#### Scenario: A keyword in the wrong case names its fix
+- **WHEN** a field is written `notes: Text optional`
+- **THEN** the source is refused with `UGS0006` at `optional`, the fix writing `Optional`
 
 #### Scenario: Operator words are names in declaration positions
 - **WHEN** a relation declares the role `by: Person -> in*` and an enum the member `max`
@@ -69,9 +93,9 @@ with an exponent, rationals as two integers around `/`, strings with the escapes
 `\u{X}` of one to six hexadecimal digits naming a scalar value, Booleans, dates, date-times with an offset or none,
 times, years and months, decades, centuries and millennia, ISO 8601 durations, intervals written with `..`, and IRIs
 between `<` and `>`. It SHALL refuse a character outside the lexical structure with `UGS0001`, an unterminated string
-or IRI with `UGS0002`, another escape with `UGS0003`, a malformed number, and the words `inf`, `-inf` and `nan` as
-literals, with `UGS0004`, and a temporal literal naming no calendar instant or a duration with no part with `UGS0005`.
-A four-digit `YYYY` SHALL lex as an integer and be read as a year by the expected type.
+or IRI with `UGS0002`, another escape with `UGS0003`, a malformed number with `UGS0004`, and a temporal literal naming no calendar instant or a duration with no part with `UGS0005`.
+A four-digit `YYYY` SHALL lex as an integer and be read as a year by the expected type. The words `inf` and `nan` SHALL be
+identifiers: no literal writes a non-finite number.
 
 #### Scenario: A rational literal is exact
 - **WHEN** a unit declares `multiplier: 1200 / 3937`
@@ -99,8 +123,9 @@ The parser SHALL accept exactly the grammar of `SCHEMA.md` section 4: a source t
 its headers and declarations, attribute, enum, record, statement, entity, relation, derive, function, quantity, unit
 and graph declarations, fields with `Optional` and defaults, roles with participants, unions, `as` and a navigation
 name with its cardinality or `_`, and types with their arguments. It SHALL produce a syntax tree in which every node
-carries its source span. A token the grammar does not expect SHALL be refused with `UGS0006`, the message naming what
-was expected; a role without a cardinality marker SHALL be refused with `UGS0403`. A type's annotations before and
+carries its source span. Outside an expression position, a token the grammar does not expect SHALL be refused with `UGS0006`, the
+message naming what was expected; a navigation name without a cardinality marker SHALL be refused with `UGS0403`; a
+`prefix` base that is no absolute IRI ending in `#` or `/` SHALL be refused with `UGS0009`. A type's annotations before and
 after its body SHALL form one list in source order.
 
 #### Scenario: The aviation example parses
@@ -153,8 +178,8 @@ on an item its section does not allow with `UGS0011`, and an annotation repeated
 The parser SHALL accept the expression grammar of `SCHEMA.md` section 4 for `@check`, `@limit`'s condition, derive
 filters, computed derivations and function bodies, with the precedence the grammar gives: `or`, `and`, `not`,
 comparison, sum, product, unary minus, primary. A derive body that is wholly a path, with or without `exists`, SHALL
-be read as a path, and any other body as an expression. A step's filters SHALL precede its bound. An expression
-outside the grammar SHALL be refused with `UGS0120`.
+be read as a path, and any other body as an expression. A step's filters SHALL precede its bound. In an
+expression position a token the expression grammar does not expect SHALL be refused with `UGS0120`.
 
 #### Scenario: A path derivation and a computed derivation
 - **WHEN** `derive Asset.all_parts = parts+` and `derive Asserted.closed: Bool = not live or valid.end is some or rank
@@ -169,6 +194,10 @@ outside the grammar SHALL be refused with `UGS0120`.
 - **WHEN** a `@check` holds `not a and b or c`
 - **THEN** it parses as `((not a) and b) or c`
 
+#### Scenario: A token the expression grammar does not expect
+- **WHEN** a `@check` holds `value >> 2`
+- **THEN** the source is refused with `UGS0120` at the second `>`
+
 ### Requirement: Diagnostics are rendered with location and fix
 A diagnostic SHALL carry its code, its kind (error, warning or note), a source location of file, line, column and
 length, a reason and, where one exists, a fix, and SHALL render in the form `SCHEMA.md` section 10.4 shows: the kind
@@ -181,8 +210,9 @@ fix. A source with a syntax error SHALL yield its diagnostics and no syntax tree
   holds eight carets under the annotation
 
 ### Requirement: Every syntactic diagnostic has a corpus source
-The conformance corpus SHALL hold, for each of `UGS0001` to `UGS0013` and `UGS0403`, a minimal source raising that
-diagnostic and nothing else, with the expected code, location and fix, written independently of the parser. The parser
+The conformance corpus SHALL hold, for each of `UGS0001` to `UGS0011`, `UGS0013`, `UGS0120` and `UGS0403`, a minimal
+source refused with that diagnostic and nothing else, and for each of the warnings `UGS0804` and `UGS0805` a minimal
+valid source raising it alone, with the expected code, location and fix, written independently of the parser. The parser
 SHALL raise exactly the expected diagnostic for each.
 
 #### Scenario: The corpus's syntax sources raise their diagnostics

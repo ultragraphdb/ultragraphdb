@@ -3,9 +3,8 @@
 ### Requirement: Type prefixes are allocated in declaration order and never reissued
 The metadata group SHALL allocate each declared statement, entity and relation type a 16-bit type prefix from 3, after
 0 (invalid), 1 (`Resource`) and 2 (`Statement`): the first catalog version holding a type assigns the next free
-prefix to each new type in the order of the types' declarations in the installed sources, schemas before the modules
-extending them and each source in text order, and a later version assigns the next free prefixes to the types it
-adds. An abstract type SHALL hold a prefix. A prefix SHALL never be reassigned, renumbered or reused. A version that
+prefix to each new type in the order of the types' declarations in the installed sources, in an order the sources alone decide, schemas by name as UTF-8 bytes, then modules, each after what it extends
+and ties by name, each source in text order, and a later version assigns the next free prefixes to the types it adds. An abstract type SHALL hold a prefix. A prefix SHALL never be reassigned, renumbered or reused. A version that
 would pass 65,533 declared types in its tenant SHALL be refused with `UGS2005`.
 
 #### Scenario: The aviation prefixes
@@ -22,6 +21,10 @@ would pass 65,533 declared types in its tenant SHALL be refused with `UGS2005`.
 - **WHEN** one Install holds a module declaring `entity Glider : Aircraft { }`, listed first, and the aviation schema
 - **THEN** the aviation types hold the prefixes 3 to 15, and `Glider` holds 16
 
+#### Scenario: Two schemas are numbered by name
+- **WHEN** one Install holds the schemas `zoo`, listed first, and `aviation`
+- **THEN** the aviation types hold the prefixes 3 to 15, and `zoo`'s types follow from 16
+
 #### Scenario: The prefixes of a tenant run out
 - **WHEN** an Install would give a tenant its 65,534th declared type
 - **THEN** it is refused with `UGS2005`, and the tenant's catalog is unchanged
@@ -31,7 +34,7 @@ The catalog SHALL hold, per type and per version, its prefix set, its own prefix
 half-open ranges with adjacent ranges merged. A type test SHALL be a check against those ranges, and a scan of a
 supertype one range scan per range.
 
-#### Scenario: A tree declared together is one range
+#### Scenario: A tree declared contiguously is one range
 - **WHEN** the aviation schema is installed
 - **THEN** `Asset`'s prefix set is the one range 3 to 6 inclusive, `Organization`'s 7 to 9 and `Agreement`'s 12 to 14
 
@@ -43,7 +46,7 @@ supertype one range scan per range.
 ### Requirement: Keys have one canonical encoding
 The canonical encoding of a key SHALL be, over the key's attributes in the order `@key` lists them, the concatenation
 of each component's 4-byte big-endian length and its bytes, the bytes being the component's canonical lexical form in
-UTF-8: the text itself for `String`, `Text` and `Iri`; the form `PROTOCOL.md` section 10.5 gives for `Bool`, the
+UTF-8: the text itself for `String` and `Iri`; the form `PROTOCOL.md` section 10.5 gives for `Bool`, the
 integer types, `Decimal`, `Date` and `DateTime`, a `DateTime` normalised to UTC first; the member's name for an enum;
 the declared name for a `Unit`. A key attribute SHALL be required and of a keyable type (`UGS0301`, `UGS0306`), named
 by a `@key` on its own type (`UGS0307`), and a subtype of a keyed type SHALL declare no key (`UGS0302`).
@@ -78,7 +81,7 @@ entity SHALL take the bucket its handle states, and an unkeyed relation instance
 - **THEN** both compute the bucket of prefix 3, `Asset`'s, and that key, so one partition decides which of them is
   created
 
-#### Scenario: The bucket matches the XXH3 reference
+#### Scenario: A keyed instance's bucket matches the XXH3 reference
 - **WHEN** the bucket of the `Asset` key `EN-4471-B` in tenant 0 is computed
 - **THEN** its low 16 bits equal the top 16 bits of the xxHash reference implementation's XXH3-64, seed 0, of `00 03
   00 00 00 09` followed by the 9 bytes of `EN-4471-B`
@@ -89,13 +92,14 @@ entity SHALL take the bucket its handle states, and an unkeyed relation instance
 
 ### Requirement: Keyed instances are named by an IRI minted from the key
 A keyed entity's and a keyed relation instance's IRI SHALL be `{base}{KeySpace}/{key}`: the instance base of its
-graph, the key space's name, `/`, and the key's components joined by `/`, each percent-encoded so that every byte
+graph, the key space's name, `/`, and the key's components joined by `/`, each percent-encoded, in uppercase hexadecimal digits, so that every byte
 outside RFC 3986's unreserved set is encoded. A type with `@iri(template)` SHALL mint the template with each `{attr}`
 placeholder replaced by its percent-encoded component. The compiler SHALL refuse a template from which the key cannot
 be read back (`UGS0304`) and two templates one of which is a prefix of the other (`UGS0305`). A write creating an instance under a subject IRI its type
-does not mint for it, a keyed type's instance under another IRI than its key mints, or a keyless type's instance under
-an IRI in place of a blank node, SHALL be refused with `UGS1038` (IriNotMinted), the refusal this change adds to
-`SCHEMA.md` section 8.7. Two schemas or two graphs with one base SHALL be refused
+does not mint for it, a keyed type's instance under another IRI than its key mints or under a blank node, or a keyless type's
+instance under an IRI in place of a blank node, SHALL be refused at commit with `UGS1038` (IriNotMinted). An IRI of a
+handle's form that the dictionary does not hold SHALL be refused earlier, at the write naming it, by the term's rule
+(term-dictionary, "Handle IRIs are held both ways"). Two schemas or two graphs with one base SHALL be refused
 (`UGS0309`).
 
 #### Scenario: An aviation key mints its IRI
@@ -116,8 +120,13 @@ an IRI in place of a blank node, SHALL be refused with `UGS1038` (IriNotMinted),
 - **THEN** the commit is refused with `UGS1038`, naming the subject and the IRI the key mints
 
 #### Scenario: A keyless instance is created under a blank node
-- **WHEN** quads create a Gen5 `Reading` under the subject `<https://example.org/deep_brain#Reading/mine>`
+- **WHEN** quads create a Gen5 `Reading`, with its `valid`, a `value` and its `GeneratedBy` link, under the subject
+  `<https://example.org/deep_brain#Reading/mine>`
 - **THEN** the commit is refused with `UGS1038`, and the same quads under a blank node commit
+
+#### Scenario: A keyed instance is not created under a blank node
+- **WHEN** quads create a `Company` with `id` `ORG:acme` under a blank node
+- **THEN** the commit is refused with `UGS1038`, naming the IRI the key mints
 
 ### Requirement: Keyless instances are named by a handle
 A keyless entity and a relation instance without `@key` that is named by an IRI SHALL take the IRI
@@ -134,8 +143,9 @@ nothing else of the ID.
   partition 1 owns, `-` and 26 hexadecimal digits, and the same seed mints the same IRI
 
 #### Scenario: A relation instance's handle carries its anchor's bucket
-- **WHEN** a `Supply` instance is inserted whose supplier lives in bucket `00a1f3`
-- **THEN** its IRI is `https://example.org/aviation#Supply/00a1f3-` followed by 26 hexadecimal digits
+- **WHEN** a `Supply` instance is inserted whose supplier lives in bucket `b`
+- **THEN** its IRI is `https://example.org/aviation#Supply/`, `b` in 6 lowercase hexadecimal digits, `-` and 26
+  hexadecimal digits
 
 #### Scenario: A handle names its instance in a later request
 - **WHEN** a request names a `Supply` instance by the handle IRI a result gave
@@ -154,7 +164,9 @@ the bucket; for a handle IRI, its first six digits are the bucket. System IDs SH
 ### Requirement: Vocabulary terms have fixed IRIs
 The compiler SHALL mint the vocabulary IRIs of `SCHEMA.md` section 7.4 under the namespace's base: `{base}{Type}` for
 a type, `{base}{attribute}` or its `@iri` for an attribute, `{base}{nav}` for a navigation name,
-`{base}{Relation}_{role}` for a role of a node-encoded relation, `{base}{graph}` for a graph, and the four interval
+`{base}{Relation}_{role}` for a role of a node-encoded relation, `{Relation}` the type declaring the role,
+`{base}{Enum}` for an enum and `{base}{Enum}_{member}` for a member, `{base}{name}` for a derived name,
+`{base}{graph}` for a graph, and the four interval
 bound predicates `{base}{attribute}_start`, `_end`, `_start_precision` and `_end_precision`. The built-in fields SHALL
 be `ugdb:asserted_start`, `ugdb:asserted_end` and `ugdb:live` in every schema.
 

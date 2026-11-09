@@ -82,5 +82,5 @@ declared types as for the built-in ones.
 - **THEN** the metadata group answers the same prefix for each of the 13 types, and 16 as the tenant's next free prefix
 
 #### Scenario: A declared type leases its own sequences
-- **WHEN** a partition first creates an `Engine`
+- **WHEN** the aviation schema is in effect and a partition first creates an `Engine`
 - **THEN** it leases a sequence block for prefix 5 and that partition, and the engine's sequence comes from it

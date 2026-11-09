@@ -8,8 +8,8 @@ Every other relation SHALL be node-encoded: a subject of the relation's prefix, 
 `instance {base}{Relation}_{role} participant` per participant and its attributes as its own quads. An edge-encoded
 instance SHALL be allocated a reifier, a statement ID carrying the relation's prefix, at insert, exactly when it
 carries attributes, its relation is `@multi` or `@bitemporal`, its relation tree holds more than one concrete type, or
-a role of any relation in the catalog names its type, a supertype of it or a statement type covering it. Either encoding SHALL keep
-every entry of an instance in its anchor's partition.
+a role of any relation in the catalog names its type, a supertype of it or a statement type covering it. An unkeyed instance of either encoding SHALL keep every entry in its anchor's partition, and a keyed relation instance's
+entries SHALL be in the partition its key hashes to.
 
 #### Scenario: The aviation encodings
 - **WHEN** the aviation schema is compiled
@@ -77,8 +77,8 @@ optional value SHALL have no quad. A system ID SHALL never appear.
 
 ### Requirement: The default read is the live slice
 A read in a governed tenant SHALL see the live slice of `SCHEMA-APG.md` section 15.3: every instance present and not
-retracted, each with its newest version, and an instance of a relation that is not `@bitemporal` only while every
-participant of it is live. A read at an earlier epoch SHALL see the versions current at that epoch.
+retracted, each with its newest version, and an instance of a relation that is not `@bitemporal` only while every participant of it is live; a read SHALL add
+every instance a `@retracts` role of them reaches, as a read `with retracted` holds it. A read at an earlier epoch SHALL see the versions current at that epoch.
 
 #### Scenario: A retracted instance leaves the default read
 - **WHEN** a `Company` is retracted and the pattern `?s rdf:type db:Company` is read
@@ -88,19 +88,38 @@ participant of it is live. A read at an earlier epoch SHALL see the versions cur
 - **WHEN** a `Claim` with an `AssertedBy` link is retracted and the pattern `?s db:asserted_by ?o` is read
 - **THEN** the link is not among the rows
 
+#### Scenario: A correction still names what it retracted
+- **WHEN** a `Supersedes` names a retracted `Claim` as `old` and a live one as `new`
+- **THEN** the default read holds the quad `new db:supersedes old` and the old claim's quads with `ugdb:live` `false`
+
 ### Requirement: Writes through quads assemble into instances
-A client SHALL write a governed tenant's instances as the quads of the RDF view, in any number of Write frames within
-one transaction: an entity as its `rdf:type` and attribute triples, a node-encoded relation instance as its `rdf:type`
+A client SHALL write a governed tenant's instances as the quads of the RDF view. An instance named by its IRI MAY be
+written in any number of Write frames within one transaction; a blank node's label names one new instance within one
+Write, so an instance created under a blank node SHALL be created whole in that Write, and a transaction creating an
+unkeyed, node-encoded relation instance SHALL bind to the partition owning its anchor participant's bucket. The forms: an entity as its `rdf:type` and attribute triples, a node-encoded relation instance as its `rdf:type`
 and role triples under a blank node or its IRI, an edge-encoded instance as its triple, with its attributes as the
 properties of that statement. A blank node naming a new keyless instance SHALL be given its handle IRI by the creating
-partition. A write of a derived property, an inverse navigation name, a node-encoded relation's navigation property
-or a super role's triple, SHALL be refused with `UGS1029`.
+partition. An insert or a delete of a derived property, an inverse navigation name, a node-encoded relation's navigation
+property or a super role's triple, SHALL be refused with `UGS1029`.
 
-#### Scenario: A node-encoded instance written one triple at a time
-- **WHEN** a transaction writes `_:m rdf:type db:MemberOf`, then `_:m db:MemberOf_member <person>`, then `_:m
-  db:MemberOf_collection <org>`, each in its own Write
-- **THEN** the commit succeeds, and a read answers the three triples under a handle IRI
-  `https://example.org/deep_brain#MemberOf/…` whose bucket is the organisation's
+#### Scenario: A node-encoded instance under a blank node is one Write
+- **WHEN** a transaction writes, in one Write, `_:m rdf:type db:MemberOf`, `_:m db:MemberOf_member <person>` and `_:m
+  db:MemberOf_collection <org>`
+- **THEN** the transaction binds to the organisation's partition, the commit succeeds, and a read of the instance's
+  quads holds the two role triples under one handle IRI `https://example.org/deep_brain#MemberOf/…` whose first six
+  digits are the organisation's bucket, with its types, its defaults `db:inferred` and `db:rank`,
+  `ugdb:asserted_start` and `ugdb:live`
+
+#### Scenario: A blank node does not span Writes
+- **WHEN** a transaction writes `_:m rdf:type db:MemberOf` in one Write and `_:m db:MemberOf_member <person>` in
+  another
+- **THEN** the commit is refused, the two labels naming two instances, the first without its required roles
+  (`UGS1015`)
+
+#### Scenario: A keyed relation instance is written one triple at a time
+- **WHEN** a schema declares a relation with `@key(code)`, and a transaction writes its `rdf:type`, its `code` and
+  each role triple under its minted IRI, each in its own Write
+- **THEN** the commit succeeds with one instance
 
 #### Scenario: An edge with a property written in one record
 - **WHEN** a transaction writes the edge `asset av:owner organization` with the property `av:since

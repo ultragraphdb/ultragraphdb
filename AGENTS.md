@@ -19,9 +19,10 @@ A day of design is worth weeks or months in production. Therefore, go slow to go
 Correctness, speed, scale, developer experience, in that order. All three matter, and the order decides the rare case where they conflict.
 
 The key properties of the UltraGraphDB design:
-- Zero copy binary protocol for network and WAL to eliminate serialization overhead; writing to the KV store derives its keys and values and copies them, unavoidably
+- Zero copy binary protocol for network and WAL to eliminate serialization overhead; Reuse the protocol's body layout to re-encoding whenever possible 
 - Thread per core architecture on compio to minimize CPU cache misses and thread contention; pinning where the platform allows it
 - Coordination minimization through classification of typed queries
+- Allocation minimization through consistent reference usage
 - Storage Compute seperation 
 - Persistent-free VSR replication, built up over the stages from a single replica behind the log's interface
 

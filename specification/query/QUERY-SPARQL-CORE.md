@@ -464,7 +464,7 @@ WHERE { FILTER NOT EXISTS { <https://example.org/deep_brain#Node/AGENT%3Aada> a 
 
 The engine mints the membership's handle for `_:m`; `rank` and `inferred` take the schema's defaults. The subject
 IRIs are the ones the schema mints for the keys, which the client computes from `{base}Node/{id}` with the key
-percent-encoded, or writes as blank nodes with `db:id` and lets the engine mint.
+percent-encoded in uppercase hexadecimal digits. A keyed instance written under a blank node is refused (`UGS1038`).
 
 **Read.** A node by key; a unit's open members with their roles; every unit below a unit through the navigation
 property; a count per unit:

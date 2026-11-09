@@ -12,7 +12,11 @@ removal of each tenant (metadata-group, "The metadata group holds the tenants").
 Every drop SHALL remove what it drops physically. A drop SHALL not remove dictionary entries, and only a drop of
 everything in a tenant SHALL remove the tenant's default-entry records, with its catalog. In a tenant that holds a
 schema, a Drop of a predicate a schema declares SHALL be refused with code 7 (Refused), the message naming the
-predicate and stage 9.5, and SHALL remove nothing. A
+predicate and stage 9.5, and SHALL remove nothing. A Drop of a tenant's data or of everything in a tenant SHALL name the catalog version it
+drops under, 0 for a tenant holding none, and SHALL be refused with code 2 (Conflict), kind 5 (Catalog), before any
+partition sees it, when that is not the tenant's current version. A Drop SHALL remove a container whole, the history
+of `@bitemporal` and `@append_only` types with it, and a Drop of a tenant's data or of everything SHALL be an audit
+event naming the principal, the tenant and that version. A
 drop reaching several partitions is cross-partition (partitions, "A read-write transaction stays within one partition in
 this stage"). The frontend SHALL commit the catalog version a Drop calls for as pending before it relays the Drop's
 reply, stored or new, and SHALL build no version that would change nothing, so a frontend that stopped in between leaves
@@ -69,3 +73,12 @@ again, which removes nothing more and builds that version.
 - **WHEN** the aviation schema is in effect and a client sends a Drop of the predicate `av:serial`
 - **THEN** the Drop is refused with code 7, the message naming `av:serial` and stage 9.5, and every `av:serial`
   statement is still read
+
+#### Scenario: A Drop naming a stale catalog version is refused
+- **WHEN** a tenant's catalog is at version 4 and a client sends a Drop of everything in it naming version 3
+- **THEN** the Drop is refused with code 2, kind 5, no partition sees it, and every statement of the tenant is still read
+
+#### Scenario: A Drop removes history with its tenant
+- **WHEN** Gen5 is in effect, a `Company` is created and retracted, and everything in the tenant is dropped naming the
+  current version
+- **THEN** a read `with retracted` answers no row, and the audit log holds the Drop with its principal, tenant and version

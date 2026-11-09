@@ -319,7 +319,8 @@ principal, its issuer and subject when a token named it, the source address, the
 never a credential. The server writes them to an audit log of their own, apart from its diagnostic log. Security
 changes are also in the metadata group's log, as its every command is. A purge is an audit event naming the principal,
 the tenant, what it removed and the epoch it took effect at; so is a migration's cutover, naming the namespace and the
-versions.
+versions, and a Drop of a tenant's data or of everything in a tenant, naming the principal, the tenant and the catalog
+version it dropped under.
 
 ## Encryption
 

@@ -13,15 +13,15 @@ evolution moves whole to stage 9.5, a minimal subset of UQL carries the data ope
 
 ## Success
 
-1. **The sample schema loads and is applied.** `specification/schema/deepbrain-gen5.ugs` installs into a fresh tenant
-   through the binary protocol by the Rust client: no error, the compilation report holding exactly the warnings and
+1. **The sample schema loads and is applied.** `specification/schema/deepbrain-gen5.ugs` installs into tenant 0 of a fresh
+   cluster, the one tenant this stage has, through the binary protocol by the Rust client: no error, the compilation report holding exactly the warnings and
    notes the conformance corpus expects, Describe answering the source byte for byte and every catalog entry, and the
    schema id equal after a restart of every role.
-2. **Simple CRUD works over the applied schema.** Through the UQL CRUD subset, in one tenant holding Gen5: an entity
+2. **Simple CRUD works over the applied schema.** Through the UQL CRUD subset, in the tenant holding Gen5: an entity
    and a relation instance are inserted and read back; an update is read back as a revision; a retraction removes the
    instance from the default read and keeps it under `with retracted`; each write breaking a stage 6 rule is refused
-   with its `UGS1xxx` number. Over the aviation schema of `SCHEMA.md` section 16, whose types are mutable, a delete
-   removes an entity and leaves its tombstone.
+   with its `UGS1xxx` number. After a Drop of everything in the tenant and an Install of the aviation schema of `SCHEMA.md`
+   section 16, whose types are mutable, a delete removes an entity and leaves its tombstone.
 3. `make test` is green, every group's mutation pass is done, and the fuzz runs are recorded.
 
 Schema evolution, in place and by migration, is stage 9.5 (`openspec/notes/backlog.md` item 20), which has the full
@@ -35,7 +35,9 @@ cluster it needs: its success is a simple schema change installed over data and 
   executes in a later stage is compiled, recorded and reported with `UGS0902`.
 - **BREAKING — the catalog version.** The three-kind encoding and the preorder numbering of entity types give way to
   the catalog version of `SCHEMA.md` section 10.2: every entry in one canonical encoding, type prefixes allocated in
-  declaration order from 3 and never reissued, prefix sets as sorted ranges, a schema id over the Describe body.
+  declaration order from 3 and never reissued, prefix sets as sorted ranges, a schema id over the Describe body. The version's bytes are specified first, in a file of their own: the protocol's
+  body layout, each entry self-contained, checksummed and verified when read, indexed by type prefix, with checks,
+  limit conditions and computed derivations as verified postfix programs.
   Catalogs written before this stage are not readable; there are no outside users.
 - **Install and Describe.** The frontend serves Install: the `declare` gate, the compile of the tenant's sources with
   those sent, prefix allocation, the version committed as pending, the reply with version, epoch, report and warnings,
@@ -63,6 +65,9 @@ cluster it needs: its success is a simple schema change installed over data and 
   test data operations in the schema's own names.
 - **Instance delete and retraction as commit-time operations.** Operation gains kinds 5, delete an instance, and 6,
   retract an instance, which the UQL subset compiles to and which every later query language uses.
+- **BREAKING — Drop names its catalog version.** A Drop of a tenant's data or of everything in a tenant names the
+  catalog version it drops under and is refused when that is not the current one. Until stage 9.5 it is how a tenant's
+  schema is changed.
 - **The wire.** `ultragraphdb_protocol_wire` brought to `PROTOCOL.md` as extended on 2026-11-08 and by this change's
   group 0: warnings, Describe's record kinds and continuation, Install's `staged`, Reference's get-only mode, codes 30
   and 31, datatypes 34 to 36, Purge and Migrate decoded and refused by stage, `catalog_bytes_max`. **BREAKING**: every

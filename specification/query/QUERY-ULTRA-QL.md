@@ -209,6 +209,10 @@ assign    = ident ":" ( value | selector | "[" selector { "," selector } "]" ) ;
 - In `values`, the assigned name decides the reading: an attribute takes a value, a list of values for a `List` or a
   `Set`, and a role a selector, a list of selectors for a set-valued role.
 - A shape holds attributes of the selector's type, the built-in fields `type`, `iri`, `asserted` and `live`, and `..`.
+  A derived name in a shape is refused (`UQL0901`), and `..` leaves derived names out.
+- The lesser of the Query's `limit` and the text's applies. The subset takes no resume key; one sent is refused.
+- Nesting of lists and selectors past 64 is refused (`UQL0001`), and a parameter whose term does not fit its inferred
+  type with the protocol's code 11.
 - A mutation answers no rows; the subset has no `returning`.
 - An `insert` and an `update` reach the partition as changes to quads, a `delete` and a `retract` as the instance
   operations of `../binary_protocol/PROTOCOL.md` section 7.3.
@@ -244,7 +248,7 @@ A list's order is the `order by` of its level, else the store's, stable within o
 A field that does not apply to an element's type is never in its record: asking for it without `on` is refused
 (`UQL0103`). An optional value that is not set is `None`. The two are never confused.
 
-UQL's logic is **two-valued**: a comparison with an absent operand is `false`, and `not`, `and`, `or` are Boolean.
+UQL's logic is that of the shared expression grammar (`../schema/SCHEMA.md` section 4, *Evaluation*), **two-valued**: a comparison with an absent operand is `false`, and `not`, `and`, `or` are Boolean.
 `not (x = 1)` is therefore `true` where `x` is absent, which GQL's three-valued `NOT (x = 1)` is not; the differential
 correspondence of section 19 maps UQL's `not p` to GQL's `p IS NOT TRUE`. `is some` and `is none` test presence.
 
@@ -453,7 +457,7 @@ the epoch it was read at and, for a monotonic-fast read of mutable data, the fla
 `../schema/SCHEMA.md` section 8.4's filter items, on a root selector or a navigation of a `@bitemporal` type:
 
 - `believed at t` reads the version current at `t`, retracted instances included;
-- `with retracted` reads every instance and version;
+- `with retracted` reads every instance, retracted ones included, each with its newest version;
 - `open` keeps live instances whose valid interval has no end;
 - `valid at t` keeps instances whose valid interval contains `t`, and `valid during i` those whose valid interval
   intersects `i`, on a type with `@valid` or `@bitemporal(valid: …)`.
@@ -842,6 +846,7 @@ insert AssertedBy { statement: c, asserter: Source(id = "SRC:backfill") }
 | Pipelines | One read stage into one write stage; multi-stage pipelines not adopted |
 | The stage 6 subset | Decided 2026-11-10: `insert`, `update`, `delete`, `retract` and a root query by type and filter with a flat shape run from stage 6, so tests create, read, revise and retract data in the schema's names before the query core exists; every request of the subset keeps its meaning in the whole language, and every other construct is refused with `UQL0901` (section 4.1) |
 | `iri` of an edge without a reifier | Decided 2026-11-10: `None`. A reifier is allocated per instance (`../schema/SCHEMA.md` section 11.1), so the field is an `Option` on a type whose instances need hold none |
+| `with retracted` | Decided 2026-11-10: every instance with its newest version, the slice of `../schema/SCHEMA-APG.md` section 15.3, so a result is a function of one algebraic property graph; a past version is read by `believed at` or `as of` |
 
 ## 23. Open questions
 

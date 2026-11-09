@@ -183,15 +183,15 @@ an `iri`.
   by its type, and `None` for an instance without one. Such an instance is deleted by the delete of its quad, change
   record 3, and is never retracted (gap A).
 
-### G. The name of an edge-encoded instance's reifier (open)
+### G. The name of an edge-encoded instance's reifier (resolved 2026-11-10)
 
 `SCHEMA.md` section 7.3 names every relation instance without `@key` by a handle IRI, `{base}{Type}/{handle}`, and
 section 15 has a handle "held in the dictionary both ways as a reifier's skolem IRI is"; `PROTOCOL.md` sections 9.1
 and 10.2 name a statement's reifier by a skolem IRI under `.well-known/genid/`, tagged as a blank node. Found while
 writing Operation kinds 5 and 6, which name an edge-encoded instance by its reifier's IRI.
 
-- *Open:* is the reifier of a declared relation's edge-encoded instance named by a handle IRI of its type, tagged as
-  an IRI in the reifier column, with the skolem form kept for statements of no declared relation?
+- *Resolved:* by the handle IRI of its type, tagged as an IRI; a skolem IRI names the reifier of a statement of no
+  declared relation (`notes/review-resolutions.md`, R7; `PROTOCOL.md` sections 4.6, 9.1 and 10.2).
 
 ## Also applied on 2026-11-10
 

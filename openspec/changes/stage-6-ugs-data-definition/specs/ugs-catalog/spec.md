@@ -22,10 +22,19 @@ interval bound; the Sources entry each installed source's text by name.
   `Object`, `Event` and `Information`
 
 ### Requirement: A catalog version has one encoding
-A catalog version SHALL have one canonical encoding: entries ordered by kind, then by name as UTF-8 bytes, every field
-present. Its decoder SHALL refuse every byte sequence that is not the canonical encoding of some version, naming the
-offset, and SHALL never panic. Encoding a decoded version SHALL give the bytes decoded. The metadata group SHALL treat
-the bytes as opaque.
+A catalog version SHALL have one canonical encoding, specified in `specification/schema/CATALOG.md` by the six rules of
+`SCHEMA.md` section 10.2: a body in `PROTOCOL.md` section 4.1's layout whose entry table is Describe's entry record;
+each entry self-contained, a body of its own with its own strings; entries ordered by kind, then by name as UTF-8
+bytes, every field present. Its fixed part SHALL hold a format version and an XXH3-64 of the bytes after it. Its
+decoder SHALL check the checksum, then every rule of the encoding, and SHALL refuse every byte sequence that is not
+the canonical encoding of some version, naming the offset, without a panic. Encoding a decoded version SHALL give the
+bytes decoded. A version SHALL hold an index from type prefix to Type entry, and a role SHALL hold a version decoded
+as views over its bytes, built once. An instance check, a `@limit` condition and a computed derivation SHALL be
+stored as typed postfix programs of fixed-width instructions, whose stack discipline, operand bounds and depth, at
+most 64, the decoder SHALL verify, and SHALL be evaluated without recursion and without allocation. A function's body
+and a path derivation's SHALL be stored as their text. A
+role that cannot decode a version its log or its metadata group names SHALL stop. The metadata group SHALL treat the
+bytes as opaque.
 
 #### Scenario: Encoding round-trips
 - **WHEN** the compiled Gen5 catalog version is encoded, decoded and encoded again
@@ -34,6 +43,23 @@ the bytes as opaque.
 #### Scenario: Entries out of order are refused
 - **WHEN** the bytes of a catalog version are altered so that two Type entries swap places
 - **THEN** the decoder refuses them, naming the offset of the second entry
+
+#### Scenario: The hand-encoded example decodes
+- **WHEN** the bytes `CATALOG.md` works by hand for its schema of one entity with one attribute are decoded
+- **THEN** the decoder answers that schema's entries, and encoding them gives the same bytes
+
+#### Scenario: A flipped byte fails the checksum
+- **WHEN** one byte of the compiled aviation version is changed and the version is decoded
+- **THEN** the decoder refuses it naming the checksum, and a partition loading it stops
+
+#### Scenario: A program that underflows its stack is refused
+- **WHEN** a version's bytes are altered so that an instance check's program pops a value it never pushed, and the
+  checksum is recomputed
+- **THEN** the decoder refuses the version naming the entry and the instruction, and no check of it is evaluated
+
+#### Scenario: A type is reached by its prefix
+- **WHEN** the compiled Gen5 version is decoded and the type of prefix 6 is asked for
+- **THEN** the views answer `Node` with its fields and its key, having compared no name
 
 #### Scenario: Declaration order does not change the encoding of what is declared alike
 - **WHEN** two sources differ only in the order of two enum declarations
@@ -57,11 +83,13 @@ An Install SHALL name a tenant, the catalog version it builds on and one or more
 metadata group's owner SHALL compile the sources the tenant holds together with those sent, through every phase of
 `SCHEMA.md` section 10.1, allocate prefixes for the new types, and commit the catalog version as pending. The reply
 SHALL carry the version's number, the epoch it takes effect at, the report and the warnings. A diagnostic of kind
-error SHALL refuse the Install whole with code 28 (SchemaRefused), `detail` the count of diagnostics, the message
+error SHALL refuse the Install whole with code 28 (SchemaRefused), `detail` the count of diagnostics of kind error, the message
 holding each diagnostic with its code and location, and the tenant's catalog SHALL be unchanged. An Install SHALL take
-the action `declare` on the tenant at the frontend's gate. Before it checks the tenant, the frontend SHALL fence it:
+the action `declare` on the tenant at the frontend's gate. After the checks of `version` and of the tenant's schema, and before it checks that
+the tenant holds no statement, write-path declaration or default-entry record, the frontend SHALL fence the tenant:
 every Write, Operation, Commit, DirectWrite, ConditionalWrite and Drop naming the tenant SHALL be refused with code 31
-(Fenced), writing nothing, from then until the version takes effect or the Install is refused, the fence surviving a
+(Fenced), `detail` 0, the message naming the tenant, writing nothing and ending a transaction, reads going on, from
+then until the version takes effect or the Install is refused, the fence surviving a
 restart of the frontend, and the check SHALL wait for the tenant's commits in flight and then read the tenant's partitions for a statement.
 
 #### Scenario: Gen5 installs into a fresh tenant
@@ -70,7 +98,7 @@ restart of the frontend, and the check SHALL wait for the tenant's commits in fl
   its warnings hold the `UGS0902` of the `Embedding` index
 
 #### Scenario: A source with an error installs nothing
-- **WHEN** a client installs two sources, the aviation schema and a schema with an unresolved type name
+- **WHEN** a client installs two sources, the aviation schema and a schema with one field typed `Strng`
 - **THEN** the Install is refused with code 28, `detail` 1, the message holding `UGS0201` with its file, line and
   column, and the tenant holds no catalog version
 
@@ -91,15 +119,15 @@ and modules extending them, in any order in the request. An Install into a tenan
 refused with code 7 (Refused), `detail` 0, the message naming Install and stage 9.5, and an Install holding a
 migration source likewise. An Install building on a version that is no longer current SHALL be refused with code 2
 (Conflict), kind 5 (Catalog), checked before the tenant's schema. An Install into a tenant that holds a statement, or whose catalog holds a
-write-path declaration or a default-entry record, SHALL be refused with code 7, the message naming Drop of kind 4. A
-Drop of kind 4 SHALL set a governed tenant's catalog to the initial one and remove the tenant's default-entry records,
-after which the tenant takes an Install again.
+write-path declaration or a default-entry record, SHALL be refused with code 7, `detail` 0, the message naming Drop of kind 4. A
+Drop of kind 4, naming the tenant's current catalog version, SHALL set a governed tenant's catalog to the initial one
+and remove the tenant's default-entry records, after which the tenant takes an Install again.
 
 #### Scenario: Several sources install together
 - **WHEN** a client installs, in one request, a module declaring `entity Glider : Aircraft { }` and then the aviation
   schema it extends
-- **THEN** the reply names version 1, Describe answers both sources, and the tenant holds the namespace `aviation`
-  with the module's type in it
+- **THEN** the reply names version 1, and Describe answers both sources and a Type entry for `Glider` whose parent is
+  `Aircraft`
 
 #### Scenario: A second Install waits for stage 9.5
 - **WHEN** a tenant holds `deep_brain` and a client installs any source, naming the current version
@@ -114,8 +142,10 @@ after which the tenant takes an Install again.
 - **THEN** the Install is refused with code 7, the message naming Drop of kind 4
 
 #### Scenario: A dropped tenant takes a new schema
-- **WHEN** a tenant holding the aviation schema is dropped with a Drop of kind 4, and a client installs Gen5
-- **THEN** the Install succeeds, and Describe answers the source `deep_brain` alone
+- **WHEN** a tenant holds the aviation schema and an `Engine`, is dropped with a Drop of kind 4 naming its catalog
+  version, and a client installs Gen5
+- **THEN** the Install succeeds, Describe answers the source `deep_brain` alone, and a read of every quad of the tenant
+  answers no row
 
 ### Requirement: A catalog version is bounded
 The frontend SHALL refuse a compiled version whose bytes pass `catalog_bytes_max` with code 7, `detail` the bound,
@@ -123,11 +153,12 @@ the message naming the version's size, and install nothing. A version past one f
 continuation Catalog frames.
 
 #### Scenario: A version past the bound is refused
-- **WHEN** `catalog_bytes_max` is set below the size of Gen5's compiled version and Gen5 is installed
+- **WHEN** `catalog_bytes_max` is set below the size of Gen5's compiled version and Gen5 is installed into an empty
+  tenant
 - **THEN** the Install is refused with code 7, `detail` the bound, and the tenant holds no catalog version
 
-#### Scenario: Gen5's version reaches a partition in continuation frames
-- **WHEN** Gen5's compiled version exceeds one Catalog frame and a storage process loads it
+#### Scenario: A version past one frame reaches a partition in continuation frames
+- **WHEN** a schema of the corpus built to compile past one Catalog frame is installed and a storage process loads it
 - **THEN** the partition holds the version whole, and its decoded entries equal the metadata group's
 
 ### Requirement: Describe answers the sources and the entries
@@ -146,7 +177,8 @@ A tenant with no schema SHALL be described as stage 5.5 describes it.
   and then by name
 
 #### Scenario: A Describe past one frame continues
-- **WHEN** Gen5 is installed and a client whose `max_frame` is below the answer's size sends Describe
+- **WHEN** a schema of the corpus built so that its Describe answer passes the floor of `max_frame` is installed, and a
+  client at that floor sends Describe
 - **THEN** the answer arrives in several frames, the last flagged `LAST`, and their sections concatenate to the whole
   answer
 
@@ -156,10 +188,13 @@ the tenant's `@default` graph (`UGS1031`), every subject SHALL be an instance of
 `@open` schema, a `Resource`, and every predicate SHALL be declared on the subject's type or admitted by `@open`
 (`UGS1001`). A write-path declaration, a change record of kind 8, 9 or 10, SHALL be refused in a governed tenant with
 code 7, `detail` the record's index, the message naming Install, and a Drop of kind 1 naming a predicate a schema
-declares with code 7 naming stage 9.5. A DirectWrite or a ConditionalWrite in a governed tenant SHALL carry only
+declares with code 7, `detail` 0, naming stage 9.5. A DirectWrite or a ConditionalWrite in a governed tenant SHALL carry only
 changes whose predicates the catalog's request-typing facts mark blind (`SCHEMA.md` section 9.6), refused with code 7
-otherwise, the message naming a read-write transaction; an Operation of kind 1 or 2 SHALL be refused in a governed
-tenant with code 7. A tenant with no schema SHALL keep the ungoverned behaviour of `PROTOCOL.md` section 11.13.
+otherwise, `detail` the term's index, the message naming the predicate and a read-write transaction: a rule over the
+instance's own fields is validated in the frame's turn, and a claim of a key or a `@unique` value, or a rule reading
+beyond the instance, takes a transaction. An Operation of kind 1 or 2 SHALL be refused in a governed tenant with code
+7, `detail` 0, the message naming the kind; an Operation of kind 5 or 6 naming an IRI no instance holds, and either
+kind in a tenant with no schema, with code 7, `detail` 0. A predicate `@open` admitted SHALL be dropped as any other. A tenant with no schema SHALL keep the ungoverned behaviour of `PROTOCOL.md` section 11.13.
 
 #### Scenario: An undeclared predicate is refused
 - **WHEN** Gen5 is in effect and a transaction writes `<…#Node/ORG%3Aacme> db:nickname "Al"` on a `Company`
@@ -187,9 +222,23 @@ tenant with code 7. A tenant with no schema SHALL keep the ungoverned behaviour 
 - **WHEN** Gen5 is in effect and a DirectWrite sets `db:description` on an existing `Company`
 - **THEN** the reply is a Commit, and the company reads back with the description as a revision
 
+#### Scenario: A retraction of an IRI no instance holds is refused
+- **WHEN** Gen5 is in effect and an Operation of kind 6 names `…#Node/ORG%3Anone`, which no instance holds
+- **THEN** the commit is refused with code 7, `detail` 0, naming the IRI
+
+#### Scenario: An instance operation needs a schema
+- **WHEN** a tenant holds no schema and a transaction sends an Operation of kind 5
+- **THEN** it is refused with code 7, `detail` 0
+
 #### Scenario: A tenant without a schema stays ungoverned
 - **WHEN** a tenant holds no schema and a transaction writes `<a> <p> "x"` with `p` undeclared
 - **THEN** the commit succeeds, and `p` holds a default entry
+
+#### Scenario: Two tenants hold different schemas
+- **WHEN** the metadata group holds tenants 0 and 3, tenant 0 holds Gen5 and tenant 3 the aviation schema, and each
+  transaction creates an aviation `Engine` in its tenant
+- **THEN** the commit in tenant 0 is refused with `UGS1002`, the commit in tenant 3 succeeds, and each tenant's Describe
+  answers its own source alone
 
 ### Requirement: Every role reads the version in effect
 A partition, compute and the frontend SHALL each load the catalog version in effect for a tenant and decode it once.

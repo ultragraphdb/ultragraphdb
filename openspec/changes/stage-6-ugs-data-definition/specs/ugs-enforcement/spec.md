@@ -7,13 +7,16 @@ an entity's IRI, a node-encoded relation instance's IRI, or an edge-encoded inst
 instance a transaction creates or changes SHALL be validated whole against the catalog version in effect at the
 commit's epoch, whatever the order and the number of frames its changes arrived in. A violation SHALL refuse the
 whole transaction with code 7 (Refused), `detail` the `UGS1xxx` number of `SCHEMA.md` section 8.7, the message naming
-the instance by its IRI and the rule, and nothing of the transaction SHALL be held. A reifier written without its
-triple, a role triple without its instance's type, a triple of a node-encoded relation outside its instance, and a
-relation instance's type without its required roles SHALL be refused as an incomplete instance (`UGS1034`).
+the instance by its IRI and the rule, and nothing of the transaction SHALL be held. A reifier written without its triple, a role triple without its instance's type and a triple of a node-encoded
+relation outside its instance SHALL be refused as an incomplete instance (`UGS1034`). A transaction SHALL create an
+instance when it writes `rdf:type` on a blank node or on the IRI a keyed type mints; an instance created under a blank
+node SHALL be created whole in one Write. A commit SHALL report one refusal: the first rule broken in the order of
+`SCHEMA.md` section 8.2's table, a value's type before any check that reads it, for the first instance in the order
+its changes arrived. Unless a scenario of this capability names partitions, one partition holds the tenant's run.
 
 #### Scenario: Triples in any order form one instance
-- **WHEN** one transaction writes a `Supply`'s `av:Supply_item` triple, then its attributes, then its `rdf:type`, then
-  its `av:Supply_supplier` and `av:Supply_buyer` triples, in five Write frames
+- **WHEN** one Write holds, for a blank node, a `Supply`'s `av:Supply_item` triple, then its attributes, then its
+  `rdf:type`, then its `av:Supply_supplier` and `av:Supply_buyer` triples
 - **THEN** the commit succeeds with one `Supply` instance
 
 #### Scenario: A refusal names the instance and writes nothing
@@ -27,17 +30,25 @@ relation instance's type without its required roles SHALL be refused as an incom
 
 ### Requirement: An instance has one concrete type for life
 A created instance SHALL carry one concrete declared type of its graph's schema: none or an unknown one SHALL be
-refused with `UGS1002`, an abstract one with `UGS1003`, and two, or a type given to an existing instance of another,
-with `UGS1004`. The instance's ID SHALL take that type's prefix, and no `rdf:type` quad SHALL be stored for it. An
+refused with `UGS1002`, an abstract one with `UGS1003`, and two in one creation, or a type written on an existing
+keyless instance, with `UGS1004`. The instance's ID SHALL take that type's prefix, and no `rdf:type` quad SHALL be stored for it. An
 entity SHALL belong to the graph of the write that creates it, a graph of its type's schema (`UGS1031`).
 
 #### Scenario: An abstract type is refused
 - **WHEN** a transaction creates an instance with `rdf:type db:Agent`
 - **THEN** the commit is refused with `UGS1003` naming `Agent`
 
-#### Scenario: A second type is refused
-- **WHEN** a transaction writes `rdf:type db:Person` on an existing `Company`
+#### Scenario: Two types in one creation are refused
+- **WHEN** a transaction creates an instance with `rdf:type db:Company` and `rdf:type db:Person`
 - **THEN** the commit is refused with `UGS1004` naming `Company` and `Person`
+
+#### Scenario: A subject without a type is refused
+- **WHEN** Gen5 is in effect and a transaction writes `db:label` on a new subject and no `rdf:type`
+- **THEN** the commit is refused with `UGS1002`
+
+#### Scenario: An entity in a graph of another schema is refused
+- **WHEN** a tenant holds two schemas and a transaction creates an aviation `Engine` in a graph of the other
+- **THEN** the commit is refused with `UGS1031`
 
 #### Scenario: The prefix carries the type
 - **WHEN** a `Company` is created under Gen5
@@ -59,7 +70,8 @@ SHALL hold at least one member. A second value written to a single-valued attrib
 - **THEN** the commit is refused with `UGS1005` naming `commissioned`
 
 #### Scenario: A second value of a single-valued attribute is refused
-- **WHEN** a transaction inserts two `av:commissioned` values on one `Engine` without deleting the first
+- **WHEN** a transaction inserts a second `av:commissioned` value on an existing aviation `Engine` without deleting the
+  present one
 - **THEN** the commit is refused with `UGS1036`
 
 #### Scenario: A set keeps its distinct members
@@ -73,8 +85,8 @@ WGS 84, and an interval whose start is after its end or with both bounds open SH
 undeclared enum member with `UGS1030`; a vector of another dimension with `UGS1028`; an undeclared unit, or a unit of
 another quantity kind, with `UGS1027`. A `Measure<K, u>` SHALL be stored as `xsd:double` in `u`, a `Measure<K>` and a
 `Measure` as `ugdb:measure` with the unit on the value. An interval SHALL be stored as its bounds at the unit's first
-instant, with a precision per bound where coarser than its type's. A `Vector<F32>` value SHALL be stored as a value; a
-write of a `Vector<BF16>` value SHALL be refused with code 7, the message naming stage 8.
+instant, with a precision per bound where coarser than its type's. A `Vector<F32>` value SHALL be stored as a value; a write of a `Vector<BF16>` value SHALL be refused with code 7, `detail` the term's index, the message naming stage 8.
+A catalog type held in an attribute SHALL be a declared type at or below its bound (`UGS1011`).
 
 #### Scenario: A unit of another kind is refused
 - **WHEN** a Gen5 `Event` is written with `altitude` `"100 [kn_i]"^^ugdb:measure`
@@ -111,31 +123,50 @@ write of a `Vector<BF16>` value SHALL be refused with code 7, the message naming
 
 #### Scenario: A BF16 vector waits for stage 8
 - **WHEN** a Gen5 `Object` is written with an `embedding` of 768 `BF16` elements
-- **THEN** the commit is refused with code 7, the message naming stage 8, and an `Object` written without `embedding`
-  commits
+- **THEN** the write is refused with code 7, `detail` the term's index, the message naming stage 8, and an `Object`
+  written without `embedding` commits
 
 ### Requirement: Value checks hold at every commit of the instance
 `@pattern`, `@range`, `@values` and `@check` SHALL hold at every commit of an instance whose checked values changed,
 `@pattern` matching the whole value, and a record field's checks whenever an instance holding the record commits; a
-value breaking one SHALL be refused with `UGS1010`, the message naming the annotation.
+value breaking one SHALL be refused with `UGS1010`, the message naming the annotation. Expressions SHALL be evaluated
+as `SCHEMA.md` section 4 states: logic two-valued, a comparison with an absent operand false and arithmetic with one
+absent; a check on an attribute or a record field holding vacuously of an absent optional value; a `@check` on a type
+evaluated on the instance as written. Evaluation SHALL fail closed: a check or a `@limit` condition whose evaluation
+overflows or divides by zero, and a computed derivation's, SHALL refuse the commit with `UGS1039`, the message naming
+the annotation or the derivation and the fault; `UGS1010` SHALL be a check that evaluated and did not hold.
 
 #### Scenario: A pattern is anchored
-- **WHEN** a `Company` is created with `id` `acme`
+- **WHEN** a `Company` is created with `id` `xORG:acme`, which the pattern matches only unanchored
 - **THEN** the commit is refused with `UGS1010` naming `@pattern` and `id`
 
 #### Scenario: A range bounds a value
 - **WHEN** a `Claim` is written with `confidence` 1.5
 - **THEN** the commit is refused with `UGS1010` naming `@range(0, 1)`
 
+#### Scenario: An attribute's check holds of an absent value
+- **WHEN** a `Claim` is written without `confidence`, whose declaration is `Float64 Optional @range(0, 1)`
+- **THEN** the commit succeeds
+
+#### Scenario: An unguarded type check refuses an absent value
+- **WHEN** a type declares `notes: Text Optional` and `@check(notes <> "")`, and an instance is written without `notes`
+- **THEN** the commit is refused with `UGS1010` naming the check
+
+#### Scenario: A check that overflows refuses the commit
+- **WHEN** a type declares `a: Int64`, `b: Int64` and `@check(a + b > 0)`, and an instance is written with both at
+  9223372036854775807
+- **THEN** the commit is refused with `UGS1039`, the message naming the check and the overflow
+
 #### Scenario: A type check reads several fields
-- **WHEN** a Gen5 `Reading` is created with neither `value` nor `text`
+- **WHEN** one transaction creates a Gen5 `Reading` with `valid` and neither `value` nor `text`, and a `GeneratedBy`
+  naming it and an existing `Activity`
 - **THEN** the commit is refused with `UGS1010` naming `@check(value is some or text is some)`
 
 #### Scenario: A check reads a participant's type
 - **WHEN** a `ResponsibleFor` is inserted with a `Software` party and `raci` `accountable`
 - **THEN** the commit is refused with `UGS1010`
 
-#### Scenario: Values lists differ per declaring type
+#### Scenario: A values list bounds a value
 - **WHEN** an `Authority` is created with `jurisdiction` `"JP"`
 - **THEN** the commit is refused with `UGS1010` naming `@values`
 
@@ -147,6 +178,10 @@ present (`UGS1009`), each decided at the value's claim. A claim of a `@bitempora
 permanent: a retracted instance keeps its key, its `@unique` values and its IRI, and no later instance is given them.
 A deleted instance of a mutable type SHALL release its claims. A claim owned by another partition than the
 transaction's SHALL refuse the transaction with code 23.
+
+#### Scenario: A keyed instance is created with its key
+- **WHEN** a transaction creates a `Company` under `…#Node/ORG%3Aacme` without the `db:id` quad
+- **THEN** the commit is refused with `UGS1006`, the key never being read out of the IRI
 
 #### Scenario: A key is unique across its tree
 - **WHEN** a `Company` with `id` `ORG:acme` exists and a transaction creates a `Person` with `id` `ORG:acme`
@@ -166,17 +201,19 @@ transaction's SHALL refuse the transaction with code 23.
 
 #### Scenario: An immutable value is not replaced
 - **WHEN** a schema declares the mutable `entity Device @key(id) { id: String  model: String @immutable }` and a
-  transaction writes another `model` on an existing `Device`
+  transaction replaces the `model` of an existing `Device`, deleting the present value and inserting another
 - **THEN** the commit is refused with `UGS1012`
 
 #### Scenario: A key attribute is not rewritten
-- **WHEN** a transaction writes another `serial` on an existing `Engine`
+- **WHEN** a transaction replaces the `serial` of an existing aviation `Engine`, deleting the present value and
+  inserting another
 - **THEN** the commit is refused with `UGS1007`
 
 ### Requirement: Participants and roles
 A relation instance SHALL be created with every required role filled and every set-valued role non-empty
 (`UGS1015`, `UGS1016`), each participant existing (`UGS1017`), live (`UGS1019`) and of the role's type or union
-(`UGS1018`), a participant being an entity, a node-encoded instance or an edge-encoded instance named by its reifier.
+(`UGS1018`); a removal emptying a set-valued role SHALL be refused (`UGS1016`); a role naming a catalog type SHALL hold
+a declared type at or below its bound (`UGS1018`) and take no existence or liveness check; a participant being an entity, a node-encoded instance or an edge-encoded instance named by its reifier.
 A participant SHALL change only in an `Optional` or set-valued role: a write replacing the participant of a required,
 single-valued role SHALL be refused with `UGS1025`, on a relation of any mutability class. A participant in another
 partition SHALL be checked through Reference's get-only mode, which answers its status, absent, live, retracted or
@@ -208,8 +245,21 @@ deleted, and its type prefix, before the commit.
 - **THEN** the commit is refused with `UGS1025`, and a transaction setting its optional `role` commits as a revision
 
 #### Scenario: A relation over a relation names its reifier
+- **WHEN** a Gen5 `DependsOn` instance exists and an `AssertedBy` is inserted with it as `statement`
+- **THEN** the commit succeeds, and the `AssertedBy` triple's subject is the `DependsOn` instance's reifier, named by
+  its handle IRI
+
+#### Scenario: A relation over a node-encoded relation names its node
 - **WHEN** a `MemberOf` instance exists and an `AssertedBy` is inserted with it as `statement`
 - **THEN** the commit succeeds, and the `AssertedBy` triple's subject is the `MemberOf` instance's IRI
+
+#### Scenario: A set-valued role is not emptied
+- **WHEN** a transaction removes the only `members` participant of a Gen5 `Alternatives`
+- **THEN** the commit is refused with `UGS1016`
+
+#### Scenario: A catalog type outside its bound is refused
+- **WHEN** a Gen5 `Absence` is inserted whose `kind` names `db:AssertedBy`, which is not below `Relation`
+- **THEN** the commit is refused with `UGS1018`
 
 #### Scenario: A participant in another partition is checked by reference
 - **WHEN** a relation instance anchored in partition 1 names a live participant of the role's type in partition 2
@@ -254,7 +304,7 @@ first, reached from either participant.
 instance within the partition, and under `open` counting only live instances whose valid interval is open. `@limit`
 SHALL hold per combination of the `per` participants, and per concrete subtype under `type`, over the live instances
 satisfying its condition, a top-level conjunct over the `per` participants' types selecting the groups; a write
-breaking it SHALL be refused with `UGS1023`, a lower bound at the commit creating the grouped participant.
+breaking it SHALL be refused with `UGS1023`, a lower bound at the commit creating the grouped participant, and a condition that cannot be evaluated with `UGS1039`.
 `@no_overlap` SHALL refuse an insert or update after which two live instances sharing the `per` participants have
 valid intervals that certainly overlap, or with `strict` possibly overlap (`UGS1024`). A check whose instances or
 paths lie in another partition SHALL refuse the transaction with code 23.
@@ -269,12 +319,13 @@ paths lie in another partition SHALL refuse the transaction with code 23.
 - **THEN** the commit is refused with `UGS1022` naming 16
 
 #### Scenario: One preferred instance per subject and type
-- **WHEN** a subject has an `IsAbout` instance with `rank` `preferred` and a second `IsAbout` with `rank` `preferred`
+- **WHEN** a `Document` has an `IsAbout` instance with `rank` `preferred` and a second `IsAbout` with `rank` `preferred`
   is inserted for it
 - **THEN** the commit is refused with `UGS1023`; and a `Realizes` with `rank` `preferred` for the same subject commits
 
 #### Scenario: A lower bound selected by type
-- **WHEN** a transaction creates a `Reading` without a `GeneratedBy`, and another creates a `Claim` without one
+- **WHEN** a transaction creates a `Reading` with `valid` and a `value` and no `GeneratedBy`, and another creates a
+  `Claim` without one
 - **THEN** the first is refused with `UGS1023`, and the second commits
 
 #### Scenario: A sum limit
@@ -355,11 +406,13 @@ open or ending after it (`UGS1035`). A cascade or a restrict reaching instances 
 transaction with code 23.
 
 #### Scenario: An open membership restricts its collection's retraction
-- **WHEN** an `Organization` has a live `MemberOf` whose `valid` has no end, and the organization is retracted
+- **WHEN** an `Organization` has, as `collection`, a live `MemberOf` whose `valid` has no end, and the organization is
+  retracted
 - **THEN** the commit is refused with `UGS1020` naming `MemberOf` and `collection`
 
 #### Scenario: A closed membership is retracted with its collection
-- **WHEN** an `Organization`'s only live `MemberOf` has a `valid` that has ended, and the organization is retracted
+- **WHEN** an `Organization`'s only live `MemberOf`, as `collection`, has a `valid` that states an end, and the
+  organization is retracted
 - **THEN** the commit succeeds, the membership is retracted in the same commit, and a read believed at an earlier
   epoch finds both
 
@@ -388,7 +441,10 @@ instances naming it: `cascade`, the default, deletes them and the relation insta
 `restrict` refuses the delete while instances name the participant in that role (`UGS1020`); `orphan` leaves the
 instance with its optional role empty. The delete SHALL write a tombstone at the entity's home, write-set operation
 8: a later commit referencing the deleted entity's ID SHALL abort with code 30 (EntityDeleted), a reference in
-get-only mode SHALL answer deleted, and a write creating its IRI again SHALL allocate a new ID. An edge-encoded instance that holds no reifier SHALL be deleted by the delete of its quad. A delete whose
+get-only mode SHALL answer deleted, and a write creating its IRI again SHALL allocate a new ID. A delete of a relation instance SHALL remove the instance and cascade to the relation instances over it; an
+edge-encoded instance that holds no reifier SHALL be deleted by the delete of its quad. A delete and a re-creation
+SHALL leave the new instance's record naming the ID it replaced, so a read naming the IRI at a version below the
+delete resolves the instance that held it then. A delete whose
 entity's referrer set names a bucket group another partition holds SHALL be refused with code 23.
 
 #### Scenario: A delete cascades by default
@@ -402,6 +458,11 @@ entity's referrer set names a bucket group another partition holds SHALL be refu
 #### Scenario: A tombstone fences the deleted ID
 - **WHEN** an `Aircraft` is deleted, and a transaction that resolved its ID before the delete commits a reference to it
 - **THEN** that commit aborts with code 30, the message naming the aircraft's IRI
+
+#### Scenario: A read of the past finds a recreated entity's predecessor
+- **WHEN** an aviation `Engine` `EN-4471-B` with `thrust_kn` 310 is deleted at epoch 20 and created again with
+  `thrust_kn` 400 at epoch 22
+- **THEN** a read naming its IRI at epoch 19 answers 310, and a read at epoch 23 answers 400
 
 #### Scenario: Orphan empties an optional role
 - **WHEN** a relation declares `@on_delete(reviewer: orphan)` on its `Optional` role and the reviewer is deleted
@@ -430,6 +491,10 @@ every `@key` and `@unique` predicate. `@index(ann)` SHALL be recorded and no ind
 - **WHEN** a `Space` holds `where` a GeoJSON `Point`
 - **THEN** the geo index lists it under the point's S2 cell tokens, as the store's geo tokenizer derives them
 
+#### Scenario: A line string is indexed by its cover
+- **WHEN** a Gen5 `Space` is written with `where` a GeoJSON `LineString`
+- **THEN** the commit succeeds, and the geo index lists it under the tokens of its cover
+
 #### Scenario: No vector index is built
 - **WHEN** an aviation `Engine` is written with a 768-element `F32` `embedding`
 - **THEN** the value is stored, and the store holds no vector index entry for `av:embedding`
@@ -437,7 +502,8 @@ every `@key` and `@unique` predicate. `@index(ann)` SHALL be recorded and no ind
 ### Requirement: Materialized derivations are maintained with the write
 A `@materialized` derivation, every computed derivation by default, SHALL be stored as quads under the derived name's
 predicate and maintained in every local commit that changes it, a retraction included, within the anchor partition;
-`@index(range)` on it SHALL be maintained likewise. A `@virtual` derivation SHALL be recorded and not stored.
+`@index(range)` on it SHALL be maintained likewise. A computed derivation whose evaluation fails SHALL refuse the
+commit with `UGS1039`. A `@virtual` derivation SHALL be recorded and not stored.
 
 #### Scenario: Gen5's closed flag follows the statement
 - **WHEN** a `Company` is created with no `valid` end and `rank` `normal`, then its `rank` is set to `deprecated`

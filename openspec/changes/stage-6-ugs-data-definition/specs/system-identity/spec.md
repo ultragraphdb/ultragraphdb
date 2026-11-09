@@ -21,6 +21,74 @@ component (ugs-identity, "Keys have one canonical encoding"), so governed and un
 - **WHEN** a new IRI and a new statement receive IDs in a tenant with no schema
 - **THEN** the IRI's type prefix is 1 and the statement's is 2
 
+### Requirement: The bucket comes from the tenant and the key
+An entity's bucket SHALL be fixed when the entity is created and, for an entity named by a key or by its IRI, SHALL be
+computed, never chosen: its top 8 bits SHALL
+be the top 8 bits of XXH3-64 (seed 0) of the tenant as 8 big-endian bytes, and its low 16 bits SHALL be the top 16
+bits of XXH3-64 (seed 0) of the declaring type's prefix as 2 big-endian bytes followed by the key's canonical encoding.
+A statement SHALL take the bucket of its subject. A blank node, which has no key, SHALL take the bucket its skolem IRI
+states (term-dictionary, "IRIs and blank nodes get system IDs"). A value of a predicate declared unique SHALL be claimed
+in the bucket computed the same way with the predicate's system ID as its 16 big-endian bytes, followed by the value's
+term encoding, in place of the type's prefix and the key, so the partition owning that bucket decides the claim. The
+same tenant, type and key SHALL always give the same bucket on every node and in every version that reads it. A keyless instance of a declared type SHALL take the bucket its handle states, which its partition draws
+from those it owns or, for an unkeyed relation instance, takes from its anchor. A `@key` attribute's value SHALL be
+claimed in its instance's own bucket, of the key space's prefix and the canonical key; the value's bucket above is a
+`@unique` attribute's and an ungoverned unique predicate's.
+
+#### Scenario: The bucket matches the XXH3 reference
+- **WHEN** the bucket of the IRI `http://ex.org/a` in tenant 0 is computed
+- **THEN** its top 8 bits equal the top byte of the xxHash reference implementation's XXH3-64 of eight zero bytes, and
+  its low 16 bits equal the top two bytes of the reference XXH3-64 of the `Resource` prefix's 2 bytes followed by the
+  IRI's canonical encoding, both values committed as golden values with their source
+
+#### Scenario: A statement shares its subject's bucket
+- **WHEN** a statement with subject `http://ex.org/a` receives a system ID
+- **THEN** the statement's bucket equals the bucket of `http://ex.org/a`
+
+#### Scenario: A unique value's bucket is computed from its predicate and value
+- **WHEN** the bucket of the value `"x"` of the unique predicate `epi.id` is computed in tenant 0
+- **THEN** its top 8 bits equal the tenant's reference value, and its low 16 bits equal the top two bytes of the
+  reference XXH3-64 of `epi.id`'s 16 ID bytes followed by `"x"`'s term encoding
+
+#### Scenario: Two tenants separate one key
+- **WHEN** the IRI `http://ex.org/a` is bucketed in tenants 0 and 1
+- **THEN** the two buckets' low 16 bits are equal, and their top 8 bits are the reference values for each tenant
+
+#### Scenario: Two tenants sharing a run keep one key apart
+- **WHEN** tenants A and B, whose hashes share their top 8 bits, each write the IRI `http://ex.org/a`
+- **THEN** the two buckets are equal, each tenant's dictionary holds its own entry under its own key, and each IRI has
+  its own system ID
+
+### Requirement: System IDs never leave the database
+No reply, result batch, error, cursor, resume key or IRI sent to a client SHALL contain a system ID. Entities SHALL be
+named to clients by their IRIs, a blank node by its skolem IRI, and the node a commit-time operation found or created
+likewise. A statement without a statement ID SHALL be named to clients by its quad, the triple term of its subject,
+predicate and object with its graph, which is unique among statements without one; a statement with a statement ID,
+because it carries properties or repeats a quad as a parallel edge, SHALL be named by its reifier, a skolem IRI minted
+as a blank node's with the statement's bucket (term-dictionary, "IRIs and blank nodes get system IDs"). Neither SHALL be
+named by its statement ID. A resume key SHALL be an opaque, checksummed token the server alone decodes, carrying the
+read's last row by its terms in text form, the pattern's hash and what binds it to its transaction (quad-reads, "Resume
+keys continue their own read"), never a store key. In a governed tenant a statement SHALL hold a statement ID also where ugs-views, "A relation type is
+edge-encoded or node-encoded by its shape", allocates one, and a client SHALL name it by its reifier's handle IRI.
+
+#### Scenario: A result names an IRI by its text
+- **WHEN** a client reads the subject of a statement whose subject is `http://ex.org/a`
+- **THEN** the result batch names `http://ex.org/a` by its text, and its bytes contain no system ID
+
+#### Scenario: A statement with a statement ID is named by its reifier
+- **WHEN** a client reads a statement that carries a property and so holds a statement ID
+- **THEN** the result names the statement by its quad and its reifier's skolem IRI, whose text holds the statement's
+  bucket and no sequence, and its bytes contain no system ID
+
+#### Scenario: A resume key carries terms, not keys
+- **WHEN** a read stops at its limit after the row whose object is `http://ex.org/b`, and the server decodes the resume
+  key it returned
+- **THEN** the key holds the pattern's hash and the text `http://ex.org/b`, and no store key or system ID
+
+#### Scenario: A tampered resume key is refused
+- **WHEN** a client changes one byte of a resume key and continues its read with it
+- **THEN** the read is refused with an error naming the resume key as malformed
+
 ## ADDED Requirements
 
 ### Requirement: An instance of a declared type carries its type's prefix
