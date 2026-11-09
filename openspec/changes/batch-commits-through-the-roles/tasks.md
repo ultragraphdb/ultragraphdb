@@ -165,11 +165,13 @@ taken out again, and its figures are recorded with the reason.
   owner check's guarantees (`client-endpoint`, `metadata-group`); spec deltas for the behaviour that changes, tests first; the
   frontend's checks and a one-relation commit measured at the `dev` epochs against X1 (1.44 ms and 3.93 ms). Built as design D17, the owner answering a commit's checks during its syncs: one
   connection +6%, the checks' p99 1.9 to 0.3 ms; the rate under load unchanged (`notes/group-7.md`)
-- [ ] 7.6 The four together, group 6's matrix again: each improvement's gain alone and together, the share of the in-process ceiling
+- [x] 7.6 The four together, group 6's matrix again: each improvement's gain alone and together, the share of the in-process ceiling
   at 1, 4 and 12 partitions, validation's share of the commit thread, and the per-relation floor the KV store leaves, in
-  `notes/group-7.md` and the Shard-per-Core note
-- [ ] 7.7 What remains for roadmap stage 6.5: the storage engine's floor per relation and per commit after the four, by keyspace and
-  operation, recorded in the backlog as the measured case for the tile-based storage engine
+  `notes/group-7.md` and the Shard-per-Core note. Measured at `6753d3ad`: +2.6% to +21.8% over group 6, the shares 51 to 109% at six
+  partitions; `openspec/benches/benches-2026-11-09.md`
+- [x] 7.7 What remains for roadmap stage 6.5: the storage engine's floor per relation and per commit after the four, by keyspace and
+  operation, recorded in the backlog as the measured case for the tile-based storage engine. Recorded: 42 to 44 µs of CPU a relation in the KV store, 16 µs a commit on the
+  commit thread (backlog item 19)
 
 ## 8. Verification
 

@@ -377,6 +377,16 @@ the frontend, 0.1 ms in the frontend's checks.
 - **The core's wait in its sync is what fills a round.** Executing the next round while one syncs ran 7 to 17% below
   inline syncs at every point: a sync's commits halved, its syncs doubled, each slower (0.7 to 1.8 ms). It was reverted.
 
+#### The commit path after group 7 (batch-commits-through-the-roles)
+
+Group 7 kept two improvements: each partition holds its referrer sets in memory, and the frontend's owner answers a commit's
+checks while its logs sync. On the 6/6/2 layout at six partitions they take one relation a commit from 26,857 to 29,710 relations
+a second at 256 connections and 40,413 to 41,472 at 1,024, and ten relations from 85,640 to 104,340 at 256 and 98,590 to 116,210 at
+1,024; the share of the in-process rate is 36 to 51% at one relation and 98 to 109% at ten. Validation is 0.8% of the commit
+thread or less. What remains is the KV store's: 42 to 44 µs of CPU a relation, its memtable writes on the commit thread and its
+flushes and compactions on its workers, and 16 µs a commit (backlog item 19). Every table and how it ran is in
+`openspec/benches/benches-2026-11-09.md`, the baseline the tile-based storage engine (roadmap stage 6.5) is measured against.
+
 #### Turns, pins, bound walks, the frontend's memory and readers' aborts through the binaries
 
 Task 12.5b's third runs, 2026-11-09, 00:56 to 02:17 UTC, on the same VM and disk, with part 2's role binaries and the

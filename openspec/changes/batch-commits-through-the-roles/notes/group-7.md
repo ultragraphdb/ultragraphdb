@@ -196,3 +196,31 @@ clients' own means match it to 0.05 ms. The frontend's phases (partition p50 11.
 100 to 142 ms) and storage's read-to-answer show no added time. Under a fixed mean the change moves where the commits wait, not how
 long: before, the owner's syncs held the checks back in batches; now they reach storage's queues, which serve them less evenly, a
 reading the phase logs fit and that no run isolated. Kept: the rate rises where the frontend bounds it and nothing loses rate.
+
+## 7.6 The improvements together
+
+Two of the four were kept: the referrer sets held in memory (7.2) and the owner answering a commit's checks during its syncs (7.5);
+7.3 and 7.4 were measured and not built. Each one's gain alone is in its section. Together, against group 6's binaries
+(`152f1aa0`), on group 6's matrix, the 6/6/2 layout, six partitions, interleaved, three runs a point, at `6753d3ad`:
+
+| Relations | Connections | Group 6, relations/s | Both, relations/s | Change | Share of in-process |
+|---|---|---|---|---|---|
+| 1 | 256 | 26,857 (26,808–26,949) | 29,710 (29,298–32,118) | +10.6% | 33% → 36% |
+| 1 | 1,024 | 40,413 (39,945–40,441) | 41,472 (39,737–43,348) | +2.6%, within the spread | 49% → 51% |
+| 10 | 256 | 85,640 (84,430–85,770) | 104,340 (96,960–105,450) | +21.8% | 81% → 98% |
+| 10 | 1,024 | 98,590 (79,710–100,330) | 116,210 (107,320–117,480) | +17.9% | 93% → 109% |
+
+The in-process rate is `wal_bench` at HEAD on the storage machine. HEAD's share of it at 1, 4 and 6 partitions, at one relation and
+1,024 connections and at ten and 256: 78% and 84%, 44% and 88%, 51% and 98%. Validation is 0.8% of the commit thread or less at
+every point; through the binaries at one partition and 16 connections the commit thread spends 46, 32 and 31 µs a relation at 1, 10
+and 50 relations a commit (61 at ten in 7.1), the store 16.5 to 20 µs of it, and fjall's workers 25 to 27 µs more at 10 and 50.
+Every table, the latency at 1 to 1,024 clients and how each was run are in `openspec/benches/benches-2026-11-09.md`, the baseline
+roadmap stage 6.5 is measured against.
+
+## 7.7 What remains for roadmap stage 6.5
+
+The commit thread fits 30.4 µs a relation and 16.0 µs a commit. Of a relation, the KV store takes 16.5 to 17.5 µs on the commit
+thread at 10 and 50 relations a commit, 12.5 to 13.3 µs of it writing (the write batch into the memtable, 5 to 6 µs of that lz4
+compressing blocks) and 3.7 µs reading (term lookups mostly), and its workers 25 to 27 µs flushing and compacting: 42 to 44 µs of CPU
+a relation. A relation writes 9.1 versions (7.4), 5.0 of them the reads need; the object-predicate SETs and the statistics deltas
+are the rest but for the referrer sets. Recorded in the backlog as the case for the tile-based storage engine.

@@ -90,12 +90,6 @@ Stage 5.5 measured `wal_bench` on the VM disk and the three binaries through the
 *Stage 5.5 on the VM disk (2026-11-08)* and *A commit's phases through the binaries (experiment X1)*; the archived
 change's `notes/group-12.md`, 12.5 and 12.5b). Each question below names the figure it rests on.
 
-- **The owner's sync.** The frontend's checks wait on the owner's sync of an epoch close; epochs of 50 to 100 ms in place
-  of 2 to 10 ms take a one-relation commit from 3.93 to 2.69 ms. Does the owner answer asks that read nothing unsynced
-  ahead of its sync, or does the endpoint cache a tenant's facts between closes?
-- **Referrer-set reads.** `referrer_candidates` reads each hub's referrer set at execution and again at apply: 47% of one
-  partition's profile, and one partition's relations per second 29 to 64% below stage 5's, falling as the sets grow.
-  Is the read cached, or skipped for a bucket group the round already names?
 - **A turn's cost.** The 256 KiB per-turn budget counts bytes: a commit behind one Scan of lists read from the store waits
   35 ms at the mean and 297 ms at p99, and 89% of that Scan's time loads and checksums a block per key in
   `Lists::read_store`. Is a turn charged for each list read from the store, or ended on elapsed time, and does
@@ -118,6 +112,23 @@ change's `notes/group-12.md`, 12.5 and 12.5b). Each question below names the fig
 - **Unexplained.** About 70 KB written by the storage process per one-relation commit against a 4,096-byte log round;
   the log's `O_DIRECT` write and `fdatasync` at 2 ms against 0.5 ms buffered on the VM; better scaling of 12 partitions
   in one process than in separate processes. What writes the rest, and does either hold on physical Linux?
+
+### 19. The KV store's floor: the case for the tile-based storage engine (stage 6.5)
+
+`batch-commits-through-the-roles` group 7 left the commit path's cost in the store (its `notes/group-7.md`, 7.6 and 7.7; the
+baseline `openspec/benches/benches-2026-11-09.md`). Through the binaries at one partition the commit thread spends 30.4 µs a
+relation and 16.0 µs a commit; the store holds 16.5 to 17.5 µs of a relation on that thread, 12.5 to 13.3 µs of it writing the batch
+into fjall's memtable (5 to 6 µs lz4), 3.7 µs reading, and fjall's workers spend 25 to 27 µs more a relation flushing and
+compacting: 42 to 44 µs of CPU a relation. A relation writes 9.1 store versions: 2.0 forward, 2.0 reverse, 1.0 subject-predicates,
+1.1 object-predicates, 2.0 statistics, 1.0 referrers. The object-predicate SET is written though the list names its predicate, and
+statistics take a delta per commit and predicate; removing either changes what a read sees under the KV layout. Validation is
+0.8% or less.
+
+- **Adjacency.** Which of the forward, reverse and predicate lists does a tile hold together, so a relation writes fewer
+  than 9.1 records and no background merge rewrites them?
+- **The predicate lists and statistics.** Does the tile layout know a list names its predicate without a read, and keep a
+  predicate's statistics per round rather than per commit, while a read at any version still sees them exact?
+- **Compression.** Is a tile compressed on the commit thread at all, where lz4 now costs 5 to 6 µs a relation?
 
 ### 5. Transactions across replica groups
 
