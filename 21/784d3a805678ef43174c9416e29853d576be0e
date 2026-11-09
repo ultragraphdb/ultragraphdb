@@ -1,0 +1,89 @@
+openspec/changes/batch-commits-through-the-roles/notes/group-5.md
+  s_6c9dcf457e80d9::t_0aa7c7738cd6ff 1-79
+  s_6c9dcf457e80d9::t_7e349006217c7a 80-112
+ultragraphdb_tool/ultragraphdb_tool_bench/src/utils/client_run.rs
+  s_6c9dcf457e80d9::t_d2fc486ccd9ff1 90-93
+  s_6c9dcf457e80d9::t_ce889f4674b2aa 45-48,70-71,292-301,316-328,482-486,505,530,544
+scripts/cluster_local.sh
+  s_6c9dcf457e80d9::t_304d7c6f10505c 165
+  s_6c9dcf457e80d9::t_3e41d0c2245ac9 1-89,94-164,166-249
+  s_6c9dcf457e80d9::t_06fd937173e958 90-93
+AGENTS.md
+  s_6c9dcf457e80d9::t_9fa790d5ec97e4 304-305,311-339
+bazel/README_BAZEL.md
+  s_6c9dcf457e80d9::t_54cbf5416c78fb 283-295
+deploy/helm/ultragraphdb/.helmignore
+  s_6c9dcf457e80d9::t_39aa79ace79750 1-2
+deploy/helm/ultragraphdb/BUILD.bazel
+  s_6c9dcf457e80d9::t_30954b1be2a130 1-11
+deploy/helm/ultragraphdb/Chart.yaml
+  s_6c9dcf457e80d9::t_328f152dd4f8bf 1-8
+deploy/helm/ultragraphdb/profile/kube.toml
+  s_6c9dcf457e80d9::t_e4d33937807d19 1-10
+deploy/helm/ultragraphdb/profile/kube/compute.toml
+  s_6c9dcf457e80d9::t_e830505f829770 1-8
+deploy/helm/ultragraphdb/profile/kube/frontend.toml
+  s_6c9dcf457e80d9::t_00422cc6424199 1-17
+deploy/helm/ultragraphdb/profile/kube/storage.toml
+  s_6c9dcf457e80d9::t_787c63dabe43ed 1-11
+deploy/helm/ultragraphdb/profile/kube/targets.toml
+  s_6c9dcf457e80d9::t_a9beb3df51969f 1-7
+deploy/helm/ultragraphdb/templates/NOTES.txt
+  s_6c9dcf457e80d9::t_83b2337869f113 1-5
+deploy/helm/ultragraphdb/templates/_helpers.tpl
+  s_6c9dcf457e80d9::t_9dfaf265ed16e7 1-74
+deploy/helm/ultragraphdb/templates/bench-job.yaml
+  s_6c9dcf457e80d9::t_7f2cca2bee28f1 1-45
+deploy/helm/ultragraphdb/templates/compute.yaml
+  s_6c9dcf457e80d9::t_c402f23b8ea445 1-69
+deploy/helm/ultragraphdb/templates/config.yaml
+  s_6c9dcf457e80d9::t_247bd1486d94f4 1-82
+deploy/helm/ultragraphdb/templates/frontend.yaml
+  s_6c9dcf457e80d9::t_91d44e498b1b6e 1-84
+deploy/helm/ultragraphdb/templates/profile.yaml
+  s_6c9dcf457e80d9::t_13bce1ae77110d 1-17
+deploy/helm/ultragraphdb/templates/secrets.yaml
+  s_6c9dcf457e80d9::t_6d2e0cfc4cb5d8 1-28
+deploy/helm/ultragraphdb/templates/storage.yaml
+  s_6c9dcf457e80d9::t_016bad10200eb7 1-69
+deploy/helm/ultragraphdb/values.yaml
+  s_6c9dcf457e80d9::t_e8f3b1b5e6267a 1-39
+deploy/kubernetes/kustomization.yaml
+  s_6c9dcf457e80d9::t_75a9fb4c937568 1-13
+deploy/kubernetes/namespace.yaml
+  s_6c9dcf457e80d9::t_e247c3cd0b87e8 1-4
+makefile
+  s_6c9dcf457e80d9::t_ecf0f2f372b6bc 20-25,57-77
+openspec/changes/batch-commits-through-the-roles/design.md
+  s_6c9dcf457e80d9::t_55464d6c0dfb94 47,107-113,117-127,147-151,164-168,173-174,178-179
+openspec/changes/batch-commits-through-the-roles/proposal.md
+  s_6c9dcf457e80d9::t_279b8cb869a570 27,58-60
+openspec/changes/batch-commits-through-the-roles/specs/config-service/spec.md
+  s_6c9dcf457e80d9::t_41beb82f5c3c11 1-33
+openspec/changes/batch-commits-through-the-roles/specs/kubernetes-deployment/spec.md
+  s_6c9dcf457e80d9::t_926c9c5dd45477 3-4,7-12,15,21-22,36-42,48-51,53,74,78-83,103
+openspec/changes/batch-commits-through-the-roles/tasks.md
+  s_6c9dcf457e80d9::t_ab523ad8fa616f 66,68,71,75,83,87,89-92
+ultragraphdb/ultragraphdb_config_tests/BUILD.bazel
+  s_6c9dcf457e80d9::t_d7605fe8f5f259 28
+ultragraphdb/ultragraphdb_config_tests/features/config-service/service.feature
+  s_6c9dcf457e80d9::t_5dde3a0b52f885 108
+ultragraphdb/ultragraphdb_config_tests/tests/bdd.rs
+  s_6c9dcf457e80d9::t_0b2037dbbb69e9 840,843-849,865,868
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "21784d3a805678ef43174c9416e29853d576be0e",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
