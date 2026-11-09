@@ -10,6 +10,8 @@ pub(crate) mod core_rig;
 #[cfg(test)]
 pub(crate) mod core_writes;
 #[cfg(test)]
+pub(crate) mod inbox_tap;
+#[cfg(test)]
 mod partition_core_frames_tests;
 #[cfg(test)]
 mod partition_core_one_frame_tests;

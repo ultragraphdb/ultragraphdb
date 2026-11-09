@@ -2137,7 +2137,10 @@ to learn the system ID a claimed value's bucket is computed from. A participant 
 instance names (`../schema/SCHEMA.md` section 12.3), registers in get-only mode (section 13.15): its home creates no ID and
 answers whether the participant is absent, live or deleted, and its type prefix.
 
-**Parked requests.** A role connection keeps moving while a request on it waits on a home. A partition parks a Write, Operation,
+**Parked requests.** A role connection keeps moving while a request on it waits. A partition copies every request out of the
+connection's receive buffer as it arrives, hands the copy to its core and reads the connection's next frame, without waiting for
+the core to take the request: the core takes its requests between turns, and a turn may wait on its log's sync, so the requests a
+connection carries during a sync reach the core together and its commits share the next round. A partition parks a Write, Operation,
 DirectWrite or ConditionalWrite waiting on its registrations' answers, and a Write, Operation or Commit behind a read of its
 transaction waiting on a home (section 13.13): it copies the frame out of the connection's receive buffer, reads the connection's
 next frame, and sends the request's answer on its stream once it has one. A frame arriving on a stream with a request parked is
@@ -2147,16 +2150,17 @@ stream drops what is parked behind it, and a frame that crosses that Error on th
 what it parked, its transactions aborting (section 11.4), and a partition that stops answers each parked request with code 17 or
 closes the connection, which a frontend answers as code 17; nothing parked has reached the commit step.
 
-The bytes a connection holds parked are bounded by `storage.held_bytes` (section 11.9). Once they reach it, the partition stops
-reading that connection until they fall below it, and goes on sending what it answers. The bound refuses nothing: a frame read is
-parked whole, so a connection holds at most `held_bytes` and one frame, and a refusal would end a client's transaction with a limit
-the client did not pass. Stopping cannot deadlock, because nothing that releases a parked frame travels on a connection that can
-stop. A parked frame is released by a home's reply or by its transaction's limit, `transaction_ms`. A home answers a Reference from
-its own log, asking no other partition (section 13.15), and a partition sends its registrations on connections of their own, which
-carry Reference alone and so park nothing and never stop. So when partition A's write waits on B's Reference and B's write waits on
-A's, each home answers whatever either partition holds parked, with both frontends' connections stopped. A Scan and its Credit
-travel on compute's connection, which parks nothing either. What waits on a stopped connection, a frontend's own Reference, a Cancel
-or a Commit, waits at most for the limit of what is parked ahead of it.
+The bytes a connection holds, its requests copied and not yet taken by its core together with those parked, are bounded by
+`storage.held_bytes` (section 11.9). Once they reach it, the partition stops reading that connection until they fall below it, and
+goes on sending what it answers. The bound refuses nothing: a frame read is parked whole, so a connection holds at most `held_bytes`
+and one frame, and a refusal would end a client's transaction with a limit the client did not pass. Stopping cannot deadlock,
+because nothing that releases a parked frame travels on a connection that can stop. A request waiting for its core is released by
+the core's own turn, which waits on no connection; a parked frame is released by a home's reply or by its transaction's limit,
+`transaction_ms`. A home answers a Reference from its own log, asking no other partition (section 13.15), and a partition sends its
+registrations on connections of their own, which carry Reference alone and so park nothing and never stop. So when partition A's
+write waits on B's Reference and B's write waits on A's, each home answers whatever either partition holds parked, with both
+frontends' connections stopped. A Scan and its Credit travel on compute's connection, which parks nothing either. What waits on a
+stopped connection, a frontend's own Reference, a Cancel or a Commit, waits at most for the limit of what is parked ahead of it.
 
 **Frames on their way.** A frontend's role connection is one queue its client connections share, first in, first out, and a frame
 leaves it as the role reads. What a client connection has on its way to a role is counted per client connection, against

@@ -41,6 +41,7 @@ use ultragraphdb_traits_blocks::SequenceBlock;
 use ultragraphdb_transactions_commit::{CloseRequest, Pipeline, RoundBounds};
 use ultragraphdb_transactions_log::{CompioStorage, Wal, WalConfig};
 
+use crate::types::partition_core::inbox_tap::{Tap, tap};
 use crate::types::partition_core::yielding_session::Yielding;
 
 /// The cluster every frame names.
@@ -62,13 +63,15 @@ const HELD_BYTES: usize = 1 << 20;
 /// The sequences of the one block of each type leased: more than a test allocates.
 const BLOCK: u64 = 1 << 16;
 
-/// How long the rig's core keeps a Scan with no frame able to leave, in milliseconds, the tenants it takes Binds of, and whether
-/// its store applied the last sequence of its open epoch, epoch 1, before the core starts: its open epoch full.
+/// How long the rig's core keeps a Scan with no frame able to leave, in milliseconds, the tenants it takes Binds of, whether
+/// its store applied the last sequence of its open epoch, epoch 1, before the core starts: its open epoch full, and the bytes each
+/// connection may hold before the core takes them, `storage.held_bytes`.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RigSetup {
     pub(crate) stall_ms: u64,
     pub(crate) tenant: u64,
     pub(crate) full: bool,
+    pub(crate) held_bytes: usize,
 }
 
 impl Default for RigSetup {
@@ -77,6 +80,7 @@ impl Default for RigSetup {
             stall_ms: 30_000,
             tenant: TENANT,
             full: false,
+            held_bytes: HELD_BYTES,
         }
     }
 }
@@ -91,6 +95,10 @@ pub(crate) struct Rig {
     pub(crate) asks: UnboundedReceiver<FrontendAsk>,
     /// The core's inbox, which its connections hand their requests to.
     pub(crate) inbox: UnboundedSender<CoreMessage>,
+    /// The tap between the connections' sessions and the inbox.
+    pub(crate) tap: Tap,
+    /// What the core's log has written and synced.
+    pub(crate) log_io: LogIo,
 }
 
 impl Rig {
@@ -149,11 +157,8 @@ pub(crate) fn with_core_then(
             let last = Version::commit(Epoch::ZERO.next()?, Version::COMMIT_SEQUENCE_MAX)?;
             let _applied = applier.apply_round(vec![(last.to_u64(), nothing)])?;
         }
-        let config = WalConfig::new(CLUSTER, false);
-        // The log's I/O timed on the runtime's clock, as the role times it.
-        let origin = compio::time::interval(Duration::from_secs(1)).tick().await;
-        let storage = TimedStorage::new(CompioStorage, LogIo::default(), origin);
-        let (log, _) = Wal::open(storage, dir.path().join("wal"), config).await?;
+        let log_io = LogIo::default();
+        let log = open_log(dir.path(), log_io.clone()).await?;
         let pipeline = Pipeline::new(partition.applier(), log, RoundBounds::new(1 << 20, 1 << 10))?
             .with_partition(PARTITION, Epoch::ZERO, CloseRequest::default(), &[])
             .bound(id, partition.placement());
@@ -170,8 +175,9 @@ pub(crate) fn with_core_then(
             .port();
         let address = Address::parse(&format!("tcp://127.0.0.1:{port}"))?;
         let (inbox_tx, inbox) = unbounded();
+        let (sessions, tap) = tap(inbox_tx.clone());
         let cluster = role_cluster(dir.path())?;
-        accept(&address, &cluster, inbox_tx.clone()).await?;
+        accept(&address, &cluster, sessions, setup.held_bytes).await?;
         let (asks_tx, asks) = unbounded();
         let (closes_tx, closes) = std::sync::mpsc::channel();
         let (discards, _discarded) = std::sync::mpsc::channel();
@@ -191,6 +197,8 @@ pub(crate) fn with_core_then(
             closes: closes_tx,
             asks,
             inbox: inbox_tx,
+            tap,
+            log_io,
         };
         let tested = async {
             let outcome = test(rig).await;
@@ -203,6 +211,18 @@ pub(crate) fn with_core_then(
         ran?;
         after(dir.path().join("wal")).await
     })
+}
+
+/// The partition's write-ahead log in `dir`, its I/O counted into `log_io` on the runtime's clock, as the role times it.
+async fn open_log(
+    dir: &std::path::Path,
+    log_io: LogIo,
+) -> TestResult<Wal<TimedStorage<CompioStorage>>> {
+    let config = WalConfig::new(CLUSTER, false);
+    let origin = compio::time::interval(Duration::from_secs(1)).tick().await;
+    let storage = TimedStorage::new(CompioStorage, log_io, origin);
+    let (log, _) = Wal::open(storage, dir.join("wal"), config).await?;
+    Ok(log)
 }
 
 /// One block of each type the partition allocates.
@@ -241,11 +261,12 @@ fn open_partition(
     Ok(Partition::new(id, placement.clone(), applier))
 }
 
-/// Listens at `address`, each connection a session of the core reached through `core`.
+/// Listens at `address`, each connection a session of the core reached through `core`, holding at most `held_bytes`.
 async fn accept(
     address: &Address,
     cluster: &RoleCluster,
     core: UnboundedSender<CoreMessage>,
+    held_bytes: usize,
 ) -> TestResult {
     let listener = listen(&address.to_string()).await?;
     let credentials = cluster.secret().credentials()?;
@@ -256,7 +277,7 @@ async fn accept(
         let mut connection = 0u64;
         while let Ok(carrier) = listener.accept().await {
             connection += 1;
-            let session = Yielding(StorageSession::new(connection, core.clone(), HELD_BYTES));
+            let session = Yielding(StorageSession::new(connection, core.clone(), held_bytes));
             let (server, credentials) = (server.clone(), credentials.clone());
             spawn(async move {
                 serve_connection(carrier, &server, credentials, session).await;
