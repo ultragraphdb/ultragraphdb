@@ -1,0 +1,79 @@
+ultragraphdb/ultragraphdb_frontend/BUILD.bazel
+  s_6c9dcf457e80d9::t_2927a7186fb599 21-37
+AGENTS.md
+  s_6c9dcf457e80d9::t_20c15a0f253e14 5,7,11,322-323,329-330
+deploy/helm/ultragraphdb/templates/profile.yaml
+  s_6c9dcf457e80d9::t_e29343cb21d91c 3,16
+deploy/helm/ultragraphdb/values.yaml
+  s_6c9dcf457e80d9::t_01e7c4c80ed168 13-15
+makefile
+  s_6c9dcf457e80d9::t_fc629ad35dcf07 22,61,66
+openspec/changes/batch-commits-through-the-roles/design.md
+  s_6c9dcf457e80d9::t_e197cb40382382 266-301
+openspec/changes/batch-commits-through-the-roles/notes/group-6.md
+  s_6c9dcf457e80d9::t_5c7222ae85dd7c 1-238
+openspec/changes/batch-commits-through-the-roles/specs/role-binaries/spec.md
+  s_6c9dcf457e80d9::t_770c303f00849c 1-26
+openspec/changes/batch-commits-through-the-roles/tasks.md
+  s_6c9dcf457e80d9::t_2d4b240dd14424 96,104-105,108-120
+scripts/cluster_local.sh
+  s_6c9dcf457e80d9::t_6bcaaac80fe576 9-11,110,112,179,184-185,200
+ultragraphdb/ultragraphdb_compute/src/service.rs
+  s_6c9dcf457e80d9::t_0890d7bc775f1c 11,16-18
+ultragraphdb/ultragraphdb_frontend/src/service.rs
+  s_6c9dcf457e80d9::t_dbecea7f60ccb2 14-16,22,43-45,80-90,92-93,101-102,104-109,130-294
+ultragraphdb/ultragraphdb_tests/features/client-endpoint/processes.feature
+  s_6c9dcf457e80d9::t_47822d9b85b3af 11-14
+ultragraphdb/ultragraphdb_tests/tests/own_steps.rs
+  s_6c9dcf457e80d9::t_6deea2cfd96fd8 204-288
+ultragraphdb_common/ultragraphdb_common_frontend/src/lib.rs
+  s_6c9dcf457e80d9::t_fbed28f4feee3c 23,28
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/auth_throttle/mod.rs
+  s_6c9dcf457e80d9::t_11a7c1435a9aef 8,33-35,40-41,50-51,70,76,86,92,101,114,135,138-142
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/core_joins.rs
+  s_6c9dcf457e80d9::t_ad001b8992a563 1-30
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/endpoint_core.rs
+  s_6c9dcf457e80d9::t_dd8f9b181e9aa5 52-66
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/join_fan_out.rs
+  s_6c9dcf457e80d9::t_22d2ba123c22ac 1-44
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/mod.rs
+  s_6c9dcf457e80d9::t_81c8aca1dee4f8 15,22
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/one_frame_phases/mod.rs
+  s_6c9dcf457e80d9::t_0c29e319af4985 20,28,44,48-54,86
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/role_session.rs
+  s_6c9dcf457e80d9::t_409523a7bc7c3a 21,29-30,37,54,57-64,96
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/auth_throttle_tests.rs
+  s_6c9dcf457e80d9::t_57d65ae176b7ab 192-211
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/join_fan_out_tests.rs
+  s_6c9dcf457e80d9::t_06febfec5e67d3 1-76
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/mod.rs
+  s_6c9dcf457e80d9::t_1d4c73edb8c8b2 12-13
+ultragraphdb_common/ultragraphdb_common_service/src/lib.rs
+  s_6c9dcf457e80d9::t_40d4e509f00f44 16
+ultragraphdb_common/ultragraphdb_common_service/src/types/core_listener.rs
+  s_6c9dcf457e80d9::t_8619249a6ec890 13-14
+ultragraphdb_common/ultragraphdb_common_service/src/types/mod.rs
+  s_6c9dcf457e80d9::t_dece2be26b5d76 8
+ultragraphdb_common/ultragraphdb_common_service/tests/types/core_listener_tests.rs
+  s_6c9dcf457e80d9::t_8b94c774c4395c 12
+ultragraphdb_common/ultragraphdb_common_service/tests/types/mod.rs
+  s_6c9dcf457e80d9::t_403dab5e402caa 11-12
+README.md
+  s_6c9dcf457e80d9::t_28f7f66fbd283e 5,7,26-30,33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2d129b8fcf63d1f9df64556d398760310de41620",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
