@@ -1,0 +1,148 @@
+Every task group follows `openspec/protocols/tdd-protocol.md`'s five phases, in order, as stage 5.5's groups did:
+(1) the group's public surface compiling with bare `unimplemented!()` bodies; (2) the full suite written against it
+and observed failing for that reason, its run and test count recorded in `notes/group-N.md`: the group's scenarios
+verbatim as Gherkin in the owning crate's `features/<capability>/`, bound by its `bdd` target with `fail_on_skipped`,
+unit tests for the corner cases enumerated in advance, every error variant constructed through the public API, and
+every expected value from a source independent of the code, the conformance corpus first; (3) the suite's inputs
+reviewed against the corner-case enumeration; (4) the implementation, judged by the suite alone; (5) as the group's
+last step, `scripts/mutants.sh <crate> --diff <base>` once per crate the group changed, and for a group decoding bytes
+or text from a client, a peer or the disk, its fuzz targets and seeds written and built, the runs of
+`scripts/fuzz.sh` happening once, in group 13. Before an existing crate's behaviour changes, its group lifts it into
+`openspec/protocols/ULTRA_STYLE.md` in a commit of its own; every crate this change creates conforms from its first
+commit and is created in full by the group that builds it, with its row in `AGENTS.md`'s crate table. Tests return
+`TestResult`. Bazel is the gate: a group is done when `make test` passes, cached; the user commits after each group.
+Removing files waits for the user's approval at the task that removes them. A weakness found in a specification file
+is fixed in that file first.
+
+Waves: 0; then 1 and 2 in parallel; 3; 4; 5 and 6 in parallel; 7; 8; 9; 10 and 11 in parallel; 12; 13. A wave's agents
+work on disjoint crates, and the whole repository is gated by `make build` and `make test` when a wave returns.
+
+## 0. Specification and corpus first
+
+- [x] 0.1 The number refusing a revision resolved in `SCHEMA.md` sections 8.2, 8.4, 8.7 and 17 (2026-11-10): `UGS1007`, `UGS1012` and `UGS1013` on a revision as on any update, `UGS1025` for a required role's participant
+- [x] 0.2 The recommendations of `notes/specification-gaps.md` presented to the user: all thirteen accepted on 2026-11-10
+- [x] 0.3 G2 in the specification: `SCHEMA.md` section 14's `@index(ann)` row and the `UGS0902` text, and `PROTOCOL.md` section 11.13's sentence on vector indexes, amended as `openspec/notes/prepare-stage-6.md` section 2 decides; section 14 states the `UGS0902` of functions and virtual derivations
+- [x] 0.4 Evolution at stage 9.5: `SCHEMA.md` sections 10.1, 13 and 14 and `PROTOCOL.md` sections 8.4 and 11.2 state that a tenant takes one Install until stage 9.5, with the refusals of ugs-catalog; `ROADMAP.md`'s stage 9.5 row names the changes in place and namespace removal beside the migrations
+- [ ] 0.5 The UQL CRUD subset, whose grammar `QUERY-ULTRA-QL.md` section 4.1 and whose `language` 3 `PROTOCOL.md` sections 7.4, 8.1, 9.1 and 11.2 hold since task 0.7: section 12 of `QUERY-ULTRA-QL.md` marks the subset's mutations **[stage 6]**, and `ROADMAP.md`'s sentence on UltraQL names the subset
+- [x] 0.6 Instance operations: `PROTOCOL.md` sections 6.3, 6.7, 7.3, 11.6 and 12.2 take Operation kinds 5 and 6 with their results and write-set effects
+- [x] 0.7 The accepted recommendations carried into `SCHEMA.md`, `PROTOCOL.md`, `QUERY-ULTRA-QL.md` and `SCHEMA-APG.md`, each at the sections its entry in `notes/specification-gaps.md` names (2026-11-10)
+- [ ] 0.8 `specification/schema/BUILD.bazel` exporting the `.ugs` files as test data; the group folder `ultragraphdb_schema/` added to the workspace's members and to `AGENTS.md`'s list of group folders by the group creating its first crate
+- [ ] 0.9 The conformance corpus under `ultragraphdb_schema/ultragraphdb_schema_compile/testdata/ugs/`, written independently of the compiler: one minimal source per diagnostic of `SCHEMA.md` section 10.4 with its expected code, location and fix; the valid sources (aviation, Gen5, modules of the corpus's own, one per construct of section 14's stage 6 rows) with their expected warnings and notes; the aviation catalog version entry by entry, written by hand
+- [ ] 0.10 The instance corpus under `ultragraphdb/ultragraphdb_tests/testdata/`: for Gen5 and aviation, instance sets that hold or break each stage 6 rule with the expected `UGS1xxx` number, each as quads and, where the subset expresses it, as UQL
+- [ ] 0.11 `lake build ApgModel` green with no `sorry`; the oracle's instance sets and `R(G)` files for aviation and Gen5 exported by `lake exe apg_oracle` and committed under `ultragraphdb/ultragraphdb_tests/testdata/apg/` with the Lean commit that wrote them
+
+## 1. The wire → `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_transport`
+
+- [ ] 1.1 Scenarios: wire-protocol's four requirements of this change, as Gherkin; the corner cases enumerated per changed body
+- [ ] 1.2 Phases 1 to 3: bodies, views and builders for the warnings structure, Describe's entry kinds 1 to 20, request and continuation frames, Install's `staged` and sections, Reference's `mode` and `status`, codes 30 and 31, datatypes 34 to 36 with their tags and payloads, Catalog's continuation, `catalog_bytes_max`, Purge, Migrate, Query's and Prepare's `language` 3, Operation kinds 5 and 6 in Operation and in ConditionalWrite
+- [ ] 1.3 Phase 4: the implementation; every golden frame of Result, Prepare, Describe, Install and Reference regenerated by its generator, the schema id's golden value `0x5000B62149F4DB68` checked; the conformance suite green
+- [ ] 1.4 Phase 5: fuzz seeds for every changed body; `scripts/mutants.sh` over both crates
+
+## 2. Syntax → `ultragraphdb_error_diagnostic`, `ultragraphdb_schema_syntax` (new)
+
+- [ ] 2.1 Scenarios: ugs-syntax, as Gherkin; the corpus's syntax sources bound as a table-driven test
+- [ ] 2.2 Phases 1 to 3: `Diagnostic` with code, severity, span, reason and fix and its rendering; the token and syntax-tree types with spans; the lexer's and parser's entry points; the corner cases of every literal kind, every bound of section 3.7 at and one past its limit, every contextual keyword in a name position
+- [ ] 2.3 Phase 4: the lexer of `SCHEMA.md` section 3 and the recursive-descent parser of section 4 with every nesting bounded; the expression grammar shared by checks, limits, derivations and functions
+- [ ] 2.4 Phase 5: a structure-aware fuzz target generating sources from the grammar, seeded with the corpus, and one on raw bytes; `scripts/mutants.sh` over both crates
+
+## 3. Static semantics → `ultragraphdb_schema_compile` (new)
+
+- [ ] 3.1 Scenarios: ugs-semantics and the compile-time scenarios of ugs-identity (keys, templates, vocabulary IRIs), as Gherkin; the corpus bound as table-driven tests, one per diagnostic range
+- [ ] 3.2 Phases 1 to 3: the checked model's types and the compiler's entry point taking sources and prefixes; the corner cases per phase
+- [ ] 3.3 Phase 4, resolution and typing (`UGS0100` to `UGS0299`): names, imports, modules, inheritance, name spaces of kinds and units; every type of section 5, defaults, annotations' arguments, expressions typed against their context
+- [ ] 3.4 Phase 4, identity and relations (`UGS0300` to `UGS0699`): keys, key spaces, `@iri` templates, bases; roles, unions, specialization, navigation names, cardinalities, the constraint rules, mutability consistency
+- [ ] 3.5 Phase 4, placement, classification and views (`UGS0700` to `UGS0899`): anchors, the classification of every write operation, the request-typing facts, vocabulary IRIs, collisions; the report with `UGS0901` to `UGS0906`, later-stage constructs under `UGS0902`
+- [ ] 3.6 Done when every valid source of the corpus compiles with exactly its expected notes, Gen5 among them, and every invalid source raises exactly its diagnostic; Gen5's compile time recorded
+- [ ] 3.7 Phase 5: `scripts/mutants.sh ultragraphdb_schema_compile`
+
+## 4. The catalog version → `ultragraphdb_core_catalog`, `ultragraphdb_traits_catalog`, `ultragraphdb_cluster_metadata`, `ultragraphdb_core_ids`
+
+- [ ] 4.1 Ultra Style lift of `core_catalog` and `traits_catalog`, each in its own commit
+- [ ] 4.2 Scenarios: ugs-catalog ("A catalog version holds the compiled schema", "A catalog version has one encoding", "The schema id identifies what a principal reads of a version", "A catalog version is bounded"), ugs-identity's prefix requirements, catalog's and metadata-group's deltas, system-identity's delta
+- [ ] 4.3 Phases 1 to 3: the entry types of `SCHEMA.md` section 10.2, the canonical encoder and decoder, the decoded form indexed by type prefix and predicate ID (design decision 11), prefix allocation in the metadata group's state machine; the aviation version's expected bytes from the corpus
+- [ ] 4.4 Phase 4: the encoding, the emission of phase 10 in `ultragraphdb_schema_compile`, prefix allocation committed with its version, prefix sets as sorted ranges, the canonical key encoding and key-space buckets in `core_ids`
+- [ ] 4.5 The three-kind encoding and the preorder numbering removed with their tests, after the user's approval; the write-path declarations kept for tenants with no schema
+- [ ] 4.6 Catalog loading by partitions, compute and the frontend switched to the new version, carried in continuation Catalog frames; `catalog_bytes_max` enforced; Gen5's encoded bytes measured against its default
+- [ ] 4.7 Phase 5: the version's decoder fuzzed, seeded with the corpus's compiled versions; `scripts/mutants.sh` over the four crates
+
+## 5. Install and Describe → `ultragraphdb_common_frontend`, `ultragraphdb_cluster_metadata`
+
+- [ ] 5.1 Scenarios: ugs-catalog ("Install compiles a tenant's sources into a new version", "A tenant takes one Install until stage 9.5", "Describe answers the sources and the entries", "A tenant with a schema is governed", "Every role reads the version in effect"), client-endpoint's "The frontend serves Install" and its two modified requirements, metadata-group's "The metadata group holds compiled catalog versions with their sources" and its modified requirement, schema-changes' "Drops"
+- [ ] 5.2 Phases 1 to 3: the frontend's Install handler and its compile off the connection's turn; the owner's commit of a version with its sources and prefixes; Describe's entries and continuation
+- [ ] 5.3 Phase 4: Install end to end, with code 28 and its diagnostics, code 2 for a stale base, code 7 for a tenant that holds a schema, a migration source, or ungoverned data; the reply with version, epoch, report and warnings; a Drop of kind 4 returning the tenant to the initial catalog
+- [ ] 5.4 Phase 4: Describe from the metadata group with the sources byte for byte, the schema id, prepared statements staled by a changed schema id
+- [ ] 5.5 Phase 4: the governed tenant at the frontend and the partition: undeclared predicates and graphs refused, `@open` recording default entries, write-path declarations and a declared predicate's Drop refused, one-frame writes held to blind predicates, operations 1 and 2 refused; a transaction spanning a version aborting with Conflict of kind Catalog
+- [ ] 5.6 Phase 5: `scripts/mutants.sh` over both crates; Install's latency to the effective epoch measured for Gen5
+
+## 6. Identity at write → `ultragraphdb_core_ids`, `ultragraphdb_core_terms`, `ultragraphdb_core_mapping`, `ultragraphdb_store_quads`, `ultragraphdb_cluster_partition`
+
+- [ ] 6.1 Ultra Style lift of each existing crate the group changes
+- [ ] 6.2 Scenarios: ugs-identity's write-time requirements (buckets and claims, keyed IRIs, handles, routing), term-dictionary's delta, mapping-contract's delta, ugs-views' "A relation type is edge-encoded or node-encoded by its shape"
+- [ ] 6.3 Phases 1 to 3: the instance's ID from its concrete type's prefix; IRI minting from key, template and handle; the frontend's and the partition's routing of a keyed and a handle IRI; golden buckets from the xxHash reference
+- [ ] 6.4 Phase 4: IDs, buckets and `@key` and `@unique` claims; handle IRIs minted by the creating partition and held both ways; a subject IRI its type does not mint refused; `rdf:type` answered from the prefix with no stored quad
+- [ ] 6.5 Phase 4: relation encodings: edge or node by the roles' shape and `@key`, the reifier's allocation rule, `@symmetric` in ID order, the `@set` combination key in the marks keyspace; participants in other partitions answered by Reference's get-only mode
+- [ ] 6.6 Phase 5: `scripts/mutants.sh` over each changed crate
+
+## 7. Instances and their rules at commit → `ultragraphdb_transactions_txn`, `ultragraphdb_transactions_commit`, `ultragraphdb_store_apply`, `ultragraphdb_core_catalog`
+
+- [ ] 7.1 Ultra Style lift of each existing crate the group changes
+- [ ] 7.2 Scenarios: ugs-enforcement but its two index and derivation requirements; each cross-partition refusal as a scenario of `ultragraphdb_cluster_partition` with two partitions
+- [ ] 7.3 Phases 1 to 3: the assembly of a transaction's changes into instances; the validator over the decoded catalog version; Operation kinds 5 and 6 in the commit step; the corner cases per row of `SCHEMA.md` section 8.2
+- [ ] 7.4 Phase 4, assembly and values: whole-instance validation, incomplete instances, concrete types, required attributes and defaults, datatypes, enums, units and measures, intervals with precision, `Geo`, vector dimensions, value checks with `@pattern` on the `regex` crate, pinned in the workspace as design decision 9 states
+- [ ] 7.5 Phase 4, keys and relations: keys, `@unique`, `@immutable`, permanent claims of history-keeping types, participants, roles, a required role's participant fixed, cardinality on the anchor role, `@set`, `@multi`, `@symmetric`, `@acyclic` and `max_depth` within a partition, `@limit` and `@no_overlap`
+- [ ] 7.6 Phase 4, mutability and history: `@append_only`, `asserted` as two epochs, revisions refused under their rules' own numbers, retraction through Operation kind 6, `@on_retract` with `restrict open`, `@retracts`, `@ends`, the derived liveness of relations that are not `@bitemporal`, history kept beyond the retention window
+- [ ] 7.7 Phase 4, deletes: Operation kind 5, `@on_delete` cascade, restrict and orphan, the tombstone as write-set operation 8, `EntityDeleted`; every cross-partition case refused with code 23
+- [ ] 7.8 The commit-time cost of validation per instance and per triple measured against `openspec/benches/benches-2026-11-09.md`, recorded in a dated file under `openspec/benches/`, before group 8 starts
+- [ ] 7.9 Phase 5: fuzz seeds for the write-set records the group changed; `scripts/mutants.sh` over each changed crate
+
+## 8. Indexes and derived state → `ultragraphdb_store_posting`, `ultragraphdb_store_apply`, `ultragraphdb_core_tok`, `ultragraphdb_core_types`
+
+- [ ] 8.1 Ultra Style lift of each existing crate the group changes
+- [ ] 8.2 Scenarios: ugs-enforcement's "Indexes are written in the instance's local commit" and "Materialized derivations are maintained with the write", tokenizers' and scalar-types' deltas
+- [ ] 8.3 Phases 1 to 3 and 4: the three datatypes; the `measure` tokenizer; `range`, `interval` over the outer extent, `geo` and `fulltext` indexes and count indexes in the instance's local commit; `@index(ann)` recorded and unbuilt
+- [ ] 8.4 Phase 4: materialized derivations within the anchor partition, computed ones first, Gen5's `closed` with its range index; virtual derivations recorded
+- [ ] 8.5 Phase 5: `scripts/mutants.sh` over each changed crate
+
+## 9. The RDF view and the oracle → `ultragraphdb_core_mapping`, `ultragraphdb_common_compute`, `lean/schema`
+
+- [ ] 9.1 Scenarios: ugs-views but its encoding requirement, mapping-contract's "A governed tenant's RDF view is the APG's"
+- [ ] 9.2 Phases 1 to 4: reads of definition 17.1: type triples from the prefix ranges, attributes, sets, lists and records as canonical `rdf:JSON`, intervals, measures, `asserted` and `live`, role triples, reifiers through `rdf:reifies`, the live slice by default and versions at an earlier epoch
+- [ ] 9.3 Phase 4: writes through quads: a blank node given its handle, one role triple at a time, derived properties refused
+- [ ] 9.4 The oracle test: every committed instance set of task 0.11 written through quads, the engine's view equal to its `R(G)` file, and each property of the model's notes holding on every set
+- [ ] 9.5 The catalog translation of `SCHEMA-APG.md` part 3 modelled in Lean over a catalog structure `ultragraphdb_schema_compile` exports, and the oracle's hand-written aviation and Gen5 schemas checked against it (the preparation's A.6)
+- [ ] 9.6 Phase 5: `scripts/mutants.sh` over both crates
+
+## 10. The UQL CRUD subset → `ultragraphdb_schema_uql` (new), `ultragraphdb_common_frontend`
+
+- [ ] 10.1 Scenarios: uql-crud, and client-endpoint's "The frontend compiles a UQL request and sends it as frames"
+- [ ] 10.2 Phases 1 to 3: the plan types, a write plan of change records and operations and a read plan of pattern reads; the compiler's entry point taking text, parameters and a catalog version; one refused request per `UQL` diagnostic the subset raises; a table of UQL constructs outside the subset, each expecting `UQL0901`
+- [ ] 10.3 Phase 4: the parser over `ultragraphdb_schema_syntax`'s lexer; typing against the catalog; point selectors compiled to IRIs; plans for insert, update, delete, retract and the root query, forward, reverse and by type
+- [ ] 10.4 Phase 4: the frontend's Query handler for `language` 3: a write plan sent on the transaction's Bind stream as a client's frames are relayed, a read plan routed to compute, rows filtered and projected, `limit`, the reply's columns and `rdf:JSON` cells
+- [ ] 10.5 The parity test: each instance set of task 0.10 that the subset expresses written through UQL and through quads, the two RDF views equal and the refusals alike
+- [ ] 10.6 Phase 5: a structure-aware fuzz target for the subset's parser seeded with the corpus's requests, and one on raw bytes; `scripts/mutants.sh` over both crates
+
+## 11. The client → `ultragraphdb_client_core`, `ultragraphdb_client_tokio`, `ultragraphdb_client_compio`
+
+- [ ] 11.1 Ultra Style lift of the three crates, each in its own commit
+- [ ] 11.2 Scenarios, as the client's own Gherkin: an Install answered with version, epoch, report and warnings; an Install refused with its diagnostics; Describe across continuation frames; a UQL query's rows; a UQL refusal with its diagnostic; a delete and a retraction sent as operations; codes 30 and 31, 31 retryable after a delay; the three datatypes as terms
+- [ ] 11.3 Phases 1 to 4: `install(tenant, base_version, sources)`, `describe(tenant)`, `query(transaction, text, parameters)` for `language` 3, `delete_instance` and `retract_instance` as Operation kinds 5 and 6, the warnings of every reply surfaced, the new codes in the error type, the new datatypes in the client's terms, a prepared statement prepared again when the schema id changes
+- [ ] 11.4 A helper loading a folder of `.ugs` files into one Install
+- [ ] 11.5 Phase 5: `scripts/mutants.sh` over the three crates
+
+## 12. Acceptance → `ultragraphdb/ultragraphdb_tests`
+
+- [ ] 12.1 Gen5 loads and is applied: `deepbrain-gen5.ugs` installed into a fresh tenant through the three role binaries and the Rust client, over TLS and clear text: no error, exactly the report the corpus expects, Describe's source equal to the file, the schema id equal after a restart of every role
+- [ ] 12.2 Simple CRUD over Gen5 through the UQL subset: a `Company` and a `Person` inserted and read back with their defaults; a `MemberOf` inserted and found by its anchor and by its member; a `Post` with its `PostIn` in one transaction; an update read back as a revision under the same IRI; a retraction leaving the default read and kept under `with retracted`; the retracted `id` refused to a new node (`UGS1008`)
+- [ ] 12.3 Gen5's rules at commit: each rule-breaking instance set of task 0.10 refused with its number, each holding set committed and read back through the RDF view equal to the corpus's expectation; a retraction under `restrict open` and an append-only provenance link behaving as `SCHEMA.md` section 8.4 states
+- [ ] 12.4 The aviation schema, whose types are mutable, in a tenant of its own: its entities and relations inserted, updated and deleted through the UQL subset, a delete leaving its tombstone, a restricted delete refused
+- [ ] 12.5 A second Install into a tenant that holds a schema refused naming stage 9.5; a Drop of kind 4 followed by a new Install; two tenants with different schemas isolated from each other; a tenant with no schema behaving as before this stage
+- [ ] 12.6 Every acceptance test prints evidence that it ran against the built binaries
+
+## 13. Final verification and documentation
+
+- [ ] 13.1 The last mutation pass: survivors listed in the groups' notes killed by a test or recorded with their measurement
+- [ ] 13.2 `scripts/fuzz.sh` over every target the change added; each finding minimized, committed under `testdata/fuzz_regressions/` and replayed by a unit test
+- [ ] 13.3 Ultra Style conformance of every crate the change touched; coverage of every added line by `scripts/coverage.sh`
+- [ ] 13.4 Measurements recorded in a dated file under `openspec/benches/`: Gen5's compile time and its catalog version's bytes against `catalog_bytes_max`; Install's latency to the effective epoch; the commit-time cost of whole-instance validation against the 2026-11-09 baseline
+- [ ] 13.5 `AGENTS.md`'s crate table, `ROADMAP.md`'s stage 6 row and `openspec/notes/backlog.md` closed with what the change built; `SCHEMA.md` section 14's stage column checked against it
+- [ ] 13.6 `make test` green with the final counts recorded in `notes/group-13.md`

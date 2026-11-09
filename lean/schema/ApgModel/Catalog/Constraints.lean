@@ -634,8 +634,9 @@ def value (e : Nat) : Option (VTerm T) := (s.G.entry e).map Prod.snd
 /-- Type fixed for life (`UGS1004`): an element of `s` in `s'` carries the label it carries in `s`. -/
 def LabelFixed : Prop := ∀ e l l', s.G.lam e = some l → s'.G.lam e = some l' → l = l'
 
-/-- Key immutable and `@immutable` (`UGS1007`, `UGS1012`): the fields `fs` of each element of the types `ls` are
-equal before and after. -/
+/-- Key immutable, `@immutable` and a required, single-valued role fixed (`UGS1007`, `UGS1012`, `UGS1025`): the fields
+`fs` of each element of the types `ls` are equal before and after, a required role being a field of its relation's
+record (section 13.3). -/
 def FieldsFixed (ls : List L) (fs : List Name) : Prop :=
   ∀ e l v v', s.G.entry e = some (l, v) → l ∈ ls → s'.value e = some v' → ∀ f ∈ fs, v.field? f = v'.field? f
 

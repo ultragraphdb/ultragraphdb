@@ -130,6 +130,28 @@ statistics take a delta per commit and predicate; removing either changes what a
   predicate's statistics per round rather than per commit, while a read at any version still sees them exact?
 - **Compression.** Is a tile compressed on the commit thread at all, where lz4 now costs 5 to 6 µs a relation?
 
+### 20. Schema evolution, in place and by migration (stage 9.5)
+
+Stage 6's change (`openspec/changes/stage-6-ugs-data-definition`) gives a tenant one Install and refuses every later
+one. Every change to an installed schema is stage 9.5's, decided 2026-11-10: a change takes effect at an epoch in every
+partition holding the tenant, a tightening scans them and a migration moves data between them, so it needs stage 8's
+cluster. Its success: a simple schema change is installed over a tenant holding data and migrated together with that
+data.
+
+- Specification: `SCHEMA.md` section 13 for changes in place; `SCHEMA-EVOLUTION.md` for migrations;
+  `openspec/notes/prepare-stage-6.md` section 2 (G1, namespace removal by an empty source) and its group 5.
+- Starts from: stage 6's catalog version and prefix allocation, Install, the `@on_delete` and retraction paths,
+  Describe's retired-name entries, which the wire already decodes, and task 9.5.8's Report, which the validation scan
+  generalises.
+- Open:
+  - Is stage 9.5 one change set, or two, the changes in place of section 13 before the migrations?
+  - Which single change is the acceptance's "simple schema change": an attribute renamed, a type split by an enum
+    value as `SCHEMA-EVOLUTION.md` section 3.3 splits `Staff`, or one attribute's type changed?
+  - Is a catalog version written by stage 6 read by stage 9.5, which adds the retired-name and migration entries, or
+    recreated?
+  - Does an additive Install, a module or a further namespace, take the path of every other change, or a shorter one
+    with no scan?
+
 ### 5. Transactions across replica groups
 
 How stage 5's transactions and commit step, built for one log, become one replica group's state machine, and what a

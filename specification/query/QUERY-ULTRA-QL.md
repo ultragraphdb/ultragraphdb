@@ -1,6 +1,7 @@
 # The Ultra Query Language (UQL)
 
-* Status: first draft, 2026-11-08. UltraQL follows stage 10 (`../../ROADMAP.md`).
+* Status: first draft, 2026-11-08. UltraQL follows stage 10 (`../../ROADMAP.md`); stage 6 builds the CRUD subset of
+  section 4.1, for testing.
 
 This file specifies UQL, UltraGraphDB's own query language: the queries, patterns, mutations, transactions and
 subscriptions it accepts, their meaning over the graph a UGS schema declares, the typed results they return, how they
@@ -174,6 +175,45 @@ subscribe   = "subscribe" query | "resume" "after" param ;
 
 A computed field takes a name (`spend: sum(purchases.value)`); a computed field without one is refused (`UQL0108`).
 
+### 4.1 The stage 6 subset
+
+**[stage 6]** From stage 6 a Query of `language` 3 (section 17) runs the requests this grammar derives, so that data is
+created, read, revised and retracted in the schema's names before the query core exists. Every request of the subset
+is a request of the grammar above with the same meaning; every other construct of this file is refused with `UQL0901`
+until its stage.
+
+```
+request   = [ "use" qident ] ( query | mutation ) ;
+query     = selector [ "limit" int ] shape ;
+selector  = qident [ "(" [ fitem { "," fitem } ] ")" ] ;
+fitem     = ident cmp_op value            (* an own attribute, or iri, against a literal or a parameter *)
+          | ident ":" selector            (* a role of a relation type, bound by a point selector *)
+          | "is" qident
+          | "with" "retracted" ;
+value     = literal | "$" ident | "[" value { "," value } "]" ;
+shape     = "{" sfield { sfield } "}" ;
+sfield    = [ ident ":" ] ident | ".." ;  (* an attribute or a built-in field, optionally under an alias *)
+mutation  = "insert" qident values
+          | "update" selector values
+          | "delete" selector
+          | "retract" selector ;
+values    = "{" [ assign { "," assign } ] "}" ;
+assign    = ident ":" ( value | selector | "[" selector { "," selector } "]" ) ;
+```
+
+- A **point selector** fixes its type's whole key, or `iri`, by equality (section 6.1). A role is bound and assigned
+  by a point selector (`UQL0507` otherwise).
+- A relation selector binds any of its roles, or none: a bound anchor role is a forward read, another bound role a
+  reverse read, served as `../binary_protocol/PROTOCOL.md` section 11.11 serves one, its code 23 included, and no bound
+  role a scan of the type.
+- In `values`, the assigned name decides the reading: an attribute takes a value, a list of values for a `List` or a
+  `Set`, and a role a selector, a list of selectors for a set-valued role.
+- A shape holds attributes of the selector's type, the built-in fields `type`, `iri`, `asserted` and `live`, and `..`.
+- A mutation answers no rows; the subset has no `returning`.
+- An `insert` and an `update` reach the partition as changes to quads, a `delete` and a `retract` as the instance
+  operations of `../binary_protocol/PROTOCOL.md` section 7.3.
+- Several statements are made atomic by the protocol's interactive transaction (section 13.1).
+
 ## 5. Types and results
 
 ### 5.1 Result types
@@ -261,7 +301,7 @@ cost is bounded by its input.
 | Field | Example | Result |
 |---|---|---|
 | Attribute | `serial` | The value; `Option` if optional |
-| Built-in field | `type`, `iri`, `asserted`, `live`, `open` | `../schema/SCHEMA.md` section 5.11; `type` the concrete type's name, `iri` the instance's IRI |
+| Built-in field | `type`, `iri`, `asserted`, `live`, `open` | `../schema/SCHEMA.md` section 5.11; `type` the concrete type's name, `iri` the instance's IRI, an `Option` on an edge-encoded relation type whose instances need hold no reifier and `None` for an instance without one |
 | Navigation | `owner { name }` | A record, `Option` or list by cardinality (section 7) |
 | Function call | `spend(2026-01-01)`, `engines { serial }` | As declared |
 | Alias | `registration: tail_number` | The field under the alias |
@@ -605,7 +645,8 @@ resume after $cursor
 
 - **Requests.** A UQL request is a Query (`../binary_protocol/PROTOCOL.md` section 7.4) or a Prepare and Execute (section 8.1) with
   `language` 3, its text and its parameters by name; a prepared request's reply names each parameter's inferred type
-  and the result type.
+  and the result type. From stage 6 a Query of `language` 3 runs the subset of section 4.1; a Prepare of
+  `language` 3 is refused until UQL is built whole (`../binary_protocol/PROTOCOL.md` section 11.2).
 - **Results.** A root query's result is a stream of Result batches (`../binary_protocol/PROTOCOL.md` section 9.1), one row per root
   element and one column per root field. Until the protocol carries nested columns, a field holding a record, a list
   or a tagged union travels as an `rdf:JSON` literal whose leaves are typed terms **[choice]**; nested columns, records
@@ -641,7 +682,7 @@ help: narrow the type
 | `UQL0004` | A token the grammar does not expect; the message names what was expected |
 | `UQL0101` | A name the catalog does not declare; the message lists the nearest declared ones, or, for a retired name past its deprecation window, the current one |
 | `UQL0103` | A field declared only on a subtype, asked without `on`; the fix names the `on` block |
-| `UQL0104` | No working graph: no `use` and no `@default` graph, or an unknown graph |
+| `UQL0104` | No working graph: no `use` and no `@default` graph, an unknown graph, or a tenant that holds no schema |
 | `UQL0105` | A query-local function shadowing a schema name |
 | `UQL0106` | A pattern variable unbound where used, or bound to two types |
 | `UQL0107` | `on T` where `T` is no subtype of the shape's type |
@@ -773,6 +814,8 @@ insert AssertedBy { statement: c, asserter: Source(id = "SRC:backfill") }
   by type, of which the protocol today holds only the internal epoch feed between roles; `with record … request …` as a
   client session's deduplicated request; `explain` as a request that compiles and classifies without executing.
   Carried 2026-11-08: a warning, `UQL0110` among them, travels with a reply, its language 3 (section 4.9 there).
+  Carried 2026-11-10: `language` 3 in Query and Prepare, served for the subset of section 4.1 from stage 6 (sections
+  7.4, 8.1 and 11.2 there), and a mutation's reply of no columns and no rows (sections 7.4 and 9.1 there).
 - **`../schema/SCHEMA.md`.** Carried 2026-11-08: section 4's expression grammar names this file as its extension for queries,
   and section 5.11's `edge` is a field with a shape inside a binary navigation's shape.
 - **`../schema/SCHEMA-APG.md`.** Carried 2026-11-08: part 2's collections, which `List` result types and set-valued roles read
@@ -797,6 +840,8 @@ insert AssertedBy { statement: c, asserter: Source(id = "SRC:backfill") }
 | Results on the wire | `rdf:JSON` for nested values until the protocol carries nested columns **[choice]** |
 | Grouping | By nesting only; no `group by` in the first version |
 | Pipelines | One read stage into one write stage; multi-stage pipelines not adopted |
+| The stage 6 subset | Decided 2026-11-10: `insert`, `update`, `delete`, `retract` and a root query by type and filter with a flat shape run from stage 6, so tests create, read, revise and retract data in the schema's names before the query core exists; every request of the subset keeps its meaning in the whole language, and every other construct is refused with `UQL0901` (section 4.1) |
+| `iri` of an edge without a reifier | Decided 2026-11-10: `None`. A reifier is allocated per instance (`../schema/SCHEMA.md` section 11.1), so the field is an `Option` on a type whose instances need hold none |
 
 ## 23. Open questions
 

@@ -740,6 +740,7 @@ For a commit from `G` to `G'`, and an element `e` of `G`:
 |---|---|
 | Type fixed for life | `e`, if in `G'`, carries the label it carries in `G` (`UGS1004`) |
 | Key immutable, `@immutable` | `e`'s key fields and `@immutable` fields are equal in `G` and `G'` (`UGS1007`, `UGS1012`) |
+| Required role fixed | `e`'s required, single-valued role fields are equal in `G` and `G'` (`UGS1025`), whatever the relation's mutability class |
 | `@append_only` | `e` is in `G'` with an equal value (`UGS1013`); only a legal purge removes it |
 | `@bitemporal` | A change of `e`'s value is a revision: `e` stays, with a new version (section 15.3); `e` leaves the live slice only by retraction, and the store only by purge |
 | `@on_delete` | When `e` is deleted, every element whose field references `e` through a role with `cascade` is deleted, with `restrict` refuses the commit (`UGS1020`), and with `orphan` has that optional field set absent; `G'` is referentially closed (proposition 6.6) |
@@ -758,7 +759,7 @@ an edge-encoded relation whose type allocates one. `ι` is partial and injective
 
 - an element of an edge-encoded relation without a reifier has no IRI; its triple, the IRIs of its anchor and its other
   participant under the anchor's navigation name, names it, and is unique because such a relation is no `@multi`
-  relation, which allocates a reifier, and so has at most one live element per pair (section 14.2);
+  and no `@bitemporal` relation, which allocate a reifier, and so has at most one live element per pair (section 14.2);
 - an element of a role label has no IRI; the pair of its instance and its participant names it;
 - an element a migration creates as a secondary image, of a map that is not primary or of an unnest, is keyed or takes
   a **derived handle**, a function of its origin's IRI, its target type and, for an unnest, its member

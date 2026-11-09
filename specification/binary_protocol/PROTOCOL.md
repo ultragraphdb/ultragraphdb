@@ -363,7 +363,7 @@ one with Error 7 (Refused) on the request's stream, `detail` the term's index an
 
 | Term | Rule |
 |---|---|
-| IRI | an absolute IRI (RFC 3987). A skolem IRI begins with a tenant's skolem base, `https://w3id.org/ultragraphdb/ns/tenant/{n}/`, then `.well-known/genid/`; the frontend compares that text exactly, so the same path under another base is an ordinary IRI. One that names another tenant than the request's, whose tail is not `{bucket}-{random}` in the digits section 10.2 gives, or whose bucket lies outside the tenant's run, is an IRI nobody holds: the frontend refuses it in a change or an operation, and a read binding it matches nothing and binds nothing (section 11.12). In a change or an operation, any other skolem IRI is taken only when the dictionary of the partition owning the bucket its text states holds it as a blank node's skolem IRI or as a statement reifier's name, so a forged one is refused (section 13.15). In a pattern, an unheld skolem IRI matches nothing, as any IRI nobody holds. A handle IRI, `{base}{Type}/{handle}` (`../schema/SCHEMA.md` section 7.3), names an instance of a keyless type by its handle: `{Type}` a keyless entity or relation type of the tenant's catalog, or a retired name of one (`schema/SCHEMA-EVOLUTION.md` section 4.2), and `{handle}` the bucket in 6 and 104 bits in 26 lowercase hexadecimal digits, joined by `-`. It is taken as a skolem IRI is: one whose bucket lies outside the tenant's run names nobody; in a change or an operation, it is taken only when the dictionary of the partition owning its bucket holds it as an instance's IRI, so a forged one is refused; in a pattern, an unheld one matches nothing. A client never mints a handle: the partition creating a keyless instance draws it. A derived handle, which a migration gives a secondary image (`schema/SCHEMA.md` section 7.3), is a handle like any other |
+| IRI | an absolute IRI (RFC 3987). A skolem IRI begins with a tenant's skolem base, `https://w3id.org/ultragraphdb/ns/tenant/{n}/`, then `.well-known/genid/`; the frontend compares that text exactly, so the same path under another base is an ordinary IRI. One that names another tenant than the request's, whose tail is not `{bucket}-{random}` in the digits section 10.2 gives, or whose bucket lies outside the tenant's run, is an IRI nobody holds: the frontend refuses it in a change or an operation, and a read binding it matches nothing and binds nothing (section 11.12). In a change or an operation, any other skolem IRI is taken only when the dictionary of the partition owning the bucket its text states holds it as a blank node's skolem IRI or as a statement reifier's name, so a forged one is refused (section 13.15). In a pattern, an unheld skolem IRI matches nothing, as any IRI nobody holds. A handle IRI, `{base}{Type}/{handle}` (`../schema/SCHEMA.md` section 7.3), names an instance of a keyless type by its handle: `{Type}` a keyless entity or relation type of the tenant's catalog, or a retired name of one (`schema/SCHEMA-EVOLUTION.md` section 4.2), and `{handle}` the bucket in 6 and 104 bits in 26 lowercase hexadecimal digits, joined by `-`. It is taken as a skolem IRI is: one whose bucket lies outside the tenant's run names nobody; in a change or an operation, it is taken only when the dictionary of the partition owning its bucket holds it as an instance's IRI, so a forged one is refused; in a pattern, an unheld one matches nothing. A client never mints a handle: the partition creating a keyless instance draws it. A derived handle, which a migration gives a secondary image (`schema/SCHEMA.md` section 7.3), is a handle like any other. A keyed instance's IRI, `{base}{KeySpace}/{key}` or its type's template, is an ordinary IRI on the wire, which a client mints from the key: the frontend reads its key space and key against the tenant's catalog to find its bucket (section 11.12), and a write creating an instance under an IRI its type does not mint is refused at commit (`../schema/SCHEMA.md` section 7.3, `UGS1038`) |
 | Language tag | well-formed (BCP 47) |
 | Literal of a known datatype (section 10.4) | its lexical form valid for its datatype |
 | The predicate slot of a pattern or a change | an IRI |
@@ -412,7 +412,7 @@ record is 16 bytes:
 | 2 | 2 | zero | 0 |
 | 4 | 4 | `args_start` | u32: the index of the record's first arg in the args section |
 | 8 | 4 | `args_len` | u32: the record's arg count |
-| 12 | 4 | `extra` | u32: 0, except a Describe entity type's preorder number |
+| 12 | 4 | `extra` | u32: 0 |
 
 The args section is u32s. Record i's args follow record i − 1's: `args_start` of record 0 is 0, of record i the sum of
 the `args_len` before, and the records consume every arg. A term arg is a term-table index; a name arg is an index into
@@ -446,7 +446,7 @@ order:
 | 2 | `FieldValue` (`"declaration order"`) | Describe only: `kind` is at least the record before's |
 | 3 | `FieldValue` (`"flags"`) | only the kind's flag bits are set; for kind 8, bits 0–1 are not 3 |
 | 4 | `FieldValue` (`"change record"`) | bytes 2–3 are zero |
-| 5 | `FieldValue` (`"extra"`) | `extra` is 0, except for kind 9 in a Describe |
+| 5 | `FieldValue` (`"extra"`) | `extra` is 0 |
 | 6 | `FieldValue` (`"args_start"`) | `args_start` equals the args consumed so far |
 | 7 | `CountMismatch` (`"args"`) | `args_start + args_len ≤` the args' count |
 | 8 | `CountMismatch` (`"change args"`) | the arg count fits the kind: exactly 4 (kinds 1, 3), 4 + an even number (2), 2 (4, 9), 3 (5), 2 + 2 or 4 + 2 (6, 7, by flag bit 0), at least 1 (10); kind 8 at least 3, each count's names present, and every arg consumed. Kind 8 runs steps 8 and 9 together, arg by arg |
@@ -660,8 +660,8 @@ term table, never by its system ID.
 | Result offset | Width | Field | Type |
 |---|---|---|---|
 | 0 | 8 | `value` | i64: a counter add's new value, in two's complement; 0 for the other kinds |
-| 8 | 4 | `node` | u32: for an insert-if-absent or upsert-and-link, the node's index in the term table; `ABSENT` for compare-and-set and counter add |
-| 12 | 1 | `created` | u8 boolean: whether the operation created the node; 0 for compare-and-set and counter add |
+| 8 | 4 | `node` | u32: for an insert-if-absent or upsert-and-link, the node's index in the term table; `ABSENT` for every other kind |
+| 12 | 1 | `created` | u8 boolean: whether the operation created the node; 0 for every other kind |
 | 13 | 3 | zero | 0 |
 
 Order: unused bytes 56–127 zero; `request`; `token` (section 4.8, then its rule above); sections; the term table, every entry of
@@ -711,6 +711,12 @@ and the frontend sets its catalog to the initial catalog by a catalog version, w
 it. A drop's keys all hold its tenant, so another tenant sharing the bucket run keeps its own. No drop removes a
 dictionary entry or spans tenants. The privilege each takes is in `../../openspec/notes/SECURITY.md`.
 
+In a tenant that holds a schema (`../schema/SCHEMA.md` section 6.1), a Drop of kind 1 naming a predicate a schema declares
+is refused with code 7 (Refused), `detail` 0, the message naming the predicate and stage 9.5: removing a declaration
+is a destructive schema change (`schema/SCHEMA.md` section 13.2). A predicate `@open` admitted is dropped as any other.
+A Drop of kind 4 removes the tenant's schemas with its data and its default-entry records (section 11.13), after
+which the tenant takes an Install again (section 8.4).
+
 ### 6.6 DirectWrite (20)
 
 A changeset committed as one transaction in one frame: unconditional writes, whose outcome depends on nothing the client must
@@ -746,6 +752,10 @@ metadata group (section 11.13). The term table's order stays the sender's conven
 A write to a predicate the catalog in effect declares unique is conditional on the value being free, so a DirectWrite holding one is
 refused with code 7 (Refused), `detail` the term's index, the message naming the predicate and ConditionalWrite. The frame declares the
 client's intent and the catalog checks it, so a request named direct never runs a condition the client did not ask for.
+In a tenant that holds a schema the same rule reads the catalog's request-typing facts (`../schema/SCHEMA.md` section 9.6): a
+DirectWrite carries changes whose every predicate is blind, and one holding a change that claims a key or a `@unique`
+value, or that a check or a bound reads, is refused with code 7, `detail` the term's index, the message naming the
+predicate and a read-write transaction.
 
 The frontend checks the session and the rights as for a Commit (section 11.5), chooses the partition as for a transaction's first
 request (section 11.12, *Writes*), and relays the frame on a new stream to that partition's role address with `principal` filled and
@@ -767,7 +777,9 @@ bounded number of times, and past that answers code 2 (Conflict).
 A DirectWrite's changes, at most, with commit-time operations (section 11.6), which the commit step decides in commit order: an
 outcome that depends on the state at that moment, and which the reply reports. Every rule of section 6.6 holds except the unique
 predicate's refusal: an operation claims a unique value. It is the one-frame form of "write this if that holds", and no read
-reaches the client beforehand, so no client-held read can go stale.
+reaches the client beforehand, so no client-held read can go stale. In a tenant that holds a
+schema its changes are held to blind predicates as a DirectWrite's are, and its operations are of kinds other than 1
+and 2 (section 7.3).
 
 The command header is DirectWrite's. A failed condition is an answer, not a conflict: a compare-and-set that does not hold is refused
 with code 8 (OperationFailed) and the value found, and is not retried.
@@ -838,7 +850,7 @@ its result comes with the Commit reply.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
-| 0 | 1 | `kind` | u8 | 1 insert-if-absent, 2 upsert-and-link, 3 compare-and-set, 4 counter add; else `FieldValue` (`"kind"`) |
+| 0 | 1 | `kind` | u8 | 1 insert-if-absent, 2 upsert-and-link, 3 compare-and-set, 4 counter add, 5 delete an instance, 6 retract an instance; else `FieldValue` (`"kind"`) |
 | 8 | 8 | `delta` | i64 | kind 4's addend; 0 otherwise (`FieldValue` `"delta"`) |
 | 16 | 4 | `properties` | u32 | kinds 1 and 2: the properties written when the node is created; 0 otherwise (`FieldValue` `"properties"`) |
 | 20 | 4 | `links` | u32 | kind 2: the links; 0 otherwise (`FieldValue` `"links"`) |
@@ -855,6 +867,8 @@ its result comes with the Commit reply.
 | 2 upsert-and-link | as kind 1, then per link its predicate, the other node, and the direction (0: the node is the edge's subject, 1: its object) | 3 + 2 × `properties` + 3 × `links` |
 | 3 compare-and-set | graph, subject, predicate, the expected value, the new value | 5 |
 | 4 counter add | graph, subject, predicate | 3 |
+| 5 delete an instance | graph (term or `ABSENT`), the instance | 2 |
+| 6 retract an instance | graph (term or `ABSENT`), the instance | 2 |
 
 Insert-if-absent resolves the node that holds `value` for the unique `predicate` in `graph`, creating it with the
 properties when none does. Upsert-and-link does the same and writes the links between that node and the others in the
@@ -866,6 +880,22 @@ predicate's system ID and the value's term encoding; when that is not the transa
 aborts with code 23 (CrossPartition, section 11.11). Their result names the node by its IRI or skolem IRI (section
 6.3).
 
+In a tenant that holds a schema (`../schema/SCHEMA.md` section 6.1), insert-if-absent and upsert-and-link are refused
+with code 7 (Refused), `detail` 0, the message naming the kind: each creates a node of no declared type. Compare-and-set
+and counter add write an attribute of an instance, validated at commit as any write is.
+
+Delete an instance and retract an instance name an instance of a declared type by the IRI that names it
+(`../schema/SCHEMA.md` section 7.3): an entity's, a node-encoded relation instance's, or the reifier's of an edge-encoded
+relation instance. The commit step decides each in commit order against the catalog version in effect and adds its
+writes to the transaction's write-set record (section 12.2). A delete applies `schema/SCHEMA.md` section 8.5: the entity or
+instance is removed with the relation instances its `@on_delete` actions reach in the partition, and an entity's
+tombstone is written; on an instance of a `@bitemporal` type it is a retraction. A retraction applies section 8.4
+there: it closes the instance's `asserted` at the commit and applies `@on_retract` to the relation instances naming it
+in the partition. A rule that refuses either refuses the commit with code 7, `detail` its UGS refusal number
+(`UGS1013`, `UGS1020`, `UGS1026`), and one reaching another partition's state aborts the transaction with code 23. An
+IRI no instance holds, and either kind in a tenant with no schema, is refused with code 7, `detail` 0. An edge-encoded
+instance that holds no reifier is deleted by the delete of its quad, change record 3 (section 4.6).
+
 Order: unused bytes 1–7 and 24–127 zero; `kind`; `delta`; `properties`; `links`; sections; the term table; the args a
 whole number of u32s (`SectionLength`); the count (`CountMismatch` `"args"`); each arg in order: a link's direction is 0
 or 1 (`FieldValue` `"link direction"`), every other arg is below the term table's length (`IndexOutOfRange`, section
@@ -873,21 +903,22 @@ or 1 (`FieldValue` `"link direction"`), every other arg is below the term table'
 
 ### 7.4 Query (22)
 
-A query of the GQL core or the SPARQL core (`../query/QUERY-GQL-CORE.md`, `query/QUERY-SPARQL-CORE.md`) in the transaction it names, on
+A query of the GQL core or the SPARQL core (`../query/QUERY-GQL-CORE.md`, `query/QUERY-SPARQL-CORE.md`), or a request of UQL
+(`query/QUERY-ULTRA-QL.md`), in the transaction it names, on
 a stream of its own, as a Read is: its text, its parameters by name, at most `limit` rows (0 for no limit), and the
 resume key a previous result of the same request ended with, empty to start (section 11.8). A statement with a writing
 clause needs a read-write transaction (`mode` 0), refused in a read-only one with code 29. The reply is a stream of
 Result frames (section 9.1), the first carrying the column names and the compilation's warnings (section 4.9), the last
 flagged `LAST`; a SPARQL update's reply is one Result of one row with the columns `inserted` and `deleted`,
 `xsd:integer` terms, and a GQL statement without `RETURN` answers one Result of no columns and no rows, flagged `LAST`
-(`query/QUERY-GQL-CORE.md` section 7.1). The frontend compiles the text against the catalog version in effect for the
+(`query/QUERY-GQL-CORE.md` section 7.1), as a UQL mutation does (`query/QUERY-ULTRA-QL.md` section 4.1). The frontend compiles the text against the catalog version in effect for the
 transaction's tenant, refuses it with code 29 and the core's diagnostic (section 9.4), and otherwise plans and executes
 it as the quad-reads specification routes reads and section 11.12 routes writes.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 8 | `transaction` | u64 | the stream number of the transaction's Begin, an open transaction of the connection |
-| 8 | 1 | `language` | u8 | 1 GQL, 2 SPARQL; else `FieldValue` (`"language"`) |
+| 8 | 1 | `language` | u8 | 1 GQL, 2 SPARQL, 3 UQL; else `FieldValue` (`"language"`) |
 | 12 | 4 | `limit` | u32 | |
 
 | Section | Contents |
@@ -912,7 +943,7 @@ refused with code 11 (Parameters), `detail` 0; one the text uses and the names d
 ### 8.1 Prepare (10)
 
 A statement prepared once per connection, which holds it (section 11.7): a quad pattern with parameter slots, or a
-query text of the GQL or SPARQL core with named parameters. The client sends the pattern or text and its parameters'
+query text of the GQL or SPARQL core or of UQL with named parameters. The client sends the pattern or text and its parameters'
 types with `statement` and `schema` 0 and no result types; the server answers with the statement's id, its tenant's
 schema id as the connection's principal sees it (section 11.7), the result column types and, for a text, the names
 and its compilation's warnings (section 4.9). The statement belongs to the tenant `tenant` names.
@@ -922,11 +953,11 @@ and its compilation's warnings (section 4.9). The statement belongs to the tenan
 | 0 | 8 | `tenant` | u64 | |
 | 8 | 8 | `statement` | u64 | |
 | 16 | 8 | `schema` | u64 | |
-| 24 | 1 | `language` | u8 | 0 a quad pattern, 1 GQL, 2 SPARQL; else `FieldValue` (`"language"`) |
+| 24 | 1 | `language` | u8 | 0 a quad pattern, 1 GQL, 2 SPARQL, 3 UQL; else `FieldValue` (`"language"`) |
 
 | Section | Contents |
 |---|---|
-| 0 | `language` 0: the pattern, parameter slots allowed; 1 or 2: the query text, UTF-8 |
+| 0 | `language` 0: the pattern, parameter slots allowed; 1 to 3: the query text, UTF-8 |
 | 1 | the term table's records |
 | 2 | the term table's text |
 | 3 | parameter types, one column-type byte per parameter, in parameter order |
@@ -1020,7 +1051,7 @@ answer that does not fit one frame within the client's `max_frame` continues in 
 | 2 | labels, u32 string indices, in order |
 | 3 | relationship types, u32 string indices |
 | 4 | property keys, u32 string indices |
-| 5 | declarations: change records of kinds 8, 9, 10, in that order, each kind's records in the order of their declared IRIs' UTF-8 bytes (section 4.6); an entity type's `extra` is its preorder number: its place, from 1, in a preorder walk of the type hierarchy, each type before its children, roots and siblings in the order of their IRIs' UTF-8 bytes |
+| 5 | declarations: change records of kinds 8, 9, 10, in that order, each kind's records in the order of their declared IRIs' UTF-8 bytes (section 4.6); a record names no place in the type hierarchy, and a type a schema declares carries its prefix in its Type entry, kind 3 below |
 | 6 | the declarations' args, u32s |
 | 7 | entries, 16 bytes each, by kind, then by name as UTF-8 bytes, the order of a catalog version's entries (`../schema/SCHEMA.md` section 10.2) |
 | 8 | the entries' bytes, back to back in entry order |
@@ -1106,6 +1137,21 @@ the diagnostics. Installing takes `declare` on the tenant, which the gate of sec
 assigned and, for a tightening change, once every partition holding the tenant's data has passed the validation scan
 at that epoch, as a type change's Commit does. The reply carries the compilation's warnings (section 4.9).
 
+**One Install per tenant before stage 9.5.** Every change to an installed schema is stage 9.5's (`../schema/SCHEMA.md`
+sections 13 and 14). Until then an Install into a tenant that holds a schema is refused with code 7, `detail` 0, the
+message naming Install and stage 9.5 (section 11.2), after the check of `version`. A first Install carries one or more
+sources, schemas with the modules extending them.
+
+**The fence of a first schema.** Before it checks that the tenant holds no statement, no write-path declaration and no
+default-entry record (below), the frontend fences the tenant: it refuses every Write, Operation, Commit, DirectWrite, ConditionalWrite
+and Drop naming the tenant with code 31 (Fenced), `detail` 0, the message naming the tenant, a transaction's refusal
+ending it, and waits for the tenant's commits already in flight to be answered. It then reads the tenant at an epoch at
+or above the last of those commits', at most one statement from each partition holding the tenant's run, so a
+statement whose default-entry record has not yet been asked for is seen. The fence holds until the version
+takes effect, or until the Install is refused, and survives a frontend's restart with the pending version it belongs
+to. So no write lands between the check and the effective epoch, and a client runs a fenced write again after a delay,
+when the schema validates it. Reads go on.
+
 **A migration.** A source whose text declares a `migration` (`../schema/SCHEMA-EVOLUTION.md` section 3) installs with its target's
 schema source in one Install, and the compiler checks it as section 5 there states. The version installed then holds the
 target as a staged namespace, which no request but its run's sees, and the reply names it by `staged`, an identifier the
@@ -1138,7 +1184,11 @@ request, sections 2 to 6 empty (`CountMismatch` `"report"`); the string list, an
 (`NotUtf8`, the section); section 3 empty when `staged` is 0 (`CountMismatch` `"migration report"`); the warnings
 (section 4.9). A version built on one no longer current is refused with code 2 (Conflict), kind 5 (Catalog), as a
 declaration's is. The frontend refuses a compiled version whose bytes pass `catalog_bytes_max` (sections 11.9, 11.13)
-with code 7, `detail` the bound, the message naming its size, and nothing is installed.
+with code 7, `detail` the bound, the message naming its size, and nothing is installed. An Install into a tenant
+that holds a statement, or whose catalog holds a write-path declaration or a default-entry record (section 11.13), is
+refused with code 7, `detail`
+0, the message naming the Drop of kind 4 that empties the tenant: a first schema governs no data written before it
+(`../schema/SCHEMA.md` section 10.1).
 
 ### 8.5 Purge (24)
 
@@ -1249,7 +1299,7 @@ answers one batch flagged `LAST`, `rows` 0 and `columns` the unbound slots and o
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
-| 0 | 4 | `columns` | u32 | for a quad pattern, the unbound slots and the reifier column, 1 to 5; for a query, its projections, 1 to 1,024, or 0 with `rows` 0 for a GQL statement without `RETURN` (`FieldValue` `"columns"`) |
+| 0 | 4 | `columns` | u32 | for a quad pattern, the unbound slots and the reifier column, 1 to 5; for a query, its projections, 1 to 1,024, or 0 with `rows` 0 for a GQL statement without `RETURN` or a UQL mutation (`FieldValue` `"columns"`) |
 | 4 | 4 | `rows` | u32 | |
 | 8 | 8 | `epoch` | epoch (section 1) | the epoch the batch's rows were read at: the snapshot's at level 0, the read's at level 2; 0 for a read-write transaction, level 1 and a named read version |
 | 16 | 4 | `partition` | u32 | the partition the read reached when it reached one alone; 0 when it reached several |
@@ -1374,9 +1424,9 @@ and the value, already within the room, is not cut again.
 | 26 | WrongPartition | yes, after refreshing the placement map | the bucket in bits 0–23, bits 24–31 zero, the partition owning it in bits 32–63; all 0 for a registration refused at a home, whose owner the registrant does not know | A key outside the receiving partition's bucket ranges, from a sender whose placement map is stale; a later subject of a request whose first lies inside them is code 23 (section 11.12). Between roles; a client receives it when the owner refuses the frontend's one resend too, or from a registration refused at a home (section 13.15), and runs its transaction again after a delay (section 11.12) |
 | 27 | AheadOfWatermark | no | the watermark | A read version is above the visibility watermark of the partition answering, in an epoch that partition has not closed: refused at once when the client named it; the message names the version and the watermark (sections 6.2, 13.13) |
 | 28 | SchemaRefused | no | the count of diagnostics | An Install's sources were refused: the message holds the diagnostics of `../schema/SCHEMA.md` section 10.4, each with its code and location, and nothing was installed |
-| 29 | QueryRefused | no | the diagnostic's number, with the language in bits 16–23, as the table of languages below gives | A query or prepared text was refused: the message begins with the diagnostic's code (`../query/QUERY-GQL-CORE.md` section 11, `query/QUERY-SPARQL-CORE.md` section 11) and its `line:column`, then the reason and the fix; a feature outside the core is named |
+| 29 | QueryRefused | no | the diagnostic's number, with the language in bits 16–23, as the table of languages below gives | A query or prepared text was refused: the message begins with the diagnostic's code (`../query/QUERY-GQL-CORE.md` section 11, `query/QUERY-SPARQL-CORE.md` section 11, `query/QUERY-ULTRA-QL.md` section 18) and its `line:column`, then the reason and the fix; a feature outside the core is named |
 | 30 | EntityDeleted | no | 0 | A write names an entity a delete has tombstoned at its home: a commit referencing the deleted entity's ID, or a registration naming it (sections 12.2, 13.15); the transaction aborts and writes nothing, and the message names the entity's IRI. Run again, a transaction resolves the IRI anew, and one creating the instance creates a new one with a new ID (`../schema/SCHEMA.md` section 8.5) |
-| 31 | Fenced | yes, after a delay | 0 | A write reaches a namespace a migration's run has fenced, in its states `fenced` and `catching_up` (section 8.6); it writes nothing, and the message names the namespace and the run's `staged`. After the cutover the write executes against the target |
+| 31 | Fenced | yes, after a delay | 0 | A write reaches a namespace a migration's run has fenced, in its states `fenced` and `catching_up` (section 8.6); it writes nothing, and the message names the namespace and the run's `staged`. After the cutover the write executes against the target. Or a write reaches a tenant whose first schema is installed and not yet in effect (section 8.4): it writes nothing, the message names the tenant, and after the version's effective epoch the write is validated against the schema |
 
 Retryable says the same work can succeed if run again, and the code says what runs again. Code 14 on a Commit, Drop or
 one-frame write, and code 5 on a Drop or one-frame write: the same request, same session and request number, on a new
@@ -1386,7 +1436,8 @@ same transaction or a new one; past the deadline a read of an unclosed epoch is 
 takes a new Begin; a declaring Commit's, the whole transaction on a new Begin. Code 17 on a read: the read, in the same
 transaction or a new one, which another compute process or the restarted role may answer. A read that already gave rows
 runs again from its start or from a resume key, and its earlier rows are discarded. Code 31 runs again as code 5 does,
-after a delay: the fence holds for its run's final round, which the migration report estimates. Code numbers are never
+after a delay: a migration's fence holds for its run's final round, which the migration report estimates, and a first
+schema's until its version takes effect, two closes after its Install is committed. Code numbers are never
 reused. A receiver refuses an Error of code 26 with any of bits 24 to 31 of its `detail` set, and one of code 8 with any
 bit but bit 0 set (`FieldValue` `"detail"`).
 
@@ -1685,10 +1736,12 @@ stream is refused the same way, ending the transaction. A Write, Operation or Co
 Commit is late, and the frontend drops it: the Commit decides the transaction, and its reply ends the stream. On a role endpoint, a Write, Operation, Commit or Abort on a stream
 no Bind of kind 1 opened, and a Drop on one no Bind of kind 2 opened, is refused with Error 1 the same way.
 
-In this stage the frontend refuses an Install, a Query and a Prepare of `language` 1 or 2 with code 7 (Refused) on the request's
-stream, `detail` 0, the message naming the command and the stage that serves it: stage 6 for an Install, stage 7 for a Query and a
-text. It refuses the same way a Purge, naming stage 8 (`../schema/SCHEMA.md` section 14), and a Migrate and an Install holding a
-migration source, naming stage 9.5 (`schema/SCHEMA-EVOLUTION.md`). A request naming a tenant passes the gate of section 11.10
+In this stage the frontend refuses an Install, a Query and a Prepare of `language` 1 to 3 with code 7 (Refused) on the request's
+stream, `detail` 0, the message naming the command and the stage that serves it: stage 6 for an Install and for a Query of
+`language` 3, which runs UQL's CRUD subset from then (`../query/QUERY-ULTRA-QL.md` section 4.1); stage 7 for a Query and a text of
+`language` 1 or 2; and, for a Prepare of `language` 3, the stage that builds UQL whole (`../../ROADMAP.md`). It refuses the same way a Purge, naming stage 8 (`../schema/SCHEMA.md` section 14), and a Migrate, an Install holding a
+migration source and an Install into a tenant that holds a schema, naming stage 9.5 (`schema/SCHEMA-EVOLUTION.md`,
+`schema/SCHEMA.md` section 14). A request naming a tenant passes the gate of section 11.10
 first. A Query's refusal leaves its transaction open.
 
 A transaction is its stream and its reads. Its stream takes one request at a time; its reads run beside it, each on a
@@ -1830,10 +1883,12 @@ ComputeRead's stream starts with its `credit` in place of the Welcome's (section
 A transaction sends any number of Operation frames before its Commit. The Commit reply's results hold one 16-byte
 result per operation, in the order the operations were sent (section 6.3): for kinds 1 and 2, the node, named by its
 IRI or skolem IRI through the reply's term table, and whether the operation created it; for kind 4, the counter's new
-value; for kind 3, `node` `ABSENT`, `value` 0 and `created` 0. No result holds a system ID. A compare-and-set that does
+value; for kinds 3, 5 and 6, `node` `ABSENT`, `value` 0 and `created` 0. No result holds a system ID. A compare-and-set that does
 not hold refuses the commit with code 8 (OperationFailed), the value found in the Error's term table. Kinds 1 and 2
 claim their value at the partition owning its bucket; a claim another partition owns aborts the transaction with code
-23 (section 11.11).
+23 (section 11.11). Kinds 5 and 6, an instance's delete and
+retraction, refuse the commit with code 7 and the schema's refusal number where a rule of the schema forbids them
+(section 7.3).
 
 ### 11.7 Prepared statements and the schema id
 
@@ -2139,7 +2194,7 @@ the same ID and changes nothing, and concurrent registrants receive one ID, none
 holding its mark of `(o, g)` sends none. The frontend registers a unique predicate's IRI the same way, naming no group,
 to learn the system ID a claimed value's bucket is computed from. A participant another partition owns, which a relation
 instance names (`../schema/SCHEMA.md` section 12.3), registers in get-only mode (section 13.15): its home creates no ID and
-answers whether the participant is absent, live or deleted, and its type prefix.
+answers whether the participant is absent, live, retracted or deleted, and its type prefix.
 
 **Parked requests.** A role connection keeps moving while a request on it waits. A partition copies every request out of the
 connection's receive buffer as it arrives, hands the copy to its core and reads the connection's next frame, without waiting for
@@ -2195,7 +2250,7 @@ row that fits:
 
 | The transaction's first request | The partition it binds to |
 |---|---|
-| reads or writes a subject it names by an IRI or a skolem IRI | the partition owning the subject's bucket: an IRI's computed from its text and the tenant, a blank node's or a reifier's the bucket its skolem IRI states, a keyless instance's the bucket its handle IRI states (section 4.4) |
+| reads or writes a subject it names by an IRI or a skolem IRI | the partition owning the subject's bucket: an IRI's computed from its text and the tenant, or, for an IRI a keyed type of the tenant's catalog mints, from the key space and the key it states (`../schema/SCHEMA.md` sections 7.2 and 7.3), a blank node's or a reifier's the bucket its skolem IRI states, a keyless instance's the bucket its handle IRI states (section 4.4) |
 | claims a value by an insert-if-absent or upsert-and-link, and names no subject but new blank nodes | the partition owning the claimed value's bucket |
 | writes only new blank nodes as subjects | a partition the frontend chooses in turn, round-robin over the partitions holding the tenant's run, which draws the nodes' buckets from its own |
 | names no subject otherwise | the partition owning the tenant's whole run, when one does; when none does, the request aborts the transaction with code 23 |
@@ -2342,12 +2397,20 @@ effect at the round's epoch.
   `detail` the record's index, 0 for an Operation or a read, ending the transaction. The frontend executes the
   transaction itself and binds it to no partition. Its Commit names no session, `session` all zero and `request` 0,
   refused with code 7 otherwise.
+  In a tenant that holds a schema a declaration is refused with code 7, `detail` the record's index, the message
+  naming Install: such a tenant's catalog is the compilation of its sources alone (`../schema/SCHEMA.md` section 6.1).
 - **Schemas.** UGS sources arrive by Install (section 8.4): the frontend compiles them as `../schema/SCHEMA.md` section 10.1
   states and commits the version as pending, which takes effect as the next item states; the compiled version's
-  declarations of kinds 8 to 10 and its entries are what Describe reports (section 8.3).
-- **Vector indexes.** In this stage a declaration of a vector index, kind 8 with flag bit 5, is refused with code 7,
-  `detail` the record's index, its message naming the predicate and stating that vector indexes arrive with stage 8;
-  the catalog is unchanged. A vector literal is still stored as a value.
+  declarations of kinds 8 to 10 and its entries are what Describe reports (section 8.3). Before stage 9.5 a
+  tenant takes one Install, and its writes are fenced from the Install's check until the version takes effect
+  (section 8.4).
+- **Vector indexes.** In this stage a declaration of a vector index through the write path, kind 8 with flag bit 5, is
+  refused with code 7, `detail` the record's index, its message naming the predicate and stating that vector indexes
+  arrive with stage 8; the catalog is unchanged. A vector literal is still stored as a value. An Install whose sources
+  declare `@index(ann)` is accepted: the declaration is recorded in the catalog version and reported as declared and
+  unenforced (`UGS0902`), and no index is built before stage 8 (`../schema/SCHEMA.md` section 14). A write of a
+  `ugdb:bfloat16vector` value is refused with code 7 until stage 8, `detail` the term's index, the message naming the
+  stage.
 - **A new version.** At the Commit, the frontend builds a catalog version from the declarations on the version current
   when the transaction began, and commits it in the metadata group as pending. A version built on one no longer current
   is refused with code 2 (Conflict), kind 5 (Catalog), the message naming both versions, and the client runs its
@@ -2410,13 +2473,15 @@ effect at the round's epoch.
   entry: kind either, multi-valued, no datatype constraint and no index. Its partition asks the metadata group to
   record that entry (section 11.12), keyed by the tenant and the predicate and belonging to no namespace, a command that
   finds the record when it exists, creates no catalog version, stales no prepared statement and aborts no transaction. A
-  drop leaves the record, which Describe names as recorded (section 8.3).
+  drop of a predicate, a graph or a tenant's data leaves the record, which Describe names as recorded (section 8.3); a
+  drop of everything in a tenant removes the tenant's records with its catalog.
 - **Index builds.** An index build a version starts begins in each partition at the version's effective epoch, from
   the data at the epoch's first version, in the background; until a partition's build completes, reads of that
   partition use the interim declaration, without the indexes being built or removed. A failed build is reported to the
   metadata group, which commits a version restoring the previous declaration.
 - **Drops.** A Drop reaching one partition commits there (section 6.5). The frontend then removes a dropped predicate's
-  declaration, or sets a tenant's catalog to the initial catalog, by a catalog version it builds on the current one,
+  declaration, or sets a tenant's catalog to the initial catalog and removes its default-entry records, by a catalog
+  version it builds on the current one,
   taking effect as above; until a dropped predicate's removal takes effect, the partition maintains no index of it. The
   frontend commits that version as pending before it relays a Drop's reply, stored or new, and a version that would change
   nothing is not built; so a frontend that stopped in between leaves the step to the client's resend, whose outcome is
@@ -2551,14 +2616,18 @@ entry whatever its object holds, and `statements_per_object_max` (section 11.9) 
   partition, which derives the key removals on apply and on replay. Its record holds the dropped key ranges in section
   8, so a transaction reading or writing into them below the drop's version conflicts; it is the last record of its
   round.
-- **An entity delete** (operation 8), which UGS brings with stage 6 (`../schema/SCHEMA.md` section 8.5), is part of its
-  transaction's record at the entity's home, P24's rule 8: sections 1 and 2 remove the entity's statements and
+- **An entity delete** (operation 8), which UGS brings with stage 6 (`../schema/SCHEMA.md` section 8.5) and a transaction
+  asks for by Operation kind 5 (section 7.3), is part of its transaction's record at the entity's home, P24's rule 8: sections 1 and 2 remove the entity's statements and
   statement records, those of the relation instances its `@on_delete` actions reach in the partition among them, and
   the operation writes the entity's tombstone, the statement record `schema/SCHEMA.md` section 12.4 keeps at the home under
   its ID. The tombstone fences the ID for good: a later commit referencing it aborts with code 30 (EntityDeleted), a
   registration naming it is answered with outcome 30 or, in get-only mode, as deleted (section 13.15), and a write
   creating its IRI again allocates a new ID. A delete whose entity's referrer set names a bucket group another partition
   holds is cross-partition, code 23, until stage 8 sends each member a sequenced share that fences the ID there.
+- **A retraction**, which a transaction asks for by Operation kind 6 (section 7.3), is statements alone and has no
+  operation of its own: sections 0 and 2 hold the `asserted` end it writes on the instance and on each relation
+  instance its `@on_retract` actions retract in the partition (`../schema/SCHEMA.md` sections 8.4 and 12.4). A relation
+  instance's delete is statements alone likewise, in sections 1 and 2.
 - **A purge** (operation 9), a Purge's record (section 8.5), removes at the instance's home every version of its
   attributes, its statement record, its index and derived entries, its dictionary entries and its referrer set, and at a
   member of its referrer set every edge naming it, with their index entries and marks (`../schema/SCHEMA.md` section 8.8). It is
@@ -3224,7 +3293,7 @@ returns the same ID and changes nothing; concurrent registrants receive one ID.
 | 4 | 4 | `group` | u32: the referring subject's bucket group (section 1); `ABSENT` for a predicate or graph, or for the frontend, which join no referrer set |
 | 8 | 4 | `iri` | u32: the entity's IRI, or a blank node's skolem IRI, as an index into the term table; `ABSENT` when `entity` names it |
 | 12 | 2 | `outcome` | u16: 0 in a request; in a reply 0 accepted, else the error code refusing this registration: 26 (WrongPartition) for a bucket the home does not own, 7 (Refused) for a skolem or handle IRI the home's dictionary does not hold, 17 (Unavailable) for a store that failed at the home under the registration, 30 (EntityDeleted) with `mode` 0 for an entity named by its ID whose tombstone the home holds |
-| 14 | 1 | `status` | u8: 0 in a request and with `mode` 0; with `mode` 1, in an accepted reply, 1 absent, 2 live, 3 deleted |
+| 14 | 1 | `status` | u8: 0 in a request and with `mode` 0; with `mode` 1, in an accepted reply, 1 absent, 2 live, 3 deleted, 4 retracted |
 | 15 | 1 | zero | 0 |
 | 16 | 8 | `generation` | u64: in a request, the generation the registrant last saw for the entity and `group`, 0 for none; in an accepted reply, the member's generation; 0 when `group` is `ABSENT` |
 | 24 | 8 | `close` | epoch (section 1): 0 in a request; in an accepted reply, the latest close delivered to the home, `c`, below the epoch the home stamped the registration at |
@@ -3241,10 +3310,11 @@ transaction again on a new Begin (section 9.4). Outcome 30 ends the registrant's
 
 **Get-only.** With `mode` 1 the home gets each entity and never creates one, for a participant check (`../schema/SCHEMA.md`
 section 12.3), and answers its `status`: 1 absent, an IRI its dictionary does not hold or an ID it holds nothing of
-included; 2 live; 3 deleted, its tombstone held (section 12.2). For 2 and 3 `entity` holds the ID, whose bytes 0–1 are
+included; 2 live; 3 deleted, its tombstone held (section 12.2); 4 retracted, an
+instance of a `@bitemporal` type whose `asserted` has ended (`../schema/SCHEMA.md` section 8.4). For 2, 3 and 4 `entity` holds the ID, whose bytes 0–1 are
 the entity's type prefix. A live entity's registration naming a bucket group adds or renews the member as with `mode` 0;
 any other changes nothing and is logged in no round, answered at once with `generation` and `close` 0 and, for 1,
-`entity` all zero. The registrant decides what a status means for its write: a participant absent or deleted refuses it
+`entity` all zero. The registrant decides what a status means for its write: a participant absent, retracted or deleted refuses it
 with the schema's refusal (`schema/SCHEMA.md` section 8.7, `UGS1017`, `UGS1019`). A get-only reply's `outcome` is 0, 17 or 26.
 
 Order: unused bytes 2–7 and 16–127 zero; `reply`; `mode` 0 or 1; sections; the term table, every entry of kind 1
@@ -3255,9 +3325,9 @@ registration's index: `partition` at least 1, `group` below 2¹⁸ or `ABSENT`, 
 length, `entity` all zero or a valid system ID, `close` at most 2⁴² − 1, and `generation` 0 when `group` is `ABSENT`;
 in a request, `outcome`, `status` and `close` 0, and `entity` all zero exactly when `iri` is not `ABSENT`; in a reply,
 `outcome` 0, 7, 17, 26 or 30, and 0, 17 or 26 with `mode` 1; `status` 0 with `mode` 0 and in a refused reply, and 1 to
-3 in an accepted one with `mode` 1; an accepted registration's `entity` a valid system ID, all zero for `status` 1, and,
-with a `group` and a `status` of 0 or 2, its `generation` at least 1, `generation` and `close` 0 for a `status` of 1 or
-3; a refused one's `generation` and `close` 0 and `entity` all zero exactly when `iri` is not `ABSENT`. A registration
+4 in an accepted one with `mode` 1; an accepted registration's `entity` a valid system ID, all zero for `status` 1, and,
+with a `group` and a `status` of 0 or 2, its `generation` at least 1, `generation` and `close` 0 for a `status` of 1, 3
+or 4; a refused one's `generation` and `close` 0 and `entity` all zero exactly when `iri` is not `ABSENT`. A registration
 naming a partition the role address does not serve is answered with outcome 26.
 
 ### 13.16 CloseRequest (527)

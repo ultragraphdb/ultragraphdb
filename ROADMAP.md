@@ -59,7 +59,9 @@ SPARQL and GQL; UltraQL follows stage 10. What the next stages must specify is t
   multi-group transactions, write classification from the schema. The DeepBrain MVP runs here, on the single container: the first
   stage whose topology it can run on, since no role runs alone.
 - **9 Full conformance.** Everything outside the core, the W3C suites, the openCypher TCK and the GQL feature register.
-- **9.5 Schema evolution with checked data migration.** A destructive schema change becomes a migration into a new
+- **9.5 Schema evolution with checked data migration.** Every change to an installed schema is built here, since it
+  needs the cluster: until then a tenant takes one Install (stage 6). The changes in place of `SCHEMA.md` section 13
+  take effect online or after a validation scan, and a namespace is removed by an empty source. A destructive schema change becomes a migration into a new
   version of the namespace: a mapping from the source schema to the target, checked when it compiles; a dry run on a
   snapshot; the live slice migrated; the target checked by the tightening's validation scan; the namespace switched at
   an epoch behind a write fence. Bitemporal history stays read-only in the source version. The semantics are CQL's
