@@ -1,0 +1,92 @@
+ultragraphdb_common/ultragraphdb_common_storage/src/types/role_connection_phases/mod.rs
+  s_6c9dcf457e80d9::t_3b19dad677c3d7 20-21
+ultragraphdb_store/ultragraphdb_store_quads/src/types/quad_store/mod.rs
+  s_6c9dcf457e80d9::t_259f1c80aa7742 41-42
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/owner/owner_turn.rs
+  s_6c9dcf457e80d9::t_04d3d19f21e562 25-26
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/utils_test/mod.rs
+  s_6c9dcf457e80d9::t_424bad7158b678 1-7
+ultragraphdb_transactions/ultragraphdb_transactions_log/Cargo.toml
+  s_6c9dcf457e80d9::t_f3f2f3b0c9f4f3 38-39
+openspec/specs/kubernetes-deployment/spec.md
+  s_6c9dcf457e80d9::t_3a755451cc64b3 4-8
+  s_6c9dcf457e80d9::t_2dc7e9fcd506b3 1-3
+  s_6c9dcf457e80d9::t_bcd251e06521fc 9-11
+  s_6c9dcf457e80d9::t_45b3a9595a4b55 12-116
+"openspec/notes/UltraGraphDB Scalable Tile Store.md"
+  s_9005a08134b819::t_be69f8960aeaec 1-95
+  s_9005a08134b819::t_d727e7c02e66ed 96-98
+  s_6c9dcf457e80d9::t_3fa1d88a248a70 99
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/owner/owner_syncing_tests.rs
+  s_6c9dcf457e80d9::t_2727c6a020dae0 79-80
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/pipeline/pipeline_tests.rs
+  s_6c9dcf457e80d9::t_e9210a5af884c7 252
+  s_6c9dcf457e80d9::t_d9fea5bb6b67b3 231-251,253-255
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/mod.rs
+  s_6c9dcf457e80d9::t_7c8f2b7dc626e7 14-15
+ultragraphdb_store/ultragraphdb_store_quads/tests/types/referrer_cache_tests.rs
+  s_6c9dcf457e80d9::t_41951c58e0a8b1 68
+  s_6c9dcf457e80d9::t_5330d32c8af4ab 69-71
+ultragraphdb_cluster/ultragraphdb_cluster_partition/tests/types/partition_host/partition_host_tests.rs
+  s_6c9dcf457e80d9::t_d15a53cf9eb896 308-339
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/utils_test/gated_storage_tests.rs
+  s_6c9dcf457e80d9::t_0d25d45c1231b8 1-95
+  s_6c9dcf457e80d9::t_c0046fc32c133a 96-163
+ultragraphdb_common/ultragraphdb_common_storage/tests/types/role_connection_phases_tests.rs
+  s_6c9dcf457e80d9::t_b051c4244b9b02 34-35,49
+  s_6c9dcf457e80d9::t_a3c6062979868c 9,11,36-48,50
+ultragraphdb_store/ultragraphdb_store_quads/src/types/referrer_cache/mod.rs
+  s_6c9dcf457e80d9::t_ef1cb32313cbb4 23-24
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/src/types/metadata_reads.rs
+  s_6c9dcf457e80d9::t_b70109ea8b1c65 10-11
+openspec/changes/archive/2026-11-09-batch-commits-through-the-roles/tasks.md
+  s_6c9dcf457e80d9::t_e2b93b930649fe 178,180,183,185
+openspec/specs/client-endpoint/spec.md
+  s_6c9dcf457e80d9::t_b746e528bf497f 22-26,36-41,66-71,87-91
+openspec/specs/commit-rounds/spec.md
+  s_6c9dcf457e80d9::t_e542556e735d34 11-14,24-37
+openspec/specs/config-service/spec.md
+  s_6c9dcf457e80d9::t_82e60365810310 118-120
+openspec/specs/role-binaries/spec.md
+  s_6c9dcf457e80d9::t_1783e21f630562 95-99,111-114
+openspec/specs/wire-protocol/spec.md
+  s_6c9dcf457e80d9::t_fd97e79a832fdf 608-614,660-673
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/tests/types/metadata_group/metadata_group_tests.rs
+  s_6c9dcf457e80d9::t_1b71adc1463846 234-238,252
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/auth_throttle_tests.rs
+  s_6c9dcf457e80d9::t_29d3752c5409d5 10,20-21,35-44,142-239
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/one_frame_phases_tests.rs
+  s_6c9dcf457e80d9::t_0bc3fc4f828708 45-63
+ultragraphdb_store/ultragraphdb_store_quads/tests/types/quad_store_partition_tests.rs
+  s_6c9dcf457e80d9::t_4f5bbede10227f 21-22,869-888
+Cargo.lock
+  s_6c9dcf457e80d9::t_824cd8f754f6bc 3950
+openspec/changes/archive/2026-11-09-batch-commits-through-the-roles/notes/group-8.md
+  s_6c9dcf457e80d9::t_77069d3d5d6e09 1-185
+ROADMAP.md
+  s_6c9dcf457e80d9::t_183198c3622f50 12-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "09f37059b9b00a7616ea0880530ac8d779a75674",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_9005a08134b819": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3c97fa55-f1d5-4207-a470-c998c09da942",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
