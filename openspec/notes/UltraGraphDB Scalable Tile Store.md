@@ -1,7 +1,6 @@
 # UltraGraphDB Scalable Graph Storage Engine
 
-Nov 10, 2026 · first design draft; decisions T1–T14 adopted 2026-11-10, T15–T22 adopted the same day on the
-recommendations for the draft's open questions
+Nov 10, 2026 · first design draft; decisions T1–T27 adopted 2026-11-10
 
 The storage engine of roadmap stage 6.5: a graph-native tile store that replaces the fjall KV store whole, writes
 included. A partition keeps its graph as tiles, bounded and checksummed blocks of three shapes: adjacency blocks of a
@@ -31,7 +30,7 @@ system names its source.
 | Storage CPU per relation | 42–44 µs (16.5–20 on the commit thread, 25–27 on fjall's workers) | about 1–2 µs estimated: apply 0.3–1, compaction 0.3–1 amortised |
 | Bytes to disk per relation | about 1.9 KB before LSM compaction, which multiplies the store's share by an assumed 5–10× | about 200 B estimated: the logical WAL record and the encoded share of rewritten tiles |
 | A cached one-hop read | a posting-list fetch, about 3 µs, 25–90 µs when fjall loads a block | a directory search and a row decode, about 0.2–0.5 µs plus 1–2 ns per neighbour, estimated |
-| Snapshot pin | 5–20 µs of storage CPU per partition per read | a counter per epoch, nanoseconds |
+| Snapshot pin | 5–20 µs of storage CPU per partition per read | a counter per epoch, nanoseconds, estimated |
 | Recovery | fjall's journal and the WAL above the checkpoint | the superblock, the manifest and the WAL above the last checkpoint, bounded in bytes |
 | Corruption | block checksums inside fjall | every tile checksummed in its header and in every reference to it; repair from a replica's identical tile |
 
@@ -88,9 +87,11 @@ LDBC SNB Interactive v1, audited results read from ldbcouncil.org on 2026-11-10 
 | 2026-09-30 | Galaxybase (CreateLink) | — | 138,507 | 147,382 | 135,335 |
 
 In the GraphScope mix about 28% of operations are inserts and 65% short reads (its `Performance.md`, SF30). The 2024
-run reaches about 4,070 operations a second per physical core; the same engine through its Cypher runtime about 825,
-a fivefold gap that sits in query execution, not in storage. Every row is a single machine. Interactive v1 has no
-deletes; v2 adds cascading deletes, which this engine must serve and GraphScope's store cannot.
+run reaches about 4,070 operations a second per physical core; the same engine through its Cypher runtime about 825.
+The two runs share a CPU family but not a machine size, a time-compression ratio or an on-time share, so the fivefold
+gap indicates, and does not measure, what query execution costs beside storage. Both GraphScope runs are single
+machines; the table states no hardware for the other two. Interactive v1 has no deletes; v2 adds cascading deletes,
+which this engine must serve and the GraphScope store read here cannot.
 
 ### GraphScope Flex (`flex/storages/rt_mutable_graph`, read at `d8581c18`)
 
@@ -102,7 +103,9 @@ adjacency sorted by `creationDate` at load with an unsorted tail scanned backwar
 "latest N" queries without a full scan; small edge properties inline in the neighbour entry (`MutableNbr<Date>`, 16 B);
 `ONLY_IN` and `ONLY_OUT` relations keeping one direction; a per-core arena and WAL.
 
-What it trades away, every item a reason this design differs: vertices and their properties are unversioned, so a reader
+What it trades away, every item a reason this design differs. The items were read in the code and not reproduced; the
+races among them are inferred from the order of writes, and the audited runs passed LDBC's own ACID tests, which a
+benchmark mix without conflicting updates does not reach. Vertices and their properties are unversioned, so a reader
 sees an insert before its timestamp is released; an adjacency list publishes its size before the entry is written; the
 read timestamp advances only over a contiguous prefix of released inserts, so a client can miss its own acknowledged
 write; updates and compactions stop the world; `batch_commit` applies before it logs; no uniqueness, no deletes; fixed
@@ -182,20 +185,23 @@ copies, written last.
 **Targets.** Storage CPU at or below 2 µs a relation on the commit path and in compaction together, a twentieth of
 today's; bytes to disk at or below 300 B a relation, WAL included; a cached one-hop expansion within twice the cost of
 GraphScope's array walk; a cold tile read one I/O. Measured end to end, the stage's exit gate is the LDBC SNB
-Interactive workload, v2 with its deletes, run with the official driver on the three binaries with every commit synced,
-and compared per physical core against the table above. Storage cannot carry that number alone: the fivefold gap
+Interactive workload run with the official driver on the three binaries with every commit synced: v1, compared per
+physical core against the table above, and v2, whose deletes the table's systems were not audited on. Storage cannot carry that number alone: the fivefold gap
 GraphScope measured between compiled procedures and Cypher belongs to stage 7, and placement decides how many partitions
 a short read touches (*Distribution*).
 
 **Memory.** A delta entry is 32 B forward (neighbour 16, version 8, flags and an inline payload slot 8) and 16 B reverse
-(subject slot 4, version 8, flags 4): about 48 B a relation. A delta budget of 256 MiB a core holds about 5.5 million
-relations, 27 s of ingest at 200,000 relations a second, so compaction has slack without a cliff. A tile cache takes
-what remains of a core's budget; at SF300, about 850 million vertices and 5.3 billion edges (scaled from Galaxybase's
+(subject slot 4, version 8, flags 4): about 48 B a relation. A delta pool of 256 MiB a replica, 768 MiB for a core's
+three, holds about 5.5 million relations, 27 s of ingest at 200,000 relations a second, so compaction has slack without
+a cliff. Followers hold the same deltas as their leader: a partition's memory is paid three times in the cluster. A tile
+cache takes what remains of a core's budget; at SF300, about 850 million vertices and 5.3 billion edges (scaled from Galaxybase's
 SF100 table), adjacency at about 8 B an entry in both directions is about 85 GB, so a 512 GiB node holds the topology
 and the hot attributes.
 
 **CPU.** Apply is one hash probe and one append per entry, about 50–150 ns each, against 1–3 µs a skiplist operation
-today. Compaction decodes, merges, encodes and checksums at an estimated 10–20 ns per entry, multiplied by the rewrite
+today. An insert that must prove an absence first, a `@set` relation's combination or a key's claim, reads its row or
+run: a cached tile costs a decode of the row, an uncached one an I/O on the commit's path, which the tile filters of
+*Adjacency tiles* avoid for most absent keys. Compaction decodes, merges, encodes and checksums at an estimated 10–20 ns per entry, multiplied by the rewrite
 factor `(1 + θ) / θ`, 3 at θ = 0.5: about 0.1–0.3 µs per entry, two entries a relation.
 
 **Disk.** The WAL record is about 150 B a relation (P9's logical estimate); tiles add about two entries of 8 B, rewritten
@@ -228,8 +234,9 @@ compio shell performs the I/O; its simulator injects faults into the same interf
 Adjacency and columns index by position, which is what makes GraphScope, Vineyard, Galaxybase and Kùzu fast. A
 partition maps every entity it owns to a slot, a `u32` dense per (bucket group, type): slots are given in order of
 arrival, never reused, and a deleted entity leaves a hole the tiles skip. The map from ID to slot is a record run per
-(bucket group, type) of `(sequence, slot)`, sorted by sequence; sequences of a partition's own creations rise, so the
-run is mostly an arithmetic progression and its directory answers in a few probes. The map back is a slot's sequence
+(bucket group, type) of `(sequence, slot)`, sorted by sequence. A partition's own creations take rising sequences, so the
+run grows by appending; other groups' entities take the sequences between, so it is sorted but not contiguous, and a
+lookup is a binary search over its fences and within one 32 KiB run. The map back is a slot's sequence
 and bucket in two columns. A slot exists only inside its partition: compute, the wire and the WAL carry system IDs, and
 the engine translates once per entity a request touches.
 
@@ -247,8 +254,8 @@ Foreign neighbours stay system IDs, encoded per tile (*Adjacency tiles*); a loca
 All three share a header, the base-plus-delta versioning, the checksums, the grid and compaction. A tile is bounded:
 an adjacency block or record run at a target of 32 KiB and at most 64 KiB encoded, a column chunk at 4,096 slots.
 
-**The header,** 64 bytes, every reserved byte zero: magic, format version, shape, the partition, bucket group and
-relation or type it belongs to, its key fences, its base version, entry count, flags (version columns present,
+**The header,** 64 bytes, every reserved byte zero: magic, format version, shape, the tenant run, bucket group and
+relation or type it belongs to, never the partition, which a move changes, its key fences, its base version, entry count, flags (version columns present,
 append-only, encoded sections), the XXH3-64 of each section, its conservation digest (*Safety*) and the zone maps of
 its inline columns. A tile names what it is, so a misdirected read is detected even before its checksum is compared.
 
@@ -268,7 +275,9 @@ Inside a block the layout is columnar, after DCSR:
   a fixed column (they route the next hop);
 - a parallel-edge index where the relation is `@multi`, and a statement slot where an instance carries a reifier;
 - inline columns for small fixed-width edge attributes the catalog places there (a `knows.creationDate`);
-- version columns only where *Versions* asks for them.
+- version columns only where *Versions* asks for them;
+- a filter of its (row, neighbour) keys, so an insert proving a `@set` combination absent reads the block only when the
+  filter answers maybe. Record runs carry the same filter over their keys for key claims and the dictionary.
 
 A row ordered by an inline or denormalised attribute instead of by neighbour (*Schema-compiled layout*) keeps a sorted
 prefix and an append tail, as GraphScope's `unsorted_since_` does: a top-k scan reads the tail backwards, then binary
@@ -285,7 +294,8 @@ is a column of neighbour IDs on its anchor, GraphScope's `SingleMutableCsr`: an 
 ### 4.6 Record runs
 
 Sorted fixed records under fences, searched by binary search within a 32 KiB run. The term dictionary is two: a run keyed
-by the IRI's 64-bit hash, then the key bytes, mapping to the slot; and the canonical key as a column of the type. A key
+by the IRI's 64-bit hash, then the key bytes, mapping to the system ID, a foreign entity's copied entry among them
+(P24 rule 3); and the canonical key as a column of the type, the way back. A key
 claim, a `@unique` claim, a mark and a referrer set are records in the partition that owns them today (P24 rules 3 and
 5, `SCHEMA.md` sections 7.2 and 9.1). Statistics are records per (graph, predicate) and per round (*The write path*).
 
@@ -327,11 +337,12 @@ The **horizon** `H` is the oldest version any reader may still ask for: the olde
 read-write transaction (at most 10 s, the bound decided for them) and the MVCC retention window UGS states. Compaction
 folds an entry into a base without versions once it lies at or below `H` for everyone. Two storage classes follow:
 
-- **Class I, version-complete.** `@append_only` types, `@immutable` attributes, keys and `@bitemporal` content. Their
-  entries are never updated or deleted outside a purge, so a base keeps each entry's creation epoch, delta-coded against
+- **Class I, version-complete.** Instances of `@append_only` types with their attributes and keys, and `@bitemporal`
+  content. Their entries are never updated or deleted outside a purge, so a base keeps each entry's creation epoch, delta-coded against
   the tile's base version (one to two bytes), and one base answers every epoch. Compaction keeps no old base for them,
   readers at any version filter one column, and a read that asks only for the latest state filters nothing.
-- **Class M, mutable.** Every other relation and attribute. Entries above `H` carry a creation and a deletion version, as
+- **Class M, mutable.** Every other relation and attribute, an `@immutable` attribute of a deletable instance among
+  them: its value never changes, but the instance may go. Entries above `H` carry a creation and a deletion version, as
   LiveGraph's edge log does; at or below `H` they are folded and carry none. One base answers every version at or above
   `H`, so the engine keeps no chain of old bases either.
 
@@ -346,12 +357,14 @@ A read at `v` merges three sources per row: the base, its versioned entries filt
    turn goes on. In stage 8 "committed" means held by a quorum.
 3. Apply, once committed, entirely in memory. For each statement: the subject's slot (assigned on first sight); one entry
    appended to the forward delta row and one to the reverse delta row, from a pool of 256 B blocks allocated at startup
-   and an open-addressing index of rows sized from the budget; attribute writes to their column deltas; the round's
+   and an open-addressing index of rows sized from the budget, both the replica's own, so no other replica's load
+   changes when this one compacts (T6); attribute writes to their column deltas; the round's
    statistics accumulator; the relation's forward and reverse digests. A first reference to a foreign entity writes its
    mark, as today; a row gaining its first entry for a predicate writes the subject-predicate or object-predicate record
    only in the generic layout.
-4. Statistics close with the round: one record per (graph, predicate) the round touched, versioned by the round, so a
-   read at any version sees the exact counts of the last round at or below it.
+4. Statistics close with the round: one record per (graph, predicate) the round touched, versioned by the round. Reads
+   take a visibility watermark or a closed epoch, both round boundaries, where the counts are exact; a transaction
+   beginning at an earlier version it names inside a round adds the round's versioned entries up to it.
 5. Acknowledge once the round is durable (stage 5.5) or committed with its exposure bound (stage 8).
 
 A relation thus writes two delta entries and a share of one statistics record per round, against 9.1 store versions.
@@ -368,26 +381,30 @@ allow for the request's relations is refused.
 
 | Lane | Taken by | What the engine does | What it skips |
 |---|---|---|---|
-| **L — latest** | Monotonic-fast reads; reads of one partition's latest state | Answers within one turn from base and delta as applied, on any replica that has applied the session's position | Pins, epoch waits, version filters |
+| **L — latest** | Monotonic-fast reads; reads of one partition's latest state | Answers within one turn from base and delta as applied, dropping deleted entries, on any replica that has applied the session's position | Pins, epoch waits, comparing entries against a pinned version |
 | **S — snapshot** | Snapshot reads at a closed epoch `e`, as-of reads | Pins `e`, filters versions at `e`, may span turns, on any replica that has closed `e` | Read-set recording |
 | **X — serializable** | Reads of an open read-write transaction | As S at the transaction's version, recording what it read | Recording stable reads |
-| **A — append** | Blind coordination-free writes: inserts of class I instances and edges whose checks read only the instance | Joins the round without validation, its conflict keys still entered | Validation, the read phase |
+| **A — append** | Writes whose every predicate the catalog marks blind (`SCHEMA.md` section 9.6: coordination-free, no key or `@unique` claim, no check reading beyond the instance), the writes a DirectWrite may carry | Joins the round without validation, its conflict keys still entered | Validation, the read phase |
 | **V — validated** | Segmented and local writes with checks | The commit step's validation against the conflict history | — |
 | **C — sequenced** | Coordinated writes (stage 8) | Executed at the sequencer's position, reads at that position | — |
 
 Two rules make the lanes cheaper, not only labelled:
 
-- **One request, one turn, one state.** A lane L request finishes within one turn, and the thread runs nothing else
-  meanwhile, so it reads one consistent state with no pin and no version filter. Its bound is counted, never timed
+- **One request, one turn, one state.** A lane L request first makes the tiles it needs resident, yielding while they
+  load, and then answers within one turn, while the thread runs nothing else, so it reads one consistent state with no
+  pin. A tile evicted or replaced by compaction before that turn sends it back to loading, at most twice, after which it
+  is answered in lane S. Its bound is counted, never timed
   (T17): at most `lane_entries_max` entries examined and `lane_bytes_max` bytes answered, both fixed at startup, so the
   same request does the same work on every replica and under the simulator. A result past either bound ends with a resume
   key naming a position by key, never by offset: the row key and the last neighbour's ID it answered. The next request
   seeks strictly past that key at the then latest state, so no entry is answered twice and none present at both times is
   skipped; an entry inserted behind the key since is missed, which monotonic-fast semantics allow and the response flags
   for mutable data.
-- **Stable reads record nothing.** A read of an `@immutable` attribute or key, or the existence of an `@append_only`
-  instance, cannot be invalidated by any concurrent commit, so lane X leaves it out of the read set. Absence, ranges and
-  aggregates are still recorded: an insert can create a phantom.
+- **Stable reads record nothing.** The existence of a class I instance, and its attributes and key, change only by a
+  purge, so lane X leaves such a read out of the read set. A purge enters a conflict range over the instances it removes,
+  which aborts every open transaction of the partition that could have read them. An `@immutable` attribute of a
+  deletable instance is recorded: the value cannot change, but the instance can go. Absence, ranges and aggregates are
+  always recorded: an insert can create a phantom.
 
 A turn serves the commit batch first, then lane L, S and X requests up to a byte and entry budget each, then one
 compaction beat, then submits its I/O; every budget is fixed at startup. A request needing a tile not in the cache
@@ -403,17 +420,20 @@ sorted rows from the end.
 
 A tile is rewritten when its delta reaches θ of its base (0.5 to start), when a delta row ages past a number of rounds,
 when one delta row reaches `delta_row_entries_max` (1,024 to start, T19), which compacts a hub's row in the next beat
-ahead of every other tile, or when the pool passes its watermark; a block above 64 KiB splits at a row or neighbour fence, and adjacent blocks below
-8 KiB merge, so tile sizes stay bounded both ways. Galaxybase's rule decides the split point between rows and neighbours:
-a tile whose rewrites outgrow its reads splits finer.
+ahead of every other tile, or when the replica's pool passes its watermark. A block above 64 KiB splits at a row or
+neighbour fence, and adjacent blocks below 8 KiB merge, so tile sizes stay bounded both ways. Galaxybase splits a
+partition whose writes outgrow its reads; reads differ by replica, so here only a tile's size and its own rewrite count
+decide where it splits.
 
 **Paced.** Each applied round earns compaction work in proportion to its bytes, done in beats at the end of turns, so
 compaction keeps pace without bursts and its CPU sits on the core that owns the data. No tile is compressed or encoded
 on the commit path.
 
 **Deterministic.** Which tile is rewritten, when, how it is cut and where it is placed depend only on the applied rounds:
-counters of bytes and rounds, fences and a deterministic allocator, never the clock, memory pressure from reads or the
-cache's state. Replicas applying the same rounds therefore write the same tiles at the same addresses.
+counters of bytes and rounds, fences and a deterministic allocator, never the clock, reads, the cache's state or another
+replica's load. A rewrite is decided, and its address allocated, at a round boundary; reading an uncached base tile may
+delay when its bytes are written, never what they are or where. Replicas applying the same rounds therefore write the
+same tiles at the same addresses, and each spends the same compaction CPU (*Open questions*).
 
 **Verified.** Compaction builds the new tile in a buffer from the pool, decodes it once and checks its order, counts and
 digest against the merge of its inputs before it is written (*Safety*).
@@ -437,13 +457,14 @@ schedule, set by its log's positions alone (T21):
 2. Write and sync the manifest log's new entries and the free set.
 3. Write the superblock: four copies in the grid file's first four 4 KiB slots (T22), each checksummed, holding the checkpoint's
    sequence, the parent superblock's checksum, the manifest's root reference, the free set's reference, the WAL position
-   the checkpoint covers and each hosted replica's applied position. Sync between copies.
+   the checkpoint covers and the replica's applied position. Sync between copies.
 4. Trim the WAL through the checkpoint's position.
 
 **Recovery:** read the superblock copies and take the newest whose checksum and parent chain hold; load the manifest
 and the free set; rebuild the directories and slot maps from their runs; replay the WAL from the checkpoint's position,
-which rebuilds the deltas and, compaction being deterministic, the same tiles. `C` bounds the replay: at 1 GiB a
-partition, seconds, where GraphScope's full-history replay took 552 s at SF300.
+which rebuilds the deltas and, compaction being deterministic, the same tiles. `C` bounds the replay: 1 GiB of WAL is
+about 7 million relations at 150 B, an estimated 3 to 10 s of apply, where GraphScope's full-history replay took 552 s at
+SF300.
 
 ### 4.13 Writing to the SSD
 
@@ -528,9 +549,10 @@ P24 rejected that on 2026-11-02 and nothing here reopens it.
 
 **The bucket group is the physical shard.** A tile holds rows of one bucket group, and slots are numbered per (bucket
 group, type), so GSL's levels become G the replica group, S the bucket group (the unit P24's referrer sets already
-name), L the tile. Moving a bucket group between partitions ships its tiles and its slot maps unchanged, plus the WAL
-above their checkpoint; nothing is re-cut or renumbered. A tenant with little data pays with small tiles, which pack into
-4 KiB slots.
+name), L the tile. A move of a bucket group is a logged operation at a position of the source's log: there the source
+compacts the group's deltas into tiles, deterministically, and ships them with the group's slot maps; the destination
+installs them at a position of its own log, copying the bytes unchanged into its grid, since no header names a
+partition. Nothing is re-cut or renumbered. A tenant with little data pays with small tiles, which pack into 4 KiB slots.
 
 **Replicas catch up by tiles.** A follower behind the primary's trimmed WAL copies the tiles of the primary's last
 checkpoint, identical to what it would have built, then replays the WAL above it.
@@ -559,7 +581,7 @@ the message as received, and the copies and I/O between the wire and the tiles s
 **What holds today.** A DirectWrite carries a term table (24-byte records over a text section, terms as `u32` indices)
 and 16-byte change records over `u32` args (`PROTOCOL.md` sections 4.4, 4.6, 6.6). The partition resolves terms to
 system IDs and re-encodes every statement as a key-value entry of the write-set record (section 12.2), which the Round
-frame logs and stage 8 replicates; apply then decodes that record again.
+frame logs, stage 8 replicates and replay decodes.
 
 **What works.** An insert frame whose body is the logical record once its terms are resolved:
 
@@ -571,7 +593,10 @@ frame logs and stage 8 replicates; apply then decodes that record again.
   naming it, and the client describes again.
 - The partition writes the body to its log unchanged, followed by a resolution section: per term index the system ID it
   resolved to, a statement ID per edge that takes one, and the round's dictionary entries as now. The record stays
-  logical, holds no store key and replays to the same state: a new Round entry kind beside section 12.2's three.
+  logical, holds no store key and replays to the same state: a new Round entry kind beside section 12.2's three. For the
+  body to reach the disk without a copy, the Round frame places it at a 4 KiB-aligned offset, padded with zeros, a change
+  to section 12.1's layout. A body logs its terms' text where the write-set record logs 16-byte IDs; a batch interns each
+  term once, and E12 measures which is smaller.
 - Apply walks the blocks in place: per block one catalog lookup, one rights check, one lane decision and one check per
   column (a datatype and a value check over a whole column, as a loop over a slice); per row one slot and one delta row
   probe for its whole run of entries; per entry one reverse append. The row probe is paid once per subject, not once per
@@ -603,8 +628,7 @@ block of class I data with checks only over the instance takes lane A: no read p
 
 **Partitions.** A frame's subjects usually span partitions. The frontend already finds each keyed IRI's bucket from the
 catalog (`PROTOCOL.md` section 11.12); it splits an Ingest into one share per partition, copying each block's rows once,
-and relays each share as a frame of its own. Until stage 8 a share commits atomically at its partition, and the frame as
-a whole is not atomic across partitions (*Open questions*).
+and relays each share as a frame of its own. Each share commits atomically at its partition (T23, T24).
 
 ### 4.18 Client-generated identifiers
 
@@ -627,7 +651,7 @@ What each property is worth here:
   `@set` relation are already idempotent by their key or combination; a `@multi` relation instance and a keyless event
   are not.
 
-The recommendation is under *Open questions*.
+T26 closes that gap with a key type and leaves order and locality where they are.
 
 ### 4.19 Networking between roles
 
@@ -642,9 +666,7 @@ Its gains sit where messages are small, unbatched and at tens of millions a seco
 rounds and reads into frontier requests, keeps epoch closes and registrations at hundreds a second, and moves tiles in
 32–64 KiB units. Adopting it would bring DPDK or AF_XDP, both foreign memory rings reached through `unsafe`, a poll-mode
 loop beside compio's, a second NIC per node through SR-IOV in Kubernetes, and a data path outside TLS and network
-policy. Four of its lessons hold for any transport and cost nothing (*Open questions* holds the recommendation).
-
-## 5. What the engine asks of the existing code
+policy. Four of its lessons hold for any transport and cost nothing; T27 takes them.
 
 ## 5. What the engine asks of the existing code
 
@@ -660,7 +682,7 @@ policy. Four of its lessons hold for any transport and cost nothing (*Open quest
 | Statistics as deltas per commit | Records per round |
 | The compio runtime built with defaults (`core_runtime` in `ultragraphdb_common_service`) | `single_issuer` and `defer_taskrun` set through `RuntimeBuilder::with_proactor`, I/O sizes clamped to the device; compio itself unchanged (T18) |
 | DirectWrite's changes re-encoded as a write-set record | Ingest, a block-columnar insert command, its body logged as received with a resolution section (*Writes through the protocol*) |
-| Sequences leased per (type, partition) | Kept; slots per (bucket group, type) absorb what a lease per group would give |
+| Sequences leased per (type, partition) | Kept: slots numbered per (bucket group, type) give the dense positions a lease per group would, with no more leases |
 | Conflict keys naming list keys | Kept logical: (graph, predicate, subject) and the like, independent of tiles, so a split never changes a conflict |
 
 The commit step, the WAL and its record, the sequencer, the metadata group, referrer sets and the wire protocol keep
@@ -669,53 +691,53 @@ removed, as the earlier tile note proposed.
 
 ## 6. Decisions
 
-Each states the trade-off and the choice. T1–T14 were adopted on 2026-11-10 as recommended. T15–T22 answer the draft's
-open questions, each argued from TigerStyle's principles, and were adopted the same day.
+Each states the trade-off or the principle, and the choice. All were adopted on 2026-11-10: T1–T14 as the draft
+recommended them, T15–T27 as the answers to its open questions, each argued from TigerStyle's principles.
 
 **T1. The engine is graph-native and whole.** *Trade-off:* keeping fjall as a write layer under read tiles (the
 discarded hybrid) keeps the 9.1 records and the LSM's rewrites a relation pays; a graph engine over a KV interface keeps
-the records. *Recommendation:* replace the KV store and its trait.
+the records. *Choice:* replace the KV store and its trait.
 
 **T2. Three tile shapes, one versioning scheme.** *Trade-off:* one shape per kind of index fits each better and multiplies
-the code that must be proved, fuzzed and simulated. *Recommendation:* adjacency blocks, column chunks and record runs,
+the code that must be proved, fuzzed and simulated. *Choice:* adjacency blocks, column chunks and record runs,
 sharing header, versions, checksums and compaction.
 
 **T3. Slots per (bucket group, type).** *Trade-off:* addressing by system ID needs no map but makes every attribute
 access a search and every local reverse entry 16 bytes; slots cost one translation per entity a request touches.
-*Recommendation:* slots, never leaving the partition.
+*Choice:* slots, never leaving the partition.
 
 **T4. The bucket group is the physical shard.** *Trade-off:* tiles spanning groups pack small tenants better; tiles
-within a group make a move a copy and match the referrer sets. *Recommendation:* tiles within one group.
+within a group make a move a copy and match the referrer sets. *Choice:* tiles within one group.
 
 **T5. Memory-only apply; tiles out of place; the superblock last.** *Trade-off:* writing tiles in place saves the
-manifest and free set and costs doublewrites and torn pages. *Recommendation:* as described, after TigerBeetle.
+manifest and free set and costs doublewrites and torn pages. *Choice:* as described, after TigerBeetle.
 
 **T6. Deterministic compaction and placement.** *Trade-off:* adaptive compaction reacting to reads or the clock could
 fit a workload better; determinism gives identical grids, peer repair, catch-up by copying and a simulator that compares
-replicas. *Recommendation:* determinism.
+replicas. *Choice:* determinism.
 
 **T7. The catalog compiles the physical layout.** *Trade-off:* a generic quad layout serves every tenant identically; a
 compiled one serves declared tenants several times faster and needs a layout version beside each catalog version.
-*Recommendation:* compiled for governed tenants, generic for the rest.
+*Choice:* compiled for governed tenants, generic for the rest.
 
 **T8. Version-complete tiles, in two storage classes.** *Trade-off:* chains of old bases are simpler to build and keep
-old tiles alive in cache and on disk; per-entry versions above the horizon cost a column. *Recommendation:* classes I and
+old tiles alive in cache and on disk; per-entry versions above the horizon cost a column. *Choice:* classes I and
 M as described.
 
 **T9. Storage lanes from the classification.** *Trade-off:* one read path for every request is simpler; lanes let the
-schema's declarations remove pins, filters and read-set entries. *Recommendation:* lanes L, S, X for reads and A, V, C
+schema's declarations remove pins, filters and read-set entries. *Choice:* lanes L, S, X for reads and A, V, C
 for writes.
 
 **T10. Shared-nothing per core.** *Trade-off:* sharing immutable tiles across cores would serve one partition's reads
-from several cores, and needs reference counting across threads and a shared cache. *Recommendation:* one core per
+from several cores, and needs reference counting across threads and a shared cache. *Choice:* one core per
 replica's engine; reads scale through the three replicas of every partition and through compute.
 
-**T11. Conservation digests as running invariants.** *Trade-off:* a few nanoseconds per entry. *Recommendation:* adopt.
+**T11. Conservation digests as running invariants.** *Trade-off:* a few nanoseconds per entry. *Choice:* adopt.
 
 **T12. Analytics through compute-side projections.** *Trade-off:* two-dimensional placement in storage serves analytics
-and costs every short read √p partitions. *Recommendation:* projections at a closed epoch.
+and costs every short read √p partitions. *Choice:* projections at a closed epoch.
 
-**T13. SSD-aware writing** as in *Writing to the SSD*. *Recommendation:* adopt the stream, packing and reclamation rules
+**T13. SSD-aware writing** as in *Writing to the SSD*. *Choice:* adopt the stream, packing and reclamation rules
 now, device placement in stage 10.
 
 **T14. The KV store's crates and trait are retired** once the differential test passes on every suite.
@@ -738,7 +760,8 @@ time: a count gives the same work on every replica and in the simulator. *Choice
 E9 on physical Linux, and only a measured gain sends a patch upstream, since a custom operation in this workspace would
 need `unsafe`. A fork exists only to pin an upstream change accepted but not yet released.
 
-**T19. A hub's delta row is capped.** *Principle:* bound every queue; one pool keeps one budget to reason about.
+**T19. A hub's delta row is capped.** *Principle:* bound every queue; one pool per replica keeps one budget to reason
+about, and no hub takes a pool of its own.
 *Choice:* `delta_row_entries_max`, 1,024 to start; a row reaching it compacts in the next beat, ahead of other tiles.
 
 **T20. Digests are 128 bits.** *Principle:* safety first when the cost is nanoseconds; a digest is the last line
@@ -752,6 +775,36 @@ checkpoints at its own log positions; the core shares only its tile cache.
 **T22. The superblock lives in its grid.** *Principle:* fewer files, fewer failure modes: a superblock in a separate file
 can go missing while its grid stays. *Choice:* four copies in the grid file's first four 4 KiB slots.
 
+**T23. An Ingest frame is atomic per partition share.** *Principle:* bound the work and make the outcome explicit; one
+failure model per share is simpler than a partial-failure model per frame. *Choice:* the frontend splits a frame into
+shares; each share is atomic at its partition and exactly-once under the session table's key (session, request,
+share), so a resend commits only the shares not yet committed and answers the rest from the table. The reply lists every
+share's outcome, a refused share naming its first failing block and row. From stage 8 a flag asks for the whole frame
+sequenced at one epoch, Calvin's path.
+
+**T24. Ingest rows succeed or fail with their share.** *Principle:* minimise dimensionality: per-row results and a chain
+flag would add what the share already gives. A graph insert is rarely independent: an edge needs its endpoint in the same
+batch. *Choice:* no per-row outcome beyond the first failing row a refusal names.
+
+**T25. Ingest alone logs its frame as received.** *Principle:* two record formats, each exact, beat one format with
+optional resolution. *Choice:* a Write or a DirectWrite holding deletes by pattern, operations or statement properties
+keeps the write-set record, which holds what execution resolved; inserts move to Ingest on the client side.
+
+**T26. TigerBeetle's time-based identifiers become a key type, never system IDs.** *Principle:* close the gap there is,
+idempotency, and leave order and locality where the server already has them; system IDs never leave the database.
+*Choice:* a UGS scalar `Id128` with TigerBeetle's layout (48 bits of milliseconds, 80 random bits incremented within a
+millisecond, compared as an unsigned integer), declared as the `@key` of `@multi` relations and of event-like
+`@append_only` types, so an application retrying after its own crash finds the instance it created; an `id()` generator
+in every client; the key's claim run ordered by the key itself for this type, so claims append. The session table stays
+the transport's exactly-once mechanism, and the commit version and epoch stay the database's order.
+
+**T27. No bi-channel transport in stages 8 and 9; its transport-free lessons now.** *Principle:* measure before adding a
+subsystem; a dependency reached through `unsafe` needs evidence and consent. *Choice:* several connections per peer for
+any stream above about 8 Gbps, since AWS caps a flow at 10 Gbps (the paper's §4.2); in-flight limits through credits
+sized to the receiver's buffers (Guideline 4); VSR's acknowledgements apart from flow-control credits (§6.2); clients on
+TCP. A prototype follows in stage 10 only if E13 measures networking above 30% of CPU, over AF_XDP, for compute–storage
+frontier traffic first.
+
 ## 7. Experiments
 
 | # | Question | How | What it decides |
@@ -762,7 +815,8 @@ can go missing while its grid stays. *Choice:* four copies in the grid file's fi
 | E4 | Which encodings? | Bit-packing, frame of reference, LZ4 per section on LDBC SF10 and DeepBrain data: size and decode ns per entry | The format's sections |
 | E5 | Do lanes pay? | The same reads in lanes L, S, X: CPU, latency, read-set sizes | T9 |
 | E6 | Is compaction deterministic? | Two simulated replicas, every fault class, grids compared byte for byte at every checkpoint | T6 |
-| E7 | How does the engine compare to the state of the art? | LDBC SNB Interactive v2, official driver, SF10 to SF300, every commit synced, per physical core | The stage's exit |
+| E7 | How does the engine compare to the state of the art? | LDBC SNB Interactive v1 and v2, official driver, SF10 to SF300, every commit synced, per physical core | The stage's exit |
+| E14 | How often does an insert read a tile to prove an absence? | The LDBC insert mix and DeepBrain's writes: filter answers of maybe, tile reads and their I/O on the commit path, at filter sizes of 8 and 12 bits a key | The filters' size |
 | E8 | What does the drive see? | Physical Linux, drives with and without power-loss protection: host bytes against the drive's physical writes, WAL included | T13 and the stream count |
 | E9 | Which io_uring settings pay? | Each setting of *Larger than memory* in isolation on physical Linux | The runtime's defaults |
 | E10 | How long is recovery? | Kill and power-cut at `C` = 256 MiB, 1 GiB and 4 GiB a partition | `C`'s default |
@@ -772,36 +826,13 @@ can go missing while its grid stays. *Choice:* four copies in the grid file's fi
 
 ## 8. Open questions
 
-The draft's eight questions are answered by T15–T22. These remain, each with a recommendation argued from TigerStyle's
-principles, none adopted:
-
-- **Is an Ingest frame atomic across partitions?** *Recommendation:* no until stage 8. The frontend splits it into
-  shares; each share is atomic at its partition and exactly-once under the session table's key (session, request,
-  share), so a resend commits only the shares not yet committed and answers the rest from the table. The reply lists
-  every share's outcome, a refused share naming its first failing block and row. From stage 8 a flag asks for the whole
-  frame sequenced at one epoch, Calvin's path. *Why:* bound the work and make the outcome explicit; one failure model per
-  share is simpler than a partial-failure model per frame.
-- **Do Ingest rows succeed one by one, as TigerBeetle's events do, or with their share?** *Recommendation:* with their
-  share. *Why:* a graph insert is rarely independent (an edge needs its endpoint in the same batch), and per-row results
-  would add a result per row and a chain flag to express what the share already gives.
-- **Which writes log their frame as received?** *Recommendation:* Ingest alone. A Write or a DirectWrite holding deletes
-  by pattern, operations or statement properties keeps the write-set record, which holds what execution resolved;
-  DirectWrites of inserts only move to Ingest on the client side. *Why:* two record formats, each exact, beat one format
-  with optional resolution.
-- **Should UltraGraphDB adopt TigerBeetle's time-based identifiers?** *Recommendation:* as keys, never as system IDs: a
-  UGS scalar `Id128` with TigerBeetle's layout (48 bits of milliseconds, 80 random bits incremented within a millisecond,
-  compared as an unsigned integer), declared as the `@key` of `@multi` relations and of event-like `@append_only` types,
-  so an application retrying after its own crash finds the instance it created; an `id()` generator in every client; the
-  key's claim run ordered by the key itself for this type, so claims append as TigerBeetle's LSM appends. The session
-  table stays the exactly-once mechanism of the transport, and the commit version and epoch stay the database's order.
-  *Why:* idempotency is the gap; order and locality the server already has, and system IDs never leave the database.
-- **Does a bi-channel transport belong in the cluster?** *Recommendation:* not in stages 8 and 9. Adopt its
-  transport-free lessons now: several connections per peer for any stream above about 8 Gbps, since AWS caps a flow at
-  10 Gbps (§4.2); in-flight limits through credits sized to the receiver's buffers (Guideline 4); VSR's acknowledgements
-  apart from flow-control credits (§6.2); clients on TCP. Prototype it in stage 10 only if E13 measures networking above
-  30% of CPU, with AF_XDP rather than DPDK, for compute–storage frontier traffic first. *Why:* its gains are for small
-  unbatched messages at tens of millions a second, which batching removes here, and it brings `unsafe` foreign rings, a
-  second NIC per node and a data path outside TLS.
+- How does a lane L read of one partition's latest state avoid a deposed primary in stage 8? The distribution protocol
+  leaves the same question open for every latest-state read: a leader lease depends on bounded clock drift, and a round
+  of messages per read spends what lane L saves. Monotonic-fast reads are unaffected: any replica's applied state was
+  committed.
+- Do followers compact for themselves, spending the leader's compaction CPU twice more, or install the leader's tiles,
+  identical by T6, spending network and a checksum comparison instead? Determinism makes both correct; E1 and E13's
+  figures decide the cost.
 
 ## Later
 
