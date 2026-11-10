@@ -1996,7 +1996,7 @@ virtual derivation; what a stage refuses at run time, a rule across partitions, 
   - `tokenizers`: a declared attribute's range token is the tokenizer's identifier byte followed by the value's
     sortable encoding (`../storage/STORAGE.md` section 5.3), exact, for `int`, `float`, `bool`, `exact`, `decimal`,
     `measure` and `datetime`, the last a tokenizer of its own for the four temporal types as `decimal` and `measure`
-    are; `hour` and `day` index no declared attribute (section 6.10; T48, C28).
+    are; the registry holds no `hour` and no `day` tokenizer, `datetime` replacing both (section 6.10; T48, C28).
   - `metadata-group`, at stage 9.5: a migration run's record and its transitions, and the retired names per namespace.
 - **The UQL specification.** The expression grammar of section 4 is its base; the bitemporal filter items, the interval
   operators and `schema.` introspection are named here and defined there.
@@ -2221,7 +2221,7 @@ that begin with one, `Asset.all_parts` and `Company.suppliers`.
 | Where a relation's claims live | Decided 2026-11-10 (T48, C20): in the instance's partition, an entity's own bucket, an unkeyed relation's anchor, a keyed relation's key bucket, as `STORAGE.md` places them; a keyed relation has no anchor to home them (sections 6.6, 9.3, 12.3) |
 | `@set` combinations | Decided 2026-11-10 (T48, C21): an edge-encoded relation's combination is its triple, and the store keeps a combination record for a node-encoded one alone, keyed by the root type's prefix and each role's participants in declaration order (section 12.3) |
 | Temporal comparison | Decided 2026-11-10 (T48, C25): a temporal value keeps its offset as written and compares, for equality, order, claims and tokens, by its UTC instant, so one instant written with two offsets is one value and one claim (section 5.5) |
-| Range tokens | Decided 2026-11-10 (T48, C28): a range token is the tokenizer's identifier byte and the value's sortable encoding, exact, so a range filter needs no lossy token; `hour` and `day` index no declared attribute, the temporal types taking `datetime`, and a `Measure<K>` token is the value in the kind's canonical unit as a `Float64` (section 6.10) |
+| Range tokens | Decided 2026-11-10 (T48, C28): a range token is the tokenizer's identifier byte and the value's sortable encoding, exact, so a range filter needs no lossy token; the `hour` and `day` tokenizers are removed, `datetime` replacing them for every temporal value, and a `Measure<K>` token is the value in the kind's canonical unit as a `Float64` (section 6.10) |
 | Lookup by value | Decided 2026-11-10 (T48, C32): a value is found through its index or claim when declared, otherwise by a Scan of the attribute's family, and the layout adds no reverse family for a column; a value read often by value declares an index (sections 5.9, 6.10, 12.1) |
 | Monotonic-fast data | Decided 2026-11-10 (T48, C33): `@append_only` data and the `@immutable` attributes of `@append_only` instances, since an `@immutable` value of a deletable instance leaves with its delete and a result naming it would not last (section 9.6) |
 

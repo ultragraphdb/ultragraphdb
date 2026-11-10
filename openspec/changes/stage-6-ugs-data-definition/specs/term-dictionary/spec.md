@@ -54,33 +54,59 @@ client addresses the statement's properties, or one of several parallel edges, t
 - **THEN** the dictionary maps `https://example.org/deep_brain#Node/ORG%3Aacme` to an ID whose type prefix is
   `Company`'s, in the bucket computed from `Node`'s prefix and the canonical key
 
-### Requirement: The dictionary is a keyspace without versions
-The dictionary SHALL map term to system ID, system ID to term and literal hash to string in a keyspace without versions,
-read by point lookups. Its keys SHALL be its keyspace byte, the tenant's 8 big-endian bytes, a kind byte and then:
-for an IRI or a reifier's name, the term's 128-bit hash (SHA-256 truncated to 16 bytes), its value the system ID: a
-`Resource` ID for an IRI naming no instance of a declared type, the instance's ID, of its concrete type's prefix, for
-one that does, and for a reifier's name a statement ID of the built-in `Statement` prefix or of its declared relation's; for an ID, its 16 bytes, its value the term's text;
-for a literal, its 128-bit hash, its value the string. It SHALL be naming state only: whether an entity exists, and
-which types it has, SHALL be read from committed data, never from a dictionary entry, so an entry created for a write
-that then aborted names nothing that exists. A literal's entry SHALL be written blind: equal strings write equal keys
-and values. An ID's ID-to-term entry SHALL never change once written, since IDs are never reused, so any partition holds
-a copy of another partition's ID-to-IRI entry without invalidation. A delete SHALL remove no entry: an ID-to-term entry stays for good,
-and an IRI-to-ID entry stays until its IRI is created again, when it SHALL be rewritten to the new ID, whose record
-names the ID it replaced, so a read naming the IRI at a version below the delete resolves the replaced ID. The
-reclamation of stage 8 removes entries.
+### Requirement: The dictionary is kept in record runs of kinds 1 to 3
+The dictionary SHALL be three kinds of record (`STORAGE.md` section 9.3), read by Scan ranges of space 1 (`PROTOCOL.md`
+section 13.13): term to ID (kind 1), its key the XXH3-64 of the term's name bytes as a u64 followed by the name bytes,
+a name's bytes being its kind, 1 an IRI, 2 a blank node's skolem IRI, 3 a reifier's name or 4 a handle IRI, and then
+its UTF-8 text, its value the system ID, a `Resource` ID for an IRI naming no instance of a declared type, the
+instance's ID, of its concrete type's prefix, for one that does, and for a reifier's name a statement ID of the
+built-in `Statement` prefix or of its declared relation's; ID to term (kind 2), its key the system ID, its value the ID the term's
+re-creation replaced, 16 zero bytes for none, then the name bytes; and hash to text (kind 3), its key the 16-byte hash a
+term encoding holds (section 5.1), its value the text. Kinds 2 and 3 SHALL be of storage class I, never versioned
+beyond their created version, and kind 1 of class M, so a term to ID record can be deleted at a version (section 14.3;
+T48, C16). The dictionary SHALL be naming state only: whether an entity exists, and which types it has, SHALL be read
+from committed data, never from a dictionary record, so a record created for a write that then aborted names nothing
+that exists. A hash to text record SHALL be written blind: equal texts write equal keys and values. An ID to term
+record SHALL never change once written, since IDs are never reused. A term re-created after its delete SHALL delete its
+old term to ID record at the re-creation's version, so a read below it still resolves the old ID, and its new ID to
+term record SHALL name the ID it replaced (section 15.3). A copy of another partition's term to ID or ID to term record
+SHALL be held in the family of bucket group `ABSENT`, the replica's own, which no bucket group's move sends (section
+9.2; T48, C18).
 
 #### Scenario: An aborted write leaves nothing that exists
 - **WHEN** a write creating `<gone>` is refused at commit, and a read then asks for every statement naming `<gone>`
-- **THEN** the read returns nothing, whether or not the dictionary holds an entry for `<gone>`
+- **THEN** the read returns nothing, whether or not the dictionary holds a record for `<gone>`
 
 #### Scenario: A read at an older version is unaffected by a newer term
 - **WHEN** `<late>` is first written at epoch 10 and a read at epoch 5 lists every statement of the default graph
 - **THEN** the read returns no statement naming `<late>`
 
+#### Scenario: A term to ID record is found by its name
+- **WHEN** `<a>` is created, and a Scan range of space 1 and kind 1 names the XXH3-64 of `<a>`'s name bytes followed by
+  those bytes
+- **THEN** the entry's value is `<a>`'s system ID, and a range of kind 2 keyed by that ID answers 16 zero bytes followed
+  by `<a>`'s name bytes
+
+#### Scenario: A long literal's text is a record of kind 3
+- **WHEN** a 40-byte string literal is written
+- **THEN** a record of kind 3 keyed by the hash its term encoding holds holds the string, and writing the literal again
+  writes the same key and value
+
+#### Scenario: A re-created term keeps its old ID readable below the re-creation
+- **WHEN** a round applied at version `v` re-creates an IRI held under an old ID, deleting its term to ID record of the
+  old ID and writing one of a new ID
+- **THEN** a term to ID read of the IRI at `v` or above answers the new ID, one below `v` the old ID, and the new ID's ID
+  to term record names the old ID as the one it replaced
+
+#### Scenario: A foreign term's copy is the replica's own
+- **WHEN** partition 1 copies the term to ID and ID to term records of `<b>`, homed in partition 2
+- **THEN** both copies lie in partition 1's families of bucket group `ABSENT`, and a move of any of partition 1's bucket
+  groups sends neither
+
 #### Scenario: A recreated IRI names its new instance and keeps its old one readable
 - **WHEN** an aviation `Engine` is deleted and an `Engine` with the same `serial` is created
-- **THEN** the IRI's entry names the new ID, the old ID's entry still names the IRI, and the new instance's record names
-  the old ID
+- **THEN** the IRI's term to ID record names the new ID from the re-creation's version, the old ID's ID to term record
+  still names the IRI, and the new ID's ID to term record names the old ID
 
 ## ADDED Requirements
 

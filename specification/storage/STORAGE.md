@@ -317,10 +317,17 @@ one value, while the stored value keeps all 18 bytes and its offset round-trips 
 
 ### 5.3 Tokens
 
-An index row's key is a token. A token of a `range`, `interval` or `count` index over a declared attribute is the
+An index row's key is a token. A token of a `range` or `interval` index over a declared attribute is the
 tokenizer's identifier byte (`tokenizers` capability) followed by the comparison form of the value's sortable encoding
 (section 5.2), exact, so a range of values is a range of tokens (T37; T48, C28); a `Measure<K>` value's token holds the
-value converted to the quantity kind's canonical unit, as a `Float64`'s sortable encoding. Any other token is the
+value converted to the quantity kind's canonical unit, as a `Float64`'s sortable encoding: the exact rational value in
+the canonical unit, rounded once to the nearest `Float64`, ties to even (T48). In the generic layout a literal's
+datatype picks the sortable type its range token takes (T48): `xsd:integer` and the integer types derived from it
+`Int64`, a value outside `Int64`'s range taking no range token; `xsd:double` and `xsd:float` `Float64`; `xsd:decimal`
+`Int128`, the value × 10^18, exact, the scale of `PROTOCOL.md` section 10.5's by-value payload; `xsd:dateTime` and
+`xsd:date` the 16-byte comparison form of tags 19 and 17, the UTC instant; `xsd:boolean` `Bool`; the token is the
+identifier byte followed by that comparison form. A `count` index's token is the identifier byte, the direction as a
+u8, 1 a subject's count and 2 an object's, then the count as a big-endian `UInt64` (T48). Any other token is the
 tokenizer's identifier byte and token bytes as that capability gives them. A token of more than 256 bytes, its
 identifier byte included, is stored as the byte `0xFF` followed by the XXH3-128 of all its bytes as 16 big-endian bytes,
 17 bytes in all, and is lossy: a reader confirms every match against the value it indexes. No tokenizer's identifier
@@ -403,8 +410,8 @@ A tile moved by the cleaner or by a bucket group's move (sections 16.6, 16.8) ke
 Entries are in ascending `id` order, each `id` at most once. Section 0 of the directory starts at `128 + 16 × sections`;
 each later one at the end of the one before; the tile ends where the last ends. A shape's table states each section's
 `id`, the encodings it may take, its count, whether it is present, and the bounds of its values; a decoder refuses a
-section a shape does not list, or one it lists that its *Present* column excludes for the tile's kind and flags
-(`Section`), a missing required section (`Section`), an encoding the row does not allow
+section a shape does not list, or one it lists that its *Present* column excludes for the tile's kind and flags or for
+the settings, a FILTER section while `filter_bits_per_key` is 0 among them (`Section`; T48), a missing required section (`Section`), an encoding the row does not allow
 (`Encoding`), a count other than the row's (`Count`), and a value past its bound (`Range`).
 
 ### 6.4 A reference
@@ -424,8 +431,8 @@ tile whose checksum holds but differs from the reference's is stale or misdirect
 A decoder checks, in order: `magic` (`Magic`); `format` (`Format`); `length` at least `128 + 16 × sections`, at most
 `tile_bytes_max`, equal to the reference's (`Length`); `checksum` (`Checksum`); the reference's checksum
 (`Misdirected`); `shape`, `kind`, and the `direction` an adjacency kind gives (`Shape`); `flags` (`Flags`); the header's zero bytes and fields its shape leaves 0
-(`Padding`); the directory as section 6.3 states; every section's own layout as section 4 states; then its shape's rules.
-Nothing of a tile is used before every check has passed.
+(`Padding`); the directory as section 6.3 states; every section's own layout as section 4 states; then its shape's rules; then,
+last, `digest` against its entries (`Digest`, section 11.1; T48). Nothing of a tile is used before every check has passed.
 
 ## 7. Adjacency blocks
 
@@ -465,7 +472,7 @@ row key, neighbour, statement and created version.
 | 7 | `values` | BYTES | `n` | kinds 2, 5 | each neighbour's bytes |
 | 8 | `statements` | FOR or DELTA | `n` | when any entry has a statement | each statement slot, `ABSENT` for none, its type prefix in section 14 |
 | 9 | `created` | FOR or DELTA | `n` | `versioned` | each created version |
-| 10 | `deleted` | FOR or DELTA | `n` | `versioned` and not `class_i` | each deleted version, 0 for live; above its created version when nonzero |
+| 10 | `deleted` | FOR or DELTA | `n` | `versioned` and not `class_i` | each deleted version, 0 for live; above its created version when nonzero, refused `Range` otherwise (T48) |
 | 11 | `filter` | FILTER | | `filter_bits_per_key` above 0 | every entry's row key's canonical bytes followed by its neighbour's |
 | 12 | `row_prefixes` | FOR or DELTA | `r` | kinds 1, 2, 5 | each row's type prefix, below 2^16 (T48, C14) |
 | 13 | `slot_prefixes` | FOR or DELTA | `n` | kinds 3, 4 | each neighbour slot's type prefix, below 2^16 |
@@ -545,7 +552,7 @@ group, or `ABSENT` for a run of the whole replica.
 | 1 | `keys` | BYTES | `n` | always | the keys |
 | 2 | `values` | BYTES | `n` | always | the values |
 | 3 | `created` | FOR or DELTA | `n` | `versioned` | each record's created version |
-| 4 | `deleted` | FOR or DELTA | `n` | `versioned` and not `class_i` | each record's deleted version, 0 for live |
+| 4 | `deleted` | FOR or DELTA | `n` | `versioned` and not `class_i` | each record's deleted version, 0 for live; above its created version when nonzero, refused `Range` otherwise (T48) |
 | 5 | `filter` | FILTER | | `filter_bits_per_key` above 0 | every key |
 
 Records ascend by key, then by created version; a run that is not `versioned` holds each key once. At version `v`, a
@@ -597,7 +604,7 @@ Inside keys and values, an ID is its 16 bytes and a term encoding is section 5.1
 | 11 | Slot map | the sequence as a u64 | the slot as a u32 |
 | 12 | `@set` combination | a node-encoded relation's only: the root type's prefix as a u16, then per role in declaration order a u16 count followed by its participants' system IDs ascending, count 0 for an empty optional role, a `@symmetric` relation's participants taking its roles in ID order (T48, C21); an edge-encoded `@set` relation's combination is its triple, and takes no record | the instance's system ID |
 | 13 | Idempotency claim | the concrete type's prefix as a u16, then the `Id128` as 16 big-endian bytes (T48, C15) | the instance's system ID |
-| 14 | Drop marker | the drop's version as a u64 | the operation as a u16 (`PROTOCOL.md` section 12.2, operations 1 to 4), six zero bytes, then its 16-byte argument |
+| 14 | Drop marker | the drop's version as a u64 | the operation as a u16 (`PROTOCOL.md` section 12.2, operations 1 to 4, or 6 for a catalog version removing a tokenizer of an index, covering that tokenizer's index families; T48), six zero bytes, then its 16-byte argument |
 | 15 | Build | the build's starting position as a u64 | the catalog version as a u64, the build's start version as a u64, the predicate's system ID, then the last key the backfill reached, its canonical bytes (T48) |
 | 16 | Manifest leaf | a tile key (section 13.1) | the tile's reference, then its `entries` as a u32 and four zero bytes |
 | 17 | Manifest root | the first tile key of a leaf | the leaf's reference |
@@ -638,7 +645,7 @@ a predicate's statistics at a version are the merge of its records visible there
 
 The free set is a tile of shape 4, kind 1, `tenant`, `graph` and `subject` zero and `group` `ABSENT`, with one
 section, `id` 1, a BITMAP of `grid_extents` bits: bit `e` set when extent `e` is allocated (section 12.4). Bit 0 is
-always set. `entries` is the count of bits set.
+always set; a free set with bit 0 clear is refused (`Range`; T48). `entries` is the count of bits set.
 
 ## 11. Digests and the checkpoint identity
 
@@ -804,9 +811,11 @@ changed. Its leaves are runs of kind 16, the directory's entries in tile-key ord
 holding each leaf's first key and reference. Leaves are cut in tile-key order, greedily: a record joins the current leaf
 unless the leaf would then hold more than `tile_entries_max` records or encode to more than `tile_bytes_max` bytes, in
 which case it starts the next leaf. At a checkpoint the leaves are cut afresh from the whole directory; a leaf equal,
-byte for byte apart from `built`, `previous` and `horizon`, to a leaf of the previous checkpoint at the same position
+byte for byte apart from `built`, `previous`, `horizon` and `checksum`, to a leaf of the previous checkpoint at the same position
 in the order keeps that leaf's reference and is not written; the root is always written. A root that would exceed
-`tile_bytes_max` stops admission (`GridFull`): at the defaults it holds about 600 leaves of about 600 tiles each.
+`tile_bytes_max` is the persistent `GridFull` of section 12.4, code 5 (Busy) `detail` 2, which only a larger
+`tile_bytes_max` or grid, a new derivation version (sections 3.2 and 17.3), relieves (T48): at the defaults it holds
+about 600 leaves of about 600 tiles each.
 
 ### 13.4 The layout a tile follows
 
@@ -855,7 +864,7 @@ The primary of a partition stamps the fold horizon into every round (`PROTOCOL.m
 
 ```
 H = min( the read version of its oldest open read-write transaction,
-         the version of its oldest pinned snapshot,
+         the oldest version a lane S read holds (section 18.1),
          the start version of every index build in progress, as its build record holds it (section 16.7),
          R )
 R = the version bound of the latest epoch e whose close time ≤ closeTime(round's epoch − 1) − retention_ms,
@@ -947,7 +956,7 @@ For a statement `(g, s, p, o)` with statement ID `t` or none, committed at versi
 | Change | Family | Row key | Neighbour |
 |---|---|---|---|
 | forward insert | (g, p, forward) of kind 1 when `o` is an entity, else kind 2 | `s`'s slot pair | `o`'s system ID, or `o`'s term (generic) or value (compiled) |
-| reverse insert | (g, p, reverse), kind 3 | `o`'s system ID (compiled) or term encoding (generic) | `s`'s slot pair |
+| reverse insert | (g, p, reverse), kind 3, none for a vector literal, which no reverse key names (`PROTOCOL.md` section 11.12; T48) | `o`'s system ID (compiled) or term encoding (generic) | `s`'s slot pair |
 | index inserts | each index family the layout declares for `p` | each token of `o` | `s`'s slot pair |
 
 each carrying `t`'s slot pair or `ABSENT`, the inline values the layout places, and version `v`. A `count` index row
@@ -988,17 +997,22 @@ A purge's round writes a purge marker (kind 20) per instance it names, keyed by 
 purge's version, in every partition holding entries that name it, a referrer's partition receiving it through the
 purge's share (`PROTOCOL.md` section 8.5). Reads at every version treat every entry naming the instance as absent
 (section 14.4), and compaction removes them, class I entries included (T48, C2). A drop writes a drop marker (kind 14);
-reads at every version treat entries the drop covers as absent, and compaction removes them; a graph drop removes the
-graph's families from the directory at the round. A build record (kind 15) starts an index build of the generic layout
-at its position (section 16.7).
+reads at every version treat entries the drop covers as absent, every family it covers is due at the round's boundary
+under reason 4 of section 16.1, and compaction rewrites their tiles to nothing and releases them (T48); a graph drop removes the
+graph's families from the directory at the round. A catalog version taking effect (`PROTOCOL.md` section 12.2,
+operation 6) that removes a tokenizer of an index, and starts no build of that index whose swap removes it, writes
+in its round a drop marker naming operation 6 and the version, which covers that tokenizer's index families, removed as a drop removes families (T48). A build record
+(kind 15) starts an index build of the generic layout at its position (section 16.7).
 
 ### 15.6 Admission
 
 Admission is checked per round, as the primary builds it, counting the round's own changes (T48, C10, C11): an entry
 joins the round only while the delta's entries, with the changes of the round's entries before it and its own, stay
 at or below `delta_watermark_percent` of `delta_entries_max`, and `free` stays at or above the reserve with those
-changes counted (section 12.4). An entry that does not join waits for compaction or a checkpoint to make room; a
-commit waiting past its deadline is refused with code 5 (Busy), retryable, `detail` 1 for delta admission and 2 for
+changes counted (section 12.4). An entry that does not join waits for compaction or a checkpoint to make room: a
+transaction's commit until its transaction's deadline, and a one-frame write, a Drop or an Ingest share until
+`transaction_ms` from its arrival, as `PROTOCOL.md` section 11.12's rule for one-frame writes in a queue counts it
+(T48); past that it is refused with code 5 (Busy), retryable, `detail` 1 for delta admission and 2 for
 grid admission (`GridFull`) (`PROTOCOL.md` section 9.4; T48, C12). The delta therefore never holds more than the
 watermark's share at a round boundary, and the pool's headroom above it, `delta_entries_max × (100 −
 delta_watermark_percent) / 100` entries, at least 3,277 at the settings' bounds, is no round's to fill: a round of the
@@ -1008,14 +1022,16 @@ log's round bound adds only what admission counted, so `PoolBound` holds whateve
 
 ### 16.1 When a tile is due
 
-At every round boundary, after apply, the engine examines every family with delta changes. Each delta change belongs to
+At every round boundary, after apply, the engine examines every family with delta changes, and every family a drop
+marker the round wrote covers (T48). Each delta change belongs to
 one tile by section 13.2, or to its family's new tile; per tile, `d` is the changes belonging to it, `b` its entries, and
 a *delta row* the changes of one row key belonging to it. A tile is due when any of:
 
 1. one of its delta rows holds `delta_row_entries_max` changes or more;
 2. `d × 100 ≥ theta_percent × max(b, 1)`;
 3. its oldest delta change was applied `delta_age_rounds` rounds ago or more;
-4. a drop marker or a purge covers any of its entries;
+4. a drop marker or a purge covers any of its entries; a drop marker makes every tile of every family it covers due at
+   its round's boundary, so a dropped family's tiles are rewritten to nothing and released (T48);
 5. the delta holds `delta_watermark_percent` of `delta_entries_max` or more, and the tile is selected: tiles not
    already due are taken by `d` descending, then tile key ascending, until the delta less the selected tiles' `d` is
    below `delta_watermark_percent` of `delta_entries_max`.
@@ -1118,15 +1134,15 @@ checkpoint. A round flagged `checkpoint` (`PROTOCOL.md` section 12.1, `flags` bi
 `GridFull` holds its partition and the delta holds changes or an extent has been released since the last checkpoint
 (section 12.4), is a checkpoint position too (T48, C10). Checkpoint positions are a
 function of the log alone, so every replica checkpoints at the same positions.
-A clean shutdown syncs the log and writes no checkpoint; the next open replays from the last one. A checkpoint, after
+A clean shutdown syncs the log and applies the rounds logged and not yet applied, taking every checkpoint whose position
+they reach, as at any other time; the shutdown itself adds none, and the next open replays from the last one (T48). A checkpoint, after
 the boundary's rewrites have placed their outputs:
 
 0. drains the delta: every rewrite in progress or queued completes at this boundary, whatever the units, in queue order;
    then every tile still holding delta changes, in tile-key order, is rewritten as section 16.3 states, this boundary
    deciding, and completes at once; each places its outputs as it completes. The delta is then empty, no rewrite is in
-   progress, the queue is empty and the units held are 0; then the cleaner runs once if due (section 16.6). The log is
-   trimmed through the checkpoint's position, so the grid holds every change of every round up to it and recovery
-   rebuilds nothing below it;
+   progress, the queue is empty and the units held are 0; then the cleaner runs once if due (section 16.6). The grid
+   then holds every change of every round up to the checkpoint's position, which step 5's trim needs;
 1. closes every open extent;
 2. cuts the manifest (section 13.3) and places, in stream 0, the leaves to be written, then the root, then the free set;
    then encodes the free set, which marks every extent not free after these placements, the extents released since the
@@ -1134,7 +1150,8 @@ the boundary's rewrites have placed their outputs:
    this one does not keep, its root and its free set stop being live;
 3. syncs the grid after writing those tiles and every data tile placed since the last checkpoint;
 4. writes the superblock's copies 0, 1, 2 and 3 in turn, syncing after each;
-5. writes the WAL's superblock and trims the WAL through `position`;
+5. writes the WAL's superblock and trims the WAL through `position`, the one trim a checkpoint makes, so recovery
+   rebuilds nothing below it;
 6. frees every released extent, and every closed extent holding no live tile, the previous checkpoint's stream 0
    extents among them once their tiles are replaced, and punches them: the checkpoint just made durable references none
    of their tiles, and recovery from it treats them as free (section 17.2, step 4). The frees take effect at the
@@ -1153,20 +1170,27 @@ At open, the store:
 1. reads blocks 0 to 3 and keeps each copy whose `magic`, `format`, `copy` (its block's number) and `checksum` hold;
 2. takes the highest `sequence` among them; two kept copies of one `sequence` that differ in any byte but `copy`
    refuse the open (`SuperblockDiverged`); with none kept, an all-zero extent 0 is a new grid (section 17.3) and
-   anything else refuses the open (`SuperblockLost`); when the highest sequence's references fail their checks and a
-   kept copy of the sequence below holds, recovery takes that one, since step 4 of section 17.1 had not completed;
-3. checks `derivation`, `extent_bytes`, `grid_extents`, `cluster`, `partition` and `replica` against its settings and
-   identity (`DerivationMismatch`, `Identity`), and `identity` against section 11.3;
-4. reads the free set and the manifest, checking each tile as section 6.5 states, and rebuilds the directory, the live
-   block counts (section 12.4) and the extents' states: an extent the free set marks and holding live blocks is closed;
+   anything else refuses the open (`SuperblockLost`); then reads the manifest's root and leaves and the free set the
+   highest sequence references, checking each tile as section 6.5 states, and when any fails and a kept copy of the
+   sequence below holds, takes that one instead, since step 4 of section 17.1 had not completed (T48);
+3. refuses the open with `DerivationMismatch` for a stored `derivation`, `extent_bytes` or `grid_extents` other than
+   its settings give, and with `Identity` for a `cluster`, `partition` or `replica` other than the replica's own and for a
+   stored `identity` that does not recompute by section 11.3 (T48); a storage instance refusing with
+   `DerivationMismatch` exits with code 78 and never answers `/ready` (`role-binaries` capability; T48);
+4. rebuilds the directory, the live block counts (section 12.4) and the extents' states from the free set and the
+   manifest step 2 checked: an extent the free set marks and holding live blocks is closed;
    one it marks and holding none is free, as it is on a replica that did not crash (section 17.1, step 6); one it does
    not mark is free; no extent is open;
 5. starts with an empty delta, an empty queue and no units, as every replica stands right after a checkpoint (section
    17.1, step 0), and replays the log from `position + 1`, which rebuilds the delta and, compaction being deterministic,
    writes the tiles the replica wrote before the crash at the addresses it wrote them.
 
-A tile failing its checks during step 4 is repaired (section 17.4) before the open continues; one that cannot be
-repaired refuses the open naming its tile key and reference.
+The checks run in the steps' order (T48): the superblock's copies (step 1), the manifest and free set of the highest
+sequence, a failure falling back to the sequence below (step 2), the settings and identity (step 3), then the data tiles
+as the open reads them (steps 4 and 5). A manifest or free set tile failing with no kept copy of the
+sequence below refuses the open naming its tile key and reference. A data tile failing its checks is repaired (section
+17.4) before the open continues; one with no peer to repair it from, as at stage 6.5, which runs one replica, stops the
+replica with the refusal naming its tile key and reference.
 
 ### 17.3 A new grid
 
@@ -1246,7 +1270,10 @@ A frontier request names one relation, kind and direction, which is one family p
 forward row, and a column chunk's, is read in its subject's bucket group; a reverse or index row in every bucket group
 of the replica, the groups ascending, the families of its two storage classes merged within each group in the family's
 order (T48, C36). A `predicate` of 16
-bytes `0xFF` names every predicate of the kind, read in tile-key order (T48, C38). One naming an attribute's column
+bytes `0xFF` names every predicate of the kind, read in tile-key order (T48, C38); a `graph` of 16 bytes `0xFF` names
+every graph the replica holds the family in, read in tile-key order likewise, each answer carrying its graph's system
+ID before its neighbour, and before the predicate's when both are named, and in lane X recording the tenant's whole
+range (T48). The resume key names the graph already (section 18.3). One naming an attribute's column
 chunks reads, for each row, an instance's system ID, the family of the attribute and of the instance's type in its
 bucket group, and answers the value its slot holds as the row's one entry. One naming a version run (kind 5) reads,
 for each row, an instance's system ID, and answers its entries, each the revision's asserted start as a big-endian u64
@@ -1260,7 +1287,8 @@ row in its order and stops at k. Its wire form, and its refusal of a row named t
 ### 18.6 Refusals
 
 A read below the latest logged `H` answers `TooOld`; a lane L request that has gone back to loading twice is answered in
-lane S at the replica's latest applied version at that moment; a request past its deadline ends with an error naming
+lane S at the replica's latest applied version at that moment, and from then pins that version as lane S does, holding
+`H` on the primary (section 14.2; T48); a request past its deadline ends with an error naming
 the partition.
 
 ## 19. Faults, invariants and refusals
@@ -1314,7 +1342,7 @@ A decoder names the first rule a structure breaks, with the structure and the of
 | `Count` | A count other than the section's rule |
 | `NotMinimal` | A packed width other than `bitlen` gives |
 | `NotChosen` | FOR where DELTA is shorter, or DELTA where it is not |
-| `Range` | A value past its section's bound |
+| `Range` | A value past its section's bound, a nonzero `deleted` version not above its created version among them, and a free set's bit 0 clear (sections 7.3, 9.1 and 10; T48) |
 | `Order` | Rows, entries, records or overlay records out of order, or two equal; `ends` that fall, or a `rows` or `ends` section a shape requires ascending that is not |
 | `Copy` | A superblock copy whose `copy` is not the number of the block it was read from; the copy is not kept |
 | `Parameter` | A FILTER's `k` or `bits` other than section 4.5's formulas |
@@ -1355,10 +1383,10 @@ A run is a function of its seed: the simulator's clock, random source and comple
 | The header's size | 128 bytes, beside the design note's 64: the graph, the subject predicate, the fold horizon and the rewrite history need the room |
 | Death time | From two positions, `built` and `previous`, beside the SSD paper's four: a tile's predecessor's lifetime decides its stream |
 | A record run's versions | Records repeat their key per version, like an adjacency block's entries, so one merge serves every shape |
-| The count index | An index relation (adjacency kind 4) with the token direction and count, not a record run |
+| The count index | An index relation (adjacency kind 4) whose token is the identifier byte, the direction as a u8 (1 a subject's count, 2 an object's) and the count as a big-endian `UInt64` (section 5.3; T48), not a record run |
 | The default graph | 16 zero bytes in headers and tile keys |
 | Values longer than a quarter of a tile | Refused in format 1 (`ValueTooLarge`, 16 KiB at the defaults, the Welcome's `value_bytes_max`) rather than kept in blob extents, so every row and slot fits a tile; blob extents join a later format if a workload asks for them |
-| A checkpoint at a clean shutdown | None: checkpoint positions are a function of the log, so every replica's grid stays identical; a restart replays about `checkpoint_bytes` plus one round of log |
+| A checkpoint at a clean shutdown | None of its own: the rounds it applies take the checkpoints their positions reach, as at any time (section 17.1), and checkpoint positions are a function of the log, so every replica's grid stays identical; a restart replays about `checkpoint_bytes` plus one round of log |
 | Joining a fence's components | Escaped (`esc`) where variable in width, so a fence compares as its components' tuple; a length prefix would not sort |
 | The delta at a checkpoint | Drained: a checkpoint completes every rewrite so the grid holds every change up to its position, since the log is trimmed through it. Persisting the delta instead would write it again every checkpoint, and replaying from an older position would need to tell, per change, whether a tile already holds it. The drain is bounded by the watermark; E10 measures the boundary it holds |
 | A predicate held by types of both storage classes | Two families of every shape, one per class, beside the design note's T36, which named index and reverse families: a tile carries one `class_i` flag and a tile key one class, so every family a predicate has splits, its forward families and column chunks among them |

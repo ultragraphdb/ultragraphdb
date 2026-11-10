@@ -11,7 +11,7 @@
 | 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage) | ✅ |
 | 5.7 Benchmark three-role cluster architecture| ✅  |
 | 6. UGS: the full data definition and its implementation | `paused`; pauses after task group 1; |
-| 6.5. The tile store: a graph-native storage engine replacing the KV store | `specified`; next after stage 6's group 1 |
+| 6.5. The tile store: a graph-native storage engine replacing the KV store | `proposed`: `openspec/changes/stage-6-5-tile-store`, twelve task groups; next after stage 6's group 1 |
 | 6.7 Harden transactions  with chaos testing against multiple UGS schemata | `open` |
 | 7. Query core: SPARQL and GQL where they overlap | `open` |
 | 7.5. Fuzzy test and harden query core | `open` |

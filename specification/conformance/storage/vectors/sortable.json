@@ -634,7 +634,629 @@
       "identifier": 7,
       "body_hex": "797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979",
       "hex": "07797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979"
+    },
+    {
+      "name": "generic range token of \"-9223372036854775808\"^^xsd:integer",
+      "identifier": 34,
+      "datatype": "xsd:integer",
+      "lexical": "-9223372036854775808",
+      "sortable": "Int64",
+      "body_hex": "0000000000000000",
+      "hex": "220000000000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"-4294967296\"^^xsd:long",
+      "identifier": 34,
+      "datatype": "xsd:long",
+      "lexical": "-4294967296",
+      "sortable": "Int64",
+      "body_hex": "7fffffff00000000",
+      "hex": "227fffffff00000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"-1\"^^xsd:byte",
+      "identifier": 34,
+      "datatype": "xsd:byte",
+      "lexical": "-1",
+      "sortable": "Int64",
+      "body_hex": "7fffffffffffffff",
+      "hex": "227fffffffffffffff",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"0\"^^xsd:nonNegativeInteger",
+      "identifier": 34,
+      "datatype": "xsd:nonNegativeInteger",
+      "lexical": "0",
+      "sortable": "Int64",
+      "body_hex": "8000000000000000",
+      "hex": "228000000000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"+007\"^^xsd:integer",
+      "identifier": 34,
+      "datatype": "xsd:integer",
+      "lexical": "+007",
+      "sortable": "Int64",
+      "body_hex": "8000000000000007",
+      "hex": "228000000000000007",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"7\"^^xsd:int",
+      "identifier": 34,
+      "datatype": "xsd:int",
+      "lexical": "7",
+      "sortable": "Int64",
+      "body_hex": "8000000000000007",
+      "hex": "228000000000000007",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"200\"^^xsd:unsignedByte",
+      "identifier": 34,
+      "datatype": "xsd:unsignedByte",
+      "lexical": "200",
+      "sortable": "Int64",
+      "body_hex": "80000000000000c8",
+      "hex": "2280000000000000c8",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"2147483647\"^^xsd:int",
+      "identifier": 34,
+      "datatype": "xsd:int",
+      "lexical": "2147483647",
+      "sortable": "Int64",
+      "body_hex": "800000007fffffff",
+      "hex": "22800000007fffffff",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"1099511627776\"^^xsd:positiveInteger",
+      "identifier": 34,
+      "datatype": "xsd:positiveInteger",
+      "lexical": "1099511627776",
+      "sortable": "Int64",
+      "body_hex": "8000010000000000",
+      "hex": "228000010000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"9223372036854775807\"^^xsd:unsignedLong",
+      "identifier": 34,
+      "datatype": "xsd:unsignedLong",
+      "lexical": "9223372036854775807",
+      "sortable": "Int64",
+      "body_hex": "ffffffffffffffff",
+      "hex": "22ffffffffffffffff",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"9223372036854775808\"^^xsd:integer",
+      "identifier": 34,
+      "datatype": "xsd:integer",
+      "lexical": "9223372036854775808",
+      "sortable": "Int64",
+      "body_hex": null,
+      "hex": null,
+      "note": "the identifier byte is this vector's input; outside Int64's range, so no range token"
+    },
+    {
+      "name": "generic range token of \"18446744073709551615\"^^xsd:unsignedLong",
+      "identifier": 34,
+      "datatype": "xsd:unsignedLong",
+      "lexical": "18446744073709551615",
+      "sortable": "Int64",
+      "body_hex": null,
+      "hex": null,
+      "note": "the identifier byte is this vector's input; outside Int64's range, so no range token"
+    },
+    {
+      "name": "generic range token of \"-9223372036854775809\"^^xsd:negativeInteger",
+      "identifier": 34,
+      "datatype": "xsd:negativeInteger",
+      "lexical": "-9223372036854775809",
+      "sortable": "Int64",
+      "body_hex": null,
+      "hex": null,
+      "note": "the identifier byte is this vector's input; outside Int64's range, so no range token"
+    },
+    {
+      "name": "generic range token of \"-INF\"^^xsd:double",
+      "identifier": 34,
+      "datatype": "xsd:double",
+      "lexical": "-INF",
+      "sortable": "Float64",
+      "body_hex": "000fffffffffffff",
+      "hex": "22000fffffffffffff",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"-1.0E300\"^^xsd:double",
+      "identifier": 34,
+      "datatype": "xsd:double",
+      "lexical": "-1.0E300",
+      "sortable": "Float64",
+      "body_hex": "01c81bc377ff8a63",
+      "hex": "2201c81bc377ff8a63",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"-3.5\"^^xsd:float",
+      "identifier": 34,
+      "datatype": "xsd:float",
+      "lexical": "-3.5",
+      "sortable": "Float64",
+      "body_hex": "3ff3ffffffffffff",
+      "hex": "223ff3ffffffffffff",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"-1.5\"^^xsd:double",
+      "identifier": 34,
+      "datatype": "xsd:double",
+      "lexical": "-1.5",
+      "sortable": "Float64",
+      "body_hex": "4007ffffffffffff",
+      "hex": "224007ffffffffffff",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"-0.0E0\"^^xsd:double",
+      "identifier": 34,
+      "datatype": "xsd:double",
+      "lexical": "-0.0E0",
+      "sortable": "Float64",
+      "body_hex": "8000000000000000",
+      "hex": "228000000000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"0.0\"^^xsd:float",
+      "identifier": 34,
+      "datatype": "xsd:float",
+      "lexical": "0.0",
+      "sortable": "Float64",
+      "body_hex": "8000000000000000",
+      "hex": "228000000000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"2.5E-3\"^^xsd:double",
+      "identifier": 34,
+      "datatype": "xsd:double",
+      "lexical": "2.5E-3",
+      "sortable": "Float64",
+      "body_hex": "bf647ae147ae147b",
+      "hex": "22bf647ae147ae147b",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"0.25\"^^xsd:float",
+      "identifier": 34,
+      "datatype": "xsd:float",
+      "lexical": "0.25",
+      "sortable": "Float64",
+      "body_hex": "bfd0000000000000",
+      "hex": "22bfd0000000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"1.0E0\"^^xsd:double",
+      "identifier": 34,
+      "datatype": "xsd:double",
+      "lexical": "1.0E0",
+      "sortable": "Float64",
+      "body_hex": "bff0000000000000",
+      "hex": "22bff0000000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"1\"^^xsd:float",
+      "identifier": 34,
+      "datatype": "xsd:float",
+      "lexical": "1",
+      "sortable": "Float64",
+      "body_hex": "bff0000000000000",
+      "hex": "22bff0000000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"1.0E300\"^^xsd:double",
+      "identifier": 34,
+      "datatype": "xsd:double",
+      "lexical": "1.0E300",
+      "sortable": "Float64",
+      "body_hex": "fe37e43c8800759c",
+      "hex": "22fe37e43c8800759c",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"INF\"^^xsd:double",
+      "identifier": 34,
+      "datatype": "xsd:double",
+      "lexical": "INF",
+      "sortable": "Float64",
+      "body_hex": "fff0000000000000",
+      "hex": "22fff0000000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"NaN\"^^xsd:double",
+      "identifier": 34,
+      "datatype": "xsd:double",
+      "lexical": "NaN",
+      "sortable": "Float64",
+      "body_hex": "fff8000000000000",
+      "hex": "22fff8000000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"-1000000000000.5\"^^xsd:decimal",
+      "identifier": 34,
+      "datatype": "xsd:decimal",
+      "lexical": "-1000000000000.5",
+      "sortable": "Int128, the value \u00d7 10^18",
+      "body_hex": "7ffffff360d3632fb29ab6bbec4e0000",
+      "hex": "227ffffff360d3632fb29ab6bbec4e0000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"-12.34\"^^xsd:decimal",
+      "identifier": 34,
+      "datatype": "xsd:decimal",
+      "lexical": "-12.34",
+      "sortable": "Int128, the value \u00d7 10^18",
+      "body_hex": "7fffffffffffffff54bf83614fae0000",
+      "hex": "227fffffffffffffff54bf83614fae0000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"-0.0\"^^xsd:decimal",
+      "identifier": 34,
+      "datatype": "xsd:decimal",
+      "lexical": "-0.0",
+      "sortable": "Int128, the value \u00d7 10^18",
+      "body_hex": "80000000000000000000000000000000",
+      "hex": "2280000000000000000000000000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"0\"^^xsd:decimal",
+      "identifier": 34,
+      "datatype": "xsd:decimal",
+      "lexical": "0",
+      "sortable": "Int128, the value \u00d7 10^18",
+      "body_hex": "80000000000000000000000000000000",
+      "hex": "2280000000000000000000000000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"0.000000000000000001\"^^xsd:decimal",
+      "identifier": 34,
+      "datatype": "xsd:decimal",
+      "lexical": "0.000000000000000001",
+      "sortable": "Int128, the value \u00d7 10^18",
+      "body_hex": "80000000000000000000000000000001",
+      "hex": "2280000000000000000000000000000001",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"12.34\"^^xsd:decimal",
+      "identifier": 34,
+      "datatype": "xsd:decimal",
+      "lexical": "12.34",
+      "sortable": "Int128, the value \u00d7 10^18",
+      "body_hex": "8000000000000000ab407c9eb0520000",
+      "hex": "228000000000000000ab407c9eb0520000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"12.340\"^^xsd:decimal",
+      "identifier": 34,
+      "datatype": "xsd:decimal",
+      "lexical": "12.340",
+      "sortable": "Int128, the value \u00d7 10^18",
+      "body_hex": "8000000000000000ab407c9eb0520000",
+      "hex": "228000000000000000ab407c9eb0520000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"100000000000000000000\"^^xsd:decimal",
+      "identifier": 34,
+      "datatype": "xsd:decimal",
+      "lexical": "100000000000000000000",
+      "sortable": "Int128, the value \u00d7 10^18",
+      "body_hex": "cb3b4ca85a86c47a098a224000000000",
+      "hex": "22cb3b4ca85a86c47a098a224000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"0001-01-01T00:00:00Z\"^^xsd:dateTime",
+      "identifier": 34,
+      "datatype": "xsd:dateTime",
+      "lexical": "0001-01-01T00:00:00Z",
+      "sortable": "the UTC instant of tag 19",
+      "body_hex": "80000000000000000000000000000000",
+      "hex": "2280000000000000000000000000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"1969-12-31T23:59:59.5Z\"^^xsd:dateTime",
+      "identifier": 34,
+      "datatype": "xsd:dateTime",
+      "lexical": "1969-12-31T23:59:59.5Z",
+      "sortable": "the UTC instant of tag 19",
+      "body_hex": "80000000c8c55c6bef6046cba84e0000",
+      "hex": "2280000000c8c55c6bef6046cba84e0000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"1970-01-01T00:00:00Z\"^^xsd:dateTime",
+      "identifier": 34,
+      "datatype": "xsd:dateTime",
+      "lexical": "1970-01-01T00:00:00Z",
+      "sortable": "the UTC instant of tag 19",
+      "body_hex": "80000000c8c55c6bf650a2257c000000",
+      "hex": "2280000000c8c55c6bf650a2257c000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"2026-11-10+14:00\"^^xsd:date",
+      "identifier": 34,
+      "datatype": "xsd:date",
+      "lexical": "2026-11-10+14:00",
+      "sortable": "the UTC instant of tag 17",
+      "body_hex": "80000000ce9180f252642e9cde800000",
+      "hex": "2280000000ce9180f252642e9cde800000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"2026-11-10\"^^xsd:date",
+      "identifier": 34,
+      "datatype": "xsd:date",
+      "lexical": "2026-11-10",
+      "sortable": "the UTC instant of tag 17",
+      "body_hex": "80000000ce918b9e82e597f7e6000000",
+      "hex": "2280000000ce918b9e82e597f7e6000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"2026-11-10T00:00:00Z\"^^xsd:dateTime",
+      "identifier": 34,
+      "datatype": "xsd:dateTime",
+      "lexical": "2026-11-10T00:00:00Z",
+      "sortable": "the UTC instant of tag 19",
+      "body_hex": "80000000ce918b9e82e597f7e6000000",
+      "hex": "2280000000ce918b9e82e597f7e6000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"2026-11-09T23:00:00-02:00\"^^xsd:dateTime",
+      "identifier": 34,
+      "datatype": "xsd:dateTime",
+      "lexical": "2026-11-09T23:00:00-02:00",
+      "sortable": "the UTC instant of tag 19",
+      "body_hex": "80000000ce918c61aaeed659d4400000",
+      "hex": "2280000000ce918c61aaeed659d4400000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"2026-11-10T12:00:00Z\"^^xsd:dateTime",
+      "identifier": 34,
+      "datatype": "xsd:dateTime",
+      "lexical": "2026-11-10T12:00:00Z",
+      "sortable": "the UTC instant of tag 19",
+      "body_hex": "80000000ce9194c46354848f11000000",
+      "hex": "2280000000ce9194c46354848f11000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"2026-11-10T13:00:00+01:00\"^^xsd:dateTime",
+      "identifier": 34,
+      "datatype": "xsd:dateTime",
+      "lexical": "2026-11-10T13:00:00+01:00",
+      "sortable": "the UTC instant of tag 19",
+      "body_hex": "80000000ce9194c46354848f11000000",
+      "hex": "2280000000ce9194c46354848f11000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"9999-12-31T23:59:59Z\"^^xsd:dateTime",
+      "identifier": 34,
+      "datatype": "xsd:dateTime",
+      "lexical": "9999-12-31T23:59:59Z",
+      "sortable": "the UTC instant of tag 19",
+      "body_hex": "80000003fb8ed4d7eacf0a15ea9c0000",
+      "hex": "2280000003fb8ed4d7eacf0a15ea9c0000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"false\"^^xsd:boolean",
+      "identifier": 34,
+      "datatype": "xsd:boolean",
+      "lexical": "false",
+      "sortable": "Bool",
+      "body_hex": "00",
+      "hex": "2200",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"0\"^^xsd:boolean",
+      "identifier": 34,
+      "datatype": "xsd:boolean",
+      "lexical": "0",
+      "sortable": "Bool",
+      "body_hex": "00",
+      "hex": "2200",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"true\"^^xsd:boolean",
+      "identifier": 34,
+      "datatype": "xsd:boolean",
+      "lexical": "true",
+      "sortable": "Bool",
+      "body_hex": "01",
+      "hex": "2201",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "generic range token of \"1\"^^xsd:boolean",
+      "identifier": 34,
+      "datatype": "xsd:boolean",
+      "lexical": "1",
+      "sortable": "Bool",
+      "body_hex": "01",
+      "hex": "2201",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "count token, a subject's count 1",
+      "identifier": 35,
+      "direction": 1,
+      "count": 1,
+      "hex": "23010000000000000001",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "count token, a subject's count 2",
+      "identifier": 35,
+      "direction": 1,
+      "count": 2,
+      "hex": "23010000000000000002",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "count token, a subject's count 300",
+      "identifier": 35,
+      "direction": 1,
+      "count": 300,
+      "hex": "2301000000000000012c",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "count token, a subject's count 1099511627776",
+      "identifier": 35,
+      "direction": 1,
+      "count": 1099511627776,
+      "hex": "23010000010000000000",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "count token, an object's count 1",
+      "identifier": 35,
+      "direction": 2,
+      "count": 1,
+      "hex": "23020000000000000001",
+      "note": "the identifier byte is this vector's input"
+    },
+    {
+      "name": "count token, an object's count 7",
+      "identifier": 35,
+      "direction": 2,
+      "count": 7,
+      "hex": "23020000000000000007",
+      "note": "the identifier byte is this vector's input"
     }
+  ],
+  "token_ascending": [
+    [
+      "generic range token of \"-9223372036854775808\"^^xsd:integer",
+      "generic range token of \"-4294967296\"^^xsd:long",
+      "generic range token of \"-1\"^^xsd:byte",
+      "generic range token of \"0\"^^xsd:nonNegativeInteger",
+      "generic range token of \"7\"^^xsd:int",
+      "generic range token of \"200\"^^xsd:unsignedByte",
+      "generic range token of \"2147483647\"^^xsd:int",
+      "generic range token of \"1099511627776\"^^xsd:positiveInteger",
+      "generic range token of \"9223372036854775807\"^^xsd:unsignedLong"
+    ],
+    [
+      "generic range token of \"-INF\"^^xsd:double",
+      "generic range token of \"-1.0E300\"^^xsd:double",
+      "generic range token of \"-3.5\"^^xsd:float",
+      "generic range token of \"-1.5\"^^xsd:double",
+      "generic range token of \"-0.0E0\"^^xsd:double",
+      "generic range token of \"2.5E-3\"^^xsd:double",
+      "generic range token of \"0.25\"^^xsd:float",
+      "generic range token of \"1.0E0\"^^xsd:double",
+      "generic range token of \"1.0E300\"^^xsd:double",
+      "generic range token of \"INF\"^^xsd:double",
+      "generic range token of \"NaN\"^^xsd:double"
+    ],
+    [
+      "generic range token of \"-1000000000000.5\"^^xsd:decimal",
+      "generic range token of \"-12.34\"^^xsd:decimal",
+      "generic range token of \"0\"^^xsd:decimal",
+      "generic range token of \"0.000000000000000001\"^^xsd:decimal",
+      "generic range token of \"12.34\"^^xsd:decimal",
+      "generic range token of \"100000000000000000000\"^^xsd:decimal"
+    ],
+    [
+      "generic range token of \"0001-01-01T00:00:00Z\"^^xsd:dateTime",
+      "generic range token of \"1969-12-31T23:59:59.5Z\"^^xsd:dateTime",
+      "generic range token of \"1970-01-01T00:00:00Z\"^^xsd:dateTime",
+      "generic range token of \"2026-11-10+14:00\"^^xsd:date",
+      "generic range token of \"2026-11-10\"^^xsd:date",
+      "generic range token of \"2026-11-09T23:00:00-02:00\"^^xsd:dateTime",
+      "generic range token of \"2026-11-10T12:00:00Z\"^^xsd:dateTime",
+      "generic range token of \"9999-12-31T23:59:59Z\"^^xsd:dateTime"
+    ],
+    [
+      "generic range token of \"false\"^^xsd:boolean",
+      "generic range token of \"true\"^^xsd:boolean"
+    ],
+    [
+      "count token, a subject's count 1",
+      "count token, a subject's count 2",
+      "count token, a subject's count 300",
+      "count token, a subject's count 1099511627776",
+      "count token, an object's count 1",
+      "count token, an object's count 7"
+    ]
+  ],
+  "token_equal": [
+    [
+      "generic range token of \"+007\"^^xsd:integer",
+      "generic range token of \"7\"^^xsd:int"
+    ],
+    [
+      "generic range token of \"-0.0E0\"^^xsd:double",
+      "generic range token of \"0.0\"^^xsd:float"
+    ],
+    [
+      "generic range token of \"1.0E0\"^^xsd:double",
+      "generic range token of \"1\"^^xsd:float"
+    ],
+    [
+      "generic range token of \"-0.0\"^^xsd:decimal",
+      "generic range token of \"0\"^^xsd:decimal"
+    ],
+    [
+      "generic range token of \"12.34\"^^xsd:decimal",
+      "generic range token of \"12.340\"^^xsd:decimal"
+    ],
+    [
+      "generic range token of \"2026-11-10\"^^xsd:date",
+      "generic range token of \"2026-11-10T00:00:00Z\"^^xsd:dateTime"
+    ],
+    [
+      "generic range token of \"2026-11-10T12:00:00Z\"^^xsd:dateTime",
+      "generic range token of \"2026-11-10T13:00:00+01:00\"^^xsd:dateTime"
+    ],
+    [
+      "generic range token of \"false\"^^xsd:boolean",
+      "generic range token of \"0\"^^xsd:boolean"
+    ],
+    [
+      "generic range token of \"true\"^^xsd:boolean",
+      "generic range token of \"1\"^^xsd:boolean"
+    ]
   ],
   "esc": {
     "cases": [

@@ -1582,7 +1582,7 @@ and the value, already within the room, is not cut again.
 | 3 | TooOld | yes | 0 | The read version is below what validation still holds, or below the latest logged fold horizon of the partition answering (section 11.9; T48, C34) |
 | 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit, the Welcome's `transaction_ms`, or a one-frame write waited that long unsent at the frontend (section 11.12, *Frames on their way*); when a read was holding a write back then, the message names that read's stream and says it had no credit |
 | 5 | Busy | yes | 0; 1 delta admission; 2 grid admission | The commit queue is full; or the partition's epoch is full and its close request has gone unanswered for `close_request_ms`, the sequencer counting as unreachable until the close arrives (section 11.12); or an Install found the frontend's compile queue full (section 11.13); or the partition's store admits no commit until compaction or a checkpoint frees room: its delta at its watermark, `detail` 1, or its grid short of free extents (`GridFull`), `detail` 2 (`../storage/STORAGE.md` sections 12.4 and 15.6; T48, C12) |
-| 6 | TooLarge | no | the limit in bytes; for statement IDs, their bound | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9); a transaction's reads exceed what its read set holds; a write would pass `statements_per_object_max`; a write holds a value longer than the Welcome's `value_bytes_max`, `detail` that bound (`ValueTooLarge`, `../storage/STORAGE.md` section 3.3; T48, C12); a Commit reply's frame would pass the floor of `max_frame` (section 11.9); one entry's first object record or value is too large for an otherwise empty frame (section 13.14); a row or resume key is too large for an otherwise empty Result frame, or an Execute's ComputeRead for a frame (section 13.12) |
+| 6 | TooLarge | no | the limit in bytes; for statement IDs, their bound | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9); a transaction's reads exceed what its read set holds; a write would pass `statements_per_object_max`; a write holds a value longer than the Welcome's `value_bytes_max`, `detail` that bound (`ValueTooLarge`, `../storage/STORAGE.md` section 3.3; T48, C12); a Commit reply's frame would pass the floor of `max_frame` (section 11.9); a row or resume key is too large for an otherwise empty Result frame, or an Execute's ComputeRead for a frame (section 13.12) |
 | 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index, or its index among the transaction's declarations for ones tightening and loosening at once; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number (`../schema/SCHEMA.md` section 8.7); for a Migrate naming a run the tenant does not hold or that has ended, its `staged` | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, declarations tightening and loosening at once, a type change the data contradicts, or a catalog version past `catalog_bytes_max`, a Commit's or an Install's (sections 8.4, 11.13); a request named a tenant the metadata group does not hold (section 11.10); or a role's request was refused: a Lease past `block_size_max`, a Catalog of a version never held; or a schema rule refused the transaction at commit, the message naming the instance and the rule; or a Migrate's action does not fit its run (section 8.6); or the frontend does not serve the command in this stage (section 11.2) |
 | 8 | OperationFailed | no | bit 0 (`VALUE_CUT`, value 1): the value found is cut or left out to fit the frame; every other bit 0 | A compare-and-set did not hold; sections 1 and 2 hold the value found |
 | 9 | StaleStatement | no | the statement | The statement's schema id no longer matches its tenant's |
@@ -2218,8 +2218,8 @@ row's neighbour is never a vector (T48, C12).
 
 A partition answers every version at or above its latest logged fold horizon `H`, which its primary stamps on each round
 (section 12.1) and every replica and replay folds at (`../storage/STORAGE.md` section 14.2); a read below it is refused with
-code 3 (TooOld). The primary keeps `H` at or below the read version of its oldest open read-write transaction, the version of
-its oldest open Scan or Frontier of lane S, the start version of every index build in progress (`../storage/STORAGE.md`
+code 3 (TooOld). The primary keeps `H` at or below the read version of its oldest open read-write transaction, the oldest
+version a lane S read holds, the start version of every index build in progress (`../storage/STORAGE.md`
 section 14.2; T48), and the version bound of the latest epoch closed `retention_ms` (`../storage/STORAGE.md`
 section 3.1, 30,000 ms) before the close preceding the round's epoch, by the sequencer's logged close times, so `H` is a
 function of the log (T48, C34). A Scan's or Frontier's version holds `H` on the primary alone: on a follower it holds nothing,
@@ -2402,8 +2402,10 @@ answers whether the participant is absent, live, retracted or deleted, and its t
 
 **Parked requests.** A role connection keeps moving while a request on it waits. A partition copies every request out of the
 connection's receive buffer as it arrives, hands the copy to its core and reads the connection's next frame, without waiting for
-the core to take the request: the core takes its requests between turns, and a turn may wait on its log's sync, so the requests a
-connection carries during a sync reach the core together and its commits share the next round. A partition parks a Write, Operation,
+the core to take the request: the core takes its requests between turns, and a turn issues its log's sync while the sync's completion is a later
+input (`../storage/STORAGE.md` section 2; `../../openspec/notes/UltraGraphDB Scalable Tile Store.md`, section 4.9;
+T48), so the requests a connection carries while a sync is outstanding reach the core together and its commits share
+the next round. A partition parks a Write, Operation,
 DirectWrite, ConditionalWrite or Ingest share waiting on its registrations' answers, and a Write, Operation or Commit behind a read of its
 transaction waiting on a home (section 13.13): it copies the frame out of the connection's receive buffer, reads the connection's
 next frame, and sends the request's answer on its stream once it has one. A frame arriving on a stream with a request parked is
@@ -2944,7 +2946,11 @@ entry whatever its object holds, and `statements_per_object_max` (section 11.9) 
 - **A catalog version takes effect**, operation 6, in a round of its own at the first version of its effective epoch:
   the partition declares the version's declarations, checked against its data, and removes the predicates, entity
   types and relations the version no longer names, and on replay does the same from the version the metadata group
-  holds, so every later record is derived under the catalog its first apply had. A version adding an index to a
+  holds, so every later record is derived under the catalog its first apply had. A version removing a tokenizer of an
+  index, and starting no build of that index whose swap removes it, removes that tokenizer's index families as a drop
+  removes families: its round writes a drop marker naming
+  operation 6 and the version, which covers them (`../storage/STORAGE.md` sections 9.3, kind 14, and 15.5; T48). A
+  version adding an index to a
   predicate holding data starts that index's build there, from the data at that version, and the commit step records
   the nodes later writes change during it. A build's completion, operation 7, names the version that started it and
   its outcome. A swap makes the built index family (`../storage/STORAGE.md` section 16.7) live at the build's version
@@ -3419,8 +3425,23 @@ An object record gives rows as section 13.14 states. A system ID or literal hash
 answers no entry for is corruption: compute answers the read with code 17 (Unavailable), the message naming the row holding
 it, and the connection stays open.
 
-An unbound graph is read by ranges of space 2 naming every graph (section 13.13), whose rows name their graphs. In a
-transaction such a range records the tenant's whole range of conflict keys, so a graph appearing later conflicts.
+Each pattern takes its kernel by the first row that fits, at the partitions section 11.12 asks (T48):
+
+| The pattern | The kernel |
+|---|---|
+| A bound subject that is a reifier's skolem IRI, or the handle IRI of an edge-encoded instance | Scan of space 1, kind 18, the statement's record at the partition its bucket names |
+| Any other bound subject | Frontier at the subject's partition: kinds 1 and 2, forward edges and values; 6, an attribute's column; 5, a version run |
+| A bound IRI or blank-node object, the subject unbound | the object's referrer set, a Scan of space 1, kind 7, at the object's home; then Frontier kind 3 at the set's members |
+| A bound vector object, the subject unbound | Scan of space 2 of the predicate's forward families at every partition, compute keeping the objects equal to the vector's encoding, since no reverse key names a vector |
+| Any other bound literal object, the subject unbound | Frontier kind 3 at every partition |
+| Neither subject nor object bound | Scan of space 2 |
+| An unbound predicate, with any row above | that row's Frontier with `predicate` 16 bytes of `0xFF`, or its Scan naming every predicate |
+| An unbound graph, with any row above | that row's Frontier with `graph` 16 bytes of `0xFF`, or its Scan of space 2 naming every graph |
+
+An unbound graph with a bound subject is therefore read by a Frontier naming every graph (section 13.21), not by a
+Scan of a whole family. A Frontier or a range of space 2 naming every graph answers rows naming their graphs (sections
+13.13 and 13.22), and in a transaction records the tenant's whole range of conflict keys, so a graph appearing later
+conflicts.
 
 ### 13.13 Scan (524)
 
@@ -3872,7 +3893,7 @@ is read in each family whose layout names rows in its form, so a key of the othe
 | 50 | 2 | `prefix_past` | u16 | kind 1: one past its last, above `prefix_first`; 0 with no range (`FieldValue` `"prefix"`) |
 | 52 | 4 | `top` | u32 | the most entries answered per row, read in the row's answer order below; 0 for every entry |
 | 56 | 8 | zero | 0 | |
-| 64 | 16 | `graph` | system ID (section 1) | the graph's; 16 zero bytes for the default graph |
+| 64 | 16 | `graph` | system ID (section 1) | the graph's; 16 zero bytes for the default graph; or 16 bytes of `0xFF` for every graph the partition holds the family in (T48) (`FieldValue` `"graph"`) |
 | 80 | 16 | `predicate` | system ID (section 1) | the relation's predicate, a valid system ID, or 16 bytes of `0xFF` for every predicate of the kind the partition holds (T48, C38) (`FieldValue` `"predicate"`) |
 
 | Section | Contents |
@@ -3906,7 +3927,9 @@ so no order holds across its groups (T38; T48, C36). A predicate held in both st
 merged in the family's order (`../storage/STORAGE.md` sections 13.1 and 14.3). With `predicate` every predicate, a row
 is read in each predicate's family in the order of their family keys, each entry's neighbour bytes begin with its
 predicate's system ID, and the request names no filter and is answered without inline values, since its families'
-inline columns differ (T48, C38). A row of kind 5 is an instance's version run, its entries the revisions, from which
+inline columns differ (T48, C38). With `graph` every graph, a row is read in the family of each graph the partition
+holds it in, in the order of their family keys, and each entry's neighbour bytes begin with its graph's system ID; with
+both, the graph's system ID comes first, then the predicate's, as family keys order them (T48). A row of kind 5 is an instance's version run, its entries the revisions, from which
 compute selects the revision in effect at the time it reads as of (T48, C39). A request holding a resume key answers
 only what lies strictly after it. A resume key is the store's, `../storage/STORAGE.md` section 18.3's logical bytes,
 which name after the statement the row's index in the request and the survivors the row has answered under `top`
@@ -3916,8 +3939,8 @@ Each frame is one turn's work, within `lane_entries_max` entries examined and `l
 (`../storage/STORAGE.md` section 3.1); one that stops with entries left ends with its resume key, and the next frame,
 when its stream holds credit, continues strictly after it. In lane L each frame reads the latest applied state of its own
 turn, so an entry inserted behind the resume key between frames is not answered; a lane L request sent back to loading
-twice is answered in lane S at the latest applied version at that moment, its frames naming that version (section 18.6
-there). `scan_stall_ms` (section 11.9) bounds how long a Frontier stays open with no frame able to leave, as it bounds a
+twice is answered in lane S at the latest applied version at that moment, its frames naming that version, and from then
+pins that version as lane S does, holding `H` on the primary (section 11.9; section 18.6 there; T48). `scan_stall_ms` (section 11.9) bounds how long a Frontier stays open with no frame able to leave, as it bounds a
 Scan (section 13.13): past it the partition refuses the request with code 24 (TimedOut), `detail` the partition, the
 message saying it stalled, and releases the version it held, so a stalled reader holds the fold horizon for no longer
 than that (T48, C42).
@@ -3925,7 +3948,8 @@ than that (T48, C42).
 In lane X the partition records, before a frame leaves, the range of the conflict key (section 12.2) of each row the
 frame reaches, entries or none, a row of kinds 5 and 6 a forward row's, so an insert into it conflicts; a frame ending
 inside a row records instead its family's range in that row's bucket group, a forward row's, or its whole family's
-otherwise (T38); with every predicate, it records the graph's whole range (T48, C38). A row of kind 6 whose value it
+otherwise (T38); with every predicate, it records the graph's whole range (T48, C38), and with every graph the tenant's
+whole range, as a Scan of every graph does (section 13.13; T48). A row of kind 6 whose value it
 finds of storage class I records nothing, and one holding no value always records, as section 13.13 states (T48,
 C43). A request of lane S or X whose `read_version` is below the partition's latest logged fold horizon is refused with
 code 3 (TooOld), and on a follower, where a lane S request's version holds nothing, one whose version a logged horizon
@@ -3937,7 +3961,8 @@ Order: unused bytes 56–63 and 96–127 zero; `lane`; `kind` 1 to 6; `tokenizer
 `filters`, 0 for kind 6 and with `predicate` every predicate;
 `partition`; `read_version` 0 for lane 1 and a version or version bound for lanes 2 and 3; `transaction` not zero exactly
 for lane 3; `prefix_first` and `prefix_past` both 0, or `prefix_first` below `prefix_past` with kind 1 (`FieldValue`
-`"prefix"`); `predicate` a valid system ID or 16 bytes of `0xFF`; sections; section 0 a whole number of u32s
+`"prefix"`); `graph` 16 zero bytes, a valid system ID or 16 bytes of `0xFF` (`FieldValue` `"graph"`; T48); `predicate` a valid
+system ID or 16 bytes of `0xFF`; sections; section 0 a whole number of u32s
 (`SectionLength`) and not empty (`CountMismatch` `"rows"`); each end at least the one before and above it, every key
 holding at least one byte, the last end section 1's length (`FieldValue` `"rows"`, the row); kinds 1, 2, 5 and 6 each key
 16 bytes and a valid system ID; kind 3 each key 16 bytes and a valid system ID, or a term encoding (section 10.1, as
@@ -3982,7 +4007,7 @@ Entries frames do (section 11.3), and the stream's last frame carries `LAST`.
 | Entry offset | Width | Field | Type |
 |---|---|---|---|
 | 0 | 4 | `neighbour` | u32: its neighbour's offset in section 2, where the entry before's ends |
-| 4 | 4 | `neighbour_len` | u32: its length: 16 for kinds 1, 3 and 4, whose neighbours a frame names by system ID, the subject's for kinds 3 and 4; kind 2's a term encoding in the generic layout or a sortable value in a compiled one; kind 5's the revision's asserted start as a big-endian u64, then its value's sortable encoding (T48, C39); kind 6's the attribute's value, its sortable encoding; for a request naming every predicate, 16 more, the neighbour's bytes following the predicate's system ID (T48, C38) |
+| 4 | 4 | `neighbour_len` | u32: its length: 16 for kinds 1, 3 and 4, whose neighbours a frame names by system ID, the subject's for kinds 3 and 4; kind 2's a term encoding in the generic layout or a sortable value in a compiled one; kind 5's the revision's asserted start as a big-endian u64, then its value's sortable encoding (T48, C39); kind 6's the attribute's value, its sortable encoding; for a request naming every predicate, 16 more, the neighbour's bytes following the predicate's system ID (T48, C38); for a request naming every graph, 16 more, the graph's system ID first, before the predicate's when both are named (T48) |
 | 8 | 16 | `statement` | system ID (section 1): the statement's ID; 16 zero bytes for none, and for kind 6 |
 | 24 | 1 | `valid` | u8: bit `c` set when inline column `c` holds a value |
 | 25 | 7 | zero | 0 |

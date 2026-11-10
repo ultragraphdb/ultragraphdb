@@ -20,8 +20,10 @@
 
 import hashlib
 import json
+import re
 import struct
 import sys
+from fractions import Fraction
 from pathlib import Path
 
 import xxhash
@@ -465,6 +467,133 @@ def token_vectors():
         {"name": "token of exactly 256 bytes", "identifier": 7, "body_hex": (b"y" * 255).hex(),
          "hex": token(0x07, b"y" * 255).hex()},
     ]
+
+
+INT64_MIN, INT64_MAX = -(1 << 63), (1 << 63) - 1
+# xsd:integer and the integer types derived from it (PROTOCOL.md section 10.4).
+XSD_INTEGERS = ("integer", "long", "int", "short", "byte", "nonNegativeInteger", "positiveInteger",
+                "nonPositiveInteger", "negativeInteger", "unsignedLong", "unsignedInt", "unsignedShort", "unsignedByte")
+LEXICAL_INSTANT = re.compile(r"(\d{4})-(\d\d)-(\d\d)(?:T(\d\d):(\d\d):(\d\d(?:\.\d+)?))?(Z|[+-]\d\d:\d\d)?")
+
+
+def generic_comparison_form(datatype, lexical):
+    """Section 5.3: the comparison form a generic-layout literal's datatype picks for its range token, or None for an
+    integer outside Int64's range, which takes no range token. Samples are exactly representable in their type."""
+    if datatype in XSD_INTEGERS:
+        v = int(lexical)
+        return s_int(v, 8) if INT64_MIN <= v <= INT64_MAX else None
+    if datatype == "double":
+        return s_float(float(lexical), 8)
+    if datatype == "float":
+        f32 = struct.unpack(">f", struct.pack(">f", float(lexical)))[0]
+        assert f32 == float(lexical) or f32 != f32, "a float sample is exact in binary32"
+        return s_float(f32, 8)
+    if datatype == "decimal":
+        scaled = Fraction(lexical) * 10**18
+        assert scaled.denominator == 1 and -(1 << 127) <= scaled < (1 << 127), "exact in Int128 at scale 18"
+        return s_int(int(scaled), 16)
+    if datatype in ("dateTime", "date"):
+        m = LEXICAL_INSTANT.fullmatch(lexical)
+        assert m and (m.group(4) is None) == (datatype == "date")
+        z = m.group(7)
+        tz = 0 if z in (None, "Z") else (1 if z[0] == "+" else -1) * (int(z[1:3]) * 60 + int(z[4:6]))
+        t = time_on_timeline(int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4) or 0),
+                             int(m.group(5) or 0), Fraction(m.group(6) or 0), tz) * 10**18
+        assert t.denominator == 1
+        return s_int(int(t), 16)
+    assert datatype == "boolean"
+    return {"false": b"\x00", "0": b"\x00", "true": b"\x01", "1": b"\x01"}[lexical]
+
+
+GENERIC_SORTABLE = {**{d: "Int64" for d in XSD_INTEGERS}, "double": "Float64", "float": "Float64",
+                    "decimal": "Int128, the value × 10^18", "dateTime": "the UTC instant of tag 19",
+                    "date": "the UTC instant of tag 17", "boolean": "Bool"}
+# The identifier bytes of the generic layout's range tokenizer and of the count tokenizer: inputs of the vectors, which
+# the tokenizers capability's registry owns.
+GENERIC_RANGE_ID, COUNT_ID = 0x22, 0x23
+GENERIC_TOKENS = [
+    ("integer", "-9223372036854775808"), ("long", "-4294967296"), ("byte", "-1"), ("nonNegativeInteger", "0"),
+    ("integer", "+007"), ("int", "7"), ("unsignedByte", "200"), ("int", "2147483647"),
+    ("positiveInteger", "1099511627776"), ("unsignedLong", "9223372036854775807"),
+    ("integer", "9223372036854775808"), ("unsignedLong", "18446744073709551615"),
+    ("negativeInteger", "-9223372036854775809"),
+    ("double", "-INF"), ("double", "-1.0E300"), ("float", "-3.5"), ("double", "-1.5"), ("double", "-0.0E0"),
+    ("float", "0.0"), ("double", "2.5E-3"), ("float", "0.25"), ("double", "1.0E0"), ("float", "1"),
+    ("double", "1.0E300"), ("double", "INF"), ("double", "NaN"),
+    ("decimal", "-1000000000000.5"), ("decimal", "-12.34"), ("decimal", "-0.0"), ("decimal", "0"),
+    ("decimal", "0.000000000000000001"), ("decimal", "12.34"), ("decimal", "12.340"),
+    ("decimal", "100000000000000000000"),
+    ("dateTime", "0001-01-01T00:00:00Z"), ("dateTime", "1969-12-31T23:59:59.5Z"), ("dateTime", "1970-01-01T00:00:00Z"),
+    ("date", "2026-11-10+14:00"), ("date", "2026-11-10"), ("dateTime", "2026-11-10T00:00:00Z"),
+    ("dateTime", "2026-11-09T23:00:00-02:00"), ("dateTime", "2026-11-10T12:00:00Z"),
+    ("dateTime", "2026-11-10T13:00:00+01:00"), ("dateTime", "9999-12-31T23:59:59Z"),
+    ("boolean", "false"), ("boolean", "0"), ("boolean", "true"), ("boolean", "1"),
+]
+COUNT_TOKENS = [(1, 1), (1, 2), (1, 300), (1, 1 << 40), (2, 1), (2, 7)]
+
+
+def generic_token_name(datatype, lexical):
+    return f'generic range token of "{lexical}"^^xsd:{datatype}'
+
+
+def count_token_name(direction, count):
+    return f"count token, {'a subject' if direction == 1 else 'an object'}'s count {count}"
+
+
+def generic_token_vectors():
+    """Section 5.3: generic-layout range tokens and count tokens, with the orders and equalities their bytes keep."""
+    cases, by = [], {}
+    for datatype, lexical in GENERIC_TOKENS:
+        name = generic_token_name(datatype, lexical)
+        body = generic_comparison_form(datatype, lexical)
+        hexed = None if body is None else token(GENERIC_RANGE_ID, body)
+        by[name] = hexed
+        cases.append({"name": name, "identifier": GENERIC_RANGE_ID, "datatype": f"xsd:{datatype}", "lexical": lexical,
+                      "sortable": GENERIC_SORTABLE[datatype], "body_hex": None if body is None else body.hex(),
+                      "hex": None if hexed is None else hexed.hex(),
+                      "note": "the identifier byte is this vector's input" + (
+                          "; outside Int64's range, so no range token" if body is None else "")})
+    assert generic_comparison_form("dateTime", "2026-11-10T13:00:00+01:00") == \
+        s_temporal(2026, 11, 10, 13, 0, 0, 60)[:16]
+    assert generic_comparison_form("date", "2026-11-10") == s_temporal(2026, 11, 10, 0, 0, 0, None)[:16]
+    for direction, count in COUNT_TOKENS:
+        name = count_token_name(direction, count)
+        by[name] = token(COUNT_ID, bytes([direction]) + be(count, 8))
+        cases.append({"name": name, "identifier": COUNT_ID, "direction": direction, "count": count,
+                      "hex": by[name].hex(), "note": "the identifier byte is this vector's input"})
+    g = lambda *pairs: [generic_token_name(d, x) for d, x in pairs]
+    ascending = [
+        g(("integer", "-9223372036854775808"), ("long", "-4294967296"), ("byte", "-1"), ("nonNegativeInteger", "0"),
+          ("int", "7"), ("unsignedByte", "200"), ("int", "2147483647"), ("positiveInteger", "1099511627776"),
+          ("unsignedLong", "9223372036854775807")),
+        g(("double", "-INF"), ("double", "-1.0E300"), ("float", "-3.5"), ("double", "-1.5"), ("double", "-0.0E0"),
+          ("double", "2.5E-3"), ("float", "0.25"), ("double", "1.0E0"), ("double", "1.0E300"), ("double", "INF"),
+          ("double", "NaN")),
+        g(("decimal", "-1000000000000.5"), ("decimal", "-12.34"), ("decimal", "0"), ("decimal", "0.000000000000000001"),
+          ("decimal", "12.34"), ("decimal", "100000000000000000000")),
+        g(("dateTime", "0001-01-01T00:00:00Z"), ("dateTime", "1969-12-31T23:59:59.5Z"),
+          ("dateTime", "1970-01-01T00:00:00Z"), ("date", "2026-11-10+14:00"), ("date", "2026-11-10"),
+          ("dateTime", "2026-11-09T23:00:00-02:00"), ("dateTime", "2026-11-10T12:00:00Z"),
+          ("dateTime", "9999-12-31T23:59:59Z")),
+        g(("boolean", "false"), ("boolean", "true")),
+        [count_token_name(d, c) for d, c in COUNT_TOKENS],
+    ]
+    equal = [
+        g(("integer", "+007"), ("int", "7")),
+        g(("double", "-0.0E0"), ("float", "0.0")),
+        g(("double", "1.0E0"), ("float", "1")),
+        g(("decimal", "-0.0"), ("decimal", "0")),
+        g(("decimal", "12.34"), ("decimal", "12.340")),
+        g(("date", "2026-11-10"), ("dateTime", "2026-11-10T00:00:00Z")),
+        g(("dateTime", "2026-11-10T12:00:00Z"), ("dateTime", "2026-11-10T13:00:00+01:00")),
+        g(("boolean", "false"), ("boolean", "0")),
+        g(("boolean", "true"), ("boolean", "1")),
+    ]
+    for o in ascending:
+        assert all(by[o[i]] is not None and by[o[i]] < by[o[i + 1]] for i in range(len(o) - 1)), o
+    for e in equal:
+        assert by[e[0]] is not None and all(by[e[0]] == by[x] for x in e), e
+    return cases, ascending, equal
 
 
 def esc_vectors():
@@ -1015,11 +1144,13 @@ def sortable_vectors():
     def small(n, b):
         return tag_of[n] not in VARIABLE_TAGS and len(b) <= 18
 
+    generic, token_ascending, token_equal = generic_token_vectors()
     return {"specification": "STORAGE.md sections 1 and 5", "sortable": [
         {"name": n, "tag": t, "value": v, "hex": b.hex(), "comparison_hex": comparison_form(tag_of[n], b).hex(),
          "small": small(n, b)} for n, t, v, b in SORTABLE],
         "ascending": orders, "equal": equal,
-        "terms": term_vectors(), "tokens": token_vectors(), "esc": esc_vectors()}
+        "terms": term_vectors(), "tokens": token_vectors() + generic, "token_ascending": token_ascending,
+        "token_equal": token_equal, "esc": esc_vectors()}
 
 
 def decision_vectors():
@@ -1312,6 +1443,14 @@ def more_tiles():
                                                  "kind 13 of an @append_only type (prefix 5), class I"),
         "record_drop_marker": (record_run(14, [(be(version(44, 4), 8), u16(2) + bytes(6) + system_id(2, 1, 0xAB_0109))],
                                           class_i=False, group=ABSENT), "kind 14"),
+        "record_drop_marker_catalog_version": (record_run(14, [(be(version(46, 0), 8),
+                                                                u16(6) + bytes(6) + u64(4) + bytes(8))],
+                                                          class_i=False, group=ABSENT),
+                                               "kind 14 naming operation 6: catalog version 4, taking effect at "
+                                               "version(46, 0), removes a tokenizer of an index and covers that "
+                                               "tokenizer's index families; the argument holds the version as a u64 "
+                                               "in its first 8 bytes and 8 zero bytes, as PROTOCOL.md section 12.2's "
+                                               "operation 6 lays it out"),
         "record_build": (record_run(15, [(be(1650, 8), u64(3) + u64(version(44, 2)) + AGE + slot_pair(PERSON, 5)
                                           + alice)], class_i=False, group=ABSENT),
                          "kind 15: catalog version 3, start version(44, 2), the predicate, then the last key reached, "
@@ -2245,8 +2384,9 @@ def main(out):
     fwd = data["adjacency_forward"][0]
     refusals = []
 
-    def tile_case(name, raw, refusal, note=""):
-        refusals.append({"name": name, "structure": "tile", "hex": raw.hex(), "refusal": refusal, "note": note})
+    def tile_case(name, raw, refusal, note="", settings=None):
+        refusals.append({"name": name, "structure": "tile", "hex": raw.hex(), "refusal": refusal, "note": note,
+                         **({"settings": settings} if settings else {})})
 
     bad = bytearray(fwd)
     bad[0] = ord("X")
@@ -2294,6 +2434,29 @@ def main(out):
     tile_case("rows descending", tile(1, 1, [ints_section(1, [5, 2, 0])] + base[1:], digest=good_digest, **hdr), "Order")
     tile_case("digest of other entries", tile(1, 1, base, digest=good_digest ^ 1, **hdr), "Digest")
     tile_case("valid control for the cases above", tile(1, 1, base, digest=good_digest, **hdr), "none")
+    tile_case("FILTER section while filter_bits_per_key is 0", tile(1, 1, base, digest=good_digest, **hdr), "Section",
+              "section 6.3: the valid control above, read with filter_bits_per_key 0, under which section 7.3 "
+              "excludes section 11", settings={"filter_bits_per_key": 0})
+    # Section 7.3, section 10 of an adjacency block: tiles.json's adjacency_reverse_versioned with one entry's deleted
+    # version set to its created version, where a nonzero one must lie above it.
+    built, previous, horizon = FIXTURE["reverse"]
+    stale = [(term_of_id(person(17, 0xAB_C001)), [(slot_pair(ORG, 0), None, [], version(42, 4), 0),
+                                                  (slot_pair(PERSON, 2), None, [], version(42, 4), version(42, 4)),
+                                                  (slot_pair(PERSON, 0), None, [], version(40, 2), 0)]),
+             (term_of_id(person(18, 0xAB_C002)), [(slot_pair(PERSON, 0), None, [], version(41, 6), version(42, 8))])]
+    tile_case("adjacency deleted version equal to its created version",
+              encode_block(3, stale, row_fixed=False, subject=KNOWS, direction=2, built=built, previous=previous,
+                           horizon=horizon)[0], "Range",
+              "section 7.3: tiles.json's adjacency_reverse_versioned with entry 1's deleted version set to "
+              "version(42, 4), nonzero and not above its created version(42, 4)")
+    alice = person(17, 0xAB_C001)
+    tile_case("record deleted version below its created version",
+              record_run(6, [], class_i=False, group=GROUP, versioned_recs=[
+                  (alice + be(GROUP, 3), be(1, 8), version(45, 4), version(45, 2))])[0], "Range",
+              "section 9.1: a kind 6 record created at version(45, 4) and deleted at version(45, 2)")
+    tile_case("free set with bit 0 clear",
+              free_set_tile(DEFAULTS["grid_extents"], {1, 2, 5}, CHECKPOINT[0], 0, CHECKPOINT[1]), "Range",
+              "section 10: extents 1, 2 and 5 allocated and extent 0 not; grid_extents at its default")
     sec = []
 
     def section_case(name, encoding, raw, refusal):
@@ -2323,7 +2486,8 @@ def main(out):
     raw1[10] = 2
     refusals.append({"name": "superblock copy field other than its block", "structure": "superblock in block 1",
                      "hex": bytes(raw1).hex(), "refusal": "Copy"})
-    write_json("refusals.json", {"specification": "STORAGE.md sections 4 and 19.4", "cases": refusals})
+    write_json("refusals.json", {"specification": "STORAGE.md sections 4, 6.3, 7.3, 9.1, 10 and 19.4",
+                                 "cases": refusals})
 
     kinds = {}
     for name, (raw, fence, desc) in more_tiles().items():

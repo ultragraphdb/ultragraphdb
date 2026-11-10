@@ -22,8 +22,9 @@ vectors/encodings.json   section 4: FOR and DELTA with the choice between them, 
                          value_bytes_max wide, FILTER with probes
 vectors/sortable.json    sections 1 and 5: sortable values with their comparison forms and whether they are small, the
                          orders and equalities their comparison forms keep, term encodings, tokens (range tokens of a
-                         comparison form, a measure in its canonical unit, a long one hashed) and esc with the tuple
-                         order it keeps
+                         comparison form, a measure in its canonical unit, the generic layout's range tokens by a
+                         literal's datatype with integers outside Int64 taking none, count tokens, a long one hashed)
+                         with the orders and equalities tokens keep, and esc with the tuple order it keeps
 vectors/tiles.json       sections 6 to 13: each tile's input, every header field, its fence, tile key, address, length,
                          checksum and digest; the data tiles placed in built order on a 64-extent grid of 128 KiB
                          extents, then a checkpoint's manifest leaf, root and free set
@@ -35,10 +36,14 @@ vectors/decisions.json   sections 12.4, 13.2, 16.2, 16.3, 16.6, 17.1 and 17.2: o
                          slot-pair fences, the queue's order, stream choices, the reserve, the cleaner's due and move
                          rule, checkpoint positions with and without flagged rounds, and superblock selection over four
                          blocks
-vectors/refusals.json    sections 4 and 19.4: valid bytes broken by one rule each, with the refusal a decoder names
+vectors/refusals.json    sections 4, 6.3, 7.3, 9.1, 10 and 19.4: valid bytes broken by one rule each, with the refusal a
+                         decoder names: among them a FILTER section while filter_bits_per_key is 0, a deleted version
+                         not above its created one in an adjacency block and in a record run, and a free set whose
+                         bit 0 is clear
 vectors/kinds.json       sections 7 to 9: adjacency kinds 2, 4 and 5 and a compiled kind 3 ordered by an inline
                          column, column kinds 2 and 3, and a run of every record kind 1 to 20 (16 and 17 name tiles.json's
-                         manifest leaf and root), the additive kinds 7, 9 and 19 with their folds
+                         manifest leaf and root), kind 14 twice, a drop's marker and a catalog version's naming
+                         operation 6, the additive kinds 7, 9 and 19 with their folds
 vectors/compaction.json  sections 11.2 and 16.3: a hub row halved until it fits, and a column chunk's overlay folded
                          with its conservation
 vectors/engine.json      sections 12 to 17: the reference engine's run, below
@@ -82,8 +87,10 @@ does with the flag. The vectors above cover those rules one by one.
 
 `Geo` values (tag 29) are canonicalised by an RFC 8785 serialiser in the generator that handles strings, integers,
 booleans, null, arrays and objects; the samples hold no fractional number, whose canonical form needs ECMAScript's
-number formatting. The range tokens of a `DateTime` and of a `Measure<K>` in `sortable.json` take their identifier byte
-as an input of the vector: the token's bytes after it are what the vector fixes.
+number formatting. Every token in `sortable.json` takes its identifier byte as an input of the vector, since the
+`tokenizers` capability's registry assigns it: the token's bytes after it are what the vector fixes. The generic
+layout's range tokens are of literals whose values their types hold exactly, a float's in binary32 and a decimal's in 18
+fraction digits.
 
 ## What a conforming implementation checks
 
@@ -91,14 +98,14 @@ as an input of the vector: the token's bytes after it are what the vector fixes.
 |---|---|---|---|
 | `encodings.json` | Each case's input encodes to `hex`; for packed integers `encoding` is the code the choice rule picks, and `for_hex` and `delta_hex` are both candidates | `hex` decodes to the input | — |
 | `encodings.json`, filters | `m`, `k` and `hex` from the keys and `bits_per_key` | each probe answers `may_be_present` | — |
-| `sortable.json` | each sortable value, term, token and `esc` case encodes to `hex`; each sortable value's `comparison_hex` is its comparison form and `small` whether it may sit inline | `hex` decodes to the value | — |
-| `sortable.json`, orders | every list in `ascending` is strictly ascending by comparison form; every list in `equal` has one comparison form, two temporal values of one instant and different offsets among them, whose stored encodings differ; `esc.ascending_indices` orders the joined cases as bytes and as tuples alike | — | — |
+| `sortable.json` | each sortable value, term, token and `esc` case encodes to `hex`; a token case whose `hex` is null takes no token, an integer outside `Int64`; each sortable value's `comparison_hex` is its comparison form and `small` whether it may sit inline | `hex` decodes to the value | — |
+| `sortable.json`, orders | every list in `ascending` is strictly ascending by comparison form; every list in `equal` has one comparison form, two temporal values of one instant and different offsets among them, whose stored encodings differ; every list in `token_ascending` is strictly ascending as bytes and every list in `token_equal` has one token; `esc.ascending_indices` orders the joined cases as bytes and as tuples alike | — | — |
 | `tiles.json` | the input with every `header` field encodes to the `.tile` file byte for byte; `checksum`, `digest`, `fence_hex` and `tile_key_hex` follow; the data tiles placed in `built` order, then the leaf, the root and the free set in stream 0, land at `address` | the file decodes to the input, and its digest recomputes from its entries | — |
 | `grid.json` | the derivation version from the settings; each placement's `address` from the script, in order; the four superblock copies from `superblock.input` | the copies decode to the input and to one checksum; `identity` recomputes from section 11.3 | — |
 | `decisions.json` | each cut, lookup, queue order, stream, reserve, cleaner decision, checkpoint position list and superblock selection is what the sections give for its input | — | the selections whose result is a refusal |
 | `kinds.json` | each input with its `header` encodes to its `.tile` file; `fence_hex` and `tile_key_hex` follow; an additive run's `fold_hex` is its records' fold | the file decodes to its input | — |
 | `compaction.json` | the halving's pieces from its entries and settings; the folded chunk from the input chunk at `horizon`, with `added_hex` and `removed_hex` | the conservation of section 11.2 holds | — |
 | `engine.json` | the admission figures, events, checkpoints and final grid from the rounds and settings | recovery from the grid alone, then replay, reproduces them | — |
-| `refusals.json` | — | — | each case is refused with `refusal`: a tile's first broken rule in the order of section 6.5, a section's in its encoding's order of section 4, a superblock copy's in section 17.2's; the control case is accepted; `Misdirected` is read through a reference whose checksum is `0000000000000001` |
+| `refusals.json` | — | — | each case is refused with `refusal`: a tile's first broken rule in the order of section 6.5, a section's in its encoding's order of section 4, a superblock copy's in section 17.2's; the control case is accepted; `Misdirected` is read through a reference whose checksum is `0000000000000001`; a case naming `settings` is read under those, the defaults otherwise |
 
 A vector names its tiles' settings; where it says "defaults", they are section 3.1's.

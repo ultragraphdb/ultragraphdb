@@ -14,7 +14,8 @@ SHALL refuse a statement prepared in another tenant than its transaction's with 
 statement; after a new catalog version of its tenant its schema id SHALL no longer match, and an execution SHALL be refused as
 stale, while recording a default entry (metadata-group, "Catalog versions take effect at an epoch boundary") SHALL keep
 the schema id; a literal bound at a slot that takes a node SHALL be refused. A resume key SHALL continue its own request
-only, and rows SHALL come in the store's key order. The frontend SHALL answer Describe itself from the metadata group, asking
+only, and rows SHALL come partition by partition, in ascending order of the partitions the read asks as the placement
+map in effect at its epoch names them, and within a partition in its families' order (`PROTOCOL.md` section 9.1). The frontend SHALL answer Describe itself from the metadata group, asking
 no other role, as far as the connection's principal may read it, so it names what is declared and recorded rather than what
 data holds: `read_version` the version bound of the latest epoch the sequencer closed, or of epoch 0 before the first close;
 the entity types declared in effect at that epoch; the predicates of kind edge or either that it declares or holds a default
@@ -56,6 +57,10 @@ continuation frames, the last flagged `LAST`.
 - **WHEN** a connection begins one transaction in tenant 0 and another in tenant 1, and each writes and reads `<a> <p>
   <b>`
 - **THEN** each reads its own statement, and neither reads the other's
+
+#### Scenario: Rows come partition by partition
+- **WHEN** a read with its subject unbound matches rows in partitions 1 and 2
+- **THEN** every row of partition 1 arrives before any row of partition 2, whatever their terms
 
 ### Requirement: Result batches are columnar and dictionary-encoded
 A Result SHALL hold `monotonic` at byte 20 and twelve sections, the column names in sections 7 and 8 and the warnings in 9
@@ -120,13 +125,20 @@ so a relayed frame takes any size a client's may and a role's stream refusal nev
 every Welcome's `initial_credit` SHALL be at least 1. A partition SHALL answer each Write and Operation on a Bind stream with Held
 (531), once it holds the request, or with an Error; the protocol's Answered-by column SHALL list Held for both on a Bind stream,
 and it SHALL refuse a Write, Operation, Commit or Abort on a stream no Bind of kind 1 opened, and a Drop on one no Bind of kind 2
-opened, with Error 1 naming the command. Entries SHALL name the Scan's chosen `version` in every frame, a version or version bound,
-refused otherwise with `FieldValue` naming `version`, as a Scan's and a Begin's `read_version` is naming `read_version`, and `through`, the batch's
-last range; a Scan's range SHALL carry `after_len` and its `after`; ComputeRead SHALL carry `max_frame` and `credit`; a Reference's
-`outcome` SHALL be 0, 7, 17, 26 or 30, and 0, 17 or 26 in get-only mode. A dialling side SHALL refuse an Entries frame whose `version` is not its Scan's first frame's,
-with `FieldValue` naming `version`, and an entry that does not belong where its frame puts it, with `FieldValue` naming `entry order`,
-the entry's index: in a run, one whose key is not the first key of a range from `range` through `through`, at or after the range of
-the entry before; in a batch of one range, a key below the range's first key, or at or above its past key when it has one.
+opened, with Error 1 naming the command. A Scan SHALL carry its `tenant` in its command header and, per 64-byte range, its
+partition, `space`, `kind`, `tokenizer`, the offset and length of its key or resume key, its `graph` and its `predicate`, as
+`PROTOCOL.md` section 13.13 lays them out and refused in that section's order, a range of space 1 naming one record by its
+logical key and a range of space 2 a family read whole, neither naming a slot. Entries SHALL name the Scan's chosen `version` in
+every frame, a version or version bound, refused otherwise with `FieldValue` naming `version`, as a Scan's and a Begin's
+`read_version` is naming `read_version`, `through`, the batch's last range, `end` 0, 1 or 2, `widths`, the family's inline
+columns' widths, and, for a range of space 2 whose frame has `end` 0 or 2, the resume key in its section 1 (section 13.14);
+ComputeRead SHALL carry `max_frame` and `credit`; a Reference's `outcome` SHALL be 0, 7, 17, 26 or 30, and 0, 17 or 26 in
+get-only mode. A dialling side SHALL refuse an
+Entries frame whose `version` is not its Scan's first frame's, with `FieldValue` naming `version`, or whose `widths` are not the
+first frame's of the same range, with `FieldValue` naming `widths`, and an entry that does not belong where its frame puts it,
+with `FieldValue` naming `entry order`, the entry's index: in a run, one whose key is not the key of a range from `range` through
+`through`, after the range of the entry before; in a batch of a range of space 1, a key other than the range's; in a batch of a
+range of space 2, a key not beginning with the range's graph, when it names one.
 
 #### Scenario: A client may not send a role command
 - **WHEN** a client connection sends a block-lease command
@@ -152,9 +164,9 @@ the entry before; in a batch of one range, a key below the range's first key, or
 - **WHEN** a Scan whose `epoch` is 0 holds `deadline_ms` above 0, with a transaction or with none
 - **THEN** each is refused with `FieldValue` naming `deadline_ms`
 
-#### Scenario: A list larger than a frame continues across frames
-- **WHEN** a list's object records span two Entries frames, the first with `continues` 1
-- **THEN** the second's first entry holds the same key, and the records of both are the list's, in order
+#### Scenario: A row larger than a frame continues across frames
+- **WHEN** a row's object records span two Entries frames, the first with `continues` 1
+- **THEN** the second's first entry holds the same key, and the records of both are the row's, in order
 
 #### Scenario: A frame whose value continues has end 0 and an entry
 - **WHEN** a frame holds `continues` 1 with `end` not 0, or with no entry
@@ -209,10 +221,23 @@ the entry before; in a batch of one range, a key below the range's first key, or
 - **WHEN** a ComputeRead names `max_frame` 524,287 or 1,048,577, or `credit` 0
 - **THEN** it is refused with `FieldValue` naming `max_frame` or `credit`
 
-#### Scenario: A Scan's `after` is read from the frame
-- **WHEN** a Scan's range holds `after_len` 16 and the object's encoding after its past key
-- **THEN** the view reads the first key, the past key and the `after` borrowed from the frame, and the next range's
-  first key starts where the `after` ends
+#### Scenario: A Scan's range bytes are read from the frame
+- **WHEN** a Scan's first range, of space 1, holds `key_len` 16, and its second, of space 2, a `resume_len` above 0
+- **THEN** the view reads the first range's key and the second's resume key borrowed from the frame, the second's
+  starting where the first's ends
+
+#### Scenario: A range's fields are checked against its space
+- **WHEN** a Scan holds a range of space 1 and kind 6, one of space 2 and kind 4 with `tokenizer` 0, one of space 1
+  with a `resume_len` above 0, and one of space 2 whose `predicate` is 16 zero bytes
+- **THEN** each is refused, with `FieldValue` naming `kind`, `tokenizer`, `range` and `predicate`, before any frame
+
+#### Scenario: A resume key rides only on a range that stopped
+- **WHEN** an Entries frame of a range of space 2 holds `end` 1 and a resume key, and another holds `end` 2 and none
+- **THEN** each is refused with `CountMismatch` naming `resume key`
+
+#### Scenario: Widths stay within a range
+- **WHEN** a range's second Entries frame names other `widths` than its first
+- **THEN** the receiver refuses it with `FieldValue` naming `widths`, and closes the connection
 
 #### Scenario: An Entries frame's run reads as its ranges
 - **WHEN** an Entries frame holds `range` 2, `through` 5, `end` 1 and two entries, and a frame with `through` above
@@ -229,8 +254,8 @@ the entry before; in a batch of one range, a key below the range's first key, or
 - **THEN** the receiver refuses it with `FieldValue` naming `version`, and closes the connection
 
 #### Scenario: An entry outside its run is refused
-- **WHEN** a run's entry holds a key that is the first key of none of its ranges, or a range's entry lies below the
-  range's first key
+- **WHEN** a run's entry holds a key that is the key of none of its ranges, or a range of space 1's entry holds a key
+  other than the range's
 - **THEN** the receiver refuses it with `FieldValue` naming `entry order`, the entry's index, and closes the connection
 
 #### Scenario: A Reference answers a home's failed store

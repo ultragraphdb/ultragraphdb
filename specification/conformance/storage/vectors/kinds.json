@@ -991,6 +991,42 @@
       "checksum": "7297ed48d83c6b24",
       "digest": "b7ba43a2a7839bffae7f33149dc2d622"
     },
+    "record_drop_marker_catalog_version": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "000000000b800000",
+            "value_hex": "060000000000000004000000000000000000000000000000"
+          }
+        ],
+        "note": "kind 14 naming operation 6: catalog version 4, taking effect at version(46, 0), removes a tokenizer of an index and covers that tokenizer's index families; the argument holds the version as a u64 in its first 8 bytes and 8 zero bytes, as PROTOCOL.md section 12.2's operation 6 lays it out"
+      },
+      "header": {
+        "shape": 3,
+        "kind": 14,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 4294967295,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff00ff00ff00ff0b8000ff00ff0000",
+      "tile_key_hex": "030e000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00ff00ff00ff00ff0b8000ff00ff0000",
+      "file": "tiles/record_drop_marker_catalog_version.tile",
+      "length": 264,
+      "checksum": "bc5bbc590e90ae27",
+      "digest": "95fbe41324364db1ee35600203fb88b3"
+    },
     "record_build": {
       "input": {
         "records": [
