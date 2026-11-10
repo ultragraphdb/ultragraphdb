@@ -749,7 +749,11 @@ derivation's filters use the expression grammar with the bitemporal items `with 
 - **`@materialized`** stores the result and maintains it in the same local commit as the write that changes it; it is
   allowed only when every step of the derivation stays within the anchor partition of the deriving instance: a computed
   derivation, and a path over relations colocated with `Type`'s role (`UGS0704` otherwise, naming the step that leaves
-  the partition). It is the default for computed derivations. **[stage 6]**
+  the partition). It is the default for computed derivations. A materialized path is walked by the partition from its compiled
+  steps (section 10.2, rule 5): a commit recomputes it for each instance of `Type` whose path the commit's changes reach,
+  found by walking the path backwards from each changed instance, and each walk visits at most `rule_read_max`
+  instances, a commit needing more refused with `UGS1040` (section 8.2). A path with a step naming a function is
+  stage 7's, recorded with `UGS0902` until the query core runs functions. **[stage 6]**
 - **`@virtual`**, the default otherwise, expands the derivation at query time. A derivation whose filter reads another
   instance's state, a ground's `live` or `rank`, is virtual; where the maintenance matters, declare it on the type that
   holds the state read.
@@ -788,7 +792,7 @@ standard views do not expose them.
 
 | Index | Built from | Store index |
 |---|---|---|
-| `@index(range)` | An ordered field | The datatype's sortable tokenizer: `int`, `float`, `bool`, `hour` for `DateTime`, `LocalDateTime` and `Time`, `day` for `Date`, `exact` for `String`, `Text`, enums, `Iri` and `Unit`, `float` for `Measure<K, u>`, and a `measure` tokenizer over the canonical value for `Measure<K>` and `Measure` (section 15); a range filter scans the tokens and compares the values |
+| `@index(range)` | An ordered field | The datatype's sortable tokenizer: `int`, `float`, `bool`, `hour` for `DateTime`, `LocalDateTime` and `Time`, `day` for `Date`, `exact` for `String`, `Text`, enums, `Iri` and `Unit`, `decimal` for `Decimal(p, s)`, its token the value scaled by 10^s as a signed 128-bit integer, big-endian with the sign bit flipped, so tokens order exactly as the values, `float` for `Measure<K, u>`, and a `measure` tokenizer over the canonical value for `Measure<K>` and `Measure` (section 15); a range filter scans the tokens and compares the values |
 | `@index(fulltext)` | `Text` | The `fulltext` tokenizer, analyzer by language tag |
 | `@index(interval)` | `Interval` | Range indexes on the outer extent's two bounds (section 5.5) |
 | `@index(geo)` | `Geo` | The `geo` tokenizer |
@@ -1046,8 +1050,8 @@ UGS's own.
 aggregate (section 8.6): one read each, whatever the group's size. `@acyclic` walks the relation's paths from the
 instance and `@no_overlap` reads the live instances sharing its participants; each check visits at most
 `rule_read_max` relation instances, 4,096, a bound of this specification, counting each it visits once: the walk's for
-`@acyclic`, the group's live instances for `@no_overlap`. A check that would visit more is refused before it does, with
-`UGS1040`, naming the rule and the bound, and is never decided past it, so a commit's latency is the schema's to bound
+`@acyclic`, the group's live instances for `@no_overlap`; a materialized path's walk counts likewise (section 6.8). A check that would visit more is refused
+before it does, with `UGS1040`, naming the rule and the bound, and is never decided past it, so a commit's latency is the schema's to bound
 and never the data's. `max_depth` counts the relation instances along a path, so a fan-out it does not bound is
 bounded by `rule_read_max` alone.
 
@@ -1225,7 +1229,7 @@ refusal number and the instance. The refusals:
 | `UGS1037` | RetiredIri | mints an IRI equal to the birth IRI an instance holds (section 7.3) |
 | `UGS1038` | IriNotMinted | creates an instance under a subject IRI its type does not mint for it: a keyed type's instance under another IRI than its key mints, or a keyless type's instance under an IRI in place of a blank node (section 7.3) |
 | `UGS1039` | EvaluationFailed | commits an instance for which an expression of the schema cannot be evaluated: an overflow or a division by zero in a `@check`, a `@limit` condition or a computed derivation (section 4) |
-| `UGS1040` | ReadBound | would need a check of `@acyclic` or `@no_overlap` to visit more than `rule_read_max` relation instances (section 8.2); the message names the rule and the bound |
+| `UGS1040` | ReadBound | would need a check of `@acyclic` or `@no_overlap`, or a materialized path's walk, to visit more than `rule_read_max` relation instances (sections 6.8, 8.2); the message names the rule or the derivation and the bound |
 
 ### 8.8 Legal purge
 
@@ -1427,8 +1431,10 @@ rules:
    expressions a commit evaluates, are stored as typed postfix programs of fixed-width instructions over the entry's
    fields and constants. The decoder verifies each program's stack discipline, its operands' bounds and its depth, at
    most the grammar's nesting bound of 64, and evaluation is a loop with no recursion and no allocation. A role
-   evaluating one needs no parser. A function's body and a path derivation's are queries, which the query core plans
-   from stage 7: each is stored as its text, type-checked, until that stage gives it a compiled form.
+   evaluating one needs no parser. A path derivation is stored as its steps, each a navigation name, role or derived
+   name with its repetition and its filters' program, which a partition walks to maintain a materialized one and the
+   query core plans from stage 7. A function's body is a query the query core plans from stage 7: it is stored as its
+   text, type-checked, until that stage gives it a compiled form.
 6. **Expectations independent of the code.** The layout's file works one example by hand, a schema of one entity with
    one attribute, byte by byte. Larger versions are checked entry by entry and field by field against expectations
    written from this file, through the decoder, and their bytes pinned once those checks pass.
@@ -2144,6 +2150,7 @@ that begin with one, `Asset.all_parts` and `Company.suppliers`.
 | One-frame writes | Decided 2026-11-10: a rule over the instance's own fields is validated in a DirectWrite's one turn; a claim, and a rule reading beyond the instance, take a transaction (section 9.6) |
 | A recreated IRI | Decided 2026-11-10: the new instance's record names the ID it replaced and the tombstone the delete's version, so a read of the past never answers absence where an instance was; the dictionary stays without versions (section 8.5) |
 | Order of sources | Decided 2026-11-10: schemas by name, then modules after what they extend, so prefix allocation is a function of the sources alone (section 7.1) |
+| Decimal ranges and materialized paths | Decided by the user 2026-11-10: `Decimal` takes an exact sortable tokenizer, `decimal`, so a range index orders by the value itself (section 6.10); stage 6 maintains materialized path derivations, a path compiled to steps that the partition walks within `rule_read_max` (sections 6.8, 10.2) |
 | What a rule reads at commit | Decided 2026-11-10: an update of an attribute a rule's condition reads is checked as an update of what it aggregates; a `@limit` keeps its aggregate per group, one read and one write whatever the group's size; `@acyclic` and `@no_overlap` read within `rule_read_max` and refuse past it (`UGS1040`); `@acyclic` without `max_depth` stays legal under the same bound (sections 8.2, 8.6, 9.4) |
 | Declared predicates' IDs | Decided 2026-11-10: allocated by the metadata group with the version, the `Resource` prefix with sequences from 2^63, held in the version's predicate index and never in an entry, since Describe carries entries and a system ID never leaves the database; a governed tenant resolves no declared predicate through the dictionary (section 7.1, `CATALOG.md` section 2) |
 | Where an install compiles | Decided 2026-11-10: beside the metadata group, from the base version and the next free prefix and predicate sequence, so the group's thread only commits bytes; the version is decoded and encoded back before it is committed, and a failure is the compiler's, refused with code 7 (section 10.1) |

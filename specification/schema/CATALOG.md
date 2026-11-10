@@ -466,7 +466,19 @@ Derivation, fixed part 40 bytes:
 | 32 | 1 | `flags` | u8: bit 0 materialized, bit 1 computed, bit 2 `@index(range)`, bit 3 `exists`; bits 4 to 7 zero |
 | 33 | 7 | zero | 0 |
 
-Sections 0 to 3 are the type table, constants, programs and instructions.
+Sections 0 to 3 are the type table, constants, programs and instructions; section 4 holds a path's steps, 16 bytes
+each, in the path's order, at least one and at most 32, and none for a computed derivation or for a path with a step
+naming a function, which stage 7 compiles:
+
+| Step offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 1 | `kind` | u8: 1 a navigation name, 2 a role, 3 a derived name |
+| 1 | 1 | `repeat` | u8: 0 once, 1 `+`, 2 `{m, n}` |
+| 2 | 2 | zero | 0 |
+| 4 | 4 | `name` | string: the qualified name of its Navigation, Role or Derivation entry |
+| 8 | 2 | `min` | u16: `m` for `{m, n}`; 0 otherwise |
+| 10 | 2 | `max` | u16: `n` for `{m, n}`, at least `min`; 0 otherwise |
+| 12 | 4 | `filter` | u32: the program of the step's filters, joined by `and`; `ABSENT` for none |
 
 Function, fixed part 40 bytes: `name` at 0; `type` at 4, a method's type or `ABSENT` for a free function; `schema`
 at 8; `result` at 12; `body` at 16; `doc` at 20; `min` and `max` at 24 and 28; `flags` u8 at 32, bit 0 monotonic;
@@ -755,7 +767,7 @@ its second changes one byte and is refused at step 2.
 `format` is 1. A decoder refuses a format it does not know, naming it, and a role that meets one stops. A later
 format is a new number, never a reading of spare bytes:
 
-- **Stage 7** gives a function's and a path derivation's body a compiled form beside its text.
+- **Stage 7** gives a function's body a compiled form beside its text, and a path with a step naming a function its steps.
 - **Stage 9.5** adds the retired-name entry, kind 20, whose 24 bytes `PROTOCOL.md` section 8.3 already lays out
   for Describe, and the migration entry of `SCHEMA.md` section 10.2.
 
@@ -772,7 +784,7 @@ written in.
 | Integrity | A magic, a format number and an XXH3-64 over everything after the checksum, checked before anything is read; a version that fails is refused whole and a role holding it stops |
 | The prefix index | In the version, since every commit starts from an instance's prefix |
 | The predicate index | In the version beside its entries, never in one: the metadata group allocates a declared predicate's ID with the version, so every role holds the same ID table complete at load and no commit or read resolves a declared predicate through the dictionary; and a system ID never leaves the database, while Describe carries entries as they stand (user, 2026-11-10, `stage-6-ugs-data-definition/notes/core-principles-review.md`, P7) |
-| Expressions | Instance checks, limit conditions and computed derivations as verified postfix programs with a fixed 8-byte instruction, evaluated in a loop; the storage role needs no parser. Function bodies and path derivations stay text until the query core defines its compiled form at stage 7, since a plan's form is that stage's design |
+| Expressions | Instance checks, limit conditions and computed derivations as verified postfix programs with a fixed 8-byte instruction, evaluated in a loop; the storage role needs no parser. A path derivation is its steps, which a partition walks to maintain a materialized one (user, 2026-11-10); function bodies stay text until the query core defines its compiled form at stage 7, since a plan's form is that stage's design |
 | Constants | Canonical lexical forms with a type, parsed once at load: one encoding already specified for every datatype in `PROTOCOL.md` section 10.5, in place of a second, binary one |
 | The request-typing facts | Fields of the Predicate entry, one fact in one place; the Classification entry holds a type's operations |
 | The worked example | One schema of one entity with one attribute, every byte given, as `PROTOCOL.md` section 2.4 works `hello.frame`; larger versions are checked field by field through the decoder (`SCHEMA.md` section 10.2, rule 6) |

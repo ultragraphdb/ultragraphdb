@@ -38,3 +38,18 @@ measure whose unit is declared `affine: false` SHALL take the token of its own v
 #### Scenario: Measures within one integer share a token
 - **WHEN** `"609.2 m"` and `"609.6 m"` are tokenized
 - **THEN** the two tokens are equal, and a range filter above 609.4 m keeps the second alone
+
+### Requirement: A decimal tokenizer orders by the exact value
+The `decimal` tokenizer SHALL index a `Decimal(p, s)` value under one token: the value scaled by 10^s as a signed
+128-bit integer, big-endian with its sign bit flipped, so tokens compare as bytes exactly as the values compare and a
+range filter over a `Decimal` attribute scans its tokens without converting a value to a float.
+
+#### Scenario: Decimal tokens order exactly
+- **WHEN** an attribute of type `Decimal(18, 2)` with `@index(range)` holds `-0.01`, `0.00`, `0.10` and `49000000.00`
+- **THEN** their tokens, compared as bytes, order as the values, and a range filter `> 0.00` finds `0.10` and
+  `49000000.00`
+
+#### Scenario: Two values differing past a float's precision keep their order
+- **WHEN** the same attribute holds `9007199254740993.00` and `9007199254740992.00`
+- **THEN** their tokens differ and order as the values
+

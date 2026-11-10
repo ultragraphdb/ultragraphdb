@@ -78,8 +78,9 @@ K-7 The RDF view (11.2) holds a materialized derivation's triples. R(G) of SCHEM
 K-8 Section 14: `@access` is recorded from stage 6 and read by stage 7's classifier; it waits for nothing and raises
     no UGS0902.
 
-## Open
-O-1 Materialized path derivations: in design.md's open questions.
+## Decided by the user
+O-1 Materialized path derivations are stage 6's, walked from compiled steps; `Decimal` takes an exact sortable
+    tokenizer (design decision 16).
 
 ## Further readings to write in (the corpus's, where it took one)
 R-1 `DateTime − DateTime`, `Date − Date` and `LocalDateTime − LocalDateTime` give a `Duration` (5.5/4).

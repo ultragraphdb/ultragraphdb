@@ -317,6 +317,17 @@ at `d1aad303`. The user accepted all eleven recommendations on 2026-11-10:
 | P10 | The commit path's Ultra Style lifts are a group of their own, 2b, beside group 3 | Tasks |
 | P11 | The body reader and string list move into `ultragraphdb_core_body` | Decision 6; task 1.2 |
 
+### 16. Materialized paths and decimal ranges (user, 2026-11-10)
+
+Two questions the corpus raised, decided by the user:
+
+- **Materialized path derivations are stage 6's.** A path derivation is compiled to its steps (`CATALOG.md` section
+  5.8), and group 8 builds the path evaluator the partition maintains a materialized one with: a loop over the steps
+  with an explicit frontier and a visited set, recomputing each instance a commit's changes reach by walking the path
+  backwards, within `rule_read_max` (`UGS1040` past it). A path naming a function waits for stage 7 with `UGS0902`.
+- **`Decimal` takes an exact sortable tokenizer**, `decimal`: the value scaled by 10^s as a signed 128-bit integer,
+  big-endian with the sign bit flipped, so a range index orders by the value itself and never through a float.
+
 ## Risks / Trade-offs
 
 - **[The commit path's cost]** Whole-instance validation reads the catalog and the instance's other triples at every
@@ -347,10 +358,4 @@ before the next wave starts.
 
 ## Open Questions
 
-- **Materialized path derivations.** `SCHEMA.md` section 14 enforces materialized derivations from stage 6, while a
-  path derivation's body stays text until stage 7 gives it a compiled form (`SCHEMA.md` 10.2 rule 5, `CATALOG.md`
-  section 4). A partition maintaining one at commit needs a path evaluator. Does stage 6 enforce materialized path
-  derivations, building that evaluator in group 8, or record them with `UGS0902` until stage 7, as virtual ones are?
-- **A range index on `Decimal`.** `SCHEMA.md` 6.10's `@index(range)` row names no tokenizer for `Decimal`, an ordered
-  scalar. Does `Decimal` take a sortable tokenizer of its own, ordering by its exact value, or is a range index on it
-  refused until one exists?
+- None at present.

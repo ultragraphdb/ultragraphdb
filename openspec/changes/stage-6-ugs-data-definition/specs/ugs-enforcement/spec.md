@@ -530,13 +530,22 @@ every `@unique` predicate and a single-attribute `@key`'s, a composite key's cla
 ### Requirement: Materialized derivations are maintained with the write
 A `@materialized` derivation, every computed derivation by default, SHALL be stored as quads under the derived name's
 predicate and maintained in every local commit that changes it, a retraction included, within the anchor partition;
-`@index(range)` on it SHALL be maintained likewise. A computed derivation whose evaluation fails SHALL refuse the
+`@index(range)` on it SHALL be maintained likewise. A materialized path SHALL be walked from its compiled steps,
+recomputed for each instance of its type whose path the commit's changes reach, found by walking the path backwards
+from each changed instance, each walk visiting at most `rule_read_max` instances and a commit needing more refused
+with `UGS1040`. A computed derivation whose evaluation fails SHALL refuse the
 commit with `UGS1039`. A `@virtual` derivation SHALL be recorded and not stored.
 
 #### Scenario: Gen5's closed flag follows the statement
 - **WHEN** a `Company` is created with no `valid` end and `rank` `normal`, then its `rank` is set to `deprecated`
 - **THEN** `db:closed` reads `false` after the first commit and `true` after the second, and the range index of
   `db:closed` lists it under `true`
+
+#### Scenario: A materialized path follows its relation
+- **WHEN** the corpus's `derive_materialized` schema holds a `Person` with no `Holds`, then a `Holds` naming it and an
+  `Account` is inserted, then that `Holds` is deleted
+- **THEN** the person's `held` reads no account after the first commit, that account after the second, and none after
+  the third, each written in the commit that changed it
 
 #### Scenario: A retraction maintains the flag
 - **WHEN** a `Company` with `closed` `false` is retracted
