@@ -39,11 +39,15 @@ followed by the comparison form of the value's sortable encoding (`STORAGE.md` s
 compare as bytes as the values compare and a range of values is a range of tokens; the tokenizer an attribute's type
 takes is `SCHEMA.md` section 6.10's. In the generic layout a literal's datatype SHALL pick the sortable type of its
 range token (`STORAGE.md` section 5.3; T48): `xsd:integer` and the integer types derived from it `Int64`, a value
-outside `Int64`'s range taking no range token; `xsd:double` and `xsd:float` `Float64`; `xsd:decimal` `Int128`, the
-value × 10^18, exact; `xsd:dateTime` and `xsd:date` the 16-byte comparison form, the UTC instant; `xsd:boolean`
-`Bool`; the token SHALL be the identifier byte followed by that comparison form. A `count` index's token SHALL be the
-identifier byte, the direction as a u8, 1 a subject's count and 2 an object's, then the count as a big-endian `UInt64`
-(T48). Any other token SHALL be the identifier byte and the token bytes this capability
+outside `Int64`'s range taking no range token; `xsd:double` and `xsd:float` `Float64`, the lexical form parsed as a
+double, rounded once to the nearest, ties to even, never through binary32; `xsd:decimal` `Int128`, the value × 10^18,
+exact, a value with more than 18 fraction digits or outside `Int128` at that scale taking no range token; `xsd:dateTime` and `xsd:date` the 16-byte comparison form, the UTC instant; `xsd:boolean`
+`Bool`. Each sortable type SHALL take its own tokenizer and so its own identifier byte, `int` for `Int64`, `float`
+for `Float64`, `decimal` for the `Int128`, `datetime` for the instant and `bool` for `Bool`, and the token SHALL be that
+tokenizer's identifier byte followed by the comparison form, so values of two sortable types never share an index
+family or a token. A `count` index's token SHALL be the
+identifier byte, the direction as a u8, 1 a subject's count and 2 an object's, then the count as a big-endian `UInt64`,
+a count of 0 taking its token like any other (T48). Any other token SHALL be the identifier byte and the token bytes this capability
 gives: year and month tokens big-endian u16 fields in UTC. A token of more than 256 bytes, its identifier byte included,
 SHALL be stored as the byte `0xFF` followed by the XXH3-128 of all its bytes as 16 big-endian bytes, 17 bytes in all,
 and is lossy: a reader SHALL confirm every match against the value it indexes.
@@ -62,7 +66,24 @@ and is lossy: a reader SHALL confirm every match against the value it indexes.
 - **WHEN** a tenant with no schema holds `"7"^^xsd:short`, `"2.5"^^xsd:float`, `"0.1"^^xsd:decimal`,
   `"2017-01-01"^^xsd:date` and `"99999999999999999999"^^xsd:integer` under range-indexed predicates
 - **THEN** the first is tokenized as `Int64` 7, the second as `Float64` 2.5, the third as `Int128` 10^17, the fourth as
-  the instant 2017-01-01T00:00:00Z, and the fifth, outside `Int64`'s range, takes no range token
+  the instant 2017-01-01T00:00:00Z, and the fifth, outside `Int64`'s range, takes no range token; the first four take
+  the identifier bytes of `int`, `float`, `decimal` and `datetime`, each a family of its own
+
+#### Scenario: Values of two sortable types never share a token
+- **WHEN** `"0"^^xsd:decimal` and `"0001-01-01T00:00:00Z"^^xsd:dateTime` are tokenized under range-indexed predicates
+- **THEN** their tokens begin with the `decimal` and the `datetime` identifier bytes respectively and differ, though
+  both comparison forms are 16 bytes
+
+#### Scenario: A float is parsed as a double, and a decimal past 18 fraction digits takes no token
+- **WHEN** `"0.1"^^xsd:float`, `"0.1"^^xsd:double` and `"0.0000000000000000001"^^xsd:decimal` are tokenized under
+  range-indexed predicates
+- **THEN** the first two give one token, the double nearest 0.1, and the third, with 19 fraction digits, takes no range
+  token
+
+#### Scenario: A count of zero takes its token
+- **WHEN** a subject with no `knows` statement is counted by the `count` index
+- **THEN** its token is the identifier byte, then 1, then 8 zero bytes, and it sorts before every nonzero count of the
+  same direction
 
 #### Scenario: A count token holds its direction
 - **WHEN** a subject's `knows` count of 3 and an object's `knows` count of 3 are tokenized by the `count` index

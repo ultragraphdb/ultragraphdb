@@ -88,9 +88,12 @@ does with the flag. The vectors above cover those rules one by one.
 `Geo` values (tag 29) are canonicalised by an RFC 8785 serialiser in the generator that handles strings, integers,
 booleans, null, arrays and objects; the samples hold no fractional number, whose canonical form needs ECMAScript's
 number formatting. Every token in `sortable.json` takes its identifier byte as an input of the vector, since the
-`tokenizers` capability's registry assigns it: the token's bytes after it are what the vector fixes. The generic
-layout's range tokens are of literals whose values their types hold exactly, a float's in binary32 and a decimal's in 18
-fraction digits.
+`tokenizers` capability's registry assigns it: the token's bytes after it are what the vector fixes. A generic range
+token names its tokenizer, one per sortable type (`int`, `float`, `decimal`, `datetime`, `bool`), and tokens of two
+types differ in that byte even where their comparison forms are equal. A generic
+`xsd:float` is parsed as a double, `"0.1"^^xsd:float` giving the token of `"0.1"^^xsd:double`; a decimal with more than 18
+fraction digits or outside `Int128` at scale 18, like an integer outside `Int64`, has `hex` null, taking no range token;
+a count of 0 takes its token.
 
 ## What a conforming implementation checks
 

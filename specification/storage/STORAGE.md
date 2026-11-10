@@ -323,11 +323,17 @@ tokenizer's identifier byte (`tokenizers` capability) followed by the comparison
 value converted to the quantity kind's canonical unit, as a `Float64`'s sortable encoding: the exact rational value in
 the canonical unit, rounded once to the nearest `Float64`, ties to even (T48). In the generic layout a literal's
 datatype picks the sortable type its range token takes (T48): `xsd:integer` and the integer types derived from it
-`Int64`, a value outside `Int64`'s range taking no range token; `xsd:double` and `xsd:float` `Float64`; `xsd:decimal`
-`Int128`, the value × 10^18, exact, the scale of `PROTOCOL.md` section 10.5's by-value payload; `xsd:dateTime` and
-`xsd:date` the 16-byte comparison form of tags 19 and 17, the UTC instant; `xsd:boolean` `Bool`; the token is the
-identifier byte followed by that comparison form. A `count` index's token is the identifier byte, the direction as a
-u8, 1 a subject's count and 2 an object's, then the count as a big-endian `UInt64` (T48). Any other token is the
+`Int64`, a value outside `Int64`'s range taking no range token; `xsd:double` and `xsd:float` `Float64`, the lexical
+form parsed as a double, rounded once to the nearest, ties to even, a float as a double and never through binary32;
+`xsd:decimal` `Int128`, the value × 10^18, exact, the scale of `PROTOCOL.md` section 10.5's by-value payload, a value
+with more than 18 fraction digits or outside `Int128` at that scale taking no range token; `xsd:dateTime` and
+`xsd:date` the 16-byte comparison form of tags 19 and 17, the UTC instant; `xsd:boolean` `Bool`. Each sortable type
+takes its own tokenizer and so its own identifier byte, `int` for `Int64`, `float` for `Float64`, `decimal` for the
+`Int128`, `datetime` for the instant and `bool` for `Bool`, and the token is that tokenizer's identifier byte followed
+by the comparison form; an index family holds one tokenizer's tokens (section 13.1), so values of two sortable types
+never share a family or a token (T48). A `count` index's token is the identifier byte, the direction as a
+u8, 1 a subject's count and 2 an object's, then the count as a big-endian `UInt64`, a count of 0 taking its token
+like any other (T48). Any other token is the
 tokenizer's identifier byte and token bytes as that capability gives them. A token of more than 256 bytes, its
 identifier byte included, is stored as the byte `0xFF` followed by the XXH3-128 of all its bytes as 16 big-endian bytes,
 17 bytes in all, and is lossy: a reader confirms every match against the value it indexes. No tokenizer's identifier

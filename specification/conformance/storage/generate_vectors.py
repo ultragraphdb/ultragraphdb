@@ -478,19 +478,18 @@ LEXICAL_INSTANT = re.compile(r"(\d{4})-(\d\d)-(\d\d)(?:T(\d\d):(\d\d):(\d\d(?:\.
 
 def generic_comparison_form(datatype, lexical):
     """Section 5.3: the comparison form a generic-layout literal's datatype picks for its range token, or None for an
-    integer outside Int64's range, which takes no range token. Samples are exactly representable in their type."""
+    integer outside Int64's range or a decimal past 18 fraction digits or outside Int128, which take no range token."""
     if datatype in XSD_INTEGERS:
         v = int(lexical)
         return s_int(v, 8) if INT64_MIN <= v <= INT64_MAX else None
     if datatype == "double":
         return s_float(float(lexical), 8)
     if datatype == "float":
-        f32 = struct.unpack(">f", struct.pack(">f", float(lexical)))[0]
-        assert f32 == float(lexical) or f32 != f32, "a float sample is exact in binary32"
-        return s_float(f32, 8)
+        return s_float(float(lexical), 8)  # parsed as a double, never through binary32
     if datatype == "decimal":
         scaled = Fraction(lexical) * 10**18
-        assert scaled.denominator == 1 and -(1 << 127) <= scaled < (1 << 127), "exact in Int128 at scale 18"
+        if scaled.denominator != 1 or not -(1 << 127) <= scaled < (1 << 127):
+            return None  # more than 18 fraction digits, or outside Int128 at scale 18: no range token
         return s_int(int(scaled), 16)
     if datatype in ("dateTime", "date"):
         m = LEXICAL_INSTANT.fullmatch(lexical)
@@ -508,9 +507,12 @@ def generic_comparison_form(datatype, lexical):
 GENERIC_SORTABLE = {**{d: "Int64" for d in XSD_INTEGERS}, "double": "Float64", "float": "Float64",
                     "decimal": "Int128, the value × 10^18", "dateTime": "the UTC instant of tag 19",
                     "date": "the UTC instant of tag 17", "boolean": "Bool"}
-# The identifier bytes of the generic layout's range tokenizer and of the count tokenizer: inputs of the vectors, which
-# the tokenizers capability's registry owns.
-GENERIC_RANGE_ID, COUNT_ID = 0x22, 0x23
+# The identifier bytes of the generic layout's range tokenizers, one per sortable type (section 5.3), and of the count
+# tokenizer: inputs of the vectors, which the tokenizers capability's registry owns.
+GENERIC_TOKENIZER = {**{d: ("int", 0x06) for d in XSD_INTEGERS}, "double": ("float", 0x24), "float": ("float", 0x24),
+                     "decimal": ("decimal", 0x22), "dateTime": ("datetime", 0x20), "date": ("datetime", 0x20),
+                     "boolean": ("bool", 0x25)}
+COUNT_ID = 0x23
 GENERIC_TOKENS = [
     ("integer", "-9223372036854775808"), ("long", "-4294967296"), ("byte", "-1"), ("nonNegativeInteger", "0"),
     ("integer", "+007"), ("int", "7"), ("unsignedByte", "200"), ("int", "2147483647"),
@@ -519,17 +521,18 @@ GENERIC_TOKENS = [
     ("negativeInteger", "-9223372036854775809"),
     ("double", "-INF"), ("double", "-1.0E300"), ("float", "-3.5"), ("double", "-1.5"), ("double", "-0.0E0"),
     ("float", "0.0"), ("double", "2.5E-3"), ("float", "0.25"), ("double", "1.0E0"), ("float", "1"),
-    ("double", "1.0E300"), ("double", "INF"), ("double", "NaN"),
+    ("double", "1.0E300"), ("double", "INF"), ("double", "NaN"), ("float", "0.1"), ("double", "0.1"),
     ("decimal", "-1000000000000.5"), ("decimal", "-12.34"), ("decimal", "-0.0"), ("decimal", "0"),
     ("decimal", "0.000000000000000001"), ("decimal", "12.34"), ("decimal", "12.340"),
-    ("decimal", "100000000000000000000"),
+    ("decimal", "100000000000000000000"), ("decimal", "0.0000000000000000001"),
+    ("decimal", "200000000000000000000"),
     ("dateTime", "0001-01-01T00:00:00Z"), ("dateTime", "1969-12-31T23:59:59.5Z"), ("dateTime", "1970-01-01T00:00:00Z"),
     ("date", "2026-11-10+14:00"), ("date", "2026-11-10"), ("dateTime", "2026-11-10T00:00:00Z"),
     ("dateTime", "2026-11-09T23:00:00-02:00"), ("dateTime", "2026-11-10T12:00:00Z"),
     ("dateTime", "2026-11-10T13:00:00+01:00"), ("dateTime", "9999-12-31T23:59:59Z"),
     ("boolean", "false"), ("boolean", "0"), ("boolean", "true"), ("boolean", "1"),
 ]
-COUNT_TOKENS = [(1, 1), (1, 2), (1, 300), (1, 1 << 40), (2, 1), (2, 7)]
+COUNT_TOKENS = [(1, 0), (1, 1), (1, 2), (1, 300), (1, 1 << 40), (2, 0), (2, 1), (2, 7)]
 
 
 def generic_token_name(datatype, lexical):
@@ -546,13 +549,15 @@ def generic_token_vectors():
     for datatype, lexical in GENERIC_TOKENS:
         name = generic_token_name(datatype, lexical)
         body = generic_comparison_form(datatype, lexical)
-        hexed = None if body is None else token(GENERIC_RANGE_ID, body)
+        tokenizer, identifier = GENERIC_TOKENIZER[datatype]
+        hexed = None if body is None else token(identifier, body)
         by[name] = hexed
-        cases.append({"name": name, "identifier": GENERIC_RANGE_ID, "datatype": f"xsd:{datatype}", "lexical": lexical,
+        cases.append({"name": name, "tokenizer": tokenizer, "identifier": identifier, "datatype": f"xsd:{datatype}",
+                      "lexical": lexical,
                       "sortable": GENERIC_SORTABLE[datatype], "body_hex": None if body is None else body.hex(),
                       "hex": None if hexed is None else hexed.hex(),
                       "note": "the identifier byte is this vector's input" + (
-                          "; outside Int64's range, so no range token" if body is None else "")})
+                          "; it takes no range token" if body is None else "")})
     assert generic_comparison_form("dateTime", "2026-11-10T13:00:00+01:00") == \
         s_temporal(2026, 11, 10, 13, 0, 0, 60)[:16]
     assert generic_comparison_form("date", "2026-11-10") == s_temporal(2026, 11, 10, 0, 0, 0, None)[:16]
@@ -582,6 +587,7 @@ def generic_token_vectors():
         g(("integer", "+007"), ("int", "7")),
         g(("double", "-0.0E0"), ("float", "0.0")),
         g(("double", "1.0E0"), ("float", "1")),
+        g(("float", "0.1"), ("double", "0.1")),
         g(("decimal", "-0.0"), ("decimal", "0")),
         g(("decimal", "12.34"), ("decimal", "12.340")),
         g(("date", "2026-11-10"), ("dateTime", "2026-11-10T00:00:00Z")),
@@ -593,6 +599,10 @@ def generic_token_vectors():
         assert all(by[o[i]] is not None and by[o[i]] < by[o[i + 1]] for i in range(len(o) - 1)), o
     for e in equal:
         assert by[e[0]] is not None and all(by[e[0]] == by[x] for x in e), e
+    # Two sortable types never share a token: equal comparison forms under two tokenizers differ in the identifier byte.
+    zero_decimal = by[generic_token_name("decimal", "0")]
+    first_instant = by[generic_token_name("dateTime", "0001-01-01T00:00:00Z")]
+    assert zero_decimal[1:] == first_instant[1:] and zero_decimal != first_instant
     return cases, ascending, equal
 
 
