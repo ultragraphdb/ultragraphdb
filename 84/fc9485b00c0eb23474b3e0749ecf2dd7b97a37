@@ -1,0 +1,54 @@
+"openspec/notes/UltraGraphDB Scalable Tile Store.md"
+  s_6eb57b3c609e2f::t_19ddb63c8636b0 202-204
+  s_6eb57b3c609e2f::t_e3917e4bc1e8d7 387
+  s_6eb57b3c609e2f::t_a0c44917236a48 460
+  s_6eb57b3c609e2f::t_46d7c25bcb59db 393-396
+  s_6eb57b3c609e2f::t_9c0360c1e6868b 433-436
+  s_6eb57b3c609e2f::t_f1b3bdbc78b997 818-819
+  s_6eb57b3c609e2f::t_c932db844b8d1d 3
+  s_6eb57b3c609e2f::t_a2c77299b61d7b 90-94
+  s_6eb57b3c609e2f::t_6a88c8653d354f 596-599
+  s_6eb57b3c609e2f::t_e3616478eebb05 403-407
+  s_6eb57b3c609e2f::t_e0a540d7fdf4ea 384
+  s_6eb57b3c609e2f::t_298bb2ea9d36de 552-555
+  s_6eb57b3c609e2f::t_ae8be31e7c7690 829-835
+  s_6eb57b3c609e2f::t_f901a70e4a601e 778-807
+  s_6eb57b3c609e2f::t_9ee6a874e1f418 763-764
+  s_6eb57b3c609e2f::t_68e504157fb285 465-467
+  s_6eb57b3c609e2f::t_85ad8fae1741c4 699,702,707,710,713,717,721,724,728,732,735,738,740
+  s_6eb57b3c609e2f::t_b2edfdc83690c5 188-189
+  s_6eb57b3c609e2f::t_b3af7c3acba4fd 340-341
+  s_6eb57b3c609e2f::t_d7dd35813535ee 631
+  s_6eb57b3c609e2f::t_5cfd6d4653d1ac 685
+  s_6eb57b3c609e2f::t_f4c8b1880c53ec 257-258
+  s_6eb57b3c609e2f::t_b029729312904f 584
+  s_6eb57b3c609e2f::t_582d4ca790efd8 344-345
+  s_6eb57b3c609e2f::t_c7b5f79be28bbf 669
+  s_6eb57b3c609e2f::t_32a600d2b17199 423-426
+  s_6eb57b3c609e2f::t_8d5d0e79060eb7 365-367
+  s_6eb57b3c609e2f::t_b78e80adb5458b 33
+  s_6eb57b3c609e2f::t_deb502aad416f6 297-298
+  s_6eb57b3c609e2f::t_ed7e6edc0daf11 278-280
+  s_6eb57b3c609e2f::t_a8b15f24f2e58f 360-361
+  s_6eb57b3c609e2f::t_2b94a91d935756 106-108
+  s_6eb57b3c609e2f::t_9b59beb594710a 237-239
+  s_6eb57b3c609e2f::t_ff0d444c597f60 694-695
+  s_6eb57b3c609e2f::t_de8fd6d94c3327 654
+  s_6eb57b3c609e2f::t_29da0d9c7b95ca 194-197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "84fc9485b00c0eb23474b3e0749ecf2dd7b97a37",
+  "prompts": {},
+  "sessions": {
+    "s_6eb57b3c609e2f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cc067d49-3ba9-4433-9576-7836ad1ea881",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
