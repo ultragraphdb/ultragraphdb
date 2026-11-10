@@ -10,8 +10,8 @@
 | 5. Transactions, WAL and the zero-copy binary protocol | ✅ |
 | 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage) | ✅ |
 | 5.7 Benchmark three-role cluster architecture| ✅  |
-| 6. UGS: the full data definition and its implementation | `in progress`; pauses after task group 1, resumes at group 2 on the tile store |
-| 6.5. The tile store: a graph-native storage engine replacing the KV store | `Research`; next after stage 6's group 1 |
+| 6. UGS: the full data definition and its implementation | `paused`; pauses after task group 1; |
+| 6.5. The tile store: a graph-native storage engine replacing the KV store | `specified`; next after stage 6's group 1 |
 | 6.7 Harden transactions  with chaos testing against multiple UGS schemata | `open` |
 | 7. Query core: SPARQL and GQL where they overlap | `open` |
 | 7.5. Fuzzy test and harden query core | `open` |

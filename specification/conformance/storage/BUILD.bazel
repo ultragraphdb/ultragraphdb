@@ -1,0 +1,11 @@
+# The storage conformance vectors, exported whole: the tile format, grid and engine crates and their simulator read
+# them as test data, and a second implementation is held to the same files (README.md; specification/storage/STORAGE.md
+# section 22).
+filegroup(
+    name = "vectors",
+    srcs = [
+        "README.md",
+        "generate_vectors.py",
+    ] + glob(["vectors/**"]),
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,119 @@
+{
+  "specification": "STORAGE.md sections 3.2, 6.4, 11.3, 12 and 13",
+  "derivation": {
+    "defaults": "e0f11e730ef7e4ac",
+    "small_grid": {
+      "settings": {
+        "extent_bytes": 131072,
+        "grid_extents": 16,
+        "tile_bytes_max": 65536,
+        "tile_entries_max": 4096,
+        "chunk_slots": 4096,
+        "filter_bits_per_key": 10,
+        "theta_percent": 50,
+        "delta_entries_max": 5242880,
+        "delta_watermark_percent": 75,
+        "delta_row_entries_max": 1024,
+        "delta_age_rounds": 4096,
+        "beat_factor": 4,
+        "cold_after_rounds": 65536,
+        "cleaner_free_percent": 15,
+        "checkpoint_bytes": 268435456,
+        "retention_ms": 30000,
+        "lane_entries_max": 65536,
+        "lane_bytes_max": 262144
+      },
+      "value": "feab2bb2359dc5f7"
+    }
+  },
+  "allocation": {
+    "extent_bytes": 131072,
+    "grid_extents": 16,
+    "cold_after_rounds": 65536,
+    "placements": [
+      {
+        "length": 20000,
+        "built": 1200,
+        "previous": 900,
+        "stream": 1,
+        "address": 131072
+      },
+      {
+        "length": 60000,
+        "built": 1201,
+        "previous": 0,
+        "stream": 1,
+        "address": 151552
+      },
+      {
+        "length": 50000,
+        "built": 1202,
+        "previous": 1100,
+        "stream": 1,
+        "address": 262144
+      },
+      {
+        "length": 65536,
+        "built": 70000,
+        "previous": 1,
+        "stream": 2,
+        "address": 393216
+      },
+      {
+        "length": 8,
+        "built": 70001,
+        "previous": 0,
+        "stream": 1,
+        "address": 315392
+      },
+      {
+        "length": 65536,
+        "built": 70002,
+        "previous": 70000,
+        "stream": 1,
+        "address": 319488
+      },
+      {
+        "length": 12288,
+        "built": 70003,
+        "previous": 0,
+        "stream": 1,
+        "address": 524288
+      }
+    ]
+  },
+  "checkpoint": {
+    "note": "the tiles of tiles.json placed in built order, then the leaf, the root and the free set",
+    "extents_allocated": [
+      0,
+      1,
+      2
+    ]
+  },
+  "superblock": {
+    "input": {
+      "parent": 0,
+      "sequence": 1,
+      "cluster": 81985529216486895,
+      "partition": 1,
+      "replica": 1,
+      "deriv": 18350809151054923255,
+      "position": 1700,
+      "horizon": 184549375,
+      "watermark": 184549386,
+      "extent_bytes": 131072,
+      "grid_extents": 16,
+      "manifest_ref": "00100400000000004801000000000000a799340502315dbc",
+      "free_ref": "0020040000000000a0000000000000002befc4e4066d7a23",
+      "mapping": 1
+    },
+    "copies": [
+      "tiles/superblock_copy0.block",
+      "tiles/superblock_copy1.block",
+      "tiles/superblock_copy2.block",
+      "tiles/superblock_copy3.block"
+    ],
+    "checksum": "b9570af5c6e033eb",
+    "identity": "2833549121213d92fc3bda7b6090dfcd"
+  }
+}

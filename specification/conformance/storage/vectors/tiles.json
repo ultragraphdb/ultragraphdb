@@ -1,0 +1,389 @@
+{
+  "specification": "STORAGE.md sections 6 to 13",
+  "settings": "section 3.1's defaults, extent_bytes 131072 and grid_extents 16",
+  "tiles": {
+    "adjacency_forward": {
+      "input": {
+        "inline_columns": [
+          {
+            "index": 0,
+            "type": "UInt32",
+            "width": 4
+          }
+        ],
+        "rows": [
+          {
+            "slot": 0,
+            "entries": [
+              {
+                "neighbour": "00030000000000000011abc001000000",
+                "statement": 4294967295,
+                "inline": [
+                  "000007e3"
+                ]
+              },
+              {
+                "neighbour": "00030000000000000012abc002000000",
+                "statement": 4294967295,
+                "inline": [
+                  "000007e5"
+                ]
+              }
+            ]
+          },
+          {
+            "slot": 2,
+            "entries": [
+              {
+                "neighbour": "00030000000000000011abc001000000",
+                "statement": 4294967295,
+                "inline": [
+                  "000007e4"
+                ]
+              }
+            ]
+          },
+          {
+            "slot": 5,
+            "entries": [
+              {
+                "neighbour": "00030000000000000014abc004000000",
+                "statement": 9,
+                "inline": [
+                  "000007e8"
+                ]
+              },
+              {
+                "neighbour": "00030000000000000015abc001000000",
+                "statement": 4294967295,
+                "inline": [
+                  "000007e2"
+                ]
+              },
+              {
+                "neighbour": "0003000000000000012cabc003000000",
+                "statement": 4294967295,
+                "inline": [
+                  "000007e1"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "header": {
+        "shape": 1,
+        "kind": 1,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "000100000000000003e9ab0102000000",
+        "type": 0,
+        "direction": 1,
+        "order": 0,
+        "group": 175872,
+        "built": 1200,
+        "previous": 900,
+        "horizon": 163577855,
+        "entries": 6,
+        "rows": 3,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "0000000000030000000000000011abc001000000",
+      "tile_key_hex": "0101000000000000000700000000000000000000000000000000000100000000000003e9ab010200000000000100000002af000000000000030000000000000011abc001000000",
+      "address": 131072,
+      "file": "tiles/adjacency_forward.tile",
+      "length": 496,
+      "checksum": "4fbe27e3960af3df",
+      "digest": "380400a4269c90ae0f732b157fbbee29"
+    },
+    "adjacency_reverse_versioned": {
+      "input": {
+        "rows": [
+          {
+            "key": "00030000000000000011abc001000000",
+            "entries": [
+              {
+                "slot": 0,
+                "created": 167772162,
+                "deleted": 0
+              },
+              {
+                "slot": 2,
+                "created": 176160772,
+                "deleted": 0
+              }
+            ]
+          },
+          {
+            "key": "00030000000000000012abc002000000",
+            "entries": [
+              {
+                "slot": 0,
+                "created": 171966470,
+                "deleted": 176160776
+              }
+            ]
+          }
+        ]
+      },
+      "header": {
+        "shape": 1,
+        "kind": 3,
+        "flags": 1,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "000100000000000003e9ab0102000000",
+        "type": 0,
+        "direction": 2,
+        "order": 0,
+        "group": 175872,
+        "built": 1300,
+        "previous": 0,
+        "horizon": 167772159,
+        "entries": 3,
+        "rows": 2,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00030000000000000011abc00100000000000000",
+      "tile_key_hex": "0103000000000000000700000000000000000000000000000000000100000000000003e9ab010200000000000200000002af0000030000000000000011abc00100000000000000",
+      "address": 135168,
+      "file": "tiles/adjacency_reverse_versioned.tile",
+      "length": 408,
+      "checksum": "51773a277c08f13e",
+      "digest": "645764838cae677dc08b17aa6194ac2f"
+    },
+    "column_chunk_overlay": {
+      "input": {
+        "attribute_type": "Int64",
+        "base": 4096,
+        "span": 4096,
+        "folded": {
+          "4096": 31,
+          "4097": 45,
+          "4100": 22
+        },
+        "overlay": [
+          {
+            "slot": 4097,
+            "version": 209715202,
+            "value": 46
+          },
+          {
+            "slot": 4100,
+            "version": 209715204,
+            "value": null
+          }
+        ]
+      },
+      "header": {
+        "shape": 2,
+        "kind": 1,
+        "flags": 1,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "000100000000000003ebab0104000000",
+        "type": 3,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1400,
+        "previous": 1100,
+        "horizon": 176160767,
+        "entries": 5,
+        "rows": 4096,
+        "span": 4096,
+        "tokenizer": 0
+      },
+      "fence_hex": "00001000",
+      "tile_key_hex": "0201000000000000000700000000000000000000000000000000000100000000000003ebab010400000000030000000002af0000001000",
+      "address": 139264,
+      "file": "tiles/column_chunk_overlay.tile",
+      "length": 856,
+      "checksum": "c3c57bfda37e24f0",
+      "digest": "986cfb192492a8a55a91045eb0e6b1fe"
+    },
+    "record_dictionary": {
+      "input": {
+        "records": [
+          {
+            "term_kind": 1,
+            "text": "http://ex.org/alice",
+            "id": "00030000000000000011abc001000000"
+          },
+          {
+            "term_kind": 1,
+            "text": "http://ex.org/bob",
+            "id": "00030000000000000012abc002000000"
+          },
+          {
+            "term_kind": 1,
+            "text": "http://ex.org/carol",
+            "id": "00030000000000000014abc004000000"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 1,
+        "flags": 2,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1500,
+        "previous": 0,
+        "horizon": 180355071,
+        "entries": 3,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "45a0be6f112c8e2701687474703a2f2f65782e6f72672f6361726f6c0000",
+      "tile_key_hex": "03010000000000000007000000000000000000000000000000000000000000000000000000000000000000000001000002af0045a0be6f112c8e2701687474703a2f2f65782e6f72672f6361726f6c0000",
+      "address": 143360,
+      "file": "tiles/record_dictionary.tile",
+      "length": 376,
+      "checksum": "104bebb1888ce125",
+      "digest": "8a8596ef99112b6ea4eaf8e62177aacd"
+    },
+    "record_statistics": {
+      "input": {
+        "predicate": "000100000000000003e9ab0102000000",
+        "statements": 3,
+        "kinds": {
+          "iri": 3
+        },
+        "subjects": [
+          "00030000000000000001abc001000000",
+          "00030000000000000001abc001000000",
+          "00030000000000000002abc002000000"
+        ],
+        "objects": [
+          "00030000000000000011abc001000000",
+          "00030000000000000012abc002000000",
+          "00030000000000000011abc001000000"
+        ],
+        "created": 184549386,
+        "value": "0100000000000000030001000369726900000000000000030000000000000000000000000000000000000000000000000000000100000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000"
+      },
+      "header": {
+        "shape": 3,
+        "kind": 9,
+        "flags": 1,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 4294967295,
+        "built": 1600,
+        "previous": 0,
+        "horizon": 184549375,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0100ff00ff00ff00ff00ff00ff03e9ab010200ff00ff00ff0000",
+      "tile_key_hex": "0309000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00ff0100ff00ff00ff00ff00ff00ff03e9ab010200ff00ff00ff0000",
+      "address": 147456,
+      "file": "tiles/record_statistics.tile",
+      "length": 464,
+      "checksum": "c681510672fc9412",
+      "digest": "00da2caba2b9de522153c169182c870b"
+    },
+    "manifest_leaf": {
+      "header": {
+        "shape": 3,
+        "kind": 16,
+        "flags": 2,
+        "tenant": 0,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 4294967295,
+        "built": 1700,
+        "previous": 0,
+        "horizon": 184549375,
+        "entries": 5,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "address": 262144,
+      "file": "tiles/manifest_leaf.tile",
+      "length": 784,
+      "checksum": "c9c19f6e32a348b4",
+      "digest": "09d872551e0faf5e5459c355cea9a34a"
+    },
+    "manifest_root": {
+      "header": {
+        "shape": 3,
+        "kind": 17,
+        "flags": 2,
+        "tenant": 0,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 4294967295,
+        "built": 1700,
+        "previous": 0,
+        "horizon": 184549375,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "address": 266240,
+      "file": "tiles/manifest_root.tile",
+      "length": 328,
+      "checksum": "bc5d3102053499a7",
+      "digest": "b8dbd9f71e09d6e6f47ebf98c5d1cc3e"
+    },
+    "free_set": {
+      "header": {
+        "shape": 4,
+        "kind": 1,
+        "flags": 0,
+        "tenant": 0,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 4294967295,
+        "built": 1700,
+        "previous": 0,
+        "horizon": 184549375,
+        "entries": 3,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "address": 270336,
+      "file": "tiles/free_set.tile",
+      "length": 160,
+      "checksum": "237a6d06e4c4ef2b",
+      "digest": "0e4dc6ebfa3180ebf19132b3498f26c3",
+      "input": {
+        "grid_extents": 16,
+        "allocated": [
+          0,
+          1,
+          2
+        ]
+      }
+    }
+  }
+}
