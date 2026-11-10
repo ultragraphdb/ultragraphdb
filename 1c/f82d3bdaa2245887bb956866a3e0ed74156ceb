@@ -1,0 +1,59 @@
+"openspec/notes/UltraGraphDB Scalable Tile Store.md"
+  s_6eb57b3c609e2f::t_299e1adedee899 5-24,28,30-212,217-309,317-379,388-404,407-422,424-431,434-437,439-454,456-478,483-498,501-545,649-660,663-671,674-722,755-768,772-774,805-811,815-831,839-849
+  s_6eb57b3c609e2f::t_13de73156e71d1 432-433
+  s_6eb57b3c609e2f::t_37ff5ce28f61aa 423
+  s_6eb57b3c609e2f::t_e3dfe0ed0dcc06 479-482
+  s_6eb57b3c609e2f::t_c1a5d41b9f9b0a 499-500
+  s_6eb57b3c609e2f::t_2899f573ee3afc 213-216
+  s_6eb57b3c609e2f::t_bd2251adbe1423 546-648
+  s_6eb57b3c609e2f::t_2fcb18ccbc11fc 832-838
+  s_6eb57b3c609e2f::t_d67305fe6e55c9 405-406
+  s_6eb57b3c609e2f::t_975a7e63cfa498 455
+  s_6eb57b3c609e2f::t_dd0a1dacdc119e 812-814
+  s_6eb57b3c609e2f::t_bcad0eaba213a4 661-662
+  s_6eb57b3c609e2f::t_29ab8007d7b11b 723-754
+  s_6eb57b3c609e2f::t_a3887c5f404728 310-316
+  s_6eb57b3c609e2f::t_ee5ef36363c2e3 769-771
+  s_6eb57b3c609e2f::t_1dcdd29eeacc76 3-4
+  s_6eb57b3c609e2f::t_3eb3b868074ab7 672-673
+  s_6eb57b3c609e2f::t_5c329474e2108c 380-387
+  s_6eb57b3c609e2f::t_1c57d4106f7505 775-804
+  s_6eb57b3c609e2f::t_5eb3fb87445623 438
+  s_6eb57b3c609e2f::t_f37ae538ea51c0 1-2
+openspec/notes/backlog.md
+  s_6c9dcf457e80d9::t_1c0ed0538d3080 8
+"openspec/notes/archive/UltraGraphDB Schema Feedback.md"
+  s_bbe5bf695ae74d::t_40602d678b58fb 5,153,181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1cf82d3bdaa2245887bb956866a3e0ed74156ceb",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_6eb57b3c609e2f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cc067d49-3ba9-4433-9576-7836ad1ea881",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_bbe5bf695ae74d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-aeab93d18a3d80a79",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
