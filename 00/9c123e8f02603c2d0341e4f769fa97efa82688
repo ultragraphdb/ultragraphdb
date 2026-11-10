@@ -1,0 +1,36 @@
+specification/schema/SCHEMA.md
+  s_6eb57b3c609e2f::t_4b0b75979ae6b9 1366-1369
+  s_6eb57b3c609e2f::t_3bb5a308d65677 2170
+specification/binary_protocol/PROTOCOL.md
+  s_6eb57b3c609e2f::t_91dced48896781 834
+  s_6eb57b3c609e2f::t_f54dc4f2c0d008 933-942
+  s_6eb57b3c609e2f::t_5a74be7cbcbb6d 830-833,835-838
+  s_6eb57b3c609e2f::t_bf1fdb7b18178d 954-956
+  s_6eb57b3c609e2f::t_f95f0114051aaa 2503-2507,2509-2510,2514,2526-2529,3309-3310,3314-3321,3330,3332,3336-3337,3344-3376,3386-3389,3394-3414,3417-3462,3466-3473,3479,3481,3488,3490-3494,3498,3500-3540,3542-3544,3718,3723,3741,3761-3762,3772,3779-3780,3785,3824-3825
+specification/conformance/storage/generate_vectors.py
+  s_6eb57b3c609e2f::t_577df11fb42a98 1844-1846
+"openspec/notes/UltraGraphDB Scalable Tile Store.md"
+  s_6eb57b3c609e2f::t_6a94e1c6de718a 3-4,412,953-984
+specification/conformance/storage/vectors/refusals.json
+  s_6eb57b3c609e2f::t_e1807c5e5fa597 46-52
+specification/schema/CATALOG.md
+  s_6eb57b3c609e2f::t_cb761055c0cd4a 563-565,583
+specification/storage/STORAGE.md
+  s_6eb57b3c609e2f::t_ded9337d8a688a 354,401,412-418,532,730-736,740,749-755,789,1071-1072,1086-1088,1201-1203
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "009c123e8f02603c2d0341e4f769fa97efa82688",
+  "prompts": {},
+  "sessions": {
+    "s_6eb57b3c609e2f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cc067d49-3ba9-4433-9576-7836ad1ea881",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
