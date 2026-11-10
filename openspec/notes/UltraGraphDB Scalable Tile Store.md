@@ -1,7 +1,7 @@
 # UltraGraphDB Scalable Graph Storage Engine
 
-Nov 10, 2026 · first design draft; decisions T1–T41 adopted 2026-11-10, T30–T41 resolving
-`UltraGraphDB Tile Store Feasibility.md`
+Nov 10, 2026 · first design draft; decisions T1–T45 adopted 2026-11-10, T30–T41 resolving
+`UltraGraphDB Tile Store Feasibility.md` and T42–T45 the specifications' last open issues
 
 The storage engine of roadmap stage 6.5: a graph-native tile store that replaces the fjall KV store whole, writes
 included. A partition keeps its graph as tiles, bounded and checksummed blocks of three shapes: adjacency blocks of a
@@ -409,7 +409,7 @@ allow for the request's relations is refused.
 | **L — latest** | Monotonic-fast reads; session reads of one partition's latest state; linearizable latest-state reads once past the read barrier (T28) | Answers one frame within one turn from base and delta as applied, dropping deleted entries, the frame naming the version it read (T34): monotonic-fast and session reads on any replica that has applied the session's position, linearizable ones on the primary once its next round commits by a quorum in its view | Pins, epoch waits, comparing entries against a pinned version |
 | **S — snapshot** | Snapshot reads at a closed epoch `e`, as-of reads | Pins `e`, filters versions at `e`, may span turns, on any replica that has closed `e` | Read-set recording |
 | **X — serializable** | Reads of an open read-write transaction | As S at the transaction's version, recording what it read | Recording stable reads |
-| **A — append** | Writes whose every predicate the catalog marks blind (`SCHEMA.md` section 9.6: coordination-free, no key or `@unique` claim, no check reading beyond the instance), the writes a DirectWrite and an Ingest may carry | Execution proves each new statement absent at its read version (the filter, then the tile on maybe); the commit step admits its write keys against the conflict history, so two in-flight inserts of one statement conflict and statistics stay exact (T34) | Read-set validation |
+| **A — append** | Writes whose every predicate the catalog marks blind (`SCHEMA.md` section 9.6: coordination-free, no key or `@unique` claim, no check reading beyond the instance), the writes a DirectWrite and an Ingest may carry, and an Ingest's key and `@idempotency` claims, whose absence execution proves as a statement's (T42) | Execution proves each new statement absent at its read version (the filter, then the tile on maybe); the commit step admits its write keys against the conflict history, so two in-flight inserts of one statement conflict and statistics stay exact (T34) | Read-set validation |
 | **V — validated** | Segmented and local writes with checks | The commit step's validation against the conflict history | — |
 | **C — sequenced** | Coordinated writes (stage 8) | Executed at the sequencer's position, reads at that position | — |
 
@@ -949,6 +949,38 @@ applied position and the mapping contract's version in the grid's superblock (*R
 `cast_sign_loss`) enabled globally when the KV crates are removed, the tile crates satisfying them from their first
 line; the baseline target features kept unless E4 measures a gap; cache frames as `BytesMut` slabs; no cancelled I/O;
 the polling fallback detected and logged; partition cores from the second allowed CPU (*Larger than memory*).
+
+**T42. An Ingest claims its instances' keys.** *Principle:* put the check where the state is, and add no mechanism. A
+key's claim and an `@idempotency` claim live in the instance's own bucket by construction (`SCHEMA.md` section 7.2), so
+the share's partition holds them at every partition count; a claim is a record whose absence execution proves at its read
+version and whose conflict key the commit step admits, as lane A does for a statement (T34). *Choice:* an Ingest share
+checks and writes both; a key already claimed refuses the share with `UGS1008`, the row named; an `@idempotency` value
+already claimed writes none of the row's values and binds its blank node to the claiming instance. A `@unique` value,
+claimed at its hash's owner, and every rule reading beyond the instance stay a transaction's, so whether a frame is
+accepted never depends on where a hash lands. DirectWrite is unchanged.
+
+**T43. A new blank node is created in exactly one share.** *Principle:* make the bad state unrepresentable. A share
+commits alone (T23), so a node one share creates and another references would dangle whenever the first is refused, and
+whether it dangles would hang on the order two partitions commit in. *Choice:* the frontend joins the frame's new blank
+nodes into groups by the rows linking them, sends a group to the partition of the rows with IRI subjects naming it, or to
+the session-and-request partition when none does, and refuses with code 23 a frame placing one group in two partitions.
+The placement reads the frame and the map alone, so a resend splits alike. Minting each node's IRI at the frontend was
+rejected: it names the node in every share but leaves the dangling reference.
+
+**T44. Scan reads records by key and families whole; Frontier reads rows.** *Principle:* one kernel per access pattern,
+and a slot never leaves its replica (*Identity: slots*). *Choice:* a Scan range is a record of a record run by its
+logical key, the dictionary, a claim, a referrer set, a tombstone, statistics, a statement's record or a `@limit`
+aggregate, or one predicate's family read whole, in family order, with an opaque resume key; rows named by key are a
+Frontier's, adjacency rows and an attribute's column values by instance alike. Scan's `after`, its version-suffixed keys
+and its keyspaces go. In lane X a claim read records a one-key range, a statement's record a statement tested, and a
+family read whole its whole range of conflict keys, coarser than T38's partial page because such a read covers every
+bucket group; E5 measures the aborts.
+
+**T45. The layout names adjacency and column chunk families alone.** *Principle:* one fact in one place. Record runs,
+identity columns and slot maps exist in every tenant by the store's own rules, so a Layout entry listing them would state
+them twice. *Choice:* `CATALOG.md` section 5.11 lists adjacency and column chunk families by name, in its own order; a
+replica maps the names to IDs and orders its tiles by tile key; an adjacency family's direction follows its kind, 0 for
+an index relation, and a decoder checks it.
 
 ## 7. Experiments
 

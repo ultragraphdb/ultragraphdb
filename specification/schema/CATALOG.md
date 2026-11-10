@@ -560,7 +560,9 @@ The compiled layout of the tenant's data: which families of tiles the store keep
 sections 13.4 and 14.3, T35). The schema compiler writes it once per version holding a Schema entry, and every replica
 decodes it and never recompiles it, so a release cannot change a replica's tiles; a version holding no Schema entry has
 none, and its tenant takes the generic layout. A family here is what a tile's family key holds apart from the tenant,
-the graph and the bucket group, which the store adds per tile. Describe carries no Layout entry: it describes the
+the graph and the bucket group, which the store adds per tile. The entry lists adjacency and column chunk families
+alone: record runs, identity columns and slot maps exist in every tenant whatever it declares (`../storage/STORAGE.md`
+section 13.4), so no Layout entry names them. Describe carries no Layout entry: it describes the
 store's bytes, not the schema.
 
 No fixed part.
@@ -578,7 +580,7 @@ No fixed part.
 | 4 | 4 | `type` | string: a column chunk's type, a qualified name; `ABSENT` for an adjacency family |
 | 8 | 1 | `shape` | u8: 1 an adjacency block, 2 a column chunk |
 | 9 | 1 | `kind` | u8: the shape's kind, 1 to 5 for an adjacency block (`../storage/STORAGE.md` section 7.1), 1 fixed width or 2 variable width for a column chunk (section 8.1 there) |
-| 10 | 1 | `direction` | u8: an adjacency family's, 1 forward or 2 reverse; 0 for a column chunk |
+| 10 | 1 | `direction` | u8: an adjacency family's, as its kind gives it (`../storage/STORAGE.md` section 7.1): 1 forward for kinds 1, 2 and 5, 2 reverse for kind 3, 0 for an index relation, kind 4; 0 for a column chunk |
 | 11 | 1 | `class` | u8: 1 storage class I, 0 class M |
 | 12 | 1 | `tokenizer` | u8: an index relation's (kind 4) tokenizer identifier byte, not `0xFF`; 0 otherwise |
 | 13 | 1 | `order` | u8: an adjacency family's row order, as a tile header's (section 6.2 there): 0 by neighbour, `1 + i` ascending and `0x81 + i` descending by inline column `i`; 0 for a column chunk |

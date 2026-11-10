@@ -1841,6 +1841,9 @@ def main(out):
     bad[6] = 9
     tile_case("shape 9", refix(bad), "Shape")
     bad = bytearray(fwd)
+    bad[66] = 2
+    tile_case("forward block with direction 2", refix(bad), "Shape", "section 7.1: kind 1 gives direction 1")
+    bad = bytearray(fwd)
     bad[22:24] = u16(4)
     tile_case("flags bit 2", refix(bad), "Flags")
     bad = bytearray(fwd)

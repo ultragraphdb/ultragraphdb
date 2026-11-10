@@ -1363,7 +1363,10 @@ ConditionalWrite such changes with its commit-time operations (`../binary_protoc
 A rule over the instance's own fields, a datatype, a value check or a `@check`, is validated in the frame's one turn
 and refuses the frame with its number. What takes a read-write transaction is a claim of a key or a `@unique` value
 and a rule that reads beyond the instance, a bound, a `@limit`, `@no_overlap`, `@acyclic` or a participant's field; a
-frame holding such a change is refused naming one.
+frame holding such a change is refused naming one. An Ingest share (`../binary_protocol/PROTOCOL.md` section 6.8) also
+claims its instances' keys and `@idempotency` values: both live in the instance's own bucket (sections 7.2 and 9.3), so
+the share's partition holds them at every partition count, and a block creating keyed instances is not refused for
+their claims.
 Insert-if-absent and upsert-and-link, which create a node of no declared type, are refused in a governed tenant.
 
 ## 10. Compilation and the catalog
@@ -2164,7 +2167,7 @@ that begin with one, `Asset.all_parts` and `Company.suppliers`.
 | `statement` as a word | Decided 2026-11-10: a keyword after `abstract` alone and an identifier elsewhere, as `import`, `unit` and `version` are placed, so Gen5 keeps `statement` as the role its provenance links name; a name differing from a reserved word by case alone is a name, and the parser's refusal names a mistyped keyword |
 | One condition, one number | Decided 2026-11-10: the most specific diagnostic naming a condition is raised, `UGS0710` is retired into `UGS0116`, a commit reports the first rule broken in section 8.2's order, and an expression that cannot be evaluated has a number of its own (`UGS1039`), apart from a check that evaluated and did not hold |
 | Creation | Decided 2026-11-10: a transaction creates an instance by writing `rdf:type` on a blank node or on a keyed type's minted IRI; a creation on a key the tree holds is a duplicate (`UGS1008`) and never an update, and a keyed instance under a blank node is refused (`UGS1038`), the IRI being a pure function every client computes. Chosen over minting for the client, which has the frontend assemble an instance to route it |
-| One-frame writes | Decided 2026-11-10: a rule over the instance's own fields is validated in a DirectWrite's one turn; a claim, and a rule reading beyond the instance, take a transaction (section 9.6) |
+| One-frame writes | Decided 2026-11-10: a rule over the instance's own fields is validated in a DirectWrite's one turn; a claim, and a rule reading beyond the instance, take a transaction (section 9.6); an Ingest share claims its instances' keys and `@idempotency` values, which their own bucket holds |
 | A recreated IRI | Decided 2026-11-10: the new instance's record names the ID it replaced and the tombstone the delete's version, so a read of the past never answers absence where an instance was; the dictionary stays without versions (section 8.5) |
 | Order of sources | Decided 2026-11-10: schemas by name, then modules after what they extend, so prefix allocation is a function of the sources alone (section 7.1) |
 | Decimal ranges and materialized paths | Decided by the user 2026-11-10: `Decimal` takes an exact sortable tokenizer, `decimal`, so a range index orders by the value itself (section 6.10); stage 6 maintains materialized path derivations, a path compiled to steps that the partition walks within `rule_read_max` (sections 6.8, 10.2) |

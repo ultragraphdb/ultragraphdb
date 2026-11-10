@@ -827,6 +827,15 @@ the session, the rights and the tenant gate, and the blind predicates of a tenan
 and nothing else: a delete, an operation or a statement property set alone is a Write's, a DirectWrite's or a
 ConditionalWrite's (T25).
 
+An Ingest creates keyed instances, which a DirectWrite does not: an entity's key claim and its `@idempotency` claim
+live in the instance's own bucket (`../schema/SCHEMA.md` sections 7.2 and 9.3), so the partition a row reaches holds
+both, at every partition count, and its share checks them in its turn as it checks the instance's own fields (T42). A
+row whose key an instance of its key space already claims, or that a row of the same share claims before it, refuses
+its share with code 7 (Refused), the row named and `detail` the UGS refusal number, 1008; a row whose `@idempotency`
+value an instance of its type already claims writes none of its values, and the share's rows naming its blank node
+name that instance (`../schema/SCHEMA.md` section 6.6). Every other claim, and every rule reading beyond the instance,
+stays a read-write transaction's, as section 6.6 has it.
+
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 16 | `session` | session (section 1) | all zero for none |
@@ -921,9 +930,16 @@ The frontend checks the session and the rights as for a Commit (section 11.5), a
 refusing the frame whole as that section says. It refuses with code 2 (Conflict), kind 5 (Catalog), before any
 partition sees it, a frame whose `catalog` is not the tenant's current version, the message naming both versions: the
 client describes the catalog again (section 8.3) and encodes against the version in effect. It finds each row's
-partition as section 11.12 finds a first request's subject's (*Writes*), and the rows whose subjects are new blank nodes
-at the one partition section 6.6 gives a write naming only new blank nodes, by the frame's `session` and `request`. It
-then relays a share to each partition reached, on a new stream to its role address: the frame's command header with
+partition as section 11.12 finds a first request's subject's (*Writes*). Every new blank node of the frame is created in
+exactly one share, so no share names a node another creates (T43): the frame's new blank nodes, joined wherever a row
+whose subject is one names another as a neighbour, form groups; a group goes to the partition of the rows whose subjects
+are IRIs or skolem IRIs and that name one of its nodes as a neighbour, or, when no such row names one, to the partition
+section 6.6 gives a write naming only new blank nodes, by the frame's `session` and `request`; and a row whose subject
+is a new blank node goes with its group. A group such rows place in two partitions refuses the frame with code 23
+(CrossPartition) before any relay, `detail` as for an operation bound to none, the message naming the blank node and
+the first two partitions in frame order, block by block and row by row: a blank node's label names it within one frame
+alone, so the client names such a node by an IRI, or keeps the rows naming it within one partition. The placement reads the frame and the frontend's map alone, so a
+resend splits alike. It then relays a share to each partition reached, on a new stream to its role address: the frame's command header with
 `principal` and `share` filled, its term table whole, and of each block the rows that partition owns, with their
 neighbours and their columns' values, in their order; a block with no such row is left out of the share, and the
 share's blocks and rows are numbered anew. Once every share is answered it answers the client with one reply, naming
@@ -935,7 +951,9 @@ rest from the tables.
 A partition executes its share in one turn at its visibility watermark as section 6.6 states, and refuses it in its
 outcome: with code 2, kind 5, when `catalog` is not the version in effect at the round's epoch; with code 7 (Refused),
 the block named, for a block naming a type, an attribute or a predicate the version does not declare, a column whose
-`width` is not its descriptor's sortable width, or a column or an entity block in a tenant holding no schema, whose
+`width` is not its descriptor's sortable width, a block whose type, predicate or column's predicate is not blind to
+write but for its type's key and `@idempotency` claims (`../schema/SCHEMA.md` section 9.6), the message naming the
+predicate and a read-write transaction, or a column or an entity block in a tenant holding no schema, whose
 relation blocks carry no column; with code 7 and the row named for a value its check refuses; with code 6 (TooLarge),
 `detail` the bound, for a share whose body and resolution do not fit one round of its partition's log beside that round's
 header and tables. Its round logs the share's body as received, with its resolution, and no write-set record
@@ -2482,17 +2500,18 @@ arrive first: the frontend holds it until the Bind stream ends, then answers the
 code 4 (PastLimit), or the code 23 a read's refusal cancelled the stream with, and sends nothing further when it has already
 answered the read.
 
-Compute reads through storage's read kernels: Scan (section 13.13), key ranges of the partition at a role address, at a
-version, each bounded by a row limit, in key order, batched per address; and Frontier (section 13.21), many rows of one
-relation in one direction with a type range, inline filters and a top-k. It resolves a bound term in the partition whose
-lists it reads; an absent entry there means that partition holds no statement of the term and answers no row. Only where one
+Compute reads through storage's read kernels: Scan (section 13.13), records of the partition at a role address by
+their keys and families read whole, at a version, each family bounded by a row limit, batched per address; and Frontier
+(section 13.21), many rows of one relation in one direction, or of one attribute, with a type range, inline filters and
+a top-k. It resolves a bound term in the partition whose
+rows it reads; an absent entry there means that partition holds no statement of the term and answers no row. Only where one
 ID must key several partitions, a reverse read's object and a resume key's terms, does it read the term's home. It names a
-row's system IDs by the dictionary of the partition that answered the row. A term and a list keyed by its ID take two Scans,
-the term's first. It chooses the partitions a read asks by its bound positions:
+row's system IDs by the dictionary of the partition that answered the row. A term and the rows keyed by its ID take two reads,
+a Scan of the term's dictionary record first. It chooses the partitions a read asks by its bound positions:
 
 | Pattern | Partitions asked |
 |---|---|
-| A bound subject that is a reifier's skolem IRI, or the handle IRI of an edge-encoded instance, which the catalog's Type entry tells from a node-encoded one | the partition its bucket names, for the statement's record in the statements keyspace, one row per property matching the pattern, with `ABSENT` in the reifier column |
+| A bound subject that is a reifier's skolem IRI, or the handle IRI of an edge-encoded instance, which the catalog's Type entry tells from a node-encoded one | the partition its bucket names, for the statement's record (`../storage/STORAGE.md` section 9.3, kind 18), one row per property matching the pattern, with `ABSENT` in the reifier column |
 | A bound subject | the subject's partition alone |
 | An unbound subject and a bound IRI or blank-node object, a reverse read | first the object's home, for its referrer set at the read's epoch `e`, once the home has closed `e`, or, at a named version of epoch `e`, its set at the home's latest applied version (`at` 2, waiting for nothing), since a set only grows and an edge at that version may have its member above it in the home's own order; then the partitions the set's bucket groups resolve to through the placement map in effect at `e`, for their reverse or object-predicates entries of the object at `e`, batched per address, each once it has closed `e`. A partition the set does not name is not asked. A reverse list's records hold their statement IDs as a forward list's do, so this read takes no further Scan for them |
 | An unbound subject and a bound vector object | every partition holding a bucket of the tenant's run, for the forward lists of the predicate, or of every predicate when it is unbound, compute keeping the objects equal to the vector's encoding, since no reverse key names a vector |
@@ -2504,10 +2523,10 @@ stage.
 
 It merges the partitions' entries in key order, through a merge scan when the frontier is large, into Result batches
 that name every term by its text, with resume keys of its own (section 11.8). It grants a Scan credit as the merge drains that
-partition, so a list Scan that gave keys and then stalled (section 13.13) waited its turn: compute goes on with a new Scan at the
-same version from where it stopped, and only a Scan that stalled before giving a key refuses the read with code 24. Compute sends a read's list Scans only once each
-partition it asks has closed the read's epoch, which a dictionary Scan at that epoch shows; a read with no term to resolve
-there asks any one-key dictionary range for it. So a list Scan never parks on another partition's close. Before a monotonic-fast read reaching
+partition, so a read of rows that gave rows and then stalled (section 13.13) waited its turn: compute goes on with a new read at the
+same version from the resume key its last frame gave, and only one that stalled before giving a row refuses the read with code 24. Compute sends a read's reads of rows only once each
+partition it asks has closed the read's epoch, which a Scan of dictionary records at that epoch shows; a read with no term to resolve
+there asks a range of space 1 of the dictionary for it. So a read of rows never parks on another partition's close. Before a monotonic-fast read reaching
 several partitions, it asks them their latest closed epochs with Closed (section 13.17). A read-write transaction's
 reads ask its partition alone, at the Bind's version, and every Scan of them names the transaction, so the partition
 records what they read in the transaction's reads, which its commit validates (section 13.13).
@@ -3287,19 +3306,19 @@ An object record gives rows as section 13.14 states. A system ID or literal hash
 answers no entry for is corruption: compute answers the read with code 17 (Unavailable), the message naming the key holding
 it, and the connection stays open.
 
-An unbound graph is walked per partition and keyspace: a range from the keyspace's tenant, or from just past the last graph
-found, with `limit` 1, names the next graph by its first key, and compute cancels that Scan after its first frame, then reads
-the pattern's keys in that graph. In a transaction these Scans record their spans as any other, so a graph appearing in a gap
-conflicts.
+An unbound graph is read by ranges of space 2 naming every graph (section 13.13), whose rows name their graphs. In a
+transaction such a range records the tenant's whole range of conflict keys, so a graph appearing later conflicts.
 
 ### 13.13 Scan (524)
 
-One of storage's two read kernels, beside Frontier (section 13.21): the entries of key ranges of the partition at a
-role address, at one version, at most `limit` entries of each, in key order, batched per address. A Scan reads in lane
-S, or in lane X when it names a transaction (`../storage/STORAGE.md` section 18.1); lane L is a Frontier's. Compute builds each range from a pattern's terms and
-the store's key encoding, and reads the dictionary, a referrer set or a list by Scans as it reads the quads; a lookup of
-one key is a range holding it alone. Keys here are the store's keys without their 8-byte version suffix, and carry
-system IDs.
+One of storage's two read kernels, beside Frontier (section 13.21): records of the partition at a role address by their
+keys, and families of it read whole, at one version, batched per address. A Scan reads in lane S, or in lane X when it
+names a transaction (`../storage/STORAGE.md` section 18.1); lane L, and a read of named rows, are a Frontier's. Compute
+reads the dictionary, a referrer set, a claim and a statement's record by Scans, each one record by its key, and reads a
+predicate's family whole where a pattern binds none of its rows: an unbound subject, an unbound graph. Every key a Scan
+names is logical, the key of a record as `../storage/STORAGE.md` section 9.3 gives it, made of system IDs, hashes, term
+encodings and sortable values; no range names a slot, and a resume key is the store's bytes, which compute holds opaque
+(`../storage/STORAGE.md` sections 14.6 and 18.3, T44).
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
@@ -3308,39 +3327,53 @@ system IDs.
 | 16 | 8 | `epoch` | epoch (section 1) | the epoch the partition closes before it answers; 0 for none, and for `at` 4 |
 | 24 | 8 | `principal` | u64 | the client's principal |
 | 32 | 16 | `transaction` | bytes | a read-write transaction's identity, the partition's own, whose reads record the ranges; all zero for none |
-| 48 | 4 | `limit` | u32 | the most entries per range; 0 for no limit |
+| 48 | 4 | `limit` | u32 | the most rows per range of space 2; 0 for no limit |
 | 52 | 4 | `deadline_ms` | u32 | how long the partition waits for the close of `epoch`: the time left until the deadline of the read's transaction (section 6.2); 0 when `epoch` is 0 (`FieldValue` `"deadline_ms"`) |
+| 56 | 8 | `tenant` | u64 | the tenant every range reads |
 
 | Section | Contents |
 |---|---|
-| 0 | ranges, 24 bytes each |
-| 1 | the ranges' keys, back to back: each range's first key, its past key, then its `after` when it has one |
+| 0 | ranges, 64 bytes each |
+| 1 | the ranges' bytes, back to back: a range of space 1's key, a range of space 2's resume key when it has one |
 | 2 | with `transaction` not zero, the IRIs the read names: a request term table's records (section 4.4), interned in the order of the ranges naming them; empty otherwise |
 | 3 | that term table's text |
 
 | Range offset | Width | Field | Type |
 |---|---|---|---|
 | 0 | 4 | `partition` | u32: the partition read, the one the role address serves |
-| 4 | 4 | `after_len` | u32: the length of the object encoding the range's first list resumes at, in section 1 following its past key; 0 for none |
-| 8 | 4 | `first` | u32: the offset in section 1 of the range's first key, inclusive |
-| 12 | 4 | `first_len` | u32: its length, at least 1 |
-| 16 | 4 | `past` | u32: the offset of the key past the range's last, exclusive, `first + first_len` |
-| 20 | 4 | `past_len` | u32: its length; 0 for the end of the first key's tenant in its keyspace |
+| 4 | 1 | `space` | u8: 1 a record by its key; 2 a family read whole |
+| 5 | 1 | `kind` | u8: for space 1, the record kind (`../storage/STORAGE.md` section 9.3): 1 term to ID, 2 ID to term, 3 hash to text, 4 a key claim, 5 a `@unique` claim, 7 a referrer set, 8 a tombstone, 9 statistics, 12 a `@set` combination, 13 an idempotency claim, 18 a statement's record, 19 a `@limit` aggregate; for space 2, as a Frontier's `kind` (section 13.21): 1 forward edges, 2 forward values, 3 reverse entries, 4 an index relation, 6 an attribute's column chunks |
+| 6 | 1 | `tokenizer` | u8: space 2 with kind 4, the index's tokenizer identifier byte, not `0xFF`; 0 otherwise |
+| 7 | 1 | zero | 0 |
+| 8 | 4 | `bytes` | u32: the offset in section 1 of the range's bytes, where the range before's end, 0 for the first |
+| 12 | 4 | `key_len` | u32: space 1, its key's length, at least 1; 0 for space 2 |
+| 16 | 4 | `resume_len` | u32: space 2, the length of its resume key, the one an Entries frame of an earlier Scan of the same range at the same version gave, unchanged; 0 to start, and for space 1 |
+| 20 | 12 | zero | 0 |
+| 32 | 16 | `graph` | system ID (section 1): space 1 with kinds 5 and 9, the graph whose record it is (`../storage/STORAGE.md` section 9.2); space 2, the graph read, 16 zero bytes for the default graph, or 16 bytes of `0xFF` for every graph the partition holds the family in; 16 zero bytes otherwise |
+| 48 | 16 | `predicate` | system ID (section 1): space 2, the predicate, an attribute's for kind 6; 16 zero bytes for space 1 |
 
-The keys follow each other with no gap: range 0's first key starts at 0, each key starts where the one before ends, a range's
-`after` counting as one of them, and section 1 ends with the last. A range with an `after` reads its first key's list from that
-object on in the list's order, the object itself included when the list holds it, and the keys beyond whole, so a read resumed in a
-list (section 11.8) costs its page and one object record and not the list's prefix; an `after` that is not one whole object
-encoding is refused with Error 1 (Protocol), the message naming the range. An `after` is in the store's encoding, which
-names an IRI or a blank node by its system ID: one of tag `0x01` whose 16 bytes are no valid system ID (section 1) is no
-whole object encoding. Only a range of a keyspace of lists has one, others
-refused with Error 1 (Protocol), the message naming the range. A Scan chooses its version once, when any wait for `epoch` has ended, and every range of it
-reads that version. With `at` 1 and 4, a `read_version` at or below the version bound of an epoch the partition has closed,
-or of epoch 0, reads what the partition applied at or below that version, since every round of such an epoch is applied, so
-an idle partition answers a version it never reached. Any other `read_version` above the partition's visibility watermark
-is refused with code 27 (AheadOfWatermark), `detail` the watermark: with `at` 4 at once, with `at` 1 once the partition has
-closed `epoch`. One below what the partition retains (section 11.9) is refused with code 3 (TooOld). A range ending at its
-limit continues with a new Scan whose first key is the last entry's key followed by a zero byte.
+**A range of space 1** answers the record of its kind and key in the tenant at the version, in whichever of the
+partition's bucket groups holds it (`../storage/STORAGE.md` section 9.2): one entry, its key the range's and its value
+the record's, or no entry when the version holds none. A run of such ranges is answered in one frame (section 13.14),
+so resolving a batch of terms costs one frame and not one per term.
+
+**A range of space 2** reads one predicate's family of its kind, the tokenizer's for an index relation and every type's
+declaring the attribute for kind 6, in its graph or in every graph, in every bucket group the partition holds and in
+both storage classes: the families in the order of their family keys (`../storage/STORAGE.md` section 13.1), and each
+in its own order, its rows by their keys and a row's entries as section 7.4 there orders them, a forward row and a
+column chunk's by slot, so no order holds across bucket groups or partitions (T38). It answers each row holding an
+entry at the version as one entry of the answer, at most `limit` rows. A range that stops, at its `limit` or because
+its Scan ended before it did, continues in a new Scan at the same version naming the resume key the range's last
+Entries frame gave (section 13.14), and answers strictly after it; a resume key the partition did not give for that
+range is refused with Error 1 (Protocol), the message naming the range.
+
+A Scan chooses its version once, when any wait for `epoch` has ended, and every range of it reads that version. With
+`at` 1 and 4, a `read_version` at or below the version bound of an epoch the partition has closed, or of epoch 0, reads
+what the partition applied at or below that version, since every round of such an epoch is applied, so an idle
+partition answers a version it never reached. Any other `read_version` above the partition's visibility watermark is
+refused with code 27 (AheadOfWatermark), `detail` the watermark: with `at` 4 at once, with `at` 1 once the partition has
+closed `epoch`. One below the partition's latest logged fold horizon (`../storage/STORAGE.md` section 14.2) is refused
+with code 3 (TooOld).
 
 The partition counts `deadline_ms` from the Scan's arrival. A Scan whose `epoch` the partition has not closed by then is
 refused on its stream with code 24 (TimedOut), `detail` the partition, having sent no frame; with `deadline_ms` 0 it is
@@ -3350,150 +3383,165 @@ credit or its connection takes no bytes: past it the partition refuses the Scan 
 message saying it stalled, and releases what it held, so a reader that stopped holds a version for no longer than that.
 Each frame that leaves restarts it. A Scan naming a transaction is bounded by it as well as by the transaction's limit.
 
-A range reads one tenant of one keyspace: a keyspace of lists, the statements, the dictionary or the referrer sets. A range of
-any other keyspace is refused with Error 1 (Protocol), the message naming the keyspace. A first key too short to name a tenant
-is refused with Error 1, the message naming the range, and so, in a keyspace of lists, the statements or the referrer sets, is a
-past key above the first key past that tenant. All of a Scan's ranges name one tenant: the partition compares each first key's
-tenant, its bytes 1 to 8, with the first range's and refuses a difference with Error 1, the message naming the range. A range of
-the dictionary holds one key, its past key
-that key followed by a zero byte, since its keys are hashes and IDs, whose order means nothing to a reader; a wider one is
-refused with Error 1 (Protocol), the message naming the range. The partition refuses all of these before it sends a frame. A store
-that fails under a range refuses the Scan with code 17 (Unavailable), the message naming the key, so a failed read never reads as
-absence.
+A range of space 1 of the session table, the marks, the slot maps, the drop markers, the builds or the manifest, which
+are the replica's own (`../storage/STORAGE.md` section 9.3, kinds 6, 10, 11 and 14 to 17), is refused by its `kind`. A
+store that fails under a range refuses the Scan with code 17 (Unavailable), the message naming the range, so a failed
+read never reads as absence.
 
 **A Scan naming a transaction** is a read of that transaction, and what it answers and records is what makes the
 transaction's commit serializable:
 
-- It sets `at` 1, `read_version` the Bind's answer (section 13.10), `epoch` 0, and `principal` the transaction's. A Scan
-  whose version or principal is not the transaction's is refused with Error 1 (Protocol), the message naming the field.
-- It reads the transaction's partition and tenant alone, a range of another tenant refused with Error 1 (Protocol)
-  naming it, at that version with the transaction's own uncommitted writes over it, so
-  a read sees what the transaction wrote in an earlier request: a list holds what the transaction added and lacks what it
-  removed, a list it emptied is absent, a statement's record holds what it set and lacks what it removed, and a term it
-  created is found. Those writes are the ones the partition
-  acknowledged before the Scan arrived; the frontend orders them (section 11.12, *Reads*).
-- It reads a keyspace of lists, the statements or the dictionary. A range of the referrer sets is refused with Error 1 (Protocol): a
-  read-write transaction reads no other partition, so it has no referrer set to ask.
-- Before it sends an Entries frame, the partition records in the transaction's reads the span that frame covers, so no
-  entry reaches compute unrecorded. A span runs from the range's first key, or from where the range's previous span
-  ended, to the frame's last entry's key followed by a zero byte, or through the keys holding nothing a turn stopped at
-  (section 13.14), recorded whether or not that turn sends a frame; the frame ending a range with `end` 1 covers through the
-  range's past key, including a range that found nothing, which is what proves absence and catches a later insert into
-  it. A range stopped at the Scan's `limit`, `end` 2, covers only what it returned, so a write past it conflicts with
-  nothing the transaction read, and the Scan continuing it records the rest. A span touching the range's previous span
-  extends it, so a long scan holds one range in the read set however many frames it took.
-- A span of a keyspace of lists or of the statements is a range scanned (conflict kind Range, section 9.4). A range of the
-  dictionary records no range.
+- It sets `at` 1, `read_version` the Bind's answer (section 13.10), `epoch` 0, and `principal` and `tenant` the
+  transaction's. A Scan whose version, principal or tenant is not the transaction's is refused with Error 1 (Protocol),
+  the message naming the field.
+- It reads the transaction's partition alone, at that version with the transaction's own uncommitted writes over it, so
+  a read sees what the transaction wrote in an earlier request: a row holds what the transaction added and lacks what it
+  removed, a row it emptied is absent, a record holds what it wrote and a record it removed is absent, and a term it
+  created is found. Those writes are the ones the partition acknowledged before the Scan arrived; the frontend orders
+  them (section 11.12, *Reads*).
+- It reads ranges of space 1 of kinds 1 to 5, 12, 13 and 18, and ranges of space 2. A range of space 1 of another kind
+  is refused with Error 1 (Protocol): a referrer set, a tombstone, statistics and a `@limit` aggregate are what the
+  partition reads itself when a write needs them, and a read-write transaction reads no other partition.
+- Before a frame leaves, the partition records in the transaction's reads what the frame answers, so no entry reaches
+  compute unrecorded. A range of space 1 of a claim, kinds 4, 5, 12 and 13, records its claim's conflict key (section
+  12.2, family 7) as a range holding that key alone, found or not, so a later claim of it conflicts (conflict kind Range,
+  section 9.4); a range of kind 18 records the statement's conflict key (family 5) as a statement tested (conflict kind
+  Statement); a range of kinds 1 to 3 records nothing but what the term rule below records. A range of space 2 records,
+  when the partition takes it and whether or not a frame follows, its family's whole range of conflict keys: the
+  tenant, the graph and the predicate, then the family's byte, 1 forward rows for kinds 1, 2 and 6, 2 reverse rows for
+  kind 3, 3 index tokens for kind 4; for every graph, the tenant's whole range, since a graph may yet appear (conflict
+  kind Range). So an insert anywhere the range could answer, a new row among them, conflicts however the range ends
+  (T38, T44).
 - It resolves terms by their text. A dictionary key holds an IRI's hash, which cannot create an ID, and a term a read
   finds absent is recorded by its ID. So the Scan's term table names each IRI the read needs an ID for, and its first
-  ranges name, in the table's order, one range each holding that IRI's dictionary key alone; a key that is not the text's
-  is refused with Error 1 (Protocol). The partition resolves each as a read in the partition does: got or created, the
-  same ID any concurrent writer of the IRI takes. One it created is recorded as an absent term (conflict kind AbsentTerm),
-  so a later commit of a statement of that term conflicts. The range answers the entry with its ID. An unheld skolem IRI, which no read can hold, answers no entry and records
-  nothing. An IRI another partition owns is read by the partition's copy of its entries, as the partition's own reads do:
-  with no copy, the partition first takes the ID from the IRI's home by Reference, naming no group (section 11.12,
-  *Registration*), and answers the range once the home has replied, so the Scan waits on that reply within the transaction's
-  limit. A Scan arriving while another of the transaction's waits so waits with it, and asks for its own terms once that reply
-  is in; one arriving while a Write or Operation of the transaction waits so is refused with Error 1 (Protocol), since the
-  frontend sends a read only once the writes before it are answered. A Write, Operation or Commit arriving while a cancelled
-  read's Scan waits so takes its turn once that reply is in. A home's outcome 7 for a skolem IRI says it holds none, so
-  the range answers no entry, as an unheld skolem IRI of the partition's own does, the transaction goes on and its reads ask
-  for that IRI no more, wherever the IRI is homed. Any other refusal from the home ends the transaction, a failed store's
-  outcome 17 among them, which no read takes for absence (section 13.15). Compute names such an IRI as a predicate, a graph or an object; a bound
-  subject another partition owns never reaches the table, since compute answers it with code 23.
-- A span the read set has no room for ends the transaction with code 6 (TooLarge), `detail` the limit in bytes, and no
-  entry of that span is sent. A Scan that ends its transaction, for this or any reason, answers so on its stream and sends
-  the same Error on the Bind stream, which ends it.
+  ranges name, in the table's order, one range each of space 1 and kind 1 holding that IRI's dictionary key; a key that
+  is not the text's is refused with Error 1 (Protocol). The partition resolves each as a read in the partition does: got
+  or created, the same ID any concurrent writer of the IRI takes. One it created is recorded as an absent term (conflict
+  kind AbsentTerm), so a later commit of a statement of that term conflicts. The range answers the entry with its ID. An
+  unheld skolem IRI, which no read can hold, answers no entry and records nothing. An IRI another partition owns is read
+  by the partition's copy of its entries, as the partition's own reads do: with no copy, the partition first takes the
+  ID from the IRI's home by Reference, naming no group (section 11.12, *Registration*), and answers the range once the
+  home has replied, so the Scan waits on that reply within the transaction's limit. A Scan arriving while another of the
+  transaction's waits so waits with it, and asks for its own terms once that reply is in; one arriving while a Write or
+  Operation of the transaction waits so is refused with Error 1 (Protocol), since the frontend sends a read only once the
+  writes before it are answered. A Write, Operation or Commit arriving while a cancelled read's Scan waits so takes its
+  turn once that reply is in. A home's outcome 7 for a skolem IRI says it holds none, so the range answers no entry, as
+  an unheld skolem IRI of the partition's own does, the transaction goes on and its reads ask for that IRI no more,
+  wherever the IRI is homed. Any other refusal from the home ends the transaction, a failed store's outcome 17 among
+  them, which no read takes for absence (section 13.15). Compute names such an IRI as a predicate, a graph or an object;
+  a bound subject another partition owns never reaches the table, since compute answers it with code 23.
+- What the read set has no room for ends the transaction with code 6 (TooLarge), `detail` the limit in bytes, and no
+  entry of that range is sent. A Scan that ends its transaction, for this or any reason, answers so on its stream and
+  sends the same Error on the Bind stream, which ends it.
 
-Commit validates what these spans record as it does a range the partition scanned itself, by the table of *What a transaction's reads record* in the transactions specification: a key inside the range, a statement whose list key is inside it, or a range sharing a key
-with it, written above the transaction's read version, aborts the commit. Every list a commit writes counts, forward,
-reverse, predicate lists and indexes alike, and so does every statement record it writes.
+Commit validates what these record as it does a read the partition made itself, by the table of *What a transaction's
+reads record* in the transactions specification: a write above the transaction's read version whose conflict key lies
+inside a recorded range, or names a recorded statement, aborts the commit. Every conflict key a commit writes counts
+(section 12.2).
 
-Order: unused bytes 1–7 and 56–127 zero; `at`, and 1 when `transaction` is not zero (`FieldValue` `"at"`); `read_version` 0 for `at` 2 and 3, and a version or version bound (section 1) for `at` 1 and 4 (`FieldValue` `"read_version"`); `epoch` an epoch, and 0 for `at` 4
-and when `transaction` is not zero (`FieldValue` `"epoch"`); `deadline_ms` 0 when `epoch` is 0 (`FieldValue` `"deadline_ms"`); sections; section 0 a whole number of 24-byte ranges (`SectionLength`) and not empty
-(`CountMismatch` `"ranges"`, 0 against 1); sections 2 and 3 empty when `transaction` is zero (`CountMismatch` `"terms"`, their bytes against 0),
-otherwise a term table (section 4.4), then at most as many terms as ranges (`CountMismatch` `"terms"`, the terms against the ranges), then every entry of kind 1
-(`FieldValue` `"scan term"`, the entry's index); each range in order: `partition` at least 1, the same in every range when `transaction` is not zero (`FieldValue` `"partition"`, the
-partition), `first` and `past` where the keys before end and `first_len` at least 1 (`FieldValue` `"range"`, the
-range's index), its keys and `after` within section 1 (`IndexOutOfRange`, section 0, the range's index, their end,
-section 1's length), and the past key, when not empty, above the first, compared byte by byte (`FieldValue`
-`"range"`); section 1 ending with the last key (`CountMismatch` `"range keys"`, section 1's length against the last
-range's end). A range of a partition the role address does not serve is refused with Error 1 (Protocol), the message naming
-it; a `transaction` the partition does not hold with Error 1, `detail` 1, the message naming it, which compute relays with
-that `detail` (section 11.12, *Reads*).
+Order: unused bytes 1–7 and 64–127 zero; `at`, and 1 when `transaction` is not zero (`FieldValue` `"at"`);
+`read_version` 0 for `at` 2 and 3, and a version or version bound (section 1) for `at` 1 and 4 (`FieldValue`
+`"read_version"`); `epoch` an epoch, and 0 for `at` 4 and when `transaction` is not zero (`FieldValue` `"epoch"`);
+`deadline_ms` 0 when `epoch` is 0 (`FieldValue` `"deadline_ms"`); sections; section 0 a whole number of 64-byte ranges
+(`SectionLength`) and not empty (`CountMismatch` `"ranges"`, 0 against 1); sections 2 and 3 empty when `transaction` is
+zero (`CountMismatch` `"terms"`, their bytes against 0), otherwise a term table (section 4.4), then at most as many terms
+as ranges (`CountMismatch` `"terms"`, the terms against the ranges), then every entry of kind 1 (`FieldValue`
+`"scan term"`, the entry's index); each range in order: bytes 7 and 20–31 zero (`PaddingNotZero`, the range's index);
+`partition` at least 1, the same in every range when `transaction` is not zero (`FieldValue` `"partition"`, the
+partition); `space` 1 or 2, and `kind` one its space lists (`FieldValue` `"kind"`, the range's index); `tokenizer`
+nonzero and not `0xFF` exactly for space 2 with kind 4 (`FieldValue` `"tokenizer"`, the range's index); for space 1,
+`key_len` at least 1, 16 for kinds 2, 3, 7, 8, 9 and 18, whose keys are a system ID or a hash, and `resume_len` 0; for
+space 2, `key_len` 0 (`FieldValue` `"range"`, the range's index); `bytes` where the range before's end, 0 for the
+first (`FieldValue` `"range"`); its bytes within section 1 (`IndexOutOfRange`, section 0, the range's index, their end,
+section 1's length); `graph` 16 zero bytes for space 1 but with kinds 5 and 9, and for space 2 a valid system ID, 16
+zero bytes or 16 bytes of `0xFF` (`FieldValue` `"graph"`, the range's index); `predicate` a valid system ID for space
+2 and 16 zero bytes for space 1 (`FieldValue` `"predicate"`, the range's index); section 1 ending with the last range's
+bytes (`CountMismatch` `"range keys"`, section 1's length against the last range's end). A range of a partition the
+role address does not serve is refused with Error 1 (Protocol), the message naming it; a `transaction` the partition
+does not hold with Error 1, `detail` 1, the message naming it, which compute relays with that `detail` (section 11.12,
+*Reads*). The partition refuses all of these before it sends a frame.
 
 ### 13.14 Entries (525)
 
-A batch of one range's entries, or of a run of one-key dictionary ranges', so that resolving a batch of terms costs one frame and
-not one per term. A batch of one range holds its entries in key order, and a run holds them in its ranges' order: each key once, with its value visible at the version the range was read
-at; a key removed at that version is absent. A Scan's answer gives its ranges in order, each in one or more Entries
-frames, the last of which says how the range ended; the stream's last frame, the last range's last, carries `LAST`.
-Entries frames spend credit as Result frames do (section 11.3). Every Entries frame of a Scan names the one version the
-Scan chose, as its lane S or X has it; frames each naming the version of their own turn are a lane L Frontier's
-(section 13.22).
+A batch of one range's entries, or of a run of ranges of space 1's, so that resolving a batch of terms costs one frame
+and not one per term. A batch of one range holds its entries in the range's order (section 13.13), and a run holds them
+in its ranges' order, at most one per range: each with its value visible at the version the range was read at; a record
+removed at that version, and a row holding no entry at it, is absent. A Scan's answer gives its ranges in order, each in
+one or more Entries frames, the last of which says how the range ended; the stream's last frame, the last range's last,
+carries `LAST`. Entries frames spend credit as Result frames do (section 11.3). Every Entries frame of a Scan names the
+one version the Scan chose, as its lane S or X has it; frames each naming the version of their own turn are a lane L
+Frontier's (section 13.22).
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 4 | `entries` | u32 | the batch's entry count |
 | 4 | 4 | `range` | u32 | the range's index in the Scan, from 0 |
-| 8 | 1 | `end` | u8 | 0 more of the range follows; 1 the range ended; 2 the range stopped at the Scan's `limit` with a key of it remaining, so a range holding exactly `limit` entries ends with 1, unless 256 keys holding nothing at the version follow them, where the partition stops looking (`FieldValue` `"end"`) |
+| 8 | 1 | `end` | u8 | 0 more of the range follows; 1 the range ended; 2 the range of space 2 stopped at the Scan's `limit` with a row of it remaining, so a range holding exactly `limit` rows ends with 1, unless 256 rows holding nothing at the version follow them, where the partition stops looking (`FieldValue` `"end"`) |
 | 9 | 1 | `continues` | u8 | 1 the batch's last entry's value continues in the next frame, which needs a last entry; 0 otherwise (`FieldValue` `"continues"`) |
-| 12 | 4 | `through` | u32 | the batch's last range: `range`, or above it when the batch answers each range from `range` through this one, each a one-key range of the dictionary, each with `end` 1 and `continues` 0, a range finding nothing holding no entry (`FieldValue` `"through"`) |
+| 12 | 4 | `through` | u32 | the batch's last range: `range`, or above it when the batch answers each range from `range` through this one, each a range of space 1, each with `end` 1 and `continues` 0, a range finding nothing holding no entry (`FieldValue` `"through"`) |
 | 16 | 8 | `epoch` | epoch (section 1) | the epoch the range was read at: with `at` 1 and 4, `read_version`'s; with `at` 3, the latest closed epoch the partition chose; with `at` 2, the higher of that and the epoch of the version it chose; 0 when the partition has closed no epoch and read at the version bound of none (`FieldValue` `"epoch"`) |
 | 24 | 8 | `version` | u64 | the version the Scan chose, a version or version bound (section 1), the same in every frame of the Scan (`FieldValue` `"version"`) |
 
 | Section | Contents |
 |---|---|
 | 0 | the entries, in the key-value layout of section 12.2, every value present |
+| 1 | for a range of space 2 whose frame has `end` 0 or 2, the resume key strictly past what the frame answered, its last object record included (`../storage/STORAGE.md` section 18.3); empty otherwise |
 
-A value is what the keyspace holds at the version. In the dictionary, the statements and the referrer sets it is the stored bytes. In a
-keyspace of lists it is the list's objects visible at the version, in the list's order, each an object record:
+An entry of a range of space 1 is its record: its key the record's key, its value the record's value as
+`../storage/STORAGE.md` section 9.3 gives it. An entry of a range of space 2 is a row: its key the graph's system ID,
+then the row's logical key, a forward row's and a column chunk's the subject's system ID, a reverse row's the object's
+system ID or a literal's term encoding, an index row's its token (`../storage/STORAGE.md` sections 5.1 and 5.3); its
+value the row's entries visible at the version, in the row's order, each an object record:
 
 | Object record offset | Width | Field | Type |
 |---|---|---|---|
-| 0 | 4 | `encoding_len` | u32: the object's encoding's length |
+| 0 | 4 | `encoding_len` | u32: the neighbour's length |
 | 4 | 4 | `statements` | u32: its statement IDs' count |
-| 8 | `encoding_len` | `encoding` | the object as the store's keys encode it, a system ID for an IRI or blank node, as a Scan's keys carry them |
-| | 16 × `statements` | statement IDs | the IDs the object is held under, in ascending order, in a forward and a reverse list alike; compute drops them from what it returns |
+| 8 | `encoding_len` | `encoding` | the neighbour, as a Neighbours entry names it (section 13.22): a system ID for kinds 1, 3 and 4, the subject's for kinds 3 and 4; kind 2's a term encoding in the generic layout or a sortable value in a compiled one; kind 6's the attribute's value, its sortable encoding |
+| | 16 × `statements` | statement IDs | the IDs the neighbour is held under, in ascending order; none for kind 6; compute drops them from what it returns |
 
-An object is held either once, with `statements` 0, which is one row with `ABSENT` in the reifier column, or under one statement
-ID per statement, which is one row each with that statement's reifier. A parallel edge gives the statement already held an ID of
-its own in the same write.
+A neighbour is held either once, with `statements` 0, which is one row with `ABSENT` in the reifier column, or under one
+statement ID per statement, which is one row each with that statement's reifier. A parallel edge gives the statement
+already held an ID of its own in the same write.
 
-A list larger than a frame continues across frames, as a hub's reverse list does. A frame with `continues` 1 ends between
-two object records, and has `end` 0; the next frame's first entry has the same key, and its value is the next object
-records. The value is the records of every such frame in order. The partition keeps the last object it sent and the list it
-reads, resuming after that object at the same version, so a list is read once however many frames it takes; a frame stops at
-the receiver's `max_frame`, or once it holds a record or value at what its turn may yet build, so a large list takes many frames. A
-turn of the partition builds at most one frame per Scan, the Scans taking turns round-robin, within a budget of bytes per turn the
-partition chooses so that a commit waiting on the turn waits less than one sync of its log, and a Scan the budget leaves waits for the
-next turn. A turn also
-reads at most 256 keys holding nothing at the version, so a range of emptied lists takes many turns, and a turn that found no
-entry sends no frame. The partition builds a stream's next frame once the one before has left, so a reader's stalled stream
-holds at most one frame in memory and the list that frame stopped inside. A frame always takes at least one object record or one value of
-the dictionary, the statements or the referrer sets: one too large for an otherwise empty frame is refused with code 6 (TooLarge), `detail`
-the receiver's `max_frame`.
+A row or record larger than a frame continues across frames, as a hub's reverse row does. A frame with `continues` 1
+ends between two object records, or inside a record's value, and has `end` 0; the next frame's first entry has the same
+key, and its value is the next object records or the value's next bytes. The value is the bytes of every such frame in
+order. The partition keeps the place it reached at the same version, so a row is read once however many frames it
+takes; a frame stops at the receiver's `max_frame`, or once it holds an object record or value at what its turn may yet
+build, so a large row takes many frames. A turn of the partition builds at most one frame per Scan, the Scans taking
+turns round-robin, within a budget of bytes per turn the partition chooses so that a commit waiting on the turn waits
+less than one sync of its log, and a Scan the budget leaves waits for the next turn. A turn also reads at most 256 rows
+holding nothing at the version, so a family of emptied rows takes many turns, and a turn that found no entry sends no
+frame. The partition builds a stream's next frame once the one before has left, so a reader's stalled stream holds at
+most one frame in memory and the row that frame stopped inside. A frame always takes at least one object record, or one
+record's value or its first `max_frame` share.
 
-An object record running past the value is refused with `EntryOutOfBounds` (section 0, the record's index, its offset in the value).
+An object record running past the value is refused with `EntryOutOfBounds` (section 0, the record's index, its offset in
+the value).
 
-Order: unused bytes 10–11 and 32–127 zero; `end`; `continues` 0 or 1, 0 when `end` is not 0; `through` not below `range`, and when above it `end` 1 (`FieldValue` `"through"`); `epoch` at most 2⁴² − 1; `version` a version or version bound (section 1) (`FieldValue` `"version"`); sections; each entry inside the section
-(`EntryOutOfBounds`) with zero padding (`PaddingNotZero`); every value present (`FieldValue` `"entry"`, the entry's
-index); with `through` equal to `range`, each key above the one before, compared byte by byte, within the batch (`FieldValue` `"entry order"`, the
-entry's index); the count equals `entries` (`CountMismatch` `"entries"`); at least one entry when `continues` is 1 (`FieldValue` `"continues"`, 1).
+Order: unused bytes 10–11 and 32–127 zero; `end`; `continues` 0 or 1, 0 when `end` is not 0; `through` not below
+`range`, and when above it `end` 1 (`FieldValue` `"through"`); `epoch` at most 2⁴² − 1; `version` a version or version
+bound (section 1) (`FieldValue` `"version"`); sections; each entry inside the section (`EntryOutOfBounds`) with zero
+padding (`PaddingNotZero`); every value present (`FieldValue` `"entry"`, the entry's index); the count equals `entries`
+(`CountMismatch` `"entries"`); at least one entry when `continues` is 1 (`FieldValue` `"continues"`, 1); section 1 not
+empty exactly when the range is of space 2 and `end` is 0 or 2 (`CountMismatch` `"resume key"`).
 
-The receiver, the side that dialled, compares each frame with those before it, and refuses in this order, closing the connection as section 2.6 has a client do, since a partition answering so cannot be trusted with the connection's other streams:
+The receiver, the side that dialled, compares each frame with those before it, and refuses in this order, closing the
+connection as section 2.6 has a client do, since a partition answering so cannot be trusted with the connection's other
+streams:
 
-1. In a frame naming the previous frame's range: after a frame with `continues` 0, a first key at or below the last key the range has
-   sent; after a frame with `continues` 1, no entry or a first key not equal to that last key (`FieldValue` `"entry order"`, 0). So a value
-   promised to continue cannot stop.
-2. A `range` that is not the one expected: 0 in the first frame; the previous frame's after `end` 0; one above the previous frame's `through` after
-   `end` not 0; and a `through` below its Scan's range count, every range of a run a one-key range of the dictionary (`FieldValue` `"range"`, the
-   frame's range).
-3. `LAST` on any frame but the one whose `through` is the Scan's last range with `end` not 0, or its absence from that frame (`FieldValue` `"end"`,
-   the frame's range). So an answer ending early cannot read as whole.
+1. In a frame naming the previous frame's range after a frame with `continues` 1: no entry or a first key not equal to
+   that frame's last key (`FieldValue` `"entry order"`, 0). So a value promised to continue cannot stop.
+2. A `range` that is not the one expected: 0 in the first frame; the previous frame's after `end` 0; one above the
+   previous frame's `through` after `end` not 0; and a `through` below its Scan's range count, every range of a run a
+   range of space 1 (`FieldValue` `"range"`, the frame's range).
+3. `LAST` on any frame but the one whose `through` is the Scan's last range with `end` not 0, or its absence from that
+   frame (`FieldValue` `"end"`, the frame's range). So an answer ending early cannot read as whole.
 4. A `version` that is not the Scan's first frame's (`FieldValue` `"version"`, the frame's range).
-5. An entry that does not belong where the frame puts it: in a run, one whose key is not the first key of a range from `range` through `through`, at
-   or after the range of the entry before; in a batch of one range, a key below the range's first key, or at or above its past key when it has one
+5. An entry that does not belong where the frame puts it: in a run, one whose key is not the key of a range from `range`
+   through `through`, after the range of the entry before; in a batch of a range of space 1, a key other than the
+   range's; in a batch of a range of space 2, a key not beginning with the range's graph, when it names one
    (`FieldValue` `"entry order"`, the entry's index).
 
 ### 13.15 Reference (526)
@@ -3667,12 +3715,12 @@ partition's latest applied state, each frame one turn's and naming the version i
 frame, which the partition retains until the request ends; X, a read-write transaction's reads at its read version, with
 its own writes over them, recorded in its reads. A row is named as its family keys it, never by a slot: a forward row by
 its subject's system ID, a reverse row by its object's system ID or a literal's term encoding, an index row by its
-token (`../storage/STORAGE.md` sections 5.1, 5.3 and 7.1).
+token, an attribute's row by its instance's system ID (`../storage/STORAGE.md` sections 5.1, 5.3, 7.1 and 8.1).
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 1 | `lane` | u8 | 1 L, 2 S, 3 X (`FieldValue` `"lane"`) |
-| 1 | 1 | `kind` | u8 | the adjacency kind read (`../storage/STORAGE.md` section 7.1): 1 forward edges, 2 forward values, 3 reverse entries, 4 an index relation (`FieldValue` `"kind"`) |
+| 1 | 1 | `kind` | u8 | what is read: the adjacency kind (`../storage/STORAGE.md` section 7.1), 1 forward edges, 2 forward values, 3 reverse entries, 4 an index relation; or 6 a single-valued attribute's column chunks (section 8 there, kinds 1 and 2), each row an instance and its one entry the attribute's value (`FieldValue` `"kind"`) |
 | 2 | 1 | `tokenizer` | u8 | for kind 4, the index's tokenizer identifier byte, not `0xFF`; 0 otherwise (`FieldValue` `"tokenizer"`) |
 | 3 | 1 | `filters` | u8 | the inline-column filters, 0 to 8 (`FieldValue` `"filters"`) |
 | 4 | 4 | `partition` | u32 | the partition read, at least 1 (`FieldValue` `"partition"`) |
@@ -3690,7 +3738,7 @@ token (`../storage/STORAGE.md` sections 5.1, 5.3 and 7.1).
 | Section | Contents |
 |---|---|
 | 0 | the rows' keys' ends: u32 per row, the offset just past its key in section 1, at least one row |
-| 1 | the rows' keys, back to back: kinds 1 and 2, a system ID; kind 3, a system ID or a term encoding; kind 4, a token |
+| 1 | the rows' keys, back to back: kinds 1, 2 and 6, a system ID; kind 3, a system ID or a term encoding; kind 4, a token |
 | 2 | the filters, 40 bytes each |
 | 3 | the resume key: empty to start; else the one a Neighbours frame of the same request gave, unchanged |
 
@@ -3710,7 +3758,8 @@ it is among the first `top` of its row that do.
 
 The partition answers the rows in the order of their resume keys, each by its family in the row's bucket group and, for
 a predicate held in both storage classes, both families merged in the family's order (`../storage/STORAGE.md` sections
-13.1 and 14.3); a request holding a resume key answers only what lies strictly after it. A resume key is the store's,
+13.1 and 14.3); a row of kind 6 is read in the column chunk family of the attribute and of the type its system ID's
+prefix names, which holds no inline column. A request holding a resume key answers only what lies strictly after it. A resume key is the store's,
 `../storage/STORAGE.md` section 18.3's bytes: compute holds it opaque and sends it back to the same partition unchanged.
 Each frame is one turn's work, within `lane_entries_max` entries examined and `lane_bytes_max` bytes of body
 (`../storage/STORAGE.md` section 3.1); one that stops with entries left ends with its resume key, and the next frame,
@@ -3720,19 +3769,20 @@ twice is answered in lane S at the latest applied version at that moment, its fr
 there).
 
 In lane X the partition records, before a frame leaves, the range of the conflict key (section 12.2) of each row the
-frame reaches, entries or none, so an insert into it conflicts; a frame ending inside a row records instead its family's
+frame reaches, entries or none, a row of kind 6 a forward row's, so an insert into it conflicts; a frame ending inside a row records instead its family's
 range in that row's bucket group, a forward row's, or its whole family's otherwise (T38). A request of lane S or X whose
 `read_version` is below the partition's latest logged fold horizon is refused with code 3 (TooOld), and one whose `read_version` is above the
 partition's visibility watermark in an epoch it has not closed with code 27 (AheadOfWatermark), `detail` the watermark.
 A lane the catalog does not allow for the family is refused with code 7 (Refused), the message naming the lane and the
 predicate (`Lane`, `../storage/STORAGE.md` section 18.1).
 
-Order: unused bytes 56–63 and 96–127 zero; `lane`; `kind`; `tokenizer`, nonzero exactly for kind 4; `filters`;
+Order: unused bytes 56–63 and 96–127 zero; `lane`; `kind` 1 to 4 or 6; `tokenizer`, nonzero exactly for kind 4;
+`filters`, 0 for kind 6;
 `partition`; `read_version` 0 for lane 1 and a version or version bound for lanes 2 and 3; `transaction` not zero exactly
 for lane 3; `prefix_first` and `prefix_past` both 0, or `prefix_first` below `prefix_past` with kind 1 (`FieldValue`
 `"prefix"`); `predicate`; sections; section 0 a whole number of u32s (`SectionLength`) and not empty (`CountMismatch`
 `"rows"`); each end at least the one before and above it, every key holding at least one byte, the last end section 1's
-length (`FieldValue` `"rows"`, the row); kinds 1 and 2 each key 16 bytes and a valid system ID (`FieldValue` `"row"`, the
+length (`FieldValue` `"rows"`, the row); kinds 1, 2 and 6 each key 16 bytes and a valid system ID (`FieldValue` `"row"`, the
 row); section 2 a whole number of 40-byte filters (`SectionLength`), `filters` of them (`CountMismatch` `"filters"`),
 each: bytes 3–7 zero and the bytes of `low` and `high` past `width`, and an absent bound's, zero (`PaddingNotZero`),
 `column` at most 7, `bounds` bits 2 to 7 zero, `width` 1 to 16 (`FieldValue` `"filter"`, the filter). A request naming a
@@ -3771,8 +3821,8 @@ Entries frames do (section 11.3), and the stream's last frame carries `LAST`.
 | Entry offset | Width | Field | Type |
 |---|---|---|---|
 | 0 | 4 | `neighbour` | u32: its neighbour's offset in section 2, where the entry before's ends |
-| 4 | 4 | `neighbour_len` | u32: its length: 16 for kinds 1, 3 and 4, whose neighbours a frame names by system ID, the subject's for kinds 3 and 4; kind 2's a term encoding in the generic layout or a sortable value in a compiled one |
-| 8 | 16 | `statement` | system ID (section 1): the statement's ID; 16 zero bytes for none |
+| 4 | 4 | `neighbour_len` | u32: its length: 16 for kinds 1, 3 and 4, whose neighbours a frame names by system ID, the subject's for kinds 3 and 4; kind 2's a term encoding in the generic layout or a sortable value in a compiled one; kind 6's the attribute's value, its sortable encoding |
+| 8 | 16 | `statement` | system ID (section 1): the statement's ID; 16 zero bytes for none, and for kind 6 |
 | 24 | 1 | `valid` | u8: bit `c` set when inline column `c` holds a value |
 | 25 | 7 | zero | 0 |
 

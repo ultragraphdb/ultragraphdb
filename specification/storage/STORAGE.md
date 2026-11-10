@@ -351,7 +351,7 @@ next block boundary are zero.
 | 32 | 16 | `graph` | the graph's system ID; 16 zero bytes for the default graph and for a tile not of one graph |
 | 48 | 16 | `subject` | an adjacency block's predicate, a column chunk's attribute predicate; zero otherwise |
 | 64 | 2 | `type` | a column chunk's, slot map's or identity column's type prefix; 0 otherwise |
-| 66 | 1 | `direction` | an adjacency block's: 1 forward, 2 reverse; 0 otherwise |
+| 66 | 1 | `direction` | an adjacency block's, as its kind gives it (section 7.1): 1 forward, 2 reverse, 0 an index relation; 0 for every other shape |
 | 67 | 1 | `order` | an adjacency block's row order (section 7.4): 0 by neighbour; `1 + i` ascending, `0x81 + i` descending by inline column `i`; 0 otherwise |
 | 68 | 4 | `group` | the bucket group, 0 to 2^18 − 1; `ABSENT` for a tile not of one group |
 | 72 | 8 | `built` | the position of the round at whose boundary the tile was built: a rewrite's deciding boundary (section 16.3), a checkpoint's position for the manifest and the free set |
@@ -398,7 +398,7 @@ tile whose checksum holds but differs from the reference's is stale or misdirect
 
 A decoder checks, in order: `magic` (`Magic`); `format` (`Format`); `length` at least `128 + 16 × sections`, at most
 `tile_bytes_max`, equal to the reference's (`Length`); `checksum` (`Checksum`); the reference's checksum
-(`Misdirected`); `shape` and `kind` (`Shape`); `flags` (`Flags`); the header's zero bytes and fields its shape leaves 0
+(`Misdirected`); `shape`, `kind`, and the `direction` an adjacency kind gives (`Shape`); `flags` (`Flags`); the header's zero bytes and fields its shape leaves 0
 (`Padding`); the directory as section 6.3 states; every section's own layout as section 4 states; then its shape's rules.
 Nothing of a tile is used before every check has passed.
 
@@ -409,13 +409,13 @@ rows, and in each row its entries.
 
 ### 7.1 Kinds
 
-| Kind | Holds | Row key | Neighbour |
-|---|---|---|---|
-| 1 | Forward edges whose objects have system IDs: entities, IRIs and blank nodes | the subject's slot | the object's system ID |
-| 2 | Forward values: a generic-layout predicate's literal objects, or a compiled set-valued attribute's elements | the subject's slot | a literal's term encoding (generic) or an element's sortable value (compiled) |
-| 3 | Reverse entries: the partition's own subjects of an object | the object's system ID, or a literal's term encoding in the generic layout | the subject's slot |
-| 4 | An index relation: the subjects holding a token | a token | the subject's slot |
-| 5 | A version run of a `@bitemporal` attribute or role (section 14.3) | the instance's slot | the revision's asserted start, the commit version of the transaction that wrote it (`SCHEMA.md` section 12.4), as a big-endian u64, then the value's sortable encoding |
+| Kind | Holds | Row key | Neighbour | `direction` |
+|---|---|---|---|---|
+| 1 | Forward edges whose objects have system IDs: entities, IRIs and blank nodes | the subject's slot | the object's system ID | 1 |
+| 2 | Forward values: a generic-layout predicate's literal objects, or a compiled set-valued attribute's elements | the subject's slot | a literal's term encoding (generic) or an element's sortable value (compiled) | 1 |
+| 3 | Reverse entries: the partition's own subjects of an object | the object's system ID, or a literal's term encoding in the generic layout | the subject's slot | 2 |
+| 4 | An index relation: the subjects holding a token | a token | the subject's slot | 0 |
+| 5 | A version run of a `@bitemporal` attribute or role (section 14.3) | the instance's slot | the revision's asserted start, the commit version of the transaction that wrote it (`SCHEMA.md` section 12.4), as a big-endian u64, then the value's sortable encoding | 1 |
 
 A generic-layout predicate whose objects are both IRIs and literals has a family of each kind.
 
@@ -529,7 +529,7 @@ out is zero.
 
 | Kinds | `tenant` | `graph` | `group` |
 |---|---|---|---|
-| 1, 2, 4, 6, 7, 8, 11, 12, 13, 18, 19 | the tenant | zero | the bucket group of the first system ID the record names, in its key or, for kind 1, its value; for kind 11 the group whose slots it maps |
+| 1, 2, 4, 6, 7, 8, 11, 12, 13, 18, 19 | the tenant | zero | for kinds 1, 4, 12 and 13, the bucket group of the system ID its value names, the instance's, so a claim lies in its instance's partition; for kind 11 the group whose slots it maps; for the others, that of the first system ID its key names |
 | 3 | the tenant | zero | `ABSENT` |
 | 5, 9 | the tenant | the graph | `ABSENT` |
 | 10 | 0 | zero | `ABSENT` |
@@ -727,30 +727,32 @@ in the order keeps that leaf's reference and is not written; the root is always 
 
 ### 13.4 The layout a tile follows
 
-Which families exist, and for each the kind, direction, inline columns, order and class, comes from the layout of the
-tenant's catalog version (section 21): the generic layout, for a tenant with no schema, has for every (graph, predicate)
-a forward family of kind 1 for entity objects, of kind 2 for other terms, a reverse family of kind 3, the index
-families its tokenizers declare, and no inline column; a governed tenant's layout is compiled once by the schema
-compiler, as the catalog version's Layout entry (`CATALOG.md` section 5.11), and decoded, never recompiled, by every
-replica (T35). The compiler derives it from the declarations alone, in this order, per graph the type or relation
-lives in and per bucket group:
+Which adjacency and column chunk families exist, and for each the kind, direction, inline columns, order and class,
+comes from the layout of the tenant's catalog version (section 21): the generic layout, for a tenant with no schema, has
+for every (graph, predicate) a forward family of kind 1 for entity objects, of kind 2 for other terms, a reverse family
+of kind 3, the index families its tokenizers declare, and no inline column; a governed tenant's layout is compiled once
+by the schema compiler, as the catalog version's Layout entry (`CATALOG.md` section 5.11), and decoded, never
+recompiled, by every replica (T35). The compiler derives it from the declarations alone, per graph the type or relation
+lives in:
 
 | Declared | Families and columns |
 |---|---|
-| An entity type | the identity column (column kind 3) and a slot map (record kind 11); per attribute, below |
-| A single-valued attribute of fixed or variable width that is not `@bitemporal` | a column chunk family of kind 1 (fixed width) or 2 (variable) |
+| A single-valued attribute of fixed or variable width that is not `@bitemporal` | a column chunk family of kind 1 (fixed width) or 2 (variable) for each type holding it, its own or inherited |
 | A set- or list-valued attribute | a forward family of kind 2, the elements as sortable values |
 | A revisable attribute or role of a `@bitemporal` type | a version run family (kind 5) |
 | An attribute with `@index(range)`, `@index(interval)`, `@index(geo)` or `@index(fulltext)`, or a `count` index | an index family (kind 4) per tokenizer, the tokenizer's identifier in its key |
-| `@key`, `@unique`, `@idempotency`, `@set`, `@limit` | record families of kinds 4, 5, 13, 12 and 19 |
 | An edge-encoded relation | on its anchor, a forward family of kind 1 (the other participant's ID) with the relation's fixed-width attributes of at most 16 bytes together as inline columns in declaration order, and a reverse family of kind 3; a single-valued anchor role of a relation that is not `@bitemporal` is a column chunk family of kind 1 holding the participant's ID instead |
 | A node-encoded relation | as an entity type, its roles as attributes holding participants' IDs, each with a reverse family of kind 3 |
 | T16's order attribute | the `order` of the forward or reverse family it orders |
 | A type or relation of storage class I (section 14.3) | `class_i` on each of its families; an attribute name shared across classes gives a family per class |
-| Any declaration | the dictionary, statement, mark, referrer, tombstone and statistics families (record kinds 1 to 3, 6 to 9, 18) |
 
-The Layout entry lists the families in tile-key order of their family keys with the group field zero; a replica
-instantiates them per bucket group as its first change in that group arrives.
+Record runs, identity columns and slot maps are in no layout: every tenant, governed or not, keeps the record families
+section 9.2 scopes, and for each (bucket group, type) holding a slot an identity column and a slot map (section 14.6),
+whatever its declarations, so a `@key`, `@unique`, `@idempotency`, `@set` or `@limit` declaration adds records to a
+family that exists already (T45). The Layout entry lists its families by name, in `CATALOG.md` section 5.11's order,
+without a tenant, graph or bucket group; a replica maps each name to its system ID or type prefix through the catalog
+version, instantiates the family per graph and bucket group as its first change there arrives, and orders its tiles by
+tile key (section 13.1), as it orders every family's.
 
 ## 14. Versions, the fold horizon and the delta
 
@@ -784,7 +786,7 @@ horizon answers `TooOld` (section 18.6).
 
 | Class | Holds | Versions in tiles |
 |---|---|---|
-| I | Instances of `@append_only` types with their attributes and keys; `@bitemporal` content as version runs (kind 5); the dictionary and the claims of class I instances | the created version only, while above `H`; a class I entry is deleted only by a purge (section 15.5) |
+| I | Instances of `@append_only` types with their attributes and keys; `@bitemporal` content as version runs (kind 5); the record kinds section 9.2 makes class I, the dictionary among them | the created version only, while above `H`; a class I entry is deleted only by a purge (section 15.5) |
 | M | Everything else, an `@immutable` attribute of a deletable instance among it | created and deleted versions while either is above `H` |
 
 The layout gives each family its class, and a predicate shared by types of both classes is two families (T36).
@@ -1066,7 +1068,8 @@ undone, parked, and rerun from its request once they are read (T33).
 
 A request that answers part of its result ends with a resume key: its family key (section 13.1), then the last
 answered row key and neighbour joined as section 5.4 states, then the statement slot as a big-endian u32 (`ABSENT` for
-none). The next request answers strictly after it, comparing as bytes. An entry
+none); in a column chunk family, its family key then the last answered slot as a big-endian u32. A read of a family
+whole (`PROTOCOL.md` section 13.13, space 2) resumes in the family its key names, the families before it answered. The next request answers strictly after it, comparing as bytes. An entry
 inserted behind the key since is not answered, which lanes L and S allow; lane X records a partial page's whole family
 and bucket group as one conflict range.
 
@@ -1080,7 +1083,9 @@ records it.
 ### 18.5 Frontier requests
 
 A frontier request names one relation, kind and direction, which is one family per bucket group: it reads that family
-in each bucket group of the replica its row keys fall in. It names a set of row keys, an optional neighbour type range, optional inline-column
+in each bucket group of the replica its row keys fall in. One naming an attribute's column chunks reads, for each row, an
+instance's system ID, the family of the attribute and of the instance's type in its bucket group, and answers the value
+its slot holds as the row's one entry. It names a set of row keys, an optional neighbour type range, optional inline-column
 filters, and an optional top-k, and answers each row's surviving entries in the family's order: a type range is a range
 of `prefix` values, a filter on an inline column skips a block whose column's values cannot pass it, and top-k reads a row
 in its order and stops at k. Its wire form is `PROTOCOL.md`'s, which section 21 asks for.
@@ -1193,8 +1198,9 @@ A run is a function of its seed: the simulator's clock, random source and comple
   checkpoint becomes section 17's.
 - **`PROTOCOL.md` section 1:** "a result term keeps the store's sortable value encoding" reads "the store's term
   encoding" (section 5.1 here), which orders for equality only.
-- **`PROTOCOL.md` section 13:** the frontier request and its reply (section 18.5); lane L's frames naming their version;
-  resume keys as section 18.3 gives them.
+- **`PROTOCOL.md` section 13:** the frontier request and its reply (section 18.5), rows of an attribute's column
+  chunks among them; lane L's frames naming their version; resume keys as section 18.3 gives them; Scan reading records
+  by their logical keys (section 9.3) and families whole, never a slot (T44).
 - **`CATALOG.md`:** the layout entries of section 13.4; tag 36, `Id128`; unit and quantity-kind numbers assigned at
   first declaration and never reused (section 5.2).
 - **`SCHEMA.md` section 12:** restated as the logical obligations this file implements.
