@@ -1,0 +1,114 @@
+specification/storage/STORAGE.md
+  s_6eb57b3c609e2f::t_a2e493a1753e06 1209-1212
+  s_6eb57b3c609e2f::t_7e41f696e5aa51 1185
+  s_6eb57b3c609e2f::t_b25853ab45baf9 123
+  s_6eb57b3c609e2f::t_f9722906ce62c0 1148-1149
+  s_6eb57b3c609e2f::t_4f8ec6b744aaff 821
+  s_6eb57b3c609e2f::t_e4ede6dfdd924e 660-661
+  s_6eb57b3c609e2f::t_269bbf901a4bc2 532
+  s_6eb57b3c609e2f::t_88a75697333b58 734-753
+  s_6eb57b3c609e2f::t_06af804d43bab5 663-664
+  s_6eb57b3c609e2f::t_9a24250ac180ee 944-946
+  s_6eb57b3c609e2f::t_93d7dfea32eb0e 818-820
+  s_6eb57b3c609e2f::t_22f395f53c2123 1082-1083
+  s_6eb57b3c609e2f::t_55033e7b174190 557
+  s_6eb57b3c609e2f::t_df7aefe1bffe25 566
+  s_6eb57b3c609e2f::t_595df378faf7f7 1020-1022
+  s_6eb57b3c609e2f::t_c573ce443b7cf5 109
+  s_6eb57b3c609e2f::t_fcf61928c9fadd 807-810
+  s_6eb57b3c609e2f::t_8641a39fbb4876 979-987
+  s_6eb57b3c609e2f::t_610c38af058189 996-998
+  s_6eb57b3c609e2f::t_7c8609ba86add6 907-911
+  s_6eb57b3c609e2f::t_3b0d56fddaa40d 128-130
+  s_6eb57b3c609e2f::t_da40521324cde1 991-992
+specification/conformance/storage/generate_vectors.py
+  s_6eb57b3c609e2f::t_bb69a76d4ed5ff 1519
+  s_6eb57b3c609e2f::t_084fcf0d58db0e 1196
+  s_6eb57b3c609e2f::t_95b0a20c8e3b83 1404-1406
+  s_6eb57b3c609e2f::t_c9704776244491 619,624-625
+  s_6eb57b3c609e2f::t_e12702f54dfb93 55
+  s_6eb57b3c609e2f::t_43a74029bd6824 1897-1914
+  s_6eb57b3c609e2f::t_454589e66da7b8 941
+  s_6eb57b3c609e2f::t_95d0208d7b418e 970
+  s_6eb57b3c609e2f::t_c919706ee242e5 1716
+  s_6eb57b3c609e2f::t_71e8486abe1174 996-997
+  s_6eb57b3c609e2f::t_a0f7c946ca03b7 1143
+  s_6eb57b3c609e2f::t_29c97665f98afe 1478
+  s_6eb57b3c609e2f::t_3832999e2a4b3f 1595
+  s_6eb57b3c609e2f::t_c840c11142d36e 1091
+  s_6eb57b3c609e2f::t_989a6ce3a1dfc4 857-940,942-969,971-995,998-1090,1092-1142,1144-1195,1197-1403,1407-1477,1479-1518,1520-1594,1596-1715,1717-1727
+  s_6eb57b3c609e2f::t_c7375a416aea3d 818,1788,1802,1814
+specification/schema/SCHEMA.md
+  s_6eb57b3c609e2f::t_afdf1124396976 1184-1185
+  s_6eb57b3c609e2f::t_8e8f0de336aeb6 1288
+  s_6eb57b3c609e2f::t_cf0f0643020836 337,685,1455,1461,1583-1584,1766-1770,1775-1776,1778-1781,1787-1788,1797-1802,1810-1819
+specification/conformance/storage/README.md
+  s_6eb57b3c609e2f::t_4c143c395b80f1 74-76
+  s_6eb57b3c609e2f::t_2cdf604e9dfd2a 34-39,42-61
+  s_6eb57b3c609e2f::t_24fc423758f310 25,62
+specification/binary_protocol/PROTOCOL.md
+  s_6eb57b3c609e2f::t_f94d17d8f053c7 234-236
+  s_6eb57b3c609e2f::t_bdb571dd824d0e 1917
+  s_6eb57b3c609e2f::t_e140c55e0e2a3b 212
+  s_6eb57b3c609e2f::t_3d00102bbe55b1 2292
+  s_6eb57b3c609e2f::t_c9151a88923f13 30-31
+  s_6eb57b3c609e2f::t_65e3c0d1ae9ec8 817-943,2690,2705,2715-2716,2866,3672-3673,3690-3691,3698,3747-3748,3755-3756,3764,3772
+  s_6eb57b3c609e2f::t_46bc59b71aa84c 37
+  s_6eb57b3c609e2f::t_c93a891dd56708 261-266
+  s_6eb57b3c609e2f::t_6901b535b4d76f 1876
+  s_6eb57b3c609e2f::t_ba1a86aabc9ad8 2678
+  s_6eb57b3c609e2f::t_c51ead155d86e4 2289
+  s_6eb57b3c609e2f::t_d9f9c747961819 2679-2680
+  s_6eb57b3c609e2f::t_c31c32aeb9c868 2689
+  s_6eb57b3c609e2f::t_235e37ba7a9b44 2691-2693
+  s_6eb57b3c609e2f::t_2e9c00f8f7fcae 2702-2704
+  s_6eb57b3c609e2f::t_4cdc85d818bf16 2706-2708,2712-2714
+  s_6eb57b3c609e2f::t_4538c8ad41fd40 2717-2719
+  s_6eb57b3c609e2f::t_45606acd09e94c 2863-2865
+  s_6eb57b3c609e2f::t_65cd9d14a36d5f 2867-2869
+  s_6eb57b3c609e2f::t_9d9a18a3b4e50a 3669-3671
+  s_6eb57b3c609e2f::t_1b90724e34bc69 3674-3676,3687-3689
+  s_6eb57b3c609e2f::t_d862edd3f4d2ad 3692-3697
+  s_6eb57b3c609e2f::t_8fa270f6c2646f 3699-3701,3744-3746
+  s_6eb57b3c609e2f::t_15a3766e25bc19 3749-3754
+  s_6eb57b3c609e2f::t_b44096cd499ff8 3757-3759,3761-3763
+  s_6eb57b3c609e2f::t_6aaf75f0954909 3765-3767,3769-3771
+  s_6eb57b3c609e2f::t_5b398283936ab4 3773-3775
+  s_6eb57b3c609e2f::t_6741d343149480 562,1498,1563,1929,1942,2354,2378,2485-2487,2649-2651,2656-2659,2670-2671,2676,2694-2699,2701,2709-2711,2720-2725,2730-2743,2747-2750,2780-2782,2788-2790,2798,2817,2859-2862,2870-2881,2901-2903,2911-2912,2914-2915,2920,3297-3299,3431-3433,3660-3668,3677-3686,3702-3743,3760,3768,3776-3790
+openspec/specs/config-service/spec.md
+  s_6eb57b3c609e2f::t_d7a32afd7f9307 67,70,77,111-156
+openspec/specs/write-ahead-log/spec.md
+  s_6eb57b3c609e2f::t_5516ffe84b39a8 51-58,62,65-66,87-90,98-102,144-146,166-168,171-173,176-177
+specification/conformance/storage/vectors/compaction.json
+  s_6eb57b3c609e2f::t_641c1704d4d3fa 1-4156
+specification/conformance/storage/vectors/decisions.json
+  s_6eb57b3c609e2f::t_72054640a469e6 261-264,267-270,283-286,289-292,305-308,311-314,326-329,332-335,365-368,371-374,382-385,388-391
+specification/conformance/storage/vectors/engine.json
+  s_6eb57b3c609e2f::t_90bae19075537a 1-26338
+specification/conformance/storage/vectors/grid.json
+  s_6eb57b3c609e2f::t_0e39d53e02d46a 8,26,31,100,105,107,116-117
+specification/conformance/storage/vectors/kinds.json
+  s_6eb57b3c609e2f::t_8885d32deae8c6 1-753
+specification/conformance/storage/vectors/refusals.json
+  s_6eb57b3c609e2f::t_33ad22bc3e40bf 167,173
+specification/conformance/storage/vectors/tiles.json
+  s_6eb57b3c609e2f::t_a4431b0961474f 3,377,380
+specification/schema/CATALOG.md
+  s_6eb57b3c609e2f::t_f4395d09bb85b8 61-62,71,80,98,124-126,130,180,186-191,456-457,557-608,617,620,622-624,656-659
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9f6c693e0c339baf8de5cf61eb71719bf2979ef0",
+  "prompts": {},
+  "sessions": {
+    "s_6eb57b3c609e2f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cc067d49-3ba9-4433-9576-7836ad1ea881",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
