@@ -107,7 +107,8 @@ crash between the grid's superblock and the trim SHALL leave the checkpoint in f
 
 ### Requirement: The power-loss-protection flag tunes and never weakens
 A configuration flag SHALL state whether the log's drive has power-loss protection, `false` by default. It SHALL set the
-defaults of the round bounds and the checkpoint interval only, and SHALL never remove or delay a sync.
+defaults of the round bounds only; the checkpoint interval is `checkpoint_bytes` of `specification/storage/STORAGE.md`
+section 3.1, fixed cluster-wide. It SHALL never remove or delay a sync.
 
 #### Scenario: The flag does not remove the sync
 - **WHEN** the flag is `true` and a round is committed
@@ -135,13 +136,18 @@ A round's commits SHALL carry one epoch, since a round closes when a close is de
 changes, drops and index builds are ordered in rounds"). A round's record SHALL hold, for each committed transaction,
 its resolved quads with their system IDs, its commit version, its drops as operations naming their target (a predicate,
 a graph, a tenant's data or everything in a tenant), whose key removals replay derives, its deletes by pattern as their
-resolved removals, the session-table entry its commit writes (the session ID, the request number and the stored reply),
-and the registrations it relied on as a referrer, each the entity's ID, the bucket group and the generation the reply
+resolved removals, the session-table entry its commit writes, keyed by the session alone (the session ID, the request
+number, the share number for an Ingest share and the stored reply), and the registrations it relied on as a referrer, each the entity's ID, the bucket group and the generation the reply
 named; the new dictionary entries the round creates, a copied entry of another partition's entity in both directions
 counting as one; each registration the partition accepted as an entity's home, with its own commit version and the
 referrer-set member it adds or renews (term-dictionary, "A reference to another partition's entity registers at its
-home"); an index build's start and completion records (commit-rounds); the one catalog version the round was validated
-against; and the derivation version it was applied under (`specification/storage/STORAGE.md` section 3.2). Replaying a
+home"); an index build's start and completion records (commit-rounds); the derivations execution made that apply
+cannot, each count row's degree before the round and each `@limit` aggregate's and statistics change the round makes,
+which apply writes as additive records (T48); the sessions evicted at the round, the first round after the epoch
+close evicting them is delivered, each applied as a record delete; the Round command header's `flags`, whose bit 0, `checkpoint`, a
+primary sets while `GridFull` holds its partition and every replica takes as a checkpoint position
+(`specification/storage/STORAGE.md` section 17.1); the one catalog version the round was validated against; and the
+derivation version it was applied under (`specification/storage/STORAGE.md` section 3.2). Replaying a
 record SHALL derive the same state on every replica; a record naming another derivation version than the reader's own
 SHALL be refused, naming both.
 
@@ -157,6 +163,19 @@ SHALL be refused, naming both.
   restored to its state before them, and their records are replayed onto it
 - **THEN** no key of `p` and none of the removed statements is held, and a retry of `s`'s request 7 returns its stored
   reply without committing again
+
+#### Scenario: Replay evicts sessions at the round that logs them
+- **WHEN** an epoch close evicting session `s` is delivered, the next round logs `s` among its evictions, and the store
+  is restored to its state before that round and the round is replayed onto it
+- **THEN** the session table holds no entry for `s` after the replay, as it held none after the first apply, and a
+  follower that applied the round before the close reached it holds the same table, since the round evicts, not the
+  close's arrival
+
+#### Scenario: A round flagged checkpoint is a checkpoint position
+- **WHEN** a primary whose partition `GridFull` holds logs a round with `flags` bit 0 set, below the next multiple of
+  `checkpoint_bytes`
+- **THEN** every replica applying the round checkpoints at its position, and replay of the same rounds checkpoints there
+  too
 
 #### Scenario: Replay derives a home's referrer-set deltas
 - **WHEN** a round holding only two registrations a home accepted is applied, the store is discarded, and the record is

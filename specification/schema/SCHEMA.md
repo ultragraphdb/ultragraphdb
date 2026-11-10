@@ -361,6 +361,15 @@ datatypes' codes) and its GQL type.
 A type argument or precision outside these rules is refused (`UGS0202`). `Int128` is stored as `xsd:integer` and
 checked against its range at write; a larger integer is refused (`UGS1011`).
 
+**The stored value bound.** A stored value, a string, a list, a record or a vector whole, is at most
+`value_bytes_max` bytes measured as its sortable encoding in a compiled layout, or its term encoding in the generic
+layout, as a write holds it (`../storage/STORAGE.md` sections 5.1, 5.2 and 3.3; T48), `tile_bytes_max / 4`, 16 KiB at
+the defaults, which the Welcome
+announces (`../binary_protocol/PROTOCOL.md` section 5.2); a write holding a longer value is refused with
+`PROTOCOL.md` code 6 (TooLarge), its `detail` the bound (T48, C12). `UGS0204` bounds the dimension a type declares and
+`value_bytes_max` the value a deployment stores: at the defaults a `Vector<F32, n>` value is stored up to `n` = 4,096
+and a `Vector<BF16, n>` value up to `n` = 8,192.
+
 ### 5.2 Optionality, requiredness and defaults
 
 `T Optional` after a field's type makes the value optional; without it the value is required and must be present when
@@ -393,7 +402,9 @@ set membership compares scalars.
 ### 5.5 Temporal values, intervals and precision
 
 Temporal values compare only within one type; a comparison or arithmetic between `Date` and `DateTime`, or between
-`LocalDateTime` and `DateTime`, is refused at compile time (`UGS0224`, `UGS0223`). The conversions `date(t)`,
+`LocalDateTime` and `DateTime`, is refused at compile time (`UGS0224`, `UGS0223`). A value with an offset keeps it as
+written and compares, for equality, order, a key's or a `@unique` value's claim and an index token, by its UTC
+instant, so `12:00Z` and `13:00+01:00` are one value (T48, C25). The conversions `date(t)`,
 `start_of_day(d, zone)` and `datetime(d, time, zone)` are the core functions crossing them. `DateTime − DateTime`,
 `Date − Date` and `LocalDateTime − LocalDateTime` give a `Duration`. `Duration` arithmetic adds the calendar part
 first, then the exact part. `today()` and `now()` are refused in `@check`, `@limit` and `derive`
@@ -474,8 +485,9 @@ in `u`; where a `Measure<K>` or `Measure` is expected, in the kind's canonical u
 
 `attribute Name = type { annot }` declares a reusable value type with its annotations; a field declared with it takes
 the type and every field annotation of the declaration, and may add annotations that tighten (`UGS0214` otherwise).
-Every attribute value is reachable by value through the store's reverse lists, so "which instances hold this value" is a
-lookup for every attribute, and `@index(range)` orders the values. A value that needs relations of its own, a tag in a
+"Which instances hold this value" is answered for every attribute: through the attribute's index or its claim where
+one is declared, otherwise by a Scan of the attribute's family (`../binary_protocol/PROTOCOL.md` section 13.13; T48,
+C32), and `@index(range)` orders the values. A value that needs relations of its own, a tag in a
 hierarchy, is an entity: a `Concept` with a relation to what it tags.
 
 ### 5.10 Catalog types as values
@@ -682,7 +694,7 @@ nested member, one that is a subtype of another member, is refused (`UGS0402`).
 | Annotation | On | Arguments | Meaning |
 |---|---|---|---|
 | `@key`, `@unique` | An attribute | none | Section 6.3 |
-| `@idempotency` | An attribute of type `Id128` (`UGS0310`), at most one per type, inherited ones counted (`UGS0311`) | none | The instance's idempotency claim: its value is claimed per type in the anchor's partition, an entity's own bucket or a relation instance's anchor's, and an insert whose value an instance of the type already claims creates nothing and resolves to that instance, as a `@set` relation's insert of an existing combination does, so an application retrying after its own crash finds the instance it created. The claim gives the instance no key, no IRI and no placement (section 7) |
+| `@idempotency` | An attribute of type `Id128` (`UGS0310`), at most one per type, inherited ones counted (`UGS0311`) | none | The instance's idempotency claim: its value is claimed per type in the instance's partition, an entity's own bucket, an unkeyed relation's anchor or a keyed relation's key bucket (T48, C20), until a delete releases it (section 8.5), and an insert whose value an instance of the type already claims creates nothing and resolves to that instance, as a `@set` relation's insert of an existing combination does, so an application retrying after its own crash finds the instance it created. The claim gives the instance no key and no IRI; a keyless entity holding a value takes its bucket from it (section 7.1), so a retry from any session reaches the partition holding the claim |
 | `@immutable` | An attribute | none | Set at creation, never changed; a later write of another value is refused (`UGS1012`). A key attribute is immutable without the annotation |
 | `@index(kind, …)` | An attribute, or a materialized derivation (`range` only) | `range`, `fulltext`, `interval`, `geo`, or `ann` with `metric: cosine \| dot \| l2` and optional `quantization: int8 \| none` | Section 6.10 |
 | `@pattern(re)` | `String`, `Text`, `Iri` (`UGS0211`) | A regular expression in the syntax of Rust's `regex` crate, anchored at both ends | The whole value matches |
@@ -794,12 +806,12 @@ standard views do not expose them.
 
 | Index | Built from | Store index |
 |---|---|---|
-| `@index(range)` | An ordered field | The datatype's sortable tokenizer: `int`, `float`, `bool`, `hour` for `DateTime`, `LocalDateTime` and `Time`, `day` for `Date`, `exact` for `String`, `Text`, enums, `Iri` and `Unit`, `decimal` for `Decimal(p, s)`, its token the value scaled by 10^s as a signed 128-bit integer, big-endian with the sign bit flipped, so tokens order exactly as the values, `float` for `Measure<K, u>`, and a `measure` tokenizer over the canonical value for `Measure<K>` and `Measure` (section 15); a range filter scans the tokens and compares the values |
+| `@index(range)` | An ordered field | The datatype's sortable tokenizer, whose token is its identifier byte followed by the value's sortable encoding (`../storage/STORAGE.md` section 5.3, T37), exact, so tokens order as the values (T48, C28): `int` for the integer types, `float` for `Float32`, `Float64` and `Measure<K, u>`, `bool`, `datetime` for `Date`, `Time`, `DateTime` and `LocalDateTime`, a value with an offset compared by its UTC instant (section 5.5), `exact` for `String`, `Text`, enums, `Iri` and `Unit`, `decimal` for `Decimal(p, s)`, the value scaled by 10^s, and `measure` for `Measure<K>` and `Measure`, its token the value in the quantity kind's canonical unit as a `Float64` (sections 5.8 and 15); a token longer than 256 bytes is stored hashed and a match confirmed against the value (`STORAGE.md` section 5.3) |
 | `@index(fulltext)` | `Text` | The `fulltext` tokenizer, analyzer by language tag |
 | `@index(interval)` | `Interval` | Range indexes on the outer extent's two bounds (section 5.5) |
 | `@index(geo)` | `Geo` | The `geo` tokenizer |
 | `@index(ann, metric: m, quantization: q)` | `Vector` | The `hnsw` factory with `metric` `cosine`, `dotproduct` or `euclidean` for `cosine`, `dot`, `l2`; `quantization: int8` quantizes the index and rescores the top candidates in the stored precision **[stage 8]**. The factory's build parameters take the store's defaults; a schema naming a search-time parameter such as `ef_search` is refused (`UGS0524`), since it belongs to the query |
-| implicit | Every `@unique` attribute and every single-attribute `@key` | The predicate's `unique` flag; lookup by value through the reverse list. A composite key's claim is on the key as a whole, and its components' predicates carry no `unique` flag |
+| implicit | Every `@unique` attribute and every single-attribute `@key` | The predicate's `unique` flag; lookup by value through the value's claim (`../storage/STORAGE.md` section 9.3, record kind 4 or 5; T48, C32). A composite key's claim is on the key as a whole, and its components' predicates carry no `unique` flag |
 | implicit | Every navigation name with a bounded cardinality, `?`, `+`, `{m, n}` | A count index on the role's predicate |
 
 Indexes are derived data written in the instance's partition in the same local commit as the write (`../binary_protocol/PROTOCOL.md`
@@ -867,7 +879,9 @@ bucket and 24 reserved zero bits, compared as big-endian. No ID leaves the datab
   type test is a check against those ranges; a supertype scan is one range scan per range. Abstract types hold a prefix,
   with no instances.
 - **Buckets.** A keyed entity's bucket is `Bucket::derive(tenant, prefix of the key's key space, canonical key)`
-  (section 7.2). A keyless entity takes the bucket its handle states (section 7.3). A keyed relation
+  (section 7.2). A keyless entity takes the bucket its handle states (section 7.3); one holding an `@idempotency`
+value is given, as that bucket, the one its value derives as a key's is derived, from its type's prefix as 2
+big-endian bytes followed by the `Id128`'s 16 big-endian bytes (section 7.2). A keyed relation
   instance takes the bucket its key derives, as a keyed entity does, and so declares no `@colocate`. An unkeyed relation
   instance takes the bucket of its anchor participant (section 9.1).
 - **Sequences** are leased per (type, partition) by the metadata group (`metadata-group` specification).
@@ -898,10 +912,16 @@ followed by the canonical encoding; its top 8 bits are the tenant's (`system-ide
 the concrete type's, keeps every instance of a key's tree in the partition that checks the key's uniqueness.
 
 A `@key`'s uniqueness claim is kept in the entity's own bucket: the claim's hash input is the key space's prefix and
-the canonical key, the entity's own, so creating a keyed instance and checking its key meet in one partition. An
+the canonical key, the entity's own, so creating a keyed instance and checking its key meet in one partition. The
+claim is keyed by the key space's prefix, the graph and the canonical key (`../storage/STORAGE.md` section 9.3, kind
+4; T48, C15), so a key is unique per graph, as the paragraph below states. An
 instance a migration keeps in its origin's bucket under another key space has its claim registered under the new key
 space, in the partition that key hashes to (`SCHEMA-EVOLUTION.md` section 4.1). A
-`@unique` value's claim is at `Bucket::of_value(tenant, predicate, value)`.
+`@unique` value's claim is at `Bucket::of_value(tenant, predicate, value)`: the bucket's top 8 bits are the tenant's,
+and its low 16 bits the top 16 bits of XXH3-64, seed 0, of the predicate's system ID as 16 bytes followed by the
+comparison form of the value's sortable encoding in a compiled layout (`../storage/STORAGE.md` section 5.2: a temporal
+value's first 16 bytes, any other value's whole encoding), or its term encoding in the generic layout, so equal values
+of one predicate claim in one bucket whatever their offset (T48).
 
 A key is immutable (`UGS1007`) and required (`UGS1006`); a second instance of the tree with the same key in one graph
 is refused (`UGS1008`) while the first is live, and for good once the first is of a `@bitemporal` or `@append_only`
@@ -918,7 +938,7 @@ its claims (section 8.5).
 | A keyed entity | `{base}{KeySpace}/{key}`: the instance base of the entity's graph, the name of the key's key space (section 7.2), which is the declaring type's name unless a migration renamed that type, `/`, and the key's components, each percent-encoded so that every byte outside RFC 3986's unreserved set (`ALPHA`, `DIGIT`, `-`, `.`, `_`, `~`) is encoded, in uppercase hexadecimal digits, joined by `/` for a composite key. The key space is named so a subtype's instances share their supertype's IRI space, a renamed type keeps its IRIs, and the key reads back from the IRI |
 | A relation instance with `@key` | `{base}{KeySpace}/{key}` likewise |
 | A keyed instance of a type with `@iri(template)` | The template, an absolute IRI with `{attr}` placeholders for every key attribute, each component percent-encoded as above, and literal text between them. Because a component holds only unreserved characters after encoding, a separator holding at least one other character never occurs inside a component, and the key reads back by splitting on the literal text. The compiler refuses a template that omits a key attribute, that names an attribute twice or one that is not a key attribute, that puts two placeholders with no literal text between them or with text of unreserved characters only, or that is not absolute (`UGS0304`); and two templates in a tenant one of which is a prefix of the other, as text with placeholders removed (`UGS0305`), so an IRI resolves to one type |
-| A keyless entity, and a relation instance without `@key`, an edge-encoded one through its reifier | `{base}{Type}/{handle}`: the instance base of its graph, its concrete type's name, `/`, and its **handle**: the bucket in 6 and 104 random bits in 26 lowercase hexadecimal digits, joined by `-`, drawn at creation as the `term-dictionary` specification draws a skolem IRI's, the bucket from those the creating partition owns in the tenant's run and the bits uniformly, drawn again on a collision. A type is keyed or keyless whole, so key IRIs and handle IRIs never share a type's space. The dictionary holds the IRI and the ID both ways, as it holds a reifier's skolem IRI; the RDF view presents it as an IRI |
+| A keyless entity, and a relation instance without `@key`, an edge-encoded one through its reifier | `{base}{Type}/{handle}`: the instance base of its graph, its concrete type's name, `/`, and its **handle**: the bucket in 6 and 104 random bits in 26 lowercase hexadecimal digits, joined by `-`, drawn at creation as the `term-dictionary` specification draws a skolem IRI's, the bucket from those the creating partition owns in the tenant's run, or for an entity holding an `@idempotency` value the bucket that value derives (section 7.1), and the bits uniformly, drawn again on a collision. A type is keyed or keyless whole, so key IRIs and handle IRIs never share a type's space. The dictionary holds the IRI and the ID both ways, as it holds a reifier's skolem IRI; the RDF view presents it as an IRI |
 
 **Subjects at creation.** An instance is created under the IRI its type mints for it and under no other: a keyed
 instance under the IRI its key attributes mint, by the pattern above or by its template, and a keyless one under a
@@ -960,6 +980,7 @@ never appear in IRIs; a handle shows a bucket and nothing else of the ID.
 | A graph | `{base}{graph}` |
 | An interval bound | `{base}{attribute}_start`, `{base}{attribute}_end`, `{base}{attribute}_start_precision`, `{base}{attribute}_end_precision` |
 | A built-in field of section 5.11 in the view | `ugdb:asserted_start`, `ugdb:asserted_end`, `ugdb:live`, one predicate each for every schema |
+| `asserted` as stored (section 12.4) | `ugdb:asserted_start_epoch`, `ugdb:asserted_end_epoch`, `UInt64`: Predicate entries the compiler declares in a version holding a `@bitemporal` type, which the store keeps and the view converts to `ugdb:asserted_start` and `ugdb:asserted_end` (T48, C30) |
 
 Two terms minting one IRI are refused (`UGS0801`), as are two terms differing only in a way the GQL view cannot tell
 apart (`UGS0802`: a label and a relation node type of one name). Names are compared byte for byte, the GQL core's identifiers
@@ -1090,8 +1111,8 @@ abstract statement Asserted : Statement @bitemporal(valid: valid) {
    closes the current version's `asserted` at the commit and opens a new version of the same instance, with the same
    identity, key and handle, so `believed at $t` reads the version current at `$t` and the live slice reads the
    newest. The engine already stamps every write with a commit version and resolves an instant to an epoch; a
-   revision is one more version of the same instance, kept for the type's whole history rather than the retention
-   window, so the statement every edge, pointer and handle names stays the same statement.
+   revision is one more version of the same instance, kept for the type's whole history rather than down to the fold
+   horizon (section 8.4, *History retention*), so the statement every edge, pointer and handle names stays the same statement.
    A correction that must not keep the identity is a retraction plus a new instance. A revision is how an update is
    stored and no rule of its own: a key attribute, an `@immutable` attribute and a required role stay as section 8.2
    holds them, each refused under its own number on a revision as on any update (`UGS1007`, `UGS1012`, `UGS1025`),
@@ -1136,8 +1157,9 @@ abstract statement Asserted : Statement @bitemporal(valid: valid) {
 container, a graph or a tenant's data, with everything in it, history included, under the action `drop`, naming the
 catalog version it drops under and recorded as an audit event (`../binary_protocol/PROTOCOL.md` section 6.5). So `believed at`,
 `as of epoch` and `as of time` are answered for these types at any past point of a graph that stands. Other types keep
-their versions for the configured retention window, and a read beyond it is refused naming the window (`../binary_protocol/PROTOCOL.md`
-code 3).
+their versions down to the partition's latest logged fold horizon, which `retention_ms` bounds
+(`../storage/STORAGE.md` section 14.2), and a read below it is refused with `../binary_protocol/PROTOCOL.md` code 3
+(TooOld) (T48, C34).
 
 ### 8.5 Delete semantics
 
@@ -1149,9 +1171,11 @@ An entity delete removes the entity and applies each relation's `@on_delete` act
 | `restrict` | The delete is refused while instances name the participant in that role, live or not, since one that is not live still reads under `with retracted` (`UGS1020`) | Always, except on a `_` side |
 | `orphan` | The instance stays with the role empty | Only on an `Optional` single-valued role of a relation that is not `@append_only` |
 
-A deleted entity's IRI may be created again, since a delete releases its key's and its values' claims; the new instance
-is a new ID, whose record names the ID it replaced, while the tombstone holds the version of the delete: a read naming
-the IRI at a version below that delete resolves the instance that held it then, never an absence. A delete writes a tombstone at the entity's
+A deleted entity's IRI may be created again, since a delete releases its key's, its `@unique` values' and its
+`@idempotency` value's claims; the new instance is a new ID, whose ID-to-term record (`../storage/STORAGE.md` section
+9.3, kind 2) holds the ID it replaced, while the tombstone holds the version of the delete, and the IRI's term-to-ID
+record (kind 1) is replaced at the re-creation's version: a read naming the IRI at a version below that delete resolves
+the instance that held it then, never an absence (T48, C16). A delete writes a tombstone at the entity's
 home, so a later write naming the deleted entity as its subject is refused (`../binary_protocol/PROTOCOL.md` code 30,
 `EntityDeleted`), and one naming it as a participant with `UGS1019`, the participant check answering it deleted
 (section 12.3). A relation instance delete
@@ -1190,7 +1214,8 @@ no instance reaches holds no record and reads as zero.
 ### 8.7 Refusals
 
 A refusal travels as `../binary_protocol/PROTOCOL.md`'s Error with code 7 (Refused); section 15 asks the protocol to carry the UGS
-refusal number and the instance. The refusals:
+refusal number and the instance. A value longer than `value_bytes_max`, 16 KiB at the defaults, is refused by the store
+with code 6 (TooLarge), its `detail` the bound, and takes no UGS number (section 5.1; T48, C12). The refusals:
 
 | Number | Name | The write |
 |---|---|---|
@@ -1256,7 +1281,7 @@ the tenant's run the command executes locally.
 | Instance | Bucket, and so partition |
 |---|---|
 | A keyed entity, a keyed relation instance | Derived from its key (section 7.2); a keyed relation declares no `@colocate` (`UGS0702`), and each of its constraints that reads a participant reads another partition's state |
-| A keyless entity | The bucket its handle states: a bucket the creating partition owns, so an entity created with another is created beside it |
+| A keyless entity | The bucket its handle states: a bucket the creating partition owns, so an entity created with another is created beside it; for one holding an `@idempotency` value, the bucket that value derives (section 7.1), so its claim and every retry of its creation meet in one partition |
 | An unkeyed relation instance | Its **anchor participant's** bucket: the participant in the `@colocate(role)` role the type declares or inherits from the nearest supertype declaring one, or in the first declared role (own or inherited, in declaration order) without one |
 
 An instance's attributes, its forward entries, its local reverse entries, its indexes and its statistics are written
@@ -1283,12 +1308,12 @@ partition.
 |---|---|---|---|
 | Concrete type, declared predicate, required, datatype, enum, unit, vector dimension, `@pattern`, `@range`, `@values`, `@check`, `@immutable`, `@append_only`, `@bitemporal` content, type fixed | The instance | Its partition | Coordination-free |
 | Participant exists, live, of type | The participant's status and prefix | Its home, answered by the registration pre-step | Coordination-free |
-| `@key` | The key's claim | The entity's own bucket, hashed from the declaring prefix and the canonical key (section 7.2) | Segmented, local: the creating partition owns it |
+| `@key` | The key's claim | The entity's own bucket, hashed from the key space's prefix and the canonical key, the claim keyed by them and the graph (section 7.2) | Segmented, local: the creating partition owns it |
 | `@unique` | The value's claim | The partition owning `Bucket::of_value(tenant, predicate, value)` | Segmented |
-| `@idempotency` | The `Id128`'s claim | The anchor's partition: an entity's own bucket, a relation's anchor | Segmented, local; an insert naming an existing claim returns its instance |
+| `@idempotency` | The `Id128`'s claim | The instance's partition: an entity's own bucket, an unkeyed relation's anchor, a keyed relation's key bucket | Segmented, local; an insert naming an existing claim returns its instance |
 | Cardinality on the anchor role's navigation | The participant's count through the role | The anchor's partition, which holds every instance of that participant | Segmented, local |
 | Cardinality on another role's navigation | The participant's instances, anchored elsewhere | Spread | Coordinated |
-| `@set` | The combination's existing instance | The anchor's partition | Segmented, local |
+| `@set` | The combination's existing instance | The instance's partition: an unkeyed relation's anchor, a keyed relation's key bucket | Segmented, local |
 | `@acyclic`, `max_depth` | The relation's paths through the inserted instance | The partitions holding the instances along them | Coordinated |
 | `@limit` per the anchor role | The aggregate | The anchor's partition | Segmented, local |
 | `@limit` per another role | The aggregate over spread instances | Spread | Coordinated |
@@ -1355,14 +1380,15 @@ The compiled catalog carries, per predicate, the facts the frontend decides a re
 blind (coordination-free, no check that reads beyond the instance), whether it needs a unique claim, whether it is
 single-valued, whether a check or a bound reads it, whether it is derived, and its mutability class. Per type it carries
 the mutability class, `@access`, and whether creating an instance of it is blind. The query classifier combines these with the query: a query reading only
-`@append_only` and `@immutable` data may run monotonic-fast with every result true and lasting; one reading mutable data
+`@append_only` data and the `@immutable` attributes of `@append_only` instances may run monotonic-fast with every
+result true and lasting (T48, C33), since an `@immutable` value of a deletable instance leaves with its delete; one reading mutable data
 monotonic-fast is flagged; one filtering through an `@access` relation, an aggregate or a negation runs at a snapshot.
 
 **One-frame writes.** In a governed tenant a DirectWrite carries changes whose every predicate is blind, and a
 ConditionalWrite such changes with its commit-time operations (`../binary_protocol/PROTOCOL.md` sections 6.6 and 6.7).
 A rule over the instance's own fields, a datatype, a value check or a `@check`, is validated in the frame's one turn
-and refuses the frame with its number. What takes a read-write transaction is a claim of a key or a `@unique` value
-and a rule that reads beyond the instance, a bound, a `@limit`, `@no_overlap`, `@acyclic` or a participant's field; a
+and refuses the frame with its number. What takes a read-write transaction is a claim of a key, a `@unique` value or
+an `@idempotency` value (T48, C47) and a rule that reads beyond the instance, a bound, a `@limit`, `@no_overlap`, `@acyclic` or a participant's field; a
 frame holding such a change is refused naming one. An Ingest share (`../binary_protocol/PROTOCOL.md` section 6.8) also
 claims its instances' keys and `@idempotency` values: both live in the instance's own bucket (sections 7.2 and 9.3), so
 the share's partition holds them at every partition count, and a block creating keyed instances is not refused for
@@ -1452,7 +1478,7 @@ rules:
 | Type | Name, kind (statement, entity, relation), prefix, parent, abstract, open, key attributes, IRI template, graph, mutability class, encoding (edge or node, relations), set or multi, symmetric, anchor role, acyclic with its options, valid attribute, bitemporal, retracts role, ends role, access, per-role delete and retract actions, limits, no-overlap declarations, instance checks, `@maps_to`, doc |
 | Prefix ranges | Per type, its prefix set as sorted ranges |
 | Attribute | Declaring type, name, predicate IRI, type, optional, default, immutable, checks, indexes, `@maps_to`, doc |
-| Predicate | IRI, kind (property or edge), cardinality (single or multi), datatype, unique, tokenizers, count index, vector index with its dimension and options, domains: what `../binary_protocol/PROTOCOL.md` section 4.6's kind-8 record carries; and the request-typing facts (section 9.6). One per attribute name per base, per role of a node-encoded relation, per anchor navigation name of an edge-encoded relation and per interval bound |
+| Predicate | IRI, kind (property or edge), cardinality (single or multi), datatype, unique, tokenizers, count index, vector index with its dimension and options, domains: what `../binary_protocol/PROTOCOL.md` section 4.6's kind-8 record carries; and the request-typing facts (section 9.6). One per attribute name per base, per role of a node-encoded relation, per anchor navigation name of an edge-encoded relation and per interval bound, and in a version holding a `@bitemporal` type `ugdb:asserted_start_epoch` and `ugdb:asserted_end_epoch` (section 7.4) |
 | Role | Relation, name, participant types, optional, set-valued, super role, navigation name and cardinality or none, predicate IRI, actions, doc |
 | Navigation | Type, name, relation, role, direction (anchor-forward or reverse), cardinality, what it yields |
 | Enum, record, named attribute type, quantity, unit | Their declarations, with a unit's conversion, and a unit's and a quantity kind's number, assigned at its first declaration in the tenant and never reused |
@@ -1555,7 +1581,7 @@ other names it. The codes:
 | `UGS0201` | error | An unknown type name, a parent's or a participant's among them |
 | `UGS0202` | error | Type arguments of the wrong count or kind |
 | `UGS0203` | error | `Decimal(p, s)` outside `1 ≤ p ≤ 38`, `0 ≤ s ≤ p`, `s ≤ 18`, `p − s ≤ 20` |
-| `UGS0204` | error | A vector dimension outside 1 to 65,535 |
+| `UGS0204` | error | A vector dimension outside 1 to 65,535; a value longer than `value_bytes_max` is refused at write with `PROTOCOL.md` code 6 (section 5.1) |
 | `UGS0205` | error | A collection or record element the type does not allow |
 | `UGS0206` | error | An `Interval` over a type that is not `Date`, `DateTime`, `LocalDateTime`, an integer type or a `Decimal` |
 | `UGS0207` | error | A literal, default, derivation or body whose type does not match |
@@ -1776,9 +1802,12 @@ mutability (its section 14.3, section 8.3 here).
 An entity is its system ID; the dictionary maps its IRI to the ID at its home. Its concrete type is its prefix: no
 `rdf:type` quad is stored for a declared type, and `rdf:type` reads are answered from the prefix ranges. Each attribute
 value is a quad `(graph, entity, predicate, literal)`, single-valued attributes with store cardinality `Single`, `Set`
-attributes `Multi`, and the store answers an attribute's values from its instance and its instances from a value. A
-single-attribute `@key`'s predicate carries the `unique` flag, a composite key's claim being on the key as a whole, and
-a key's claim lives in the entity's own bucket (section 7.2); a `@unique` attribute's claim lives at
+attributes `Multi`: a `List<T>` attribute is one value, stored whole with its order and its duplicates, and a `Set<T>`
+attribute one entry per member (T48, C24). The store answers an attribute's values from its instance, and its
+instances from a value through the attribute's index or claim where one is declared, otherwise by a Scan of the
+attribute's family (section 5.9; T48, C32). A single-attribute `@key`'s predicate carries the `unique` flag, a
+composite key's claim being on the key as a whole, and a key's claim lives in the entity's own bucket, keyed by the key
+space's prefix, the graph and the canonical key (section 7.2); a `@unique` attribute's claim lives at
 `Bucket::of_value`; an `@idempotency` attribute's claim lives in the entity's own bucket, keyed by its type and the value
 (section 6.6). An instance of an `@append_only` type, its attributes and its key change only by a purge (section 8.8),
 which lets the store keep them in its storage class I (`../storage/STORAGE.md` section 14.3).
@@ -1787,7 +1816,9 @@ which lets the store keep them in its storage class I (`../storage/STORAGE.md` s
 
 `{attr}_start` and `{attr}_end` hold the bounds at `T`'s datatype as the unit's first instant; `{attr}_start_precision`
 and `{attr}_end_precision` hold the precision as a `ugdb:precision` literal (`millennium` … `nanosecond`) when
-coarser than `T`'s; an open end stores no `{attr}_end` and an open start no `{attr}_start`. `@index(interval)` indexes
+coarser than `T`'s; an open end stores no `{attr}_end` and an open start no `{attr}_start`. Each of the four is an
+attribute of the store's layout, the bounds under `T`'s descriptor and the precisions under the `Precision` descriptor,
+one byte (`CATALOG.md` section 3.1, tag 37; T48, C30). `@index(interval)` indexes
 each instance under two range tokens, the outer extent's bounds (section 5.5), derived as `range` indexes derive them.
 
 ### 12.3 Relations
@@ -1796,21 +1827,28 @@ An edge-encoded instance is the quad `(graph, anchor, nav predicate, other)` wit
 holding the reifier and the attributes; a role naming the instance holds the reifier, a statement ID with the
 relation's prefix, as its object term, and the reifier takes the anchor's bucket as every statement takes its
 subject's. A node-encoded instance is an entity-like subject of the relation's prefix,
-named by its handle IRI, with one quad per role triple and its attributes as its own quads. In both, the instance's
-bucket is the anchor's, so every entry of it is in one partition, its `@idempotency` claim among them. The store
+named by its handle IRI, with one quad per role triple and its attributes as its own quads. In both, an unkeyed
+relation's instance takes the anchor's bucket, and a keyed relation's instance, node-encoded, its key's (section 9.1),
+so every entry of an instance is in its partition, an entity's own bucket, an unkeyed relation's anchor or a keyed
+relation's key bucket, its `@idempotency` claim among them (T48, C20). The store
 answers a relation from either participant: from the anchor by its forward quads, and from the other participant by
 the reverse of each, which the anchor's partition keeps for a role declared `-> _` too. A node-encoded `@set` relation
-keeps, in its partition, one combination per live instance, the relation's prefix and the participants' IDs in role
-order, mapped to the instance's ID, which an insert reads to find the existing instance; an edge-encoded `@set`
-relation's combination is its triple; a `@symmetric` relation's participants enter the combination in ID order. A
+keeps, in its partition, one combination record per live instance (`../storage/STORAGE.md` section 9.3, kind 12): the
+root relation type's prefix, then each role in declaration order with its participants' IDs ascending, an empty
+optional role holding none, mapped to the instance's ID, which an insert reads to find the existing instance. An
+edge-encoded `@set` relation's combination is its triple, and the store keeps no combination record for it (T48, C21);
+a `@symmetric` relation's participants enter the combination in ID order. A
 participant in another partition is registered at
 its home before the commit (`../binary_protocol/PROTOCOL.md` section 11.12), in get-only mode (section 15), which answers its status, absent, live, retracted or deleted, and its
 type prefix.
 
 ### 12.4 Bitemporal and derived state
 
-`asserted` is stored as `asserted_start_epoch` and `asserted_end_epoch`, `xsd:unsignedLong` quads on the instance,
-converted to `xsd:dateTimeStamp` on read from the sequencer's close times; `live` is the absence of the end. Each
+`asserted` is stored as `ugdb:asserted_start_epoch` and `ugdb:asserted_end_epoch`, `xsd:unsignedLong` quads on the
+instance, converted to `xsd:dateTimeStamp` on read from the sequencer's close times; `live` is the absence of the end.
+The compiler declares both as `UInt64` Predicate entries in a version holding a `@bitemporal` type (section 7.4), and
+the version's Layout gives each `@bitemporal` type a column of each, the start's in storage class I and the end's in
+class M, since a retraction writes the end (`CATALOG.md` section 5.11; T48, C30). Each
 revision of a `@bitemporal` attribute or role is kept with the commit version of the transaction that asserted it, so a
 read at any asserted time finds the revision then current, and no revision changes after its commit but by a purge. A
 tombstone, the delete's version, is kept at the entity's home under its ID. A materialized derivation stores its
@@ -1955,6 +1993,10 @@ virtual derivation; what a stage refuses at run time, a rule across partitions, 
     `SCHEMA-APG.md`'s definitions 17.1 and 18.1; at stage 9.5, birth IRIs held both ways, dictionary entries
     rewritten at a cutover and versioned so a read at an earlier epoch sees the earlier entry, and forward entries for
     images a migration moves.
+  - `tokenizers`: a declared attribute's range token is the tokenizer's identifier byte followed by the value's
+    sortable encoding (`../storage/STORAGE.md` section 5.3), exact, for `int`, `float`, `bool`, `exact`, `decimal`,
+    `measure` and `datetime`, the last a tokenizer of its own for the four temporal types as `decimal` and `measure`
+    are; `hour` and `day` index no declared attribute (section 6.10; T48, C28).
   - `metadata-group`, at stage 9.5: a migration run's record and its transitions, and the retired names per namespace.
 - **The UQL specification.** The expression grammar of section 4 is its base; the bitemporal filter items, the interval
   operators and `schema.` introspection are named here and defined there.
@@ -2060,7 +2102,7 @@ graph production : aviation @default
 `av:Supply_supplier`, `av:Supply_buyer`, `av:Supply_item`, each `rdfs:subPropertyOf` the `Agreement` role it
 specializes; `Certifies`: edge, anchor `contract`, triple `supply av:certification authority`.
 
-**Predicates:** `av:serial` (unique within `Asset`'s tree, looked up by value through the reverse list), `av:commissioned`,
+**Predicates:** `av:serial` (unique within `Asset`'s tree, looked up by value through its key's claim), `av:commissioned`,
 `av:status`, `av:tags` (one triple per member, `exact`), `av:notes` (`fulltext`), `av:embedding` (`hnsw`, cosine,
 dimension 768), `av:tail_number` (unique), `av:thrust_kn`, `av:firmware`, `av:name` (unique within `Organization`'s
 tree, `owl:equivalentProperty sdo:legalName`), `av:jurisdiction`, `av:since`, `av:signed`, `av:value`, `av:term_start`,
@@ -2110,7 +2152,7 @@ that begin with one, `Asset.all_parts` and `Company.suppliers`.
 | `Iri` and enum values | Literals (`xsd:anyURI`, `xsd:string`), so a value creates no entity, no referrer set and no registration; the note's "IRI term" and "one IRI per member" are kept as vocabulary, not as object terms |
 | `DateTime` and `LocalDateTime` | `xsd:dateTimeStamp` and `xsd:dateTime` without a timezone, which keeps the offset requirement in the datatype |
 | Interval precision | Stored as the unit's first instant plus a precision predicate per bound. Decided 2026-11-08: the outer extent alone is indexed, and a `certainly` form filters its candidates, which halves the interval index |
-| Named attribute types | A reusable declaration whose values are literals. Decided 2026-11-08: every value is found through the reverse lists and ordered by `@index(range)`, so no value becomes an entity; a value with relations of its own is an entity, a `Concept` |
+| Named attribute types | A reusable declaration whose values are literals. Decided 2026-11-08: every value is found through its index or claim when declared, otherwise by a Scan of the attribute's family (T48, C32), and ordered by `@index(range)`, so no value becomes an entity; a value with relations of its own is an entity, a `Concept` |
 | The `schema` prefix | Reserved for the catalog qualifier; the example imports schema.org as `sdo` |
 | Keyless names | A handle, the bucket and 104 random bits, minted into the type's IRI space, held in the dictionary both ways as a reifier's skolem IRI already is, and presented as an IRI. Chosen over D6's keyed encryption, which puts a key service on the read path of every keyless IRI and ties each such IRI to key retention, at the price of two dictionary entries the design already pays per reifier; revisited only if stage 7's dictionary-growth measurement shows those entries dominating |
 | Graphs and bases | One base per graph, defaulting to the schema's; two graphs of one schema take two bases, so IRIs stay unique in a tenant |
@@ -2168,13 +2210,20 @@ that begin with one, `Asset.all_parts` and `Company.suppliers`.
 | One condition, one number | Decided 2026-11-10: the most specific diagnostic naming a condition is raised, `UGS0710` is retired into `UGS0116`, a commit reports the first rule broken in section 8.2's order, and an expression that cannot be evaluated has a number of its own (`UGS1039`), apart from a check that evaluated and did not hold |
 | Creation | Decided 2026-11-10: a transaction creates an instance by writing `rdf:type` on a blank node or on a keyed type's minted IRI; a creation on a key the tree holds is a duplicate (`UGS1008`) and never an update, and a keyed instance under a blank node is refused (`UGS1038`), the IRI being a pure function every client computes. Chosen over minting for the client, which has the frontend assemble an instance to route it |
 | One-frame writes | Decided 2026-11-10: a rule over the instance's own fields is validated in a DirectWrite's one turn; a claim, and a rule reading beyond the instance, take a transaction (section 9.6); an Ingest share claims its instances' keys and `@idempotency` values, which their own bucket holds |
-| A recreated IRI | Decided 2026-11-10: the new instance's record names the ID it replaced and the tombstone the delete's version, so a read of the past never answers absence where an instance was; the dictionary stays without versions (section 8.5) |
+| A recreated IRI | Decided 2026-11-10: the new instance's record names the ID it replaced and the tombstone the delete's version, so a read of the past never answers absence where an instance was; the term-to-ID record is replaced at the re-creation's version (T48, C16; section 8.5) |
 | Order of sources | Decided 2026-11-10: schemas by name, then modules after what they extend, so prefix allocation is a function of the sources alone (section 7.1) |
 | Decimal ranges and materialized paths | Decided by the user 2026-11-10: `Decimal` takes an exact sortable tokenizer, `decimal`, so a range index orders by the value itself (section 6.10); stage 6 maintains materialized path derivations, a path compiled to steps that the partition walks within `rule_read_max` (sections 6.8, 10.2) |
 | What a rule reads at commit | Decided 2026-11-10: an update of an attribute a rule's condition reads is checked as an update of what it aggregates; a `@limit` keeps its aggregate per group, one read and one write whatever the group's size; `@acyclic` and `@no_overlap` read within `rule_read_max` and refuse past it (`UGS1040`); `@acyclic` without `max_depth` stays legal under the same bound (sections 8.2, 8.6, 9.4) |
 | Declared predicates' IDs | Decided 2026-11-10: allocated by the metadata group with the version, the `Resource` prefix with sequences from 2^63, held in the version's predicate index and never in an entry, since Describe carries entries and a system ID never leaves the database; a governed tenant resolves no declared predicate through the dictionary (section 7.1, `CATALOG.md` section 2) |
 | Where an install compiles | Decided 2026-11-10: beside the metadata group, from the base version and the next free prefix and predicate sequence, so the group's thread only commits bytes; the version is decoded and encoded back before it is committed, and a failure is the compiler's, refused with code 7 (section 10.1) |
 | Corpus readings | Decided 2026-11-10: where the conformance corpus, written from this file alone, found it silent, ambiguous or contradicting itself, the reading decided is written in. A relation's anchor is section 9.1's, never the compiler's choice, and `UGS0904` names a pair of competing constraints; `UGS0903` is `restrict`'s alone; a commit reports the first rule broken in an order that takes a value's type before a check reading it and the more specific rule first, with rows for `UGS1026`, `UGS1034`, `UGS1036` and `UGS1037`; a tombstoned subject is code 30 and a tombstoned participant `UGS1019`; 65,532 declared types, so a prefix and a range's end fit 16 bits; `max_depth` and `rule_read_max` count relation instances; locations, number tokens, negative literals in arguments and defaults, a required `prefix`, `schema` reserved, qualified enum extensions in modules, attribute identity across inheritance, and the codes of undeclared participants, nested union members, set-valued and append-only `orphan` and a specialized role's shape (sections 3.1, 3.4, 3.5, 3.7, 4, 5.1, 5.4, 5.5, 6.1, 6.3 to 6.7, 6.10, 6.12, 7.1, 7.4, 8.1 to 8.3, 8.5, 8.7, 9.1, 9.3 to 9.5, 10.2, 10.4, 11.2, 12.1, 12.4, 14) |
+| A deleted instance's claims | Decided 2026-11-10 (T48, C16): a delete releases the `@idempotency` claim as it releases a key's and a `@unique` value's, so a retry after a delete creates anew; the ID a re-created IRI's record names is held in the store's ID-to-term record (section 8.5) |
+| Where a relation's claims live | Decided 2026-11-10 (T48, C20): in the instance's partition, an entity's own bucket, an unkeyed relation's anchor, a keyed relation's key bucket, as `STORAGE.md` places them; a keyed relation has no anchor to home them (sections 6.6, 9.3, 12.3) |
+| `@set` combinations | Decided 2026-11-10 (T48, C21): an edge-encoded relation's combination is its triple, and the store keeps a combination record for a node-encoded one alone, keyed by the root type's prefix and each role's participants in declaration order (section 12.3) |
+| Temporal comparison | Decided 2026-11-10 (T48, C25): a temporal value keeps its offset as written and compares, for equality, order, claims and tokens, by its UTC instant, so one instant written with two offsets is one value and one claim (section 5.5) |
+| Range tokens | Decided 2026-11-10 (T48, C28): a range token is the tokenizer's identifier byte and the value's sortable encoding, exact, so a range filter needs no lossy token; `hour` and `day` index no declared attribute, the temporal types taking `datetime`, and a `Measure<K>` token is the value in the kind's canonical unit as a `Float64` (section 6.10) |
+| Lookup by value | Decided 2026-11-10 (T48, C32): a value is found through its index or claim when declared, otherwise by a Scan of the attribute's family, and the layout adds no reverse family for a column; a value read often by value declares an index (sections 5.9, 6.10, 12.1) |
+| Monotonic-fast data | Decided 2026-11-10 (T48, C33): `@append_only` data and the `@immutable` attributes of `@append_only` instances, since an `@immutable` value of a deletable instance leaves with its delete and a result naming it would not last (section 9.6) |
 
 ## 18. Sources
 

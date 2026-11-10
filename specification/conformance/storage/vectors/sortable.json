@@ -5,301 +5,489 @@
       "name": "Bool false",
       "tag": "1",
       "value": "false",
-      "hex": "00"
+      "hex": "00",
+      "comparison_hex": "00",
+      "small": true
     },
     {
       "name": "Bool true",
       "tag": "1",
       "value": "true",
-      "hex": "01"
+      "hex": "01",
+      "comparison_hex": "01",
+      "small": true
     },
     {
       "name": "Int8 -128",
       "tag": "2",
       "value": "-128",
-      "hex": "00"
+      "hex": "00",
+      "comparison_hex": "00",
+      "small": true
     },
     {
       "name": "Int8 -1",
       "tag": "2",
       "value": "-1",
-      "hex": "7f"
+      "hex": "7f",
+      "comparison_hex": "7f",
+      "small": true
     },
     {
       "name": "Int8 0",
       "tag": "2",
       "value": "0",
-      "hex": "80"
+      "hex": "80",
+      "comparison_hex": "80",
+      "small": true
     },
     {
       "name": "Int8 127",
       "tag": "2",
       "value": "127",
-      "hex": "ff"
+      "hex": "ff",
+      "comparison_hex": "ff",
+      "small": true
     },
     {
       "name": "Int16 -300",
       "tag": "3",
       "value": "-300",
-      "hex": "7ed4"
+      "hex": "7ed4",
+      "comparison_hex": "7ed4",
+      "small": true
     },
     {
       "name": "Int32 -2",
       "tag": "4",
       "value": "-2",
-      "hex": "7ffffffe"
+      "hex": "7ffffffe",
+      "comparison_hex": "7ffffffe",
+      "small": true
     },
     {
       "name": "Int32 1000",
       "tag": "4",
       "value": "1000",
-      "hex": "800003e8"
+      "hex": "800003e8",
+      "comparison_hex": "800003e8",
+      "small": true
     },
     {
       "name": "Int64 -9223372036854775808",
       "tag": "5",
       "value": "-9223372036854775808",
-      "hex": "0000000000000000"
+      "hex": "0000000000000000",
+      "comparison_hex": "0000000000000000",
+      "small": true
     },
     {
       "name": "Int64 42",
       "tag": "5",
       "value": "42",
-      "hex": "800000000000002a"
+      "hex": "800000000000002a",
+      "comparison_hex": "800000000000002a",
+      "small": true
     },
     {
       "name": "Int128 -1",
       "tag": "6",
       "value": "-1",
-      "hex": "7fffffffffffffffffffffffffffffff"
+      "hex": "7fffffffffffffffffffffffffffffff",
+      "comparison_hex": "7fffffffffffffffffffffffffffffff",
+      "small": true
     },
     {
       "name": "UInt8 200",
       "tag": "7",
       "value": "200",
-      "hex": "c8"
+      "hex": "c8",
+      "comparison_hex": "c8",
+      "small": true
     },
     {
       "name": "UInt16 513",
       "tag": "8",
       "value": "513",
-      "hex": "0201"
+      "hex": "0201",
+      "comparison_hex": "0201",
+      "small": true
     },
     {
       "name": "UInt32 4000000000",
       "tag": "9",
       "value": "4000000000",
-      "hex": "ee6b2800"
+      "hex": "ee6b2800",
+      "comparison_hex": "ee6b2800",
+      "small": true
     },
     {
       "name": "UInt64 max",
       "tag": "10",
       "value": "18446744073709551615",
-      "hex": "ffffffffffffffff"
+      "hex": "ffffffffffffffff",
+      "comparison_hex": "ffffffffffffffff",
+      "small": true
     },
     {
       "name": "Float32 -0.25",
       "tag": "11",
       "value": "-0.25",
-      "hex": "417fffff"
+      "hex": "417fffff",
+      "comparison_hex": "417fffff",
+      "small": true
     },
     {
       "name": "Float32 -0.0",
       "tag": "11",
       "value": "-0.0",
-      "hex": "80000000"
+      "hex": "80000000",
+      "comparison_hex": "80000000",
+      "small": true
     },
     {
       "name": "Float32 0.25",
       "tag": "11",
       "value": "0.25",
-      "hex": "be800000"
+      "hex": "be800000",
+      "comparison_hex": "be800000",
+      "small": true
     },
     {
       "name": "Float32 NaN",
       "tag": "11",
       "value": "NaN",
-      "hex": "ffc00000"
+      "hex": "ffc00000",
+      "comparison_hex": "ffc00000",
+      "small": true
     },
     {
       "name": "Float64 -inf",
       "tag": "12",
       "value": "-INF",
-      "hex": "000fffffffffffff"
+      "hex": "000fffffffffffff",
+      "comparison_hex": "000fffffffffffff",
+      "small": true
     },
     {
       "name": "Float64 -1.5",
       "tag": "12",
       "value": "-1.5",
-      "hex": "4007ffffffffffff"
+      "hex": "4007ffffffffffff",
+      "comparison_hex": "4007ffffffffffff",
+      "small": true
     },
     {
       "name": "Float64 -0.0",
       "tag": "12",
       "value": "-0.0",
-      "hex": "8000000000000000"
+      "hex": "8000000000000000",
+      "comparison_hex": "8000000000000000",
+      "small": true
     },
     {
       "name": "Float64 0.0",
       "tag": "12",
       "value": "0.0",
-      "hex": "8000000000000000"
+      "hex": "8000000000000000",
+      "comparison_hex": "8000000000000000",
+      "small": true
     },
     {
       "name": "Float64 1.5",
       "tag": "12",
       "value": "1.5",
-      "hex": "bff8000000000000"
+      "hex": "bff8000000000000",
+      "comparison_hex": "bff8000000000000",
+      "small": true
     },
     {
       "name": "Float64 inf",
       "tag": "12",
       "value": "INF",
-      "hex": "fff0000000000000"
+      "hex": "fff0000000000000",
+      "comparison_hex": "fff0000000000000",
+      "small": true
     },
     {
       "name": "Float64 NaN",
       "tag": "12",
       "value": "NaN",
-      "hex": "fff8000000000000"
+      "hex": "fff8000000000000",
+      "comparison_hex": "fff8000000000000",
+      "small": true
     },
     {
       "name": "Decimal(10,2) -12.34",
       "tag": "13 p=10 s=2",
       "value": "-12.34",
-      "hex": "7ffffffffffffffffffffffffffffb2e"
+      "hex": "7ffffffffffffffffffffffffffffb2e",
+      "comparison_hex": "7ffffffffffffffffffffffffffffb2e",
+      "small": true
     },
     {
       "name": "Decimal(10,2) 12.34",
       "tag": "13 p=10 s=2",
       "value": "12.34",
-      "hex": "800000000000000000000000000004d2"
+      "hex": "800000000000000000000000000004d2",
+      "comparison_hex": "800000000000000000000000000004d2",
+      "small": true
     },
     {
       "name": "String abc",
       "tag": "14",
       "value": "abc",
-      "hex": "616263"
+      "hex": "616263",
+      "comparison_hex": "616263",
+      "small": false
     },
     {
       "name": "String abd",
       "tag": "14",
       "value": "abd",
-      "hex": "616264"
+      "hex": "616264",
+      "comparison_hex": "616264",
+      "small": false
     },
     {
       "name": "Text with a NUL",
       "tag": "15",
-      "value": "a\\u0000b",
-      "hex": "610062"
+      "value": "a\\u0000b, no language",
+      "hex": "6100ff620000",
+      "comparison_hex": "6100ff620000",
+      "small": false
+    },
+    {
+      "name": "Text a",
+      "tag": "15",
+      "value": "a, no language",
+      "hex": "610000",
+      "comparison_hex": "610000",
+      "small": false
+    },
+    {
+      "name": "Text a@en-GB",
+      "tag": "15",
+      "value": "a@en-GB",
+      "hex": "610000656e2d6762",
+      "comparison_hex": "610000656e2d6762",
+      "small": false
+    },
+    {
+      "name": "Text ab",
+      "tag": "15",
+      "value": "ab, no language",
+      "hex": "61620000",
+      "comparison_hex": "61620000",
+      "small": false
+    },
+    {
+      "name": "Text chat@FR",
+      "tag": "15",
+      "value": "chat@FR",
+      "hex": "6368617400006672",
+      "comparison_hex": "6368617400006672",
+      "small": false
     },
     {
       "name": "Bytes 00ff",
       "tag": "16",
       "value": "0x00ff",
-      "hex": "00ff"
+      "hex": "00ff",
+      "comparison_hex": "00ff",
+      "small": false
     },
     {
       "name": "Date 2026-11-10",
       "tag": "17",
       "value": "2026-11-10",
-      "hex": "80000000ce918b9e82e597f7e6000000ffff"
+      "hex": "80000000ce918b9e82e597f7e6000000ffff",
+      "comparison_hex": "80000000ce918b9e82e597f7e6000000",
+      "small": true
     },
     {
       "name": "Time 12:30:00Z",
       "tag": "18",
       "value": "12:30:00Z",
-      "hex": "80000000c913a7f95fb0231f782000008000"
+      "hex": "80000000c913a7f95fb0231f782000008000",
+      "comparison_hex": "80000000c913a7f95fb0231f78200000",
+      "small": true
     },
     {
       "name": "DateTime 1970-01-01T00:00:00Z",
       "tag": "19",
       "value": "1970-01-01T00:00:00Z",
-      "hex": "80000000c8c55c6bf650a2257c0000008000"
+      "hex": "80000000c8c55c6bf650a2257c0000008000",
+      "comparison_hex": "80000000c8c55c6bf650a2257c000000",
+      "small": true
     },
     {
       "name": "DateTime 2026-11-10T12:30:00+01:00",
       "tag": "19",
       "value": "2026-11-10T12:30:00+01:00",
-      "hex": "80000000ce919462cf4fe55e19e00000803c"
+      "hex": "80000000ce919462cf4fe55e19e00000803c",
+      "comparison_hex": "80000000ce919462cf4fe55e19e00000",
+      "small": true
+    },
+    {
+      "name": "DateTime 2026-11-10T12:00:00Z",
+      "tag": "19",
+      "value": "2026-11-10T12:00:00Z",
+      "hex": "80000000ce9194c46354848f110000008000",
+      "comparison_hex": "80000000ce9194c46354848f11000000",
+      "small": true
+    },
+    {
+      "name": "DateTime 2026-11-10T13:00:00+01:00",
+      "tag": "19",
+      "value": "2026-11-10T13:00:00+01:00",
+      "hex": "80000000ce9194c46354848f11000000803c",
+      "comparison_hex": "80000000ce9194c46354848f11000000",
+      "small": true
     },
     {
       "name": "LocalDateTime 2026-11-10T12:30:00",
       "tag": "20",
       "value": "2026-11-10T12:30:00",
-      "hex": "80000000ce919525f75923c008200000ffff"
+      "hex": "80000000ce919525f75923c008200000ffff",
+      "comparison_hex": "80000000ce919525f75923c008200000",
+      "small": true
     },
     {
       "name": "Duration P1M-shaped",
       "tag": "21",
       "value": "P1MT1S",
-      "hex": "800000000000000180000000000000000de0b6b3a7640000"
+      "hex": "800000000000000180000000000000000de0b6b3a7640000",
+      "comparison_hex": "800000000000000180000000000000000de0b6b3a7640000",
+      "small": false
     },
     {
-      "name": "Iri",
+      "name": "Iri http://ex.org/alice",
       "tag": "23",
-      "value": "system ID 0003...",
-      "hex": "00030000000000000011abc001000000"
+      "value": "http://ex.org/alice",
+      "hex": "687474703a2f2f65782e6f72672f616c696365",
+      "comparison_hex": "687474703a2f2f65782e6f72672f616c696365",
+      "small": false
+    },
+    {
+      "name": "Iri http://ex.org/\u00e9t\u00e9",
+      "tag": "23",
+      "value": "http://ex.org/\u00e9t\u00e9",
+      "hex": "687474703a2f2f65782e6f72672fc3a974c3a9",
+      "comparison_hex": "687474703a2f2f65782e6f72672fc3a974c3a9",
+      "small": false
     },
     {
       "name": "Enum member 2",
       "tag": "24",
       "value": "index 2",
-      "hex": "00000002"
+      "hex": "00000002",
+      "comparison_hex": "00000002",
+      "small": true
     },
     {
       "name": "List of Int8 [1, -1]",
       "tag": "25 of 2",
       "value": "[1, -1]",
-      "hex": "0000000181000000017f"
+      "hex": "0000000181000000017f",
+      "comparison_hex": "0000000181000000017f",
+      "small": false
     },
     {
       "name": "Set of Int8 {1, -1}",
       "tag": "26 of 2",
       "value": "{1, -1}",
-      "hex": "000000017f0000000181"
+      "hex": "000000017f0000000181",
+      "comparison_hex": "000000017f0000000181",
+      "small": false
     },
     {
       "name": "Record (Int8 1, String x)",
       "tag": "27",
       "value": "{a: 1, b: x}",
-      "hex": "00000001810000000178"
+      "hex": "00000001810000000178",
+      "comparison_hex": "00000001810000000178",
+      "small": false
     },
     {
       "name": "Vector<F32, 2> [1.0, -2.0]",
       "tag": "28 a=1 b=2",
       "value": "[1.0, -2.0]",
-      "hex": "0000803f000000c0"
+      "hex": "0000803f000000c0",
+      "comparison_hex": "0000803f000000c0",
+      "small": true
     },
     {
-      "name": "Geo POINT(1 2)",
+      "name": "Geo Point (1, 2)",
       "tag": "29",
-      "value": "POINT(1 2)",
-      "hex": "504f494e542831203229"
+      "value": "{ \"type\": \"Point\", \"coordinates\": [1, 2] }",
+      "hex": "7b22636f6f7264696e61746573223a5b312c325d2c2274797065223a22506f696e74227d",
+      "comparison_hex": "7b22636f6f7264696e61746573223a5b312c325d2c2274797065223a22506f696e74227d",
+      "small": false
+    },
+    {
+      "name": "Geo LineString",
+      "tag": "29",
+      "value": "{\"coordinates\": [[-180, 0], [3, 45]], \"type\": \"LineString\", \"bbox\": [-180, 0, 3, 45]}",
+      "hex": "7b2262626f78223a5b2d3138302c302c332c34355d2c22636f6f7264696e61746573223a5b5b2d3138302c305d2c5b332c34355d5d2c2274797065223a224c696e65537472696e67227d",
+      "comparison_hex": "7b2262626f78223a5b2d3138302c302c332c34355d2c22636f6f7264696e61746573223a5b5b2d3138302c305d2c5b332c34355d5d2c2274797065223a224c696e65537472696e67227d",
+      "small": false
     },
     {
       "name": "Measure 2.5 in unit 3",
       "tag": "30",
       "value": "2.5, unit number 3",
-      "hex": "c00400000000000000000003"
+      "hex": "c00400000000000000000003",
+      "comparison_hex": "c00400000000000000000003",
+      "small": true
     },
     {
       "name": "Unit number 7",
       "tag": "31",
       "value": "unit 7",
-      "hex": "00000007"
+      "hex": "00000007",
+      "comparison_hex": "00000007",
+      "small": true
     },
     {
       "name": "EntityType prefix 3",
       "tag": "33",
       "value": "prefix 3",
-      "hex": "0003"
+      "hex": "0003",
+      "comparison_hex": "0003",
+      "small": true
     },
     {
       "name": "Id128",
       "tag": "36",
       "value": "0192f3a1b2c3d4e5f60718293a4b5c6d",
-      "hex": "0192f3a1b2c3d4e5f60718293a4b5c6d"
+      "hex": "0192f3a1b2c3d4e5f60718293a4b5c6d",
+      "comparison_hex": "0192f3a1b2c3d4e5f60718293a4b5c6d",
+      "small": true
+    },
+    {
+      "name": "Precision year",
+      "tag": "37",
+      "value": "year",
+      "hex": "04",
+      "comparison_hex": "04",
+      "small": true
+    },
+    {
+      "name": "Precision day",
+      "tag": "37",
+      "value": "day",
+      "hex": "06",
+      "comparison_hex": "06",
+      "small": true
+    },
+    {
+      "name": "Precision nanosecond",
+      "tag": "37",
+      "value": "nanosecond",
+      "hex": "0c",
+      "comparison_hex": "0c",
+      "small": true
     }
   ],
   "ascending": [
@@ -331,14 +519,30 @@
       "String abd"
     ],
     [
+      "Text a",
+      "Text a@en-GB",
+      "Text with a NUL",
+      "Text ab"
+    ],
+    [
       "DateTime 1970-01-01T00:00:00Z",
-      "DateTime 2026-11-10T12:30:00+01:00"
+      "DateTime 2026-11-10T12:30:00+01:00",
+      "DateTime 2026-11-10T12:00:00Z"
+    ],
+    [
+      "Precision year",
+      "Precision day",
+      "Precision nanosecond"
     ]
   ],
   "equal": [
     [
       "Float64 -0.0",
       "Float64 0.0"
+    ],
+    [
+      "DateTime 2026-11-10T12:00:00Z",
+      "DateTime 2026-11-10T13:00:00+01:00"
     ]
   ],
   "terms": [
@@ -390,10 +594,34 @@
   ],
   "tokens": [
     {
-      "name": "range token of an Int64",
-      "identifier": 5,
+      "name": "range token of an Int64, tokenizer int",
+      "identifier": 6,
       "body_hex": "800000000000002a",
-      "hex": "05800000000000002a"
+      "hex": "06800000000000002a"
+    },
+    {
+      "name": "range token of DateTime 2026-11-10T12:00:00Z",
+      "identifier": 32,
+      "value_hex": "80000000ce9194c46354848f110000008000",
+      "body_hex": "80000000ce9194c46354848f11000000",
+      "hex": "2080000000ce9194c46354848f11000000",
+      "note": "the identifier byte is this vector's input; the token holds the value's comparison form"
+    },
+    {
+      "name": "range token of DateTime 2026-11-10T13:00:00+01:00, equal to the one above",
+      "identifier": 32,
+      "value_hex": "80000000ce9194c46354848f11000000803c",
+      "body_hex": "80000000ce9194c46354848f11000000",
+      "hex": "2080000000ce9194c46354848f11000000",
+      "note": "the identifier byte is this vector's input; the token holds the value's comparison form"
+    },
+    {
+      "name": "token of Measure<Length> 2.5 km, canonical unit m",
+      "identifier": 33,
+      "value": "2.5 km, 1 km = 1000 m",
+      "body_hex": "c0a3880000000000",
+      "hex": "21c0a3880000000000",
+      "note": "the identifier byte is this vector's input; the token holds 2500.0 m as a Float64's sortable encoding"
     },
     {
       "name": "token of 301 bytes",

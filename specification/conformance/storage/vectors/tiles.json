@@ -8,66 +8,81 @@
           {
             "index": 0,
             "type": "UInt32",
+            "tag": 9,
             "width": 4
           }
         ],
-        "rows": [
+        "order": 0,
+        "entries": [
           {
-            "slot": 0,
-            "entries": [
-              {
-                "neighbour": "00030000000000000011abc001000000",
-                "statement": 4294967295,
-                "inline": [
-                  "000007e3"
-                ]
-              },
-              {
-                "neighbour": "00030000000000000012abc002000000",
-                "statement": 4294967295,
-                "inline": [
-                  "000007e5"
-                ]
-              }
-            ]
+            "row_hex": "000300000000",
+            "neighbour_hex": "00030000000000000011abc001000000",
+            "statement_hex": null,
+            "inline_hex": [
+              "000007e3"
+            ],
+            "created": 0,
+            "deleted": 0
           },
           {
-            "slot": 2,
-            "entries": [
-              {
-                "neighbour": "00030000000000000011abc001000000",
-                "statement": 4294967295,
-                "inline": [
-                  "000007e4"
-                ]
-              }
-            ]
+            "row_hex": "000300000000",
+            "neighbour_hex": "00030000000000000012abc002000000",
+            "statement_hex": null,
+            "inline_hex": [
+              "000007e5"
+            ],
+            "created": 0,
+            "deleted": 0
           },
           {
-            "slot": 5,
-            "entries": [
-              {
-                "neighbour": "00030000000000000014abc004000000",
-                "statement": 9,
-                "inline": [
-                  "000007e8"
-                ]
-              },
-              {
-                "neighbour": "00030000000000000015abc001000000",
-                "statement": 4294967295,
-                "inline": [
-                  "000007e2"
-                ]
-              },
-              {
-                "neighbour": "0003000000000000012cabc003000000",
-                "statement": 4294967295,
-                "inline": [
-                  "000007e1"
-                ]
-              }
-            ]
+            "row_hex": "000300000002",
+            "neighbour_hex": "00030000000000000011abc001000000",
+            "statement_hex": null,
+            "inline_hex": [
+              "000007e4"
+            ],
+            "created": 0,
+            "deleted": 0
+          },
+          {
+            "row_hex": "000300000005",
+            "neighbour_hex": "00030000000000000014abc004000000",
+            "statement_hex": "000200000009",
+            "inline_hex": [
+              "000007e8"
+            ],
+            "created": 0,
+            "deleted": 0
+          },
+          {
+            "row_hex": "000300000005",
+            "neighbour_hex": "00030000000000000015abc001000000",
+            "statement_hex": null,
+            "inline_hex": [
+              "000007e2"
+            ],
+            "created": 0,
+            "deleted": 0
+          },
+          {
+            "row_hex": "000300000005",
+            "neighbour_hex": "0003000000000000012cabc003000000",
+            "statement_hex": null,
+            "inline_hex": [
+              "000007e1"
+            ],
+            "created": 0,
+            "deleted": 0
+          },
+          {
+            "row_hex": "000400000001",
+            "neighbour_hex": "00030000000000000011abc001000000",
+            "statement_hex": null,
+            "inline_hex": [
+              "000007df"
+            ],
+            "created": 0,
+            "deleted": 0
           }
         ]
       },
@@ -85,46 +100,50 @@
         "built": 1200,
         "previous": 900,
         "horizon": 163577855,
-        "entries": 6,
-        "rows": 3,
+        "entries": 7,
+        "rows": 4,
         "span": 0,
         "tokenizer": 0
       },
-      "fence_hex": "0000000000030000000000000011abc001000000",
-      "tile_key_hex": "0101000000000000000700000000000000000000000000000000000100000000000003e9ab010200000000000100000002af000000000000030000000000000011abc001000000",
+      "fence_hex": "00030000000000030000000000000011abc001000000",
+      "tile_key_hex": "0101000000000000000700000000000000000000000000000000000100000000000003e9ab010200000000000100000002af0000030000000000030000000000000011abc001000000",
       "address": 131072,
       "file": "tiles/adjacency_forward.tile",
-      "length": 496,
-      "checksum": "4fbe27e3960af3df",
-      "digest": "380400a4269c90ae0f732b157fbbee29"
+      "length": 600,
+      "checksum": "3c7627522a08dc96",
+      "digest": "a5fe5f93b2595beaed9ddf014144b377"
     },
     "adjacency_reverse_versioned": {
       "input": {
-        "rows": [
+        "layout": "generic",
+        "entries": [
           {
-            "key": "00030000000000000011abc001000000",
-            "entries": [
-              {
-                "slot": 0,
-                "created": 167772162,
-                "deleted": 0
-              },
-              {
-                "slot": 2,
-                "created": 176160772,
-                "deleted": 0
-              }
-            ]
+            "row_hex": "0100030000000000000011abc001000000",
+            "neighbour_hex": "000300000000",
+            "statement_hex": null,
+            "created": 167772162,
+            "deleted": 0
           },
           {
-            "key": "00030000000000000012abc002000000",
-            "entries": [
-              {
-                "slot": 0,
-                "created": 171966470,
-                "deleted": 176160776
-              }
-            ]
+            "row_hex": "0100030000000000000011abc001000000",
+            "neighbour_hex": "000300000002",
+            "statement_hex": null,
+            "created": 176160772,
+            "deleted": 0
+          },
+          {
+            "row_hex": "0100030000000000000011abc001000000",
+            "neighbour_hex": "000400000000",
+            "statement_hex": null,
+            "created": 176160772,
+            "deleted": 0
+          },
+          {
+            "row_hex": "0100030000000000000012abc002000000",
+            "neighbour_hex": "000300000000",
+            "statement_hex": null,
+            "created": 171966470,
+            "deleted": 176160776
           }
         ]
       },
@@ -142,18 +161,18 @@
         "built": 1300,
         "previous": 0,
         "horizon": 167772159,
-        "entries": 3,
+        "entries": 4,
         "rows": 2,
         "span": 0,
         "tokenizer": 0
       },
-      "fence_hex": "00030000000000000011abc00100000000000000",
-      "tile_key_hex": "0103000000000000000700000000000000000000000000000000000100000000000003e9ab010200000000000200000002af0000030000000000000011abc00100000000000000",
+      "fence_hex": "0100ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff0000000300000000",
+      "tile_key_hex": "0103000000000000000700000000000000000000000000000000000100000000000003e9ab010200000000000200000002af000100ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff0000000300000000",
       "address": 135168,
       "file": "tiles/adjacency_reverse_versioned.tile",
-      "length": 408,
-      "checksum": "51773a277c08f13e",
-      "digest": "645764838cae677dc08b17aa6194ac2f"
+      "length": 456,
+      "checksum": "e28f52b7beb7f552",
+      "digest": "e36765d1b2135d9a74eeefbcde3585d4"
     },
     "column_chunk_overlay": {
       "input": {
@@ -228,7 +247,7 @@
       "header": {
         "shape": 3,
         "kind": 1,
-        "flags": 2,
+        "flags": 0,
         "tenant": 7,
         "graph": "00000000000000000000000000000000",
         "subject": "00000000000000000000000000000000",
@@ -245,11 +264,11 @@
         "tokenizer": 0
       },
       "fence_hex": "45a0be6f112c8e2701687474703a2f2f65782e6f72672f6361726f6c0000",
-      "tile_key_hex": "03010000000000000007000000000000000000000000000000000000000000000000000000000000000000000001000002af0045a0be6f112c8e2701687474703a2f2f65782e6f72672f6361726f6c0000",
+      "tile_key_hex": "03010000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0045a0be6f112c8e2701687474703a2f2f65782e6f72672f6361726f6c0000",
       "address": 143360,
       "file": "tiles/record_dictionary.tile",
       "length": 376,
-      "checksum": "104bebb1888ce125",
+      "checksum": "45ae9ae87340e160",
       "digest": "8a8596ef99112b6ea4eaf8e62177aacd"
     },
     "record_statistics": {
@@ -321,9 +340,9 @@
       },
       "address": 262144,
       "file": "tiles/manifest_leaf.tile",
-      "length": 784,
-      "checksum": "c9c19f6e32a348b4",
-      "digest": "09d872551e0faf5e5459c355cea9a34a"
+      "length": 800,
+      "checksum": "4d260de4a9427943",
+      "digest": "a06d1fa741f3fd49c06a7e47e56386b4"
     },
     "manifest_root": {
       "header": {
@@ -348,8 +367,8 @@
       "address": 266240,
       "file": "tiles/manifest_root.tile",
       "length": 328,
-      "checksum": "bc5d3102053499a7",
-      "digest": "b8dbd9f71e09d6e6f47ebf98c5d1cc3e"
+      "checksum": "bc6320c668fc8077",
+      "digest": "73a670b662f7b753cf6db9cd3678407b"
     },
     "free_set": {
       "header": {

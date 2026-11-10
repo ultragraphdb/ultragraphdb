@@ -64,7 +64,7 @@ first. It SHALL check:
 | Names | an instance's name does not begin with a role's name, or an instance file has no instance of the target |
 | Roles | the target has no frontend, more than one, or no storage instance |
 | Required | a role's required setting is absent from an instance |
-| Bounds | a value is outside its domain type's bound, by that type's own constructor, or `scan_stall_ms`, `read_retain_ms` or `held_bytes` is 0, or `scan_stall_ms` is above 30,000, the floor of the client's read timeout, or a `[tiles]` setting is outside its bound (the requirement below) |
+| Bounds | a value is outside its domain type's bound, by that type's own constructor, or `scan_stall_ms` or `held_bytes` is 0, or `scan_stall_ms` is above 30,000, the floor of the client's read timeout, or a `[tiles]` setting is outside its bound (the requirement below) |
 | Relations | `epoch_ms_min` is above `epoch_ms_max`, or `close_request_ms` is below twice `epoch_ms_max` |
 | Identity | two instances name different `cluster.id` values |
 | Tiles | two storage instances hold different values of one `[tiles]` setting, an absent one counted as its default |
@@ -120,7 +120,7 @@ size, the I/O depths and `power_loss_protection`.
 | Setting | Default | Bound |
 |---|---|---|
 | `extent_bytes` | 1,048,576 | a power of two, 131,072 to 67,108,864 |
-| `grid_extents` | 16,384 | 16 to 16,777,216 |
+| `grid_extents` | 16,384 | 64 to 16,777,216 |
 | `tile_bytes_max` | 65,536 | a multiple of 4,096, 16,384 to 1,048,576, at most `extent_bytes` − 4,096 |
 | `tile_entries_max` | 4,096 | 256 to 65,536 |
 | `chunk_slots` | 4,096 | a power of two, 1,024 to 65,536 |
@@ -134,7 +134,7 @@ size, the I/O depths and `power_loss_protection`.
 | `cold_after_rounds` | 65,536 | 1,024 to 2^32 |
 | `cleaner_free_percent` | 15 | 5 to 50 |
 | `checkpoint_bytes` | 268,435,456 | a multiple of 4,096, 16,777,216 to 2^34 |
-| `retention_ms` | 30,000 | at least the read-write transaction bound plus the longest read deadline the cluster allows |
+| `retention_ms` | 30,000 | 15,000 to 3,600,000 |
 | `lane_entries_max` | 65,536 | 1,024 to 1,048,576 |
 | `lane_bytes_max` | 262,144 | 16,384 to the smallest `max_frame` of the cluster minus 256 |
 
@@ -255,10 +255,6 @@ never be printed.
 #### Scenario: A hung compute's stall of no time is refused
 - **WHEN** `ci_frontend.toml` sets `storage.scan_stall_ms = 0`
 - **THEN** the entry names `storage.scan_stall_ms`, the value 0 and the bound it must meet
-
-#### Scenario: A retention of no time is refused
-- **WHEN** `ci_storage_1.toml` sets `storage.read_retain_ms = 0`
-- **THEN** the entry names `storage.read_retain_ms`, the value 0 and the bound it must meet
 
 #### Scenario: A held-bytes bound of nothing is refused
 - **WHEN** `ci_frontend.toml` sets `endpoint.held_bytes = 0`

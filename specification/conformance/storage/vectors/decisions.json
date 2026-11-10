@@ -1,5 +1,5 @@
 {
-  "specification": "STORAGE.md sections 12.4, 13.2, 16.2, 16.3, 17.1 and 17.2",
+  "specification": "STORAGE.md sections 12.4, 13.2, 16.2, 16.3, 16.6, 17.1 and 17.2",
   "cuts": [
     {
       "name": "small rows fill outputs",
@@ -128,30 +128,39 @@
   ],
   "lookups": {
     "fences_hex": [
-      "0000000000030000000000000001abc001000000",
-      "0000000400030000000000000001abc001000000",
-      "0000000400030000000000000384abc001000000"
+      "00030000000000030000000000000001abc001000000",
+      "00030000000400030000000000000001abc001000000",
+      "00030000000400030000000000000384abc001000000",
+      "00040000000000030000000000000001abc001000000"
     ],
     "cases": [
       {
-        "key_hex": "0000000000030000000000000000000000000000",
+        "key_hex": "00030000000000030000000000000000000000000000",
         "tile": 0
       },
       {
-        "key_hex": "0000000300030000000000000005abc001000000",
+        "key_hex": "00030000000300030000000000000005abc001000000",
         "tile": 0
       },
       {
-        "key_hex": "0000000400030000000000000001abc001000000",
+        "key_hex": "00030000000400030000000000000001abc001000000",
         "tile": 1
       },
       {
-        "key_hex": "0000000400030000000000000383ffffff000000",
+        "key_hex": "00030000000400030000000000000383ffffff000000",
         "tile": 1
       },
       {
-        "key_hex": "0000000900000000000000000000000000000000",
+        "key_hex": "00030000000900000000000000000000000000000000",
         "tile": 2
+      },
+      {
+        "key_hex": "00040000000000000000000000000000000000000000",
+        "tile": 2
+      },
+      {
+        "key_hex": "00040000000700000000000000000000000000000000",
+        "tile": 3
       }
     ]
   },
@@ -229,31 +238,719 @@
       "stream": 1
     }
   ],
-  "checkpoints": {
-    "frame_lengths": [
-      4096,
-      4096,
-      4096,
-      4096,
-      4096,
-      4096,
-      4096,
-      4096,
-      4096,
-      4096,
-      12288,
-      4096,
-      40960,
-      4096
-    ],
-    "checkpoint_bytes": 16384,
-    "positions": [
-      4,
-      8,
-      11,
-      13
-    ]
-  },
+  "checkpoints": [
+    {
+      "name": "no round flagged",
+      "frame_lengths": [
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        12288,
+        4096,
+        40960,
+        4096
+      ],
+      "flags": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "checkpoint_bytes": 16384,
+      "positions": [
+        4,
+        8,
+        11,
+        13
+      ]
+    },
+    {
+      "name": "rounds 2 and 12 flagged checkpoint",
+      "frame_lengths": [
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        12288,
+        4096,
+        40960,
+        4096
+      ],
+      "flags": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "checkpoint_bytes": 16384,
+      "positions": [
+        2,
+        4,
+        8,
+        11,
+        12,
+        13
+      ]
+    },
+    {
+      "name": "round 4 flagged, already a checkpoint by its bytes",
+      "frame_lengths": [
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        4096,
+        12288,
+        4096,
+        40960,
+        4096
+      ],
+      "flags": [
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "checkpoint_bytes": 16384,
+      "positions": [
+        4,
+        8,
+        11,
+        13
+      ]
+    }
+  ],
+  "reserve": [
+    {
+      "name": "no delta change and no checkpoint yet",
+      "settings": {
+        "extent_bytes": 131072,
+        "tile_bytes_max": 16384
+      },
+      "tiles": [],
+      "manifest_blocks": 0,
+      "free_set_blocks": 1,
+      "reserve": 4
+    },
+    {
+      "name": "a family's new tile and an existing tile",
+      "settings": {
+        "extent_bytes": 131072,
+        "tile_bytes_max": 16384
+      },
+      "tiles": [
+        {
+          "length": 0,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 0,
+              "count": 100
+            }
+          ]
+        },
+        {
+          "length": 9000,
+          "changes": [
+            {
+              "row_bytes": 17,
+              "neighbour_bytes": 6,
+              "value_bytes": 0,
+              "count": 3
+            }
+          ]
+        }
+      ],
+      "manifest_blocks": 3,
+      "free_set_blocks": 1,
+      "reserve": 4
+    },
+    {
+      "name": "forty full tiles with ten changes each",
+      "settings": {
+        "extent_bytes": 131072,
+        "tile_bytes_max": 16384
+      },
+      "tiles": [
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        },
+        {
+          "length": 16384,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 4,
+              "count": 10
+            }
+          ]
+        }
+      ],
+      "manifest_blocks": 5,
+      "free_set_blocks": 1,
+      "reserve": 18
+    },
+    {
+      "name": "the defaults, a hub tile and a value change",
+      "settings": {
+        "extent_bytes": 1048576,
+        "tile_bytes_max": 65536
+      },
+      "tiles": [
+        {
+          "length": 65536,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 16,
+              "value_bytes": 0,
+              "count": 4096
+            }
+          ]
+        },
+        {
+          "length": 300,
+          "changes": [
+            {
+              "row_bytes": 6,
+              "neighbour_bytes": 0,
+              "value_bytes": 16384,
+              "count": 1
+            }
+          ]
+        }
+      ],
+      "manifest_blocks": 40,
+      "free_set_blocks": 1,
+      "reserve": 6
+    }
+  ],
+  "cleaner": [
+    {
+      "grid_extents": 64,
+      "cleaner_free_percent": 15,
+      "free": 10,
+      "reserve": 4,
+      "due": false,
+      "moves": false
+    },
+    {
+      "grid_extents": 64,
+      "cleaner_free_percent": 15,
+      "free": 9,
+      "reserve": 4,
+      "due": true,
+      "moves": true
+    },
+    {
+      "grid_extents": 64,
+      "cleaner_free_percent": 15,
+      "free": 12,
+      "reserve": 7,
+      "due": true,
+      "moves": true
+    },
+    {
+      "grid_extents": 64,
+      "cleaner_free_percent": 15,
+      "free": 20,
+      "reserve": 11,
+      "due": true,
+      "moves": true
+    },
+    {
+      "grid_extents": 64,
+      "cleaner_free_percent": 15,
+      "free": 5,
+      "reserve": 4,
+      "due": true,
+      "moves": false
+    },
+    {
+      "grid_extents": 64,
+      "cleaner_free_percent": 15,
+      "free": 30,
+      "reserve": 4,
+      "due": false,
+      "moves": false
+    }
+  ],
   "superblock_selection": [
     {
       "name": "all four of sequence 5",

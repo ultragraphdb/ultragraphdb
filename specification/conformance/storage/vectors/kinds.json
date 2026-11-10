@@ -1,22 +1,31 @@
 {
-  "specification": "STORAGE.md sections 7 to 9: every kind tiles.json leaves out",
+  "specification": "STORAGE.md sections 7 to 9: every adjacency and column kind tiles.json leaves out, and a run of every record kind",
   "settings": "defaults of section 3.1",
   "tiles": {
     "adjacency_forward_values": {
       "input": {
-        "rows": [
+        "layout": "generic",
+        "entries": [
           {
-            "key_hex": "00000000",
-            "neighbours": [
-              "11000000000000002a",
-              "2003416461"
-            ]
+            "row_hex": "000300000000",
+            "neighbour_hex": "11000000000000002a",
+            "statement_hex": null,
+            "created": 0,
+            "deleted": 0
           },
           {
-            "key_hex": "00000002",
-            "neighbours": [
-              "2000"
-            ]
+            "row_hex": "000300000000",
+            "neighbour_hex": "2003416461",
+            "statement_hex": null,
+            "created": 0,
+            "deleted": 0
+          },
+          {
+            "row_hex": "000400000000",
+            "neighbour_hex": "2000",
+            "statement_hex": null,
+            "created": 0,
+            "deleted": 0
           }
         ]
       },
@@ -39,28 +48,37 @@
         "span": 0,
         "tokenizer": 0
       },
-      "fence_hex": "000000001100ff00ff00ff00ff00ff00ff00ff2a0000",
-      "tile_key_hex": "0102000000000000000700000000000000000000000000000000000100000000000003eeab010700000000000100000002af00000000001100ff00ff00ff00ff00ff00ff00ff2a0000",
+      "fence_hex": "0003000000001100ff00ff00ff00ff00ff00ff00ff2a0000",
+      "tile_key_hex": "0102000000000000000700000000000000000000000000000000000100000000000003eeab010700000000000100000002af000003000000001100ff00ff00ff00ff00ff00ff00ff2a0000",
       "file": "tiles/adjacency_forward_values.tile",
-      "length": 304,
-      "checksum": "98749d89aa4039fa",
-      "digest": "7529a2e6a48f3e29cb1eeb1461eefa44"
+      "length": 336,
+      "checksum": "7ab2a4d6731c6191",
+      "digest": "8b12e627483c8785f37e55adcf17e038"
     },
     "adjacency_index": {
       "input": {
-        "rows": [
+        "tokenizer": "int, 0x06, range tokens of Int64 'age'",
+        "entries": [
           {
-            "key_hex": "05800000000000001f",
-            "neighbours": [
-              0,
-              4
-            ]
+            "row_hex": "06800000000000001f",
+            "neighbour_hex": "000300000000",
+            "statement_hex": null,
+            "created": 0,
+            "deleted": 0
           },
           {
-            "key_hex": "05800000000000002d",
-            "neighbours": [
-              1
-            ]
+            "row_hex": "06800000000000001f",
+            "neighbour_hex": "000300000004",
+            "statement_hex": null,
+            "created": 0,
+            "deleted": 0
+          },
+          {
+            "row_hex": "06800000000000002d",
+            "neighbour_hex": "000300000001",
+            "statement_hex": null,
+            "created": 0,
+            "deleted": 0
           }
         ]
       },
@@ -81,31 +99,39 @@
         "entries": 3,
         "rows": 2,
         "span": 0,
-        "tokenizer": 5
+        "tokenizer": 6
       },
-      "fence_hex": "058000ff00ff00ff00ff00ff00ff1f000000000000",
-      "tile_key_hex": "0104000000000000000700000000000000000000000000000000000100000000000003ebab010400000000000000050002af00058000ff00ff00ff00ff00ff00ff1f000000000000",
+      "fence_hex": "068000ff00ff00ff00ff00ff00ff1f0000000300000000",
+      "tile_key_hex": "0104000000000000000700000000000000000000000000000000000100000000000003ebab010400000000000000060002af00068000ff00ff00ff00ff00ff00ff1f0000000300000000",
       "file": "tiles/adjacency_index.tile",
-      "length": 304,
-      "checksum": "e775a965de8a85bf",
-      "digest": "76643f760c21694e89ef73b90723c053"
+      "length": 336,
+      "checksum": "384b39ce0d4dfb68",
+      "digest": "6d60f3512b652a428abf2683af592809"
     },
     "adjacency_version_run": {
       "input": {
-        "rows": [
+        "class": "I",
+        "entries": [
           {
-            "key_hex": "00000000",
-            "neighbours": [
-              "000000000a0000026472616674",
-              "000000000a80000666696e616c"
-            ]
+            "row_hex": "000300000000",
+            "neighbour_hex": "000000000a0000026472616674",
+            "statement_hex": null,
+            "created": 0,
+            "deleted": 0
+          },
+          {
+            "row_hex": "000300000000",
+            "neighbour_hex": "000000000a80000666696e616c",
+            "statement_hex": null,
+            "created": 0,
+            "deleted": 0
           }
         ]
       },
       "header": {
         "shape": 1,
         "kind": 5,
-        "flags": 0,
+        "flags": 2,
         "tenant": 7,
         "graph": "00000000000000000000000000000000",
         "subject": "000100000000000003efab0108000000",
@@ -121,12 +147,103 @@
         "span": 0,
         "tokenizer": 0
       },
-      "fence_hex": "0000000000ff00ff00ff00ff0a00ff00ff0264726166740000",
-      "tile_key_hex": "0105000000000000000700000000000000000000000000000000000100000000000003efab010800000000000100000002af000000000000ff00ff00ff00ff0a00ff00ff0264726166740000",
+      "fence_hex": "00030000000000ff00ff00ff00ff0a00ff00ff0264726166740000",
+      "tile_key_hex": "0105000000000000000700000000000000000000000000000000000100000000000003efab010800000000000101000002af0000030000000000ff00ff00ff00ff0a00ff00ff0264726166740000",
       "file": "tiles/adjacency_version_run.tile",
-      "length": 296,
-      "checksum": "29fbcc509eca869e",
-      "digest": "d44fbc788be07d2ce39da3a1467191be"
+      "length": 328,
+      "checksum": "8c757622e436d2ad",
+      "digest": "30ba30119f89037032557e2875172763"
+    },
+    "adjacency_reverse_ordered": {
+      "input": {
+        "layout": "compiled",
+        "inline_columns": [
+          {
+            "index": 0,
+            "type": "DateTime",
+            "tag": 19,
+            "width": 18
+          }
+        ],
+        "order": 129,
+        "entries": [
+          {
+            "row_hex": "00030000000000000011abc001000000",
+            "neighbour_hex": "000300000002",
+            "statement_hex": "000200000004",
+            "inline_hex": [
+              "80000000cad80cb6b937a7a8fd000000803c"
+            ],
+            "created": 0,
+            "deleted": 0
+          },
+          {
+            "row_hex": "00030000000000000012abc002000000",
+            "neighbour_hex": "000300000005",
+            "statement_hex": null,
+            "inline_hex": [
+              "80000000cbee99078ac5a69b4e0000008000"
+            ],
+            "created": 0,
+            "deleted": 0
+          },
+          {
+            "row_hex": "00030000000000000012abc002000000",
+            "neighbour_hex": "000300000000",
+            "statement_hex": null,
+            "inline_hex": [
+              "80000000cad80cb6b937a7a8fd0000008000"
+            ],
+            "created": 0,
+            "deleted": 0
+          },
+          {
+            "row_hex": "00030000000000000012abc002000000",
+            "neighbour_hex": "000300000002",
+            "statement_hex": null,
+            "inline_hex": [
+              "80000000cad80cb6b937a7a8fd000000803c"
+            ],
+            "created": 0,
+            "deleted": 0
+          },
+          {
+            "row_hex": "00030000000000000012abc002000000",
+            "neighbour_hex": "000400000001",
+            "statement_hex": null,
+            "inline_hex": [
+              "80000000ca514487bae8c0403ca000007ed4"
+            ],
+            "created": 0,
+            "deleted": 0
+          }
+        ]
+      },
+      "header": {
+        "shape": 1,
+        "kind": 3,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "000100000000000003e9ab0102000000",
+        "type": 0,
+        "direction": 2,
+        "order": 129,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 5,
+        "rows": 2,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00030000000000000011abc001000000000300000002",
+      "tile_key_hex": "0103000000000000000700000000000000000000000000000000000100000000000003e9ab010200000000000200000002af0000030000000000000011abc001000000000300000002",
+      "file": "tiles/adjacency_reverse_ordered.tile",
+      "length": 600,
+      "checksum": "7a393b00fdda38e1",
+      "digest": "fef14eb09cfa7eba2b3cf40a4b37f9c7"
     },
     "column_variable": {
       "input": {
@@ -208,18 +325,63 @@
       "checksum": "d44637232d2d261b",
       "digest": "e2e47faf7b8545f8ac333d118e808613"
     },
+    "record_dictionary_recreated": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "b4705c8918a755b801687474703a2f2f65782e6f72672f64617665",
+            "value_hex": "0003000000000000001eabc005000000",
+            "created": 0,
+            "deleted": 188743684
+          },
+          {
+            "key_hex": "b4705c8918a755b801687474703a2f2f65782e6f72672f64617665",
+            "value_hex": "0003000000000000001fabc005000000",
+            "created": 188743684,
+            "deleted": 0
+          }
+        ],
+        "note": "kind 1, class M: dave deleted and re-created at version(45, 4); a read below it resolves the old ID"
+      },
+      "header": {
+        "shape": 3,
+        "kind": 1,
+        "flags": 1,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 2,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "b4705c8918a755b801687474703a2f2f65782e6f72672f646176650000",
+      "tile_key_hex": "03010000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af00b4705c8918a755b801687474703a2f2f65782e6f72672f646176650000",
+      "file": "tiles/record_dictionary_recreated.tile",
+      "length": 400,
+      "checksum": "e7c1aa431e2d5489",
+      "digest": "3445bb24fb23a286981eebb86cd7f46b"
+    },
     "record_id_to_term": {
       "input": {
         "records": [
           {
             "key_hex": "00030000000000000011abc001000000",
-            "value_hex": "01687474703a2f2f65782e6f72672f616c696365"
+            "value_hex": "0000000000000000000000000000000001687474703a2f2f65782e6f72672f616c696365"
           },
           {
-            "key_hex": "00030000000000000012abc002000000",
-            "value_hex": "01687474703a2f2f65782e6f72672f626f62"
+            "key_hex": "0003000000000000001fabc005000000",
+            "value_hex": "0003000000000000001eabc00500000001687474703a2f2f65782e6f72672f64617665"
           }
-        ]
+        ],
+        "note": "kind 2, class I: alice replaced none; dave's new ID names the ID it replaced"
       },
       "header": {
         "shape": 3,
@@ -243,9 +405,9 @@
       "fence_hex": "00ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff0000",
       "tile_key_hex": "03020000000000000007000000000000000000000000000000000000000000000000000000000000000000000001000002af0000ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff0000",
       "file": "tiles/record_id_to_term.tile",
-      "length": 304,
-      "checksum": "6c5a48c529bf0a61",
-      "digest": "2600d3f3d5c1c3abda96cd4ee7080674"
+      "length": 336,
+      "checksum": "952c69bfe54bfe2c",
+      "digest": "84ec4cf08071ce11f67ce694255cbd55"
     },
     "record_hash_to_text": {
       "input": {
@@ -254,7 +416,8 @@
             "key_hex": "897caa5f48b5ad826aefc8adedd629f9",
             "value_hex": "6120737472696e672077686f7365206c65786963616c20666f726d206973206c6f6e676572207468616e206669667465656e206279746573"
           }
-        ]
+        ],
+        "note": "kind 3"
       },
       "header": {
         "shape": 3,
@@ -286,17 +449,18 @@
       "input": {
         "records": [
           {
-            "key_hex": "000301616c696365",
+            "key_hex": "0003000100000000000007d1ab011000000000000005616c696365",
             "value_hex": "00030000000000000011abc001000000"
           }
-        ]
+        ],
+        "note": "kind 4: key space prefix 3, graph G2, the canonical key of the String key 'alice'"
       },
       "header": {
         "shape": 3,
         "kind": 4,
         "flags": 0,
         "tenant": 7,
-        "graph": "00000000000000000000000000000000",
+        "graph": "000100000000000007d1ab0110000000",
         "subject": "00000000000000000000000000000000",
         "type": 0,
         "direction": 0,
@@ -310,33 +474,34 @@
         "span": 0,
         "tokenizer": 0
       },
-      "fence_hex": "00ff0301616c6963650000",
-      "tile_key_hex": "03040000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0301616c6963650000",
+      "fence_hex": "00ff0300ff0100ff00ff00ff00ff00ff00ff07d1ab011000ff00ff00ff00ff00ff00ff05616c6963650000",
+      "tile_key_hex": "03040000000000000007000100000000000007d1ab01100000000000000000000000000000000000000000000000000002af0000ff0300ff0100ff00ff00ff00ff00ff00ff07d1ab011000ff00ff00ff00ff00ff00ff05616c6963650000",
       "file": "tiles/record_key_claim.tile",
-      "length": 256,
-      "checksum": "0a0b7d1138d64723",
-      "digest": "9b4483f796b3dc72e92419965a52e15d"
+      "length": 272,
+      "checksum": "15f29cca5d02fb45",
+      "digest": "d0e096200cef94f2fb80c42f10864d71"
     },
     "record_unique_claim": {
       "input": {
         "records": [
           {
-            "key_hex": "000100000000000003ebab0104000000800000000000001f",
+            "key_hex": "000100000000000003f0ab01110000002008614065782e6f7267",
             "value_hex": "00030000000000000011abc001000000"
           }
-        ]
+        ],
+        "note": "kind 5, generic layout: the value's term encoding; group 254455 is the bucket group of Bucket::of_value(7, EMAIL, term), bucket f87dcb"
       },
       "header": {
         "shape": 3,
         "kind": 5,
         "flags": 0,
         "tenant": 7,
-        "graph": "00000000000000000000000000000000",
+        "graph": "000100000000000007d1ab0110000000",
         "subject": "00000000000000000000000000000000",
         "type": 0,
         "direction": 0,
         "order": 0,
-        "group": 4294967295,
+        "group": 254455,
         "built": 1800,
         "previous": 0,
         "horizon": 188743679,
@@ -345,12 +510,48 @@
         "span": 0,
         "tokenizer": 0
       },
-      "fence_hex": "00ff0100ff00ff00ff00ff00ff00ff03ebab010400ff00ff00ff8000ff00ff00ff00ff00ff00ff1f0000",
-      "tile_key_hex": "0305000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00ff0100ff00ff00ff00ff00ff00ff03ebab010400ff00ff00ff8000ff00ff00ff00ff00ff00ff1f0000",
+      "fence_hex": "00ff0100ff00ff00ff00ff00ff00ff03f0ab011100ff00ff00ff2008614065782e6f72670000",
+      "tile_key_hex": "03050000000000000007000100000000000007d1ab01100000000000000000000000000000000000000000000000000003e1f700ff0100ff00ff00ff00ff00ff00ff03f0ab011100ff00ff00ff2008614065782e6f72670000",
       "file": "tiles/record_unique_claim.tile",
       "length": 272,
-      "checksum": "9ee600720891c7ce",
-      "digest": "f3b07d6e2841c7031e50caa08227faf3"
+      "checksum": "88aa564d6530da4e",
+      "digest": "906c22fe87337dbef3bcfb34c3ea4498"
+    },
+    "record_unique_claim_compiled": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "000100000000000003f1ab011200000080000000ce9194c46354848f11000000",
+            "value_hex": "00030000000000000011abc001000000"
+          }
+        ],
+        "note": "kind 5, compiled layout: a @unique DateTime 2026-11-10T12:00:00Z, the key and Bucket::of_value both over its comparison form, so 2026-11-10T13:00:00+01:00 is the same claim; group 254405, bucket f8717a"
+      },
+      "header": {
+        "shape": 3,
+        "kind": 5,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "000100000000000007d1ab0110000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 254405,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0100ff00ff00ff00ff00ff00ff03f1ab011200ff00ff00ff8000ff00ff00ffce9194c46354848f1100ff00ff00ff0000",
+      "tile_key_hex": "03050000000000000007000100000000000007d1ab01100000000000000000000000000000000000000000000000000003e1c500ff0100ff00ff00ff00ff00ff00ff03f1ab011200ff00ff00ff8000ff00ff00ffce9194c46354848f1100ff00ff00ff0000",
+      "file": "tiles/record_unique_claim_compiled.tile",
+      "length": 280,
+      "checksum": "fcd2d0e6c47fa5b7",
+      "digest": "3f89f6e980f9a531e5f14fe1df57e4d5"
     },
     "record_mark": {
       "input": {
@@ -359,7 +560,8 @@
             "key_hex": "00030000000000000011abc00100000002af00",
             "value_hex": "0000000000000002"
           }
-        ]
+        ],
+        "note": "kind 6"
       },
       "header": {
         "shape": 3,
@@ -387,19 +589,28 @@
       "checksum": "b7396bf4f6becc49",
       "digest": "aaa7942841c01646625876746ce4e187"
     },
-    "record_referrer_set": {
+    "record_mark_versioned": {
       "input": {
         "records": [
           {
-            "key_hex": "00030000000000000011abc001000000",
-            "value_hex": "02af000000000000000028000000000000000102af0100000000000000290000000000000003"
+            "key_hex": "00030000000000000011abc00100000002af00",
+            "value_hex": "0000000000000001",
+            "created": 0,
+            "deleted": 188743682
+          },
+          {
+            "key_hex": "00030000000000000011abc00100000002af00",
+            "value_hex": "0000000000000002",
+            "created": 188743682,
+            "deleted": 0
           }
-        ]
+        ],
+        "note": "kind 6, versioned"
       },
       "header": {
         "shape": 3,
-        "kind": 7,
-        "flags": 0,
+        "kind": 6,
+        "flags": 1,
         "tenant": 7,
         "graph": "00000000000000000000000000000000",
         "subject": "00000000000000000000000000000000",
@@ -410,7 +621,52 @@
         "built": 1800,
         "previous": 0,
         "horizon": 188743679,
-        "entries": 1,
+        "entries": 2,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff02af00ff0000",
+      "tile_key_hex": "03060000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff02af00ff0000",
+      "file": "tiles/record_mark_versioned.tile",
+      "length": 368,
+      "checksum": "d42891054e713842",
+      "digest": "6ff346165ed3c49cb80a02131f5c60c0"
+    },
+    "record_referrer_set": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "00030000000000000011abc001000000",
+            "value_hex": "02af0000000000000000280000000000000001",
+            "created": 188743682,
+            "deleted": 0
+          },
+          {
+            "key_hex": "00030000000000000011abc001000000",
+            "value_hex": "02af000000000000000029000000000000000302af0100000000000000290000000000000001",
+            "created": 192937988,
+            "deleted": 0
+          }
+        ],
+        "note": "kind 7, additive: two records of one key; fold_hex is their fold",
+        "fold_hex": "02af000000000000000028000000000000000302af0100000000000000290000000000000001"
+      },
+      "header": {
+        "shape": 3,
+        "kind": 7,
+        "flags": 1,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 2,
         "rows": 0,
         "span": 0,
         "tokenizer": 0
@@ -418,9 +674,9 @@
       "fence_hex": "00ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff0000",
       "tile_key_hex": "03070000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff0000",
       "file": "tiles/record_referrer_set.tile",
-      "length": 288,
-      "checksum": "2dafdc34343912b3",
-      "digest": "4d8004a12502c9e3e8526bc18f108b7f"
+      "length": 400,
+      "checksum": "76087d79f88a7063",
+      "digest": "79b76c5ffb065e53e0f2df618fccf7d5"
     },
     "record_tombstone": {
       "input": {
@@ -429,7 +685,8 @@
             "key_hex": "00030000000000000012abc002000000",
             "value_hex": "0200c00a00000000"
           }
-        ]
+        ],
+        "note": "kind 8"
       },
       "header": {
         "shape": 3,
@@ -457,14 +714,60 @@
       "checksum": "ee5f73e54bf9a782",
       "digest": "9cdc52e097d367f7a52976f8ece17503"
     },
+    "record_statistics_additive": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "000100000000000003e9ab0102000000",
+            "value_hex": "0100000000000000030001000369726900000000000000030000000000000000000000000000000000000000000000000000000100000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000",
+            "created": 188743690,
+            "deleted": 0
+          },
+          {
+            "key_hex": "000100000000000003e9ab0102000000",
+            "value_hex": "01ffffffffffffffff00010003697269ffffffffffffffff0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "created": 192937986,
+            "deleted": 0
+          }
+        ],
+        "note": "kind 9, additive: a round of three inserts, then a round of one delete; fold_hex is their merge",
+        "fold_hex": "0100000000000000020001000369726900000000000000020000000000000000000000000000000000000000000000000000000100000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000"
+      },
+      "header": {
+        "shape": 3,
+        "kind": 9,
+        "flags": 1,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 4294967295,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 2,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0100ff00ff00ff00ff00ff00ff03e9ab010200ff00ff00ff0000",
+      "tile_key_hex": "0309000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00ff0100ff00ff00ff00ff00ff00ff03e9ab010200ff00ff00ff0000",
+      "file": "tiles/record_statistics_additive.tile",
+      "length": 640,
+      "checksum": "18782189903f23f2",
+      "digest": "9a824f0b88dfc2e313b6260700db13d0"
+    },
     "record_session": {
       "input": {
         "records": [
           {
-            "key_hex": "000102030405060708090a0b0c0d0e0f00000000",
-            "value_hex": "05000000000000000a00000b000000004006000000000000040000000000000001020304"
+            "key_hex": "000102030405060708090a0b0c0d0e0f",
+            "value_hex": "05000000000000000a00000b0000000040060000000000000000000005000000000102030405060708090a0b0c0d0e0f05000000000000000a00000b00000000010000000000000040060000000000002c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001800000000000000180000000000000018000000000000001800000000000000"
           }
-        ]
+        ],
+        "note": "kind 10: a Commit reply (command 5) with no results, token partition 1 position 1600"
       },
       "header": {
         "shape": 3,
@@ -485,12 +788,12 @@
         "span": 0,
         "tokenizer": 0
       },
-      "fence_hex": "00ff0102030405060708090a0b0c0d0e0f00ff00ff00ff00ff0000",
-      "tile_key_hex": "030a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00ff0102030405060708090a0b0c0d0e0f00ff00ff00ff00ff0000",
+      "fence_hex": "00ff0102030405060708090a0b0c0d0e0f0000",
+      "tile_key_hex": "030a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00ff0102030405060708090a0b0c0d0e0f0000",
       "file": "tiles/record_session.tile",
-      "length": 280,
-      "checksum": "1a290f2973f781c5",
-      "digest": "e5870e582443fc410c0b82bfa4a81097"
+      "length": 440,
+      "checksum": "769fe9e2c868b7bd",
+      "digest": "fca317b8d4f2c1979abcff3afa5f73bf"
     },
     "record_slot_map": {
       "input": {
@@ -507,7 +810,8 @@
             "key_hex": "0000000000000014",
             "value_hex": "02000000"
           }
-        ]
+        ],
+        "note": "kind 11, type 3"
       },
       "header": {
         "shape": 3,
@@ -516,7 +820,7 @@
         "tenant": 7,
         "graph": "00000000000000000000000000000000",
         "subject": "00000000000000000000000000000000",
-        "type": 0,
+        "type": 3,
         "direction": 0,
         "order": 0,
         "group": 175872,
@@ -529,20 +833,21 @@
         "tokenizer": 0
       },
       "fence_hex": "00ff00ff00ff00ff00ff00ff00ff110000",
-      "tile_key_hex": "030b0000000000000007000000000000000000000000000000000000000000000000000000000000000000000001000002af0000ff00ff00ff00ff00ff00ff00ff110000",
+      "tile_key_hex": "030b0000000000000007000000000000000000000000000000000000000000000000000000000000000000030001000002af0000ff00ff00ff00ff00ff00ff00ff110000",
       "file": "tiles/record_slot_map.tile",
       "length": 280,
-      "checksum": "a1dd6d8a189597f9",
+      "checksum": "e17ef230c4c57cfa",
       "digest": "f45586b127c2a458f6aee0a2d210da26"
     },
     "record_set_combination": {
       "input": {
         "records": [
           {
-            "key_hex": "000900030000000000000011abc00100000000030000000000000012abc002000000",
+            "key_hex": "0009000100030000000000000011abc001000000000200030000000000000012abc00200000000030000000000000014abc0040000000000",
             "value_hex": "00090000000000000003abc001000000"
           }
-        ]
+        ],
+        "note": "kind 12: root prefix 9; roles in order: one, two ascending, an empty optional"
       },
       "header": {
         "shape": 3,
@@ -563,21 +868,66 @@
         "span": 0,
         "tokenizer": 0
       },
-      "fence_hex": "00ff0900ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff00ff0300ff00ff00ff00ff00ff00ff00ff12abc00200ff00ff00ff0000",
-      "tile_key_hex": "030c0000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0900ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff00ff0300ff00ff00ff00ff00ff00ff00ff12abc00200ff00ff00ff0000",
+      "fence_hex": "00ff0900ff0100ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff00ff0200ff0300ff00ff00ff00ff00ff00ff00ff12abc00200ff00ff00ff00ff0300ff00ff00ff00ff00ff00ff00ff14abc00400ff00ff00ff00ff00ff0000",
+      "tile_key_hex": "030c0000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0900ff0100ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff00ff0200ff0300ff00ff00ff00ff00ff00ff00ff12abc00200ff00ff00ff00ff0300ff00ff00ff00ff00ff00ff00ff14abc00400ff00ff00ff00ff00ff0000",
       "file": "tiles/record_set_combination.tile",
-      "length": 280,
-      "checksum": "f3cefd4dfa6d5b43",
-      "digest": "4723b84fb591e2f5c0248d85f86c62b1"
+      "length": 304,
+      "checksum": "0a05a4526c5fd845",
+      "digest": "2c070e6c71df4b6b9634dfe5791f2c0b"
     },
     "record_idempotency_claim": {
       "input": {
         "records": [
           {
             "key_hex": "00030192f3a1b2c3d4e5f60718293a4b5c6d",
-            "value_hex": "00030000000000000011abc001000000"
+            "value_hex": "00030000000000000011abc001000000",
+            "created": 0,
+            "deleted": 188743682
+          },
+          {
+            "key_hex": "00030192f3a1b2c3d4e5f60718293a4b5c6d",
+            "value_hex": "00030000000000000012abc002000000",
+            "created": 188743684,
+            "deleted": 0
           }
-        ]
+        ],
+        "note": "kind 13 of a deletable type, class M: alice's delete released the value, which bob then claimed"
+      },
+      "header": {
+        "shape": 3,
+        "kind": 13,
+        "flags": 1,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 2,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff030192f3a1b2c3d4e5f60718293a4b5c6d0000",
+      "tile_key_hex": "030d0000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff030192f3a1b2c3d4e5f60718293a4b5c6d0000",
+      "file": "tiles/record_idempotency_claim.tile",
+      "length": 384,
+      "checksum": "07c18e97ef5a674a",
+      "digest": "51e96dbdc5c94983ab19b9662a2c73cb"
+    },
+    "record_idempotency_claim_append_only": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "00050192f3a1b2c3d4e5f6071829aaaaaaaa",
+            "value_hex": "00050000000000000007abc001000000"
+          }
+        ],
+        "note": "kind 13 of an @append_only type (prefix 5), class I"
       },
       "header": {
         "shape": 3,
@@ -598,21 +948,22 @@
         "span": 0,
         "tokenizer": 0
       },
-      "fence_hex": "00ff030192f3a1b2c3d4e5f60718293a4b5c6d0000",
-      "tile_key_hex": "030d0000000000000007000000000000000000000000000000000000000000000000000000000000000000000001000002af0000ff030192f3a1b2c3d4e5f60718293a4b5c6d0000",
-      "file": "tiles/record_idempotency_claim.tile",
+      "fence_hex": "00ff050192f3a1b2c3d4e5f6071829aaaaaaaa0000",
+      "tile_key_hex": "030d0000000000000007000000000000000000000000000000000000000000000000000000000000000000000001000002af0000ff050192f3a1b2c3d4e5f6071829aaaaaaaa0000",
+      "file": "tiles/record_idempotency_claim_append_only.tile",
       "length": 264,
-      "checksum": "12714e1c7daa5cc4",
-      "digest": "4d09ceed28686cc04e18c14ecc27e9e7"
+      "checksum": "36fa3567e23f4820",
+      "digest": "b4f7e352c644ed6a51989c43544f6844"
     },
     "record_drop_marker": {
       "input": {
         "records": [
           {
-            "key_hex": "000000000b400000",
+            "key_hex": "000000000b000004",
             "value_hex": "020000000000000000020000000000000001ab0109000000"
           }
-        ]
+        ],
+        "note": "kind 14"
       },
       "header": {
         "shape": 3,
@@ -633,21 +984,22 @@
         "span": 0,
         "tokenizer": 0
       },
-      "fence_hex": "00ff00ff00ff00ff0b4000ff00ff0000",
-      "tile_key_hex": "030e000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00ff00ff00ff00ff0b4000ff00ff0000",
+      "fence_hex": "00ff00ff00ff00ff0b00ff00ff040000",
+      "tile_key_hex": "030e000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00ff00ff00ff00ff0b00ff00ff040000",
       "file": "tiles/record_drop_marker.tile",
       "length": 264,
-      "checksum": "ff1b7b42c85384b2",
-      "digest": "9fde3ecf600fd80b2c25fe430560a5f7"
+      "checksum": "7297ed48d83c6b24",
+      "digest": "b7ba43a2a7839bffae7f33149dc2d622"
     },
     "record_build": {
       "input": {
         "records": [
           {
             "key_hex": "0000000000000672",
-            "value_hex": "0300000000000000000100000000000003ebab01040000000000000500030000000000000011abc001000000"
+            "value_hex": "03000000000000000200000b00000000000100000000000003ebab010400000000030000000500030000000000000011abc001000000"
           }
-        ]
+        ],
+        "note": "kind 15: catalog version 3, start version(44, 2), the predicate, then the last key reached, a slot pair and a system ID"
       },
       "header": {
         "shape": 3,
@@ -671,9 +1023,9 @@
       "fence_hex": "00ff00ff00ff00ff00ff00ff06720000",
       "tile_key_hex": "030f000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00ff00ff00ff00ff00ff00ff06720000",
       "file": "tiles/record_build.tile",
-      "length": 280,
-      "checksum": "66a33f7575e3eada",
-      "digest": "fa521399b638481337db3b75e6d704d0"
+      "length": 296,
+      "checksum": "9658ad0cf81a4a31",
+      "digest": "30c79e0e896d74b4018596534d47036f"
     },
     "record_statement": {
       "input": {
@@ -682,7 +1034,8 @@
             "key_hex": "00090000000000000004abc001000000",
             "value_hex": "0000000000000000000000000000000000030000000000000011abc001000000000100000000000003e9ab01020000000100030000000000000012abc002000000010000001900000019000000000100000000000003ebab01040000001100000000000007e3000000"
           }
-        ]
+        ],
+        "note": "kind 18"
       },
       "header": {
         "shape": 3,
@@ -710,22 +1063,34 @@
       "checksum": "c9fd513c330d8c6f",
       "digest": "b42d6d5fe976f12048554de131c02c10"
     },
-    "record_mark_versioned": {
+    "record_limit_aggregate": {
       "input": {
         "records": [
           {
-            "key_hex": "00030000000000000011abc00100000002af00",
-            "value_hex": "0000000000000001"
+            "key_hex": "0003000000030000000000000011abc00100000080000000000007ea",
+            "value_hex": "01000000000000001f000000000000000000000000000000",
+            "created": 188743680,
+            "deleted": 0
           },
           {
-            "key_hex": "00030000000000000011abc00100000002af00",
-            "value_hex": "0000000000000002"
+            "key_hex": "0003000000030000000000000011abc00100000080000000000007ea",
+            "value_hex": "01000000000000002d000000000000000000000000000000",
+            "created": 188743682,
+            "deleted": 0
+          },
+          {
+            "key_hex": "0003000000030000000000000011abc00100000080000000000007ea",
+            "value_hex": "ffffffffffffffffe1ffffffffffffffffffffffffffffff",
+            "created": 188743684,
+            "deleted": 0
           }
-        ]
+        ],
+        "note": "kind 19, additive: declaring prefix 3, constraint 0, per alice, grouping Int64 2026; fold_hex sums them",
+        "fold_hex": "01000000000000002d000000000000000000000000000000"
       },
       "header": {
         "shape": 3,
-        "kind": 6,
+        "kind": 19,
         "flags": 1,
         "tenant": 7,
         "graph": "00000000000000000000000000000000",
@@ -737,17 +1102,109 @@
         "built": 1800,
         "previous": 0,
         "horizon": 188743679,
-        "entries": 2,
+        "entries": 3,
         "rows": 0,
         "span": 0,
         "tokenizer": 0
       },
-      "fence_hex": "00ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff02af00ff0000",
-      "tile_key_hex": "03060000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff02af00ff0000",
-      "file": "tiles/record_mark_versioned.tile",
-      "length": 368,
-      "checksum": "d3a576360fe56e6f",
-      "digest": "6ff346165ed3c49cb80a02131f5c60c0"
+      "fence_hex": "00ff0300ff00ff00ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff8000ff00ff00ff00ff00ff07ea0000",
+      "tile_key_hex": "03130000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0300ff00ff00ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff8000ff00ff00ff00ff00ff07ea0000",
+      "file": "tiles/record_limit_aggregate.tile",
+      "length": 472,
+      "checksum": "de9aaa791b1ee7ac",
+      "digest": "6fd079e3726c200d7072595f0a3d5d38"
+    },
+    "record_purge_marker": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "00030000000000000014abc004000000",
+            "value_hex": "0600000b00000000"
+          }
+        ],
+        "note": "kind 20: carol purged at version(44, 6)"
+      },
+      "header": {
+        "shape": 3,
+        "kind": 20,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0300ff00ff00ff00ff00ff00ff00ff14abc00400ff00ff00ff0000",
+      "tile_key_hex": "03140000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0300ff00ff00ff00ff00ff00ff00ff14abc00400ff00ff00ff0000",
+      "file": "tiles/record_purge_marker.tile",
+      "length": 256,
+      "checksum": "7b8b89b48e617ca3",
+      "digest": "0be6c759c094693a23be5233f37129bf"
+    },
+    "record_manifest_leaf": {
+      "input": {
+        "note": "kind 16: tiles.json's manifest_leaf, the same file"
+      },
+      "header": {
+        "shape": 3,
+        "kind": 16,
+        "flags": 2,
+        "tenant": 0,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 4294967295,
+        "built": 1700,
+        "previous": 0,
+        "horizon": 184549375,
+        "entries": 5,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "file": "tiles/manifest_leaf.tile",
+      "length": 800,
+      "checksum": "4d260de4a9427943",
+      "digest": "a06d1fa741f3fd49c06a7e47e56386b4"
+    },
+    "record_manifest_root": {
+      "input": {
+        "note": "kind 17: tiles.json's manifest_root, the same file"
+      },
+      "header": {
+        "shape": 3,
+        "kind": 17,
+        "flags": 2,
+        "tenant": 0,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 4294967295,
+        "built": 1700,
+        "previous": 0,
+        "horizon": 184549375,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "file": "tiles/manifest_root.tile",
+      "length": 328,
+      "checksum": "bc6320c668fc8077",
+      "digest": "73a670b662f7b753cf6db9cd3678407b"
     }
   }
 }

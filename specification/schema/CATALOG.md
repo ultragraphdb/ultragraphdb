@@ -37,6 +37,7 @@ string, no constant and no program; a Boolean a u8 of 0 or 1; XXH3-64 as the xxH
 | String | A u32 index into the string list of the body the field lies in, or `ABSENT` where the field's row says so |
 | Qualified name | `{schema}.{Name}` for a type, enum, record, named attribute type, quantity, unit or graph; `{schema}.{Type}.{member}` for an attribute, role, navigation name, derivation or method function; `{schema}.{name}` for a free function. `{schema}` is the declaring schema's or module's name |
 | Record | A fixed-width element of a section, whose length is a whole number of records |
+| T*n* | Decision *n* of `../../openspec/notes/UltraGraphDB Scalable Tile Store.md`, section 6 |
 
 A version has one encoding (section 6): two versions with equal content have equal bytes, and a decoder refuses
 every byte sequence that is not the encoding of some version.
@@ -178,6 +179,7 @@ A section of 16-byte descriptors, each the type of a value. A field holding a ty
 | 33, 34 | `schema.EntityType<T>`, `schema.RelationType<T>` | `a` = `T`'s qualified name |
 | 35 | an instance of a type | `a` = the type's qualified name; a participant in a program, a function's parameter or result |
 | 36 | `Id128` | 0 |
+| 37 | `Precision`, an interval bound's precision (`SCHEMA.md` sections 5.5 and 12.2; T48, C30) | 0 |
 
 A field declared with a named attribute type holds that type's underlying descriptor, its annotations merged into
 the field's. A parameter a tag does not use is 0. A table holds each distinct descriptor once, in order of first use,
@@ -374,7 +376,7 @@ Attribute, fixed part 32 bytes:
 | 12 | 4 | `type` | u32: its descriptor's index |
 | 16 | 4 | `default` | u32: a constant, or `ABSENT` |
 | 20 | 4 | `doc` | string or `ABSENT` |
-| 24 | 1 | `flags` | u8: bit 0 optional, bit 1 immutable, a key attribute's set, bit 2 a key attribute, bit 3 `@unique`; bits 4 to 7 zero |
+| 24 | 1 | `flags` | u8: bit 0 optional, bit 1 immutable, a key attribute's set, bit 2 a key attribute, bit 3 `@unique`, bit 4 `@idempotency` (T48, C19); bits 5 to 7 zero |
 | 25 | 1 | `indexes` | u8: bit 0 `range`, bit 1 `fulltext`, bit 2 `interval`, bit 3 `geo`, bit 4 `ann`; bits 5 to 7 zero |
 | 26 | 1 | `metric` | u8: an `ann` index's, 1 `cosine`, 2 `dot`, 3 `l2`; 0 without one |
 | 27 | 1 | `quantization` | u8: 0 none, 1 `int8` |
@@ -420,6 +422,12 @@ Fixed part 24 bytes:
 
 These are the fields `PROTOCOL.md` section 4.6's kind-8 record carries, with the facts beside them; Describe's
 sections 5 and 6 are derived from the Predicate, Type and Role entries.
+
+A version holding a `@bitemporal` type holds two Predicate entries no Attribute entry names,
+`ugdb:asserted_start_epoch` and `ugdb:asserted_end_epoch`, which the compiler declares for `asserted` as stored
+(`SCHEMA.md` sections 7.4 and 12.4; T48, C30): single-valued properties of datatype `xsd:unsignedLong`, their domains
+the `@bitemporal` types, with no flag and no fact, since the engine alone writes them, and `mutability` as their
+domains give it.
 
 ### 5.6 Role (7) and Navigation (8)
 
@@ -524,13 +532,13 @@ rules, from the declarations alone:
   `@unique`, `cardinality`, `@set`, `@acyclic`, `@limit`, `@no_overlap`, `restrict`, `restrict-open`, `cascade`,
   `@retracts` or `@ends`, written without arguments. A coordination-free operation has `by` `ABSENT`, rendered `none`,
   and `local` 1.
-- **`local`.** 1 when the row's state is the transaction's partition's by placement, as section 9.3's "local" says; 0
+- **`local`.** 1 when the row's state is the transaction's partition's by placement, as `SCHEMA.md` section 9.3's "local" says; 0
   for every coordinated operation and a segmented one whose owner is elsewhere, as `@unique`'s claim is.
 - **`indexes`.** The index entries one instance's operation puts or deletes, counted per declared index whatever the
   instance's values: an attribute's `@index(range)`, `@index(fulltext)` and `@index(geo)` one each, its
   `@index(interval)` two, an `@index(ann)` none while it is unbuilt, and a role whose navigation name has a bounded
-  cardinality one, its count index. A `@key` or `@unique` attribute's implicit index is its claim and the store's
-  reverse list, and writes no index entry; a materialized derivation's index entries are not counted. A create,
+  cardinality one, its count index. A `@key` or `@unique` attribute's implicit index is its claim
+  (`../storage/STORAGE.md` section 9.3, record kind 4 or 5), and writes no index entry; a materialized derivation's index entries are not counted. A create,
   insert or delete counts every index of the type's attributes and roles; an update of an attribute twice that
   attribute's, the old entries deleted and the new put; a role change twice that role's count index; a retraction its roles' count
   indexes, which count live instances.
@@ -593,7 +601,7 @@ No fixed part.
 |---|---|---|---|
 | 0 | 4 | `attribute` | string: the predicate IRI of the attribute whose value the column holds |
 | 4 | 4 | `descriptor` | u32: its descriptor's index |
-| 8 | 1 | `width` | u8: the descriptor's sortable width, 1 to 16 (`../storage/STORAGE.md` section 5.2) |
+| 8 | 1 | `width` | u8: the descriptor's sortable width, 1 to 18 (`../storage/STORAGE.md` section 5.2; T48, C25) |
 | 9 | 3 | zero | 0 |
 
 | Type offset | Width | Field | Type |
@@ -607,6 +615,12 @@ Families come by `shape`, then by `type` as UTF-8 bytes, `ABSENT` first, then by
 predicate a type of each storage class declares is two families (T36). Inline columns are numbered from 0 within their
 family, in section 1's order, which is the order its `order` field counts them by; a column that orders the family
 names a required attribute (`SCHEMA.md` section 5.2).
+
+A version holding a `@bitemporal` type lists, for each `@bitemporal` type, a fixed-width column
+chunk family of `ugdb:asserted_start_epoch` in storage class I and one of `ugdb:asserted_end_epoch` in class M, each of
+descriptor `UInt64`, among the type's column chunks and in their order, as any attribute's (`SCHEMA.md` section 12.4;
+T48, C30). The four bound attributes of an `Interval` attribute are listed as attributes too: the bounds of `T`'s
+descriptor, the precisions of tag 37's (`SCHEMA.md` section 12.2).
 
 ## 6. One encoding: what a decoder checks
 
@@ -623,7 +637,7 @@ A decoder refuses a version at the first rule broken, naming the rule and the of
 | 7 | The kind directory holds, for each kind, the count of entries of that kind and below |
 | 8 | Each entry, in order: for kinds 1 to 18 and 21, its body layout with its kind's fixed part and section count; its fixed part's rules and zero bytes; each section a whole number of its records; every string, descriptor, constant and program index in bounds; its strings interned in order of first use, none unused; its descriptors, constants and programs as sections 3 and 4 state. For kind 19, its bytes UTF-8. For kind 21, its families, inline columns and types as section 5.11 states: each field's value within its row's range, the families in their order and each family's inline columns where the family before's end, section 1 ending with the last family's, `order` naming one of the family's inline columns or 0, each inline column's `width` its descriptor's sortable width, and each type's families its column chunks and no other |
 | 9 | No two Unit entries hold one number, and no two Quantity entries. The prefix index holds one record per Type entry, `types` of them, ascending, each naming a Type entry whose `prefix` is the record's; no two types share a prefix; every prefix is below `prefix_next`. The predicate index holds one record per Predicate entry, its zero bytes zero, strictly ascending by `sequence`, every sequence at least 2^63 and below `predicate_next`, each naming a Predicate entry, and every Predicate entry named once |
-| 10 | Every name an entry holds resolves: a qualified name to the entry of that name and kind, an attribute's predicate to its Predicate entry, a Type entry's fields and roles to Attribute and Role entries, each type to one Prefix ranges and one Classification entry; one Report entry exists; one Layout entry exists when a Schema entry does, and none otherwise, every predicate it names resolving to a Predicate entry and every type to a Type entry |
+| 10 | Every name an entry holds resolves: a qualified name to the entry of that name and kind, an attribute's predicate to its Predicate entry, a Type entry's fields and roles to Attribute and Role entries, of which at most one field's Attribute entry sets `flags` bit 4, `@idempotency`, inherited fields counted (T48, C19), each type to one Prefix ranges and one Classification entry; one Report entry exists; one Layout entry exists when a Schema entry does, and none otherwise, every predicate it names resolving to a Predicate entry and every type to a Type entry |
 | 11 | Each entry's name in the table is the one its fields give: a Type's `{schema}.{name}`, an Attribute's `{type_name}.{name}`, a Predicate's `iri`, and so on by the table of section 2 |
 
 Encoding a decoded version gives the bytes decoded. What the encoding leaves to the encoder is nothing: lists

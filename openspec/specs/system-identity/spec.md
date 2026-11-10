@@ -39,8 +39,11 @@ be the top 8 bits of XXH3-64 (seed 0) of the tenant as 8 big-endian bytes, and i
 bits of XXH3-64 (seed 0) of the declaring type's prefix as 2 big-endian bytes followed by the key's canonical encoding.
 A statement SHALL take the bucket of its subject. A blank node, which has no key, SHALL take the bucket its skolem IRI
 states (term-dictionary, "IRIs and blank nodes get system IDs"). A value of a predicate declared unique SHALL be claimed
-in the bucket computed the same way with the predicate's system ID as its 16 big-endian bytes, followed by the value's
-term encoding, in place of the type's prefix and the key, so the partition owning that bucket decides the claim. The
+in the bucket computed the same way with the predicate's system ID as its 16 big-endian bytes, followed by the
+comparison form of the value's sortable encoding in a compiled layout (`STORAGE.md` section 5.2: a temporal value's
+first 16 bytes, any other value's whole encoding) or its term encoding in the generic layout, in place of the type's
+prefix and the key, so equal values of one predicate are claimed in one bucket whatever their offset and the partition
+owning that bucket decides the claim (T48). The
 same tenant, type and key SHALL always give the same bucket on every node and in every version that reads it.
 
 #### Scenario: The bucket matches the XXH3 reference
@@ -56,7 +59,8 @@ same tenant, type and key SHALL always give the same bucket on every node and in
 #### Scenario: A unique value's bucket is computed from its predicate and value
 - **WHEN** the bucket of the value `"x"` of the unique predicate `epi.id` is computed in tenant 0
 - **THEN** its top 8 bits equal the tenant's reference value, and its low 16 bits equal the top two bytes of the
-  reference XXH3-64 of `epi.id`'s 16 ID bytes followed by `"x"`'s term encoding
+  reference XXH3-64 of `epi.id`'s 16 ID bytes followed by the comparison form of `"x"`'s sortable encoding, its UTF-8
+  byte, in a compiled layout, or `"x"`'s term encoding in the generic layout
 
 #### Scenario: Two tenants separate one key
 - **WHEN** the IRI `http://ex.org/a` is bucketed in tenants 0 and 1
