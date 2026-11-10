@@ -5,14 +5,15 @@
 
 use std::collections::HashMap;
 
+use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::direction::Direction;
 use crate::types::request_term_view::RequestTermView;
 use crate::types::term_table::{TERM_RECORD_SIZE, TermTable, XSD_STRING, kind};
+use crate::utils::body::records as whole_records;
 use crate::utils::constants::MAX_TERM_DEPTH;
 use crate::utils::le::bytes_at;
-use crate::utils::sections::{as_u32, records as whole_records};
 
 /// What makes two entries the same term: a text term's kind, direction and texts, or a triple term's parts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

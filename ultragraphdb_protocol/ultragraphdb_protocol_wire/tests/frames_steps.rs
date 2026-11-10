@@ -65,8 +65,8 @@ fn result_flags(w: &mut Steps) -> TestResult {
     let bytes = golden("result")?.bytes()?;
     let flagged = with_command_header(&bytes, |h| h[20] = 3);
     let named = golden("result_query")?.bytes()?;
-    let one_name = with_section(&named, 9, 7, |ends| ends.truncate(4));
-    let one_name = with_section(&one_name, 9, 8, |text| text.truncate(1));
+    let one_name = with_section(&named, 12, 7, |ends| ends.truncate(4));
+    let one_name = with_section(&one_name, 12, 8, |text| text.truncate(1));
     w.refusals = vec![
         refused::<ResultView>(&flagged)?,
         refused::<ResultView>(&one_name)?,
@@ -113,7 +113,7 @@ fn resume_refused(w: &mut Steps) -> TestResult {
 #[when("a Result's term encodes an IRI by hash, its `text` `ABSENT`")]
 fn iri_without_text(w: &mut Steps) -> TestResult {
     // Term 0 of the golden batch is an IRI, its text the first of the section's pairs.
-    let bytes = with_section(&golden("result")?.bytes()?, 9, 3, |texts| {
+    let bytes = with_section(&golden("result")?.bytes()?, 12, 3, |texts| {
         put(texts, 0, u32::MAX.into(), 4);
     });
     w.refusals = vec![refused::<ResultView>(&bytes)?];

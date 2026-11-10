@@ -3,12 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{u32_bytes, write_sections};
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::types::resume_row::ResumeRow;
 use crate::types::term_table::TermTable;
 use crate::utils::constants::ABSENT;
-use crate::utils::sections::{u32_bytes, write_sections};
 
 /// The bytes of a resume key's fixed part: `checksum`, `pattern` and `scope`.
 pub(crate) const RESUME_FIXED: usize = 24;

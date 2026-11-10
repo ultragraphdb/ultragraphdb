@@ -12,8 +12,9 @@ use crate::types::default_entry_view::DefaultEntryView;
 use crate::types::frame_view::FrameView;
 use crate::types::request_term_view::RequestTermView;
 use crate::types::term_table_view::TermTableView;
+use crate::utils::body::read_sections;
+use crate::utils::command_header::expect_command;
 use crate::utils::fields::boolean;
-use crate::utils::sections::{Sections, expect_command};
 use crate::utils::term_kind::term_kind;
 
 impl<'a> BodyView<'a> for DefaultEntryView<'a> {
@@ -26,7 +27,7 @@ impl<'a> BodyView<'a> for DefaultEntryView<'a> {
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 9)])?;
         let found = boolean(command, "found", header.u8_at(8))?;
-        let sections = Sections::<2>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<2>(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
             (0, 1),

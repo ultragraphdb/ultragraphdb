@@ -5,8 +5,9 @@
 
 mod members_view_body_view;
 
+use ultragraphdb_core_body::StringList;
+
 use crate::types::member::Member;
-use crate::types::string_list::StringList;
 use crate::utils::whole_records::{record_at, record_count};
 
 /// The body of a received Members frame, read in place; see [`crate::Members`] for its layout.

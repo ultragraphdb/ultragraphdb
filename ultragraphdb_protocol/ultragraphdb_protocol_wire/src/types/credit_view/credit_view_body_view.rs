@@ -10,9 +10,10 @@ use crate::types::command::Command;
 use crate::types::credit::Credit;
 use crate::types::credit_view::CreditView;
 use crate::types::frame_view::FrameView;
-use crate::utils::sections::Sections;
-use crate::utils::sections::expect_command;
+use crate::utils::body::read_sections;
+use crate::utils::command_header::expect_command;
 use std::marker::PhantomData;
+use ultragraphdb_core_body::Sections;
 
 impl<'a> BodyView<'a> for CreditView<'a> {
     const COMMAND: Command = Command::Credit;
@@ -27,7 +28,7 @@ impl<'a> BodyView<'a> for CreditView<'a> {
         if frames == 0 {
             return Err(ProtocolError::field_value(command, "frames", 0));
         }
-        let _sections: Sections<'_, 0> = Sections::read(command, frame.body(), 0)?;
+        let _sections: Sections<'_, 0> = read_sections(command, frame.body(), 0)?;
         Ok(Self {
             frame: PhantomData,
             frames,

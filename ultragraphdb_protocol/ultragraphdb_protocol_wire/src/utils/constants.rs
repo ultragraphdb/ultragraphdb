@@ -127,3 +127,25 @@ pub(crate) const VERSION_SEQUENCE_MASK: u64 = (1 << 22) - 1;
 
 /// The keyspace byte a dictionary key begins with, which tells a one-key dictionary range (`PROTOCOL.md` §13.13).
 pub(crate) const DICTIONARY_KEYSPACE: u8 = 0x1B;
+
+/// The most warnings a reply carries, the first in source order (`PROTOCOL.md` §4.9).
+pub const WARNINGS_MAX: usize = 64;
+
+/// The longest warning message in bytes (`PROTOCOL.md` §4.9).
+pub const WARNING_MESSAGE_MAX: usize = 512;
+
+/// The size of a warning (`PROTOCOL.md` §4.9).
+pub const WARNING_SIZE: usize = 24;
+
+/// The most IRIs one Purge names (`PROTOCOL.md` §8.5).
+pub const PURGE_IRIS_MAX: usize = 10_000;
+
+/// The size of a Describe entry in its section 7 (`PROTOCOL.md` §8.3).
+pub const DESCRIBE_ENTRY_SIZE: usize = 16;
+
+/// The size of a retired name, a Describe entry of kind 20 (`PROTOCOL.md` §8.3).
+pub const RETIRED_NAME_SIZE: usize = 24;
+
+/// The most bytes a catalog version holds, `catalog_bytes_max`, carried in as many Catalog frames as they take
+/// (`PROTOCOL.md` §11.9, §13.7).
+pub const CATALOG_BYTES_MAX: usize = 16_777_216;

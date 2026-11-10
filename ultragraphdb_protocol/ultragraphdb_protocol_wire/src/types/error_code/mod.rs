@@ -38,7 +38,9 @@ use crate::types::runs_again::RunsAgain;
 /// | 26 | WrongPartition | yes, after refreshing the placement map | the bucket, bits 0–23; the owning partition, bits 32–63 |
 /// | 27 | AheadOfWatermark | no | the watermark |
 /// | 28 | SchemaRefused | no | the count of diagnostics |
-/// | 29 | QueryRefused | no | the diagnostic's number, with the language in bits 16–23: 1 GQL, 2 SPARQL |
+/// | 29 | QueryRefused | no | the diagnostic's number, with the language in bits 16–23: 1 GQL, 2 SPARQL, 3 UQL, 4 UGS |
+/// | 30 | EntityDeleted | no | — |
+/// | 31 | Fenced | yes, after a delay | — |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ErrorCode {
     /// The frame broke a validation rule: a connection error, after which the connection closes, or a stream error,
@@ -105,11 +107,16 @@ pub enum ErrorCode {
     SchemaRefused,
     /// A query or prepared text was refused: the message begins with the diagnostic's code and its place (code 29).
     QueryRefused,
+    /// 30: a write names, as its subject, an entity a delete has tombstoned at its home.
+    EntityDeleted,
+    /// 31: a write reaches a namespace a migration's run has fenced, or a tenant whose first schema is installed and
+    /// not yet in effect.
+    Fenced,
 }
 
 impl ErrorCode {
     /// Every code, in the order of its number.
-    pub const ALL: [ErrorCode; 29] = [
+    pub const ALL: [ErrorCode; 31] = [
         ErrorCode::Protocol,
         ErrorCode::Conflict,
         ErrorCode::TooOld,
@@ -139,6 +146,8 @@ impl ErrorCode {
         ErrorCode::AheadOfWatermark,
         ErrorCode::SchemaRefused,
         ErrorCode::QueryRefused,
+        ErrorCode::EntityDeleted,
+        ErrorCode::Fenced,
     ];
 
     /// The code's number on the wire.
@@ -172,6 +181,7 @@ impl ErrorCode {
                 | ErrorCode::NotCommitted
                 | ErrorCode::TimedOut
                 | ErrorCode::WrongPartition
+                | ErrorCode::Fenced
         )
     }
 
@@ -185,7 +195,8 @@ impl ErrorCode {
             | ErrorCode::PastLimit
             | ErrorCode::NotCommitted
             | ErrorCode::WrongPartition => Some(RunsAgain::Transaction),
-            ErrorCode::Busy => Some(match request {
+            // Code 31 runs again as code 5 does, after a delay (`PROTOCOL.md` §9.4).
+            ErrorCode::Busy | ErrorCode::Fenced => Some(match request {
                 RefusedRequest::OneFrame => RunsAgain::Request,
                 RefusedRequest::Read | RefusedRequest::Commit | RefusedRequest::Other => {
                     RunsAgain::Transaction
@@ -217,7 +228,8 @@ impl ErrorCode {
             | ErrorCode::LevelRefused
             | ErrorCode::AheadOfWatermark
             | ErrorCode::SchemaRefused
-            | ErrorCode::QueryRefused => None,
+            | ErrorCode::QueryRefused
+            | ErrorCode::EntityDeleted => None,
         }
     }
 }

@@ -26,7 +26,8 @@ pub enum TermErrorEnum {
         /// The first byte.
         tag: u8,
     },
-    /// A known-datatype code no datatype has.
+    /// A known-datatype code no datatype has; or, read into a literal, a code of 34 to 36 whose value an encoding holds
+    /// by value (`PROTOCOL.md` §10.4), which [`crate::TermView::to_literal`] does not write.
     UnknownDatatype {
         /// The code read.
         code: u8,

@@ -1,6 +1,7 @@
 # UltraGraphDB Scalable Graph Storage Engine
 
-Nov 10, 2026 · first design draft; decisions T1–T29 adopted 2026-11-10
+Nov 10, 2026 · first design draft; decisions T1–T41 adopted 2026-11-10, T30–T41 resolving
+`UltraGraphDB Tile Store Feasibility.md`
 
 The storage engine of roadmap stage 6.5: a graph-native tile store that replaces the fjall KV store whole, writes
 included. A partition keeps its graph as tiles, bounded and checksummed blocks of three shapes: adjacency blocks of a
@@ -54,7 +55,7 @@ The engine's eleven ideas, each a decision in *Decisions*:
 9. **Running conservation invariants** (T11): every tile carries an order-independent digest of its entries; compaction
    must conserve it, and each relation's forward and reverse digests must stay equal.
 10. **Shared-nothing per core** (T10): the engine of every replica runs on its core's thread, with no lock, no atomic on
-    the data plane and all I/O through that core's io_uring ring.
+    the data plane and all I/O through that core's io_uring ring, extent allocation and hole punching aside.
 11. **SSD-aware writing** (T13): tiles compressed and packed into 4 KiB slots, grouped by expected death time, space
     reclaimed by extent apart from logical compaction, the WAL in its own files, the drive never filled.
 
@@ -220,9 +221,14 @@ hosted replica has its own engine: tile directory, deltas, statistics, manifest,
 extents only that replica's engine writes (T21). A grid shared by the three replicas of a core would interleave three
 partitions' tiles differently on every node, and T6's identical grids would be lost. The core keeps one tile cache for
 its replicas, since what a cache holds never changes what is written. Everything on the data plane
-runs on the core's thread inside the partition's turn; other cores reach it only by messages. With one writer and its
-readers on one thread, no data structure of the engine needs a lock or an atomic: a reader and the writer interleave
-only between turns, and versions isolate them across turns.
+runs on the core's thread inside the partition's turn; other cores reach it only by bounded channels that wake the
+core. With one writer and its readers on one thread, no data structure of the engine needs a lock or an atomic: a
+reader and the writer interleave only between turns, and versions isolate them across turns.
+
+The core owns the engine (T33). A transaction, a Scan and parked work each own their state, a read version, a logical
+write overlay, a read set and pending terms, and hold handles into the engine, never borrows; the core passes the
+engine into each step. All I/O goes through the core's ring but extent allocation and hole punching, which compio
+cannot issue without `unsafe`: those few calls go through rustix on compio's blocking pool (T10).
 
 The engine is a sans-I/O state machine. It consumes rounds to apply, read requests, I/O completions and the epoch
 closes, and it emits answers and I/O requests (read a tile at an address, write an extent, sync, punch a hole). Its
@@ -254,14 +260,14 @@ Foreign neighbours stay system IDs, encoded per tile (*Adjacency tiles*); a loca
 All three share a header, the base-plus-delta versioning, the checksums, the grid and compaction. A tile is bounded:
 an adjacency block or record run at a target of 32 KiB and at most 64 KiB encoded, a column chunk at 4,096 slots.
 
-**The header,** 64 bytes, every reserved byte zero: magic, format version, shape, the tenant run, bucket group and
-relation or type it belongs to, never the partition, which a move changes, its key fences, its base version, entry count, flags (version columns present,
+**The header,** 64 bytes, every reserved byte zero: magic, format version, shape, the tenant run, bucket group, graph
+and relation or type it belongs to (T35), never the partition, which a move changes, its key fences, its base version, entry count, flags (version columns present,
 append-only, encoded sections), the XXH3-64 of each section, its conservation digest (*Safety*) and the zone maps of
 its inline columns. A tile names what it is, so a misdirected read is detected even before its checksum is compared.
 
 ### 4.4 Adjacency tiles
 
-A relation's adjacency in one direction is a sparse matrix, rows the row keys and columns the neighbours, cut into
+A relation's adjacency in one graph and one direction is a sparse matrix, rows the row keys and columns the neighbours, cut into
 blocks by (row, column) fences, so the tiles are the leaves of a B+-tree over edge keys. A small row lives whole in a
 block beside its neighbours; a hub's row spans as many blocks as it needs, split by neighbour fences, so no tile grows
 past its bound however large the degree. The directory of a relation, its fences and tile references, stays in memory:
@@ -285,41 +291,52 @@ searches the sorted prefix and stops at k.
 
 ### 4.5 Column chunks
 
-A chunk holds 4,096 slots of one attribute: a fixed-width array with a validity bitmap; strings as `u32` offsets into a
+A chunk holds 4,096 slots of one attribute of one type in one graph: a fixed-width array in its descriptor's sortable
+encoding (T37) with a validity bitmap; strings as `u32` offsets into a
 data section, dictionary-encoded when the catalog's statistics show few distinct values, LZ4 only for a section above a
 size threshold; a set-valued attribute as offsets into a value section. Values longer than a tile's bound go to blob
 extents referenced by address, length and checksum. A single-valued role of a relation (a message's creator, `replyOf`)
-is a column of neighbour IDs on its anchor, GraphScope's `SingleMutableCsr`: an O(1) read with no row directory.
+is a column of neighbour IDs on its anchor, GraphScope's `SingleMutableCsr`: an O(1) read with no row directory, for a
+relation that is not `@bitemporal`. A revisable attribute or role of a `@bitemporal` type is a version run per slot
+instead (*Versions*).
 
 ### 4.6 Record runs
 
-Sorted fixed records under fences, searched by binary search within a 32 KiB run. The term dictionary is two: a run keyed
-by the IRI's 64-bit hash, then the key bytes, mapping to the system ID, a foreign entity's copied entry among them
-(P24 rule 3); and the canonical key as a column of the type, the way back. A key
+Sorted fixed records under fences, searched by binary search within a 32 KiB run. The term dictionary holds its three
+kinds as class I runs, each keyed by a hash followed by the key bytes, so a collision is a comparison and never a wrong
+answer (T40): a term to its system ID, a foreign entity's copied entry among them (P24 rule 3); a system ID to its term,
+for generic, skolem and handle IRIs (a keyed entity's canonical key is a column of its type); and a literal's hash to
+its string. A `@set` combination is a record keyed by its participants' IDs, never by their hash. The session table is a
+class M run, so Recall and exactly-once survive the WAL's trim; the catalog is read from the metadata group and stored
+in no tile. A key
 claim, a `@unique` claim, a mark and a referrer set are records in the partition that owns them today (P24 rules 3 and
 5, `SCHEMA.md` sections 7.2 and 9.1). Statistics are records per (graph, predicate) and per round (*The write path*).
 
 ### 4.7 Schema-compiled layout
 
-A catalog version compiles to a physical layout, versioned with it: which relations keep which directions, what each
-row orders by, which attributes sit inline, which columns each type has and in which storage class each lands. The
-compiler takes it from what UGS already declares; the facts and their effect:
+The schema compiler compiles a catalog version's physical layout once, and the catalog version carries it as entries
+every replica decodes and never recompiles, so a binary upgrade cannot change a replica's tiles (T35): which relations
+keep which directions, what each row orders by, which attributes sit inline, which columns each type has and in which
+storage class each lands. The compiler takes it from what UGS already declares; the facts and their effect:
 
 | Declared | Physical consequence |
 |---|---|
-| Navigation and inverse names | Both directions kept; a role declared `-> _` keeps no reverse rows (as GraphScope's `ONLY_OUT`) |
-| A single-valued role (`?`, `{0,1}`) on the anchor | A column on the anchor's type, no adjacency block |
+| Navigation and inverse names | Both directions kept. A role declared `-> _` keeps its local reverse rows, which cascade deletes and object-bound patterns read; `-> _` hides the navigation name and joins no referrer set (T36) |
+| A single-valued role (`?`, `{0,1}`) on the anchor of a relation that is not `@bitemporal` | A column on the anchor's type, no adjacency block |
 | Relation attributes of fixed width, at most 16 bytes together | Inline in the neighbour entry; the rest in the statement columns |
 | `@immutable` attribute of the local subject, `@index(range)` on it | Denormalised into the reverse entry and ordering the reverse row, so "the latest messages of a person" is a top-k scan |
 | `@append_only` type, `@immutable` attribute | Storage class I (*Versions*) |
-| `@bitemporal` | Content in class I; `asserted_end` a class M column written once |
+| `@bitemporal` | Revisable attributes and roles as version runs per slot, appended by each revision; content in class I; `asserted_end` a class M column written once |
+| An attribute name shared by types of different storage classes (`CATALOG.md` predicate mutability 0) | Index relations and reverse rows split per (predicate, class), so a tile holds one class (T36) |
 | `@index(range)`, `@index(fulltext)`, `@index(interval)`, `@index(geo)` | An index relation in adjacency blocks, rows the tokens |
 | `@key`, `@unique` | Claim records at the owner P24 names |
 | Type prefixes | Columns and slots per type; a supertype a range of prefixes |
 
 The compiler derives every row order from these declarations and nothing else (T16): a row orders by neighbour ID
-unless an `@immutable` attribute with `@index(range)`, inline on the edge or of the local subject in a reverse row,
-orders it, newest first for temporal types. Statistics never change a layout, so the layout is a function of the catalog
+unless a required `@immutable` attribute with `@index(range)`, inline on the edge or of the local subject in a reverse
+row and declared by a common supertype of every participant the row can hold, orders it; with several candidates the
+first declared wins; a temporal one (`Date`, `DateTime` or `Interval`) orders newest first. Values order by their
+sortable encoding (T37), never by a lossy token. Statistics never change a layout, so the layout is a function of the catalog
 version, as every replica needs. Each compilation reports each relation's directions, row orders, inline attributes and
 storage class in a layout record beside the coordination report (`SCHEMA.md` section 9.5), so the cost of a declaration
 is visible when it is written. UGS gains no annotation for it.
@@ -333,12 +350,18 @@ Every committed write applies to deltas in commit order, so every delta row is s
 version `v` is a prefix of each row. Nothing uncommitted ever reaches a delta: the commit step validates, the round is
 committed, then applied.
 
-The **horizon** `H` is the oldest version any reader may still ask for: the oldest pinned snapshot, the oldest open
-read-write transaction (at most 10 s, the bound decided for them) and the MVCC retention window UGS states. Compaction
-folds an entry into a base without versions once it lies at or below `H` for everyone. Two storage classes follow:
+The **fold horizon** `H` is logged, never computed locally (T30). The primary stamps it into every Round as the minimum
+of its oldest open read-write transaction's version, its oldest pin, and a retention floor: the latest epoch the
+sequencer closed at least `retention_ms` before the round's own close, read from the logged close times. It never
+falls. Every replica, and every replay, folds an entry into a base without versions once it lies at or below the logged
+`H`, so the fold point depends on the log alone. A local pin keeps nothing on disk; a read below the latest logged `H`
+answers TooOld. `retention_ms` is cluster-wide and at least the read-write bound (10 s) plus the longest read deadline,
+so a follower's snapshot read within the window is always answerable. Digests cover an entry's logical bytes without
+its versions, so folding never changes a digest. Two storage classes follow:
 
 - **Class I, version-complete.** Instances of `@append_only` types with their attributes and keys, and `@bitemporal`
-  content. Their entries are never updated or deleted outside a purge, so a base keeps each entry's creation epoch, delta-coded against
+  content. A `@bitemporal` revision appends a version record, (asserted start, value), to its slot's version run and
+  rewrites nothing, so revisions keep the class. Their entries are never updated or deleted outside a purge, so a base keeps each entry's creation epoch, delta-coded against
   the tile's base version (one to two bytes), and one base answers every epoch. Compaction keeps no old base for them,
   readers at any version filter one column, and a read that asks only for the latest state filters nothing.
 - **Class M, mutable.** Every other relation and attribute, an `@immutable` attribute of a deletable instance among
@@ -353,9 +376,11 @@ A read at `v` merges three sources per row: the base, its versioned entries filt
 
 1. The commit step takes every request queued for the partition at the start of a turn, validates them and builds one
    round. The round's logical record (P18) is the WAL record and the replication payload, unchanged.
-2. The WAL appends the round and syncs it, one `fdatasync` for every commit of the turn, issued asynchronously so the
-   turn goes on. In stage 8 "committed" means held by a quorum.
-3. Apply, once committed, entirely in memory. For each statement: the subject's slot (assigned on first sight); one entry
+2. The WAL appends the round and issues its sync, one `fdatasync` for every commit of the turn; the sync's completion
+   is a later input, so the turn goes on. In stage 8 "committed" means held by a quorum.
+3. Apply, once committed, entirely in memory. Apply reads only deltas and in-memory state, never a base tile: every
+   derivation that needs a base (an absence proof, a duplicate check for statistics, a count's degree, a referrer
+   derivation) runs during execution, which can wait for tiles, and its result is logged (T33). For each statement: the subject's slot (assigned on first sight); one entry
    appended to the forward delta row and one to the reverse delta row, from a pool of 256 B blocks allocated at startup
    and an open-addressing index of rows sized from the budget, both the replica's own, so no other replica's load
    changes when this one compacts (T6); attribute writes to their column deltas; the round's
@@ -381,10 +406,10 @@ allow for the request's relations is refused.
 
 | Lane | Taken by | What the engine does | What it skips |
 |---|---|---|---|
-| **L — latest** | Monotonic-fast reads; session reads of one partition's latest state; linearizable latest-state reads once past the read barrier (T28) | Answers within one turn from base and delta as applied, dropping deleted entries: monotonic-fast and session reads on any replica that has applied the session's position, linearizable ones on the primary once its next round commits by a quorum in its view | Pins, epoch waits, comparing entries against a pinned version |
+| **L — latest** | Monotonic-fast reads; session reads of one partition's latest state; linearizable latest-state reads once past the read barrier (T28) | Answers one frame within one turn from base and delta as applied, dropping deleted entries, the frame naming the version it read (T34): monotonic-fast and session reads on any replica that has applied the session's position, linearizable ones on the primary once its next round commits by a quorum in its view | Pins, epoch waits, comparing entries against a pinned version |
 | **S — snapshot** | Snapshot reads at a closed epoch `e`, as-of reads | Pins `e`, filters versions at `e`, may span turns, on any replica that has closed `e` | Read-set recording |
 | **X — serializable** | Reads of an open read-write transaction | As S at the transaction's version, recording what it read | Recording stable reads |
-| **A — append** | Writes whose every predicate the catalog marks blind (`SCHEMA.md` section 9.6: coordination-free, no key or `@unique` claim, no check reading beyond the instance), the writes a DirectWrite may carry | Joins the round without validation, its conflict keys still entered | Validation, the read phase |
+| **A — append** | Writes whose every predicate the catalog marks blind (`SCHEMA.md` section 9.6: coordination-free, no key or `@unique` claim, no check reading beyond the instance), the writes a DirectWrite and an Ingest may carry | Execution proves each new statement absent at its read version (the filter, then the tile on maybe); the commit step admits its write keys against the conflict history, so two in-flight inserts of one statement conflict and statistics stay exact (T34) | Read-set validation |
 | **V — validated** | Segmented and local writes with checks | The commit step's validation against the conflict history | — |
 | **C — sequenced** | Coordinated writes (stage 8) | Executed at the sequencer's position, reads at that position | — |
 
@@ -393,7 +418,8 @@ Two rules make the lanes cheaper, not only labelled:
 - **One request, one turn, one state.** A lane L request first makes the tiles it needs resident, yielding while they
   load, and then answers within one turn, while the thread runs nothing else, so it reads one consistent state with no
   pin. A tile evicted or replaced by compaction before that turn sends it back to loading, at most twice, after which it
-  is answered in lane S. Its bound is counted, never timed
+  is answered in lane S. A result longer than a frame is answered a frame per turn, each naming its version. Its bound is
+  counted, never timed
   (T17): at most `lane_entries_max` entries examined and `lane_bytes_max` bytes answered, both fixed at startup, so the
   same request does the same work on every replica and under the simulator. A result past either bound ends with a resume
   key naming a position by key, never by offset: the row key and the last neighbour's ID it answered. The next request
@@ -401,15 +427,25 @@ Two rules make the lanes cheaper, not only labelled:
   skipped; an entry inserted behind the key since is missed, which monotonic-fast semantics allow and the response flags
   for mutable data.
 - **Stable reads record nothing.** The existence of a class I instance, and its attributes and key, change only by a
-  purge, so lane X leaves such a read out of the read set. A purge enters a conflict range over the instances it removes,
-  which aborts every open transaction of the partition that could have read them. An `@immutable` attribute of a
-  deletable instance is recorded: the value cannot change, but the instance can go. Absence, ranges and aggregates are
-  always recorded: an insert can create a phantom.
+  purge, so lane X leaves such a read out of the read set. A purge at version `v` aborts every open read-write
+  transaction of its partition whose read version is below `v`: purges are rare and coordinated, and the fence needs no
+  per-read marker (T34). An `@immutable` attribute of a deletable instance is recorded: the value cannot change, but the
+  instance can go. A relation whose liveness derives from its participants' is not stable: lane L joins the participants'
+  status and lane X records it. Absence, ranges and aggregates are always recorded: an insert can create a phantom.
+
+Lane X reads see the transaction's own writes through its logical write overlay, merged into each request within its
+budget; commit-time operations read lane L plus the overlay of proposals admitted but not yet applied, which lives until
+their round applies (T33). Forward rows scan in slot order within each bucket group, and a resume key names the (bucket
+group, slot, neighbour, statement) last answered; a request resumes strictly past it, for Scans and frontier requests
+alike. A completed lane X scan records the rows it read; a partial page records its whole (graph, relation, bucket
+group) as one conflict range (T38).
 
 A turn serves the commit batch first, then lane L, S and X requests up to a byte and entry budget each, then one
-compaction beat, then submits its I/O; every budget is fixed at startup. A request needing a tile not in the cache
-yields, its read issued in the turn's batch, and resumes in a later turn; up to a fixed number of such requests wait at
-once, so the core keeps many reads in flight, as the io_uring paper's fibers do.
+compaction or build beat, then a checkpoint step, then submits its I/O once; every budget is fixed at startup. A turn
+first takes its requests and parses them; nothing executes on intake. An attempt, a read or a write's execution, that
+needs a tile not in the cache returns `Miss` with the tiles it needs: its side effects are undone (an ID it allocated is
+released), it parks, the reads are issued in the turn's batch, and it reruns from its frame once they complete (T33).
+Up to a fixed number of attempts wait at once, so the core keeps many reads in flight, as the io_uring paper's fibers do.
 
 Compute sends frontiers, not vertices: one request names many sources of one relation and direction, with a type range,
 inline-attribute filters and a top-k, and storage answers with the surviving neighbours in batches. A filter on a type
@@ -436,6 +472,13 @@ delay when its bytes are written, never what they are or where. Replicas applyin
 same tiles at the same addresses. Every replica compacts for itself on the commit path, spending the same compaction
 CPU, and the checkpoint identity of *Safety* checks that they agree (T29).
 
+**Drops and builds** are compaction's work too, at logged positions (T35). A drop of a predicate, graph, tenant's data
+or tenant writes a marker into the directory at its round; reads at every version see the dropped data as absent, as
+today, and compaction removes it deterministically. Tiles are split by graph, so a graph drop removes the graph's tiles
+from the manifest at once. A governed tenant builds no index before stage 9.5. The generic layout builds an index in
+paced beats driven by log positions, its build record in the checkpoint and its start version held below the logged
+`H`; its completion is a logged operation, so every replica swaps at one position.
+
 **Verified.** Compaction builds the new tile in a buffer from the pool, decodes it once and checks its order, counts and
 digest against the merge of its inputs before it is written (*Safety*).
 
@@ -459,7 +502,13 @@ schedule, set by its log's positions alone (T21):
 3. Write the superblock: four copies in the grid file's first four 4 KiB slots (T22), each checksummed, holding the checkpoint's
    sequence, the parent superblock's checksum, the manifest's root reference, the free set's reference, the WAL position
    the checkpoint covers and the replica's applied position. Sync between copies.
-4. Trim the WAL through the checkpoint's position.
+4. Write the WAL's own superblock, then trim the WAL through the checkpoint's position.
+
+The grid's superblock is authoritative (T32): it records the checkpoint's WAL position, the replica's applied position,
+the folded horizon, the derivation version and the mapping contract's version; the WAL's superblock records only its
+own segments. The crash order is the steps' order: grid durable, grid superblock, WAL superblock, trim. Partitions
+checkpoint and trim for the first time with the tile store: today only the sequencer and the metadata group trim their
+logs, so the scheduler is new and is simulated with a crash at every step.
 
 **Recovery:** read the superblock copies and take the newest whose checksum and parent chain hold; load the manifest
 and the free set; rebuild the directories and slot maps from their runs; replay the WAL from the checkpoint's position,
@@ -478,8 +527,9 @@ SF300.
   checkpoints), cold (tiles not rewritten for many) and manifest, a tile's stream chosen from its last four rewrite
   positions as the SSD paper estimates death time. Class I tiles of sealed rows settle in the cold stream by themselves.
 - **Reclamation apart from compaction:** an extent with no live tile is freed and its blocks released with
-  `fallocate(PUNCH_HOLE)`; when free space falls below 15% of the grid, a cleaner copies the live tiles of the extents
-  with the fewest live bytes into the cold stream. Cleaning is paced and deterministic like compaction.
+  `fallocate(PUNCH_HOLE)`, through rustix where the device supports it; when free space falls below 15% of the grid,
+  a cleaner copies the live tiles of the extents with the fewest live bytes into the cold stream. The grid's capacity is
+  a cluster-wide setting (T31), so free space is a function of the log and cleaning is as deterministic as compaction.
 - **The WAL in its own files,** never mixed with tiles: its segments die together at a trim.
 - **Device placement later:** zones sized to the drive's reclamation unit, FDP placement identifiers and NVMe passthrough
   need physical Linux drives and are stage 10 experiments; the extent stream is the interface they replace.
@@ -492,7 +542,9 @@ unreferenced.
 ### 4.14 Larger than memory
 
 Each core's tile cache is a fixed set of frames allocated at startup, in size classes of 4 KiB multiples up to 64 KiB,
-indexed by a table from tile reference to frame. Cached tiles stay encoded; a read decodes the rows it touches. A clock
+indexed by a table from tile reference to frame. A size class is one 4 KiB-aligned slab split into frames as `BytesMut`
+(compio's `bytes` feature), so frames waste no alignment padding and need no `unsafe` (T41). A cache fill or an extent
+write is never cancelled, since compio frees a cancelled operation's buffer and the pool would shrink. Cached tiles stay encoded; a read decodes the rows it touches. A clock
 sweep evicts; a frame read by a request waiting on I/O is pinned until that request's turn ends. Base tiles are clean, so
 eviction never writes. Reads are batched per turn and capped, since a batch of 128 writes measured 201 µs against
 11.5 µs alone; a frontier request prefetches the blocks its sources fall in.
@@ -505,7 +557,9 @@ write) and which a custom operation could add only through `unsafe impl OpCode`,
 per core for storage and network; no SQPOLL under one partition per core; polled completion on a second ring and NVMe
 passthrough as later options, both requiring raw devices or a compatible file system; I/O sizes and in-flight counts read
 from the device's `max_hw_sectors_kb`, `max_segments` and `nr_requests` at startup and clamped to them, so nothing falls
-back to kernel workers.
+back to kernel workers. compio falls back to its polling driver when io_uring refuses any setup flag; `core_runtime`
+rebuilds without the flags on a polling result and logs the flags in effect. Partition cores start at the second allowed
+CPU, leaving the first to the role's runtime (T41).
 
 ### 4.15 Safety
 
@@ -539,8 +593,13 @@ checkpoints independently, so a fault in one replica's memory or disk shows as a
 **Scrubbing.** A paced background pass reads every tile of the grid once per cycle and verifies its checksums and
 digest.
 
-**Limits.** Every pool, directory, cache, queue and batch has a capacity fixed at startup, from the node's memory budget;
-every loop over tiles, rows or I/O counts against a named bound.
+**Limits.** Every pool, directory, cache, queue and batch has a capacity fixed at startup; every loop over tiles, rows
+or I/O counts against a named bound. Every setting that decides a written byte or an answer is cluster-wide and fixed,
+in a `[tiles]` table the config service checks equal across storage instances and refuses to change before stage 9.5:
+the delta pool's size and watermark, `delta_row_entries_max`, θ, tile bounds, filter bits, extent size, grid capacity,
+`C`, `retention_ms`, `lane_entries_max`, `lane_bytes_max`, `max_ingest` (T31). Their digest, the layout format and the
+compaction algorithm form the derivation version, which a round names and replay refuses to mismatch. Cache size, I/O
+depths and `power_loss_protection`, which tunes round batching only, stay per node.
 
 **Simulation.** The engine runs under the deterministic simulator with every fault class above, against a shadow model:
 a plain map of quads at every version. The simulator also checks that two replicas fed the same rounds produce
@@ -602,8 +661,12 @@ frame logs, stage 8 replicates and replay decodes.
 - The partition writes the body to its log unchanged, followed by a resolution section: per term index the system ID it
   resolved to, a statement ID per edge that takes one, and the round's dictionary entries as now. The record stays
   logical, holds no store key and replays to the same state: a new Round entry kind beside section 12.2's three. For the
-  body to reach the disk without a copy, the Round frame places it at a 4 KiB-aligned offset, padded with zeros, a change
-  to section 12.1's layout. A body logs its terms' text where the write-set record logs 16-byte IDs; a batch interns each
+  body to reach the disk without a copy, the Round gains a section of Ingest bodies, each at a 4 KiB frame offset padded
+  with zeros, a per-section alignment rule added to PROTOCOL section 4.1's single layout; `OrderedLog::append` takes owned
+  scatter parts in place of one borrowed body; receive buffers are 4 KiB-aligned and read so the body lands on a
+  boundary (T39). With TLS, the copy-free path starts after decryption. Ingest is command 26; `max_ingest`, derived from
+  the round bound and the resolution's worst case, is cluster-wide and announced as `max_write_set` is; the session key
+  gains the share; `PENDING_MAX` is sized from `max_ingest`. A body logs its terms' text where the write-set record logs 16-byte IDs; a batch interns each
   term once, and E12 measures which is smaller.
 - Apply walks the blocks in place: per block one catalog lookup, one rights check, one lane decision and one check per
   column (a datatype and a value check over a whole column, as a loop over a slice); per row one slot and one delta row
@@ -659,7 +722,9 @@ What each property is worth here:
   `@set` relation are already idempotent by their key or combination; a `@multi` relation instance and a keyless event
   are not.
 
-T26 closes that gap with a key type and leaves order and locality where they are.
+T26 closes that gap with an idempotency claim, not a key: in UGS a `@key` makes a relation node-encoded, places it at
+its key's hash and refuses `@colocate`, which would scatter the relations it should keep anchored. Order and locality
+stay where they are.
 
 ### 4.19 Networking between roles
 
@@ -680,18 +745,19 @@ policy. Four of its lessons hold for any transport and cost nothing; T27 takes t
 
 | Today | With the engine |
 |---|---|
-| `ultragraphdb_traits_store::Store`, Badger's versioned KV surface | Retired. The engine's interface works at the access-pattern level: apply a round, read frontiers, columns and records at a lane, step compaction and checkpoints |
-| `ultragraphdb_store_kv` (fjall, moka), `ultragraphdb_store_posting`, the keyspaces of `ultragraphdb_store_quads` and `ultragraphdb_core_keys` | Replaced by tile crates: a pure format crate (encodings, headers, digests, no I/O), the engine's state machine, the grid (extents, free set, manifest, superblock) with its compio shell, and its simulator |
+| `ultragraphdb_traits_store::Store`, Badger's versioned KV surface, borrowed by transactions across turns behind `Send + Sync` | Retired. `ultragraphdb_traits_engine` names logical change types only, never wire views: apply a round, read frontiers, columns and records at a lane, step compaction and checkpoints; the core owns the engine and passes it into each step (T33) |
+| `ultragraphdb_store_kv` (fjall, moka), `ultragraphdb_store_posting`, `ultragraphdb_core_codec`, the keyspaces of `ultragraphdb_store_quads` and `ultragraphdb_core_keys` | Replaced by `ultragraphdb_error_tile`, `ultragraphdb_traits_durable` and `ultragraphdb_store_durable` (the WAL's durable-file seam and its compio and simulated implementations, moved below the transactions layer), `ultragraphdb_store_tile_format`, `ultragraphdb_store_grid`, `ultragraphdb_store_tile` and `ultragraphdb_store_tile_sim`; `store_quads` keeps its domain logic (dictionary rules, pending IDs, sequences, referrer sets, statistics) |
 | `ultragraphdb_store_apply` writing keys | Writing delta entries from the same changesets; the checks against the catalog stay |
-| `ultragraphdb_store_hnsw` over the vector keyspace | HNSW layers as adjacency blocks over slots, vectors as column chunks (stage 8, as staged) |
+| `ultragraphdb_store_hnsw` over the vector keyspace, its indexer outside the log | Retired with the KV store; rebuilt in stage 8 as adjacency blocks over slots maintained at fixed log positions, vectors as column chunks, its search algorithm, distances and heaps kept (T14) |
+| The session table and the catalog in the store's versionless keyspace; a discard thread, fjall's workers and `ThreadExecutor` beside the partition's thread | The session table a class M run; the catalog read from the metadata group; the threads retired, index builds as paced beats (T35, T40) |
 | Checkpoints through `FjallStore::sync` | The grid's checkpoint, then the WAL's trim |
-| A partition taking one request per turn from each role connection | Turns that take every queued commit into one round, and serve lanes with budgets |
+| A partition taking up to 1,024 requests a turn (36.6 commits a sync in the baseline), executing each on intake and waiting for the sync inline; mailboxes unbounded and polled each millisecond | Turns that parse on intake, commit one round, serve lanes with budgets, step compaction and checkpoints and submit I/O once; the sync issued and completed as a later input; bounded channels that wake the core |
 | Compute reading quad patterns per key | Frontier requests with type ranges, inline filters and top-k |
 | Statistics as deltas per commit | Records per round |
 | The compio runtime built with defaults (`core_runtime` in `ultragraphdb_common_service`) | `single_issuer` and `defer_taskrun` set through `RuntimeBuilder::with_proactor`, I/O sizes clamped to the device; compio itself unchanged (T18) |
 | DirectWrite's changes re-encoded as a write-set record | Ingest, a block-columnar insert command, its body logged as received with a resolution section (*Writes through the protocol*) |
 | Sequences leased per (type, partition) | Kept: slots numbered per (bucket group, type) give the dense positions a lease per group would, with no more leases |
-| Conflict keys naming list keys | Kept logical: (graph, predicate, subject) and the like, independent of tiles, so a split never changes a conflict |
+| Conflict keys naming physical list keys in WAL sections 6 to 8 | Logical families: forward row, reverse row, index token, count, statement, mark, claim, session; ordered by tenant, graph and relation, so a drop is one range; independent of tiles, so a split never changes a conflict; `core_keys` keeps only this vocabulary (T38) |
 
 The commit step, the WAL and its record, the sequencer, the metadata group, referrer sets and the wire protocol keep
 their shape. A storage differential test runs the same generated workloads on both engines until the KV store is
@@ -700,7 +766,8 @@ removed, as the earlier tile note proposed.
 ## 6. Decisions
 
 Each states the trade-off or the principle, and the choice. All were adopted on 2026-11-10: T1–T14 as the draft
-recommended them, T15–T29 as the answers to its open questions, each argued from TigerStyle's principles.
+recommended them, T15–T29 as the answers to its open questions, T30–T41 as the resolutions of the feasibility study,
+with T10, T14, T16 and T26 revised by it; each argued from TigerStyle's principles.
 
 **T1. The engine is graph-native and whole.** *Trade-off:* keeping fjall as a write layer under read tiles (the
 discarded hybrid) keeps the 9.1 records and the LSM's rewrites a relation pays; a graph engine over a KV interface keeps
@@ -738,7 +805,9 @@ for writes.
 
 **T10. Shared-nothing per core.** *Trade-off:* sharing immutable tiles across cores would serve one partition's reads
 from several cores, and needs reference counting across threads and a shared cache. *Choice:* one core per
-replica's engine; reads scale through the three replicas of every partition and through compute.
+replica's engine; reads scale through the three replicas of every partition and through compute. All I/O goes through
+the core's ring except extent allocation and hole punching, which compio cannot issue without `unsafe`: rustix on
+compio's blocking pool, a few calls per extent.
 
 **T11. Conservation digests as running invariants.** *Trade-off:* a few nanoseconds per entry. *Choice:* adopt.
 
@@ -748,7 +817,9 @@ and costs every short read √p partitions. *Choice:* projections at a closed ep
 **T13. SSD-aware writing** as in *Writing to the SSD*. *Choice:* adopt the stream, packing and reclamation rules
 now, device placement in stage 10.
 
-**T14. The KV store's crates and trait are retired** once the differential test passes on every suite.
+**T14. The KV store's crates and trait are retired** once the differential test passes on every suite, at the end of
+stage 6.5. `ultragraphdb_store_hnsw` goes with them and is rebuilt in stage 8 over adjacency blocks at fixed log
+positions; nothing reaches it before then.
 
 **T15. Placement stays P24's; affinity is measured first.** *Principle:* sketch before building, and do it right the
 first time: frontier batching bounds a hop to one request per partition, and affinity helps single-source reads only.
@@ -756,8 +827,10 @@ first time: frontier batching bounds a hop to one request per partition, and aff
 affinity design of *Distribution* is adopted only on that evidence.
 
 **T16. Row orders come from declarations alone.** *Principle:* explicit, deterministic, minimal surface: no annotation
-UGS lacks, no layout drawn from statistics, which differ by replica and time. *Choice:* neighbour ID order, or an
-`@immutable` `@index(range)` attribute's order, newest first for temporal types; a layout record reports it.
+UGS lacks, no layout drawn from statistics, which differ by replica and time. *Choice:* neighbour ID order, or the
+order of a required `@immutable` `@index(range)` attribute declared by a common supertype of the row's participants,
+the first declared among several, newest first for `Date`, `DateTime` and `Interval`, compared in the sortable
+encoding; a layout record reports it.
 
 **T17. Lane L is bounded by counts, its resume by key.** *Principle:* put a limit on everything, and never react to
 time: a count gives the same work on every replica and in the simulator. *Choice:* `lane_entries_max` and
@@ -798,13 +871,16 @@ batch. *Choice:* no per-row outcome beyond the first failing row a refusal names
 optional resolution. *Choice:* a Write or a DirectWrite holding deletes by pattern, operations or statement properties
 keeps the write-set record, which holds what execution resolved; inserts move to Ingest on the client side.
 
-**T26. TigerBeetle's time-based identifiers become a key type, never system IDs.** *Principle:* close the gap there is,
-idempotency, and leave order and locality where the server already has them; system IDs never leave the database.
-*Choice:* a UGS scalar `Id128` with TigerBeetle's layout (48 bits of milliseconds, 80 random bits incremented within a
-millisecond, compared as an unsigned integer), declared as the `@key` of `@multi` relations and of event-like
-`@append_only` types, so an application retrying after its own crash finds the instance it created; an `id()` generator
-in every client; the key's claim run ordered by the key itself for this type, so claims append. The session table stays
-the transport's exactly-once mechanism, and the commit version and epoch stay the database's order.
+**T26. TigerBeetle's time-based identifiers become an idempotency claim, never a key or a system ID.** *Principle:*
+close the gap there is, idempotency, and leave order, locality and placement where they are; system IDs never leave the
+database. *Choice:* a UGS scalar `Id128` with TigerBeetle's layout (48 bits of milliseconds, 80 random bits incremented
+within a millisecond, compared as an unsigned integer, its canonical form fixed-width lowercase hexadecimal), and an
+attribute of that type marked `@idempotency`, at most one per type, whose claim lives in the anchor's partition (an
+entity's own bucket, a relation's anchor); inserting an existing claim returns the existing instance, as `@set` does, so
+an application retrying after its own crash finds the instance it created. `@key` keeps its meaning and placement: a
+keyed relation is node-encoded and hashed, which would scatter the relations idempotency should keep anchored. An `id()`
+generator in every client; claims ordered by the value, so they append. The session table stays the transport's
+exactly-once mechanism, and the commit version and epoch stay the database's order.
 
 **T27. No bi-channel transport in stages 8 and 9; its transport-free lessons now.** *Principle:* measure before adding a
 subsystem; a dependency reached through `unsafe` needs evidence and consent. *Choice:* several connections per peer for
@@ -823,6 +899,56 @@ least, and independent computation detects faults. *Choice:* followers compact o
 tiles move between replicas only for repair and for a replica more than one checkpoint behind, which state-syncs lazily;
 the XXH3-128 of each checkpoint's state rides on `Prepare`, `PrepareOk` and the commit heartbeat, and a mismatch stops
 the replica with an invariant error (section 8).
+
+T30–T41 resolve the feasibility study's blockers and gaps (`UltraGraphDB Tile Store Feasibility.md`, sections 1, 2 and
+8), each argued there from TigerStyle's principles.
+
+**T30. The fold horizon is logged.** The primary stamps `H` into every Round: the minimum of its oldest open read-write
+transaction, its oldest pin and a retention floor read from the sequencer's logged close times; it never falls; every
+replica and every replay folds exactly there; a read below it answers TooOld; `retention_ms` is cluster-wide (*Versions*).
+
+**T31. Settings that shape bytes are cluster-wide.** A `[tiles]` table, checked equal across storage instances and fixed
+before stage 9.5; its digest, the layout format and the compaction algorithm form the derivation version (*Safety*).
+
+**T32. The grid's superblock is authoritative.** Crash order: grid durable, grid superblock, WAL superblock, trim
+(*The grid, checkpoints and recovery*).
+
+**T33. The core owns the engine; attempts restart.** Transactions, Scans and parked work hold handles and own their
+state; a read missing a tile returns `Miss`, the attempt is undone, parked and rerun; derivations reading a base run in
+execution and are logged, so apply reads no base; a transaction's own writes and admitted but unapplied proposals are
+logical overlays (*Shape*, *The write path*, *The read path and storage lanes*).
+
+**T34. The lanes' rules.** Lane A keeps write-key admission against the conflict history and drops only read-set
+validation; a purge fences older open transactions of its partition; derived liveness is joined in lane L and recorded
+in lane X; lane L answers a frame per turn naming its version (*The read path and storage lanes*).
+
+**T35. Graphs, drops, builds and the layout record.** Every tile's identity includes its graph; a drop is a directory
+marker removed by compaction, a graph drop a manifest removal; a governed tenant builds no index before 9.5, the
+generic layout builds in logged beats; the catalog version carries the compiled layout (*Schema-compiled layout*,
+*Compaction*).
+
+**T36. Layout corrections.** `@bitemporal` revisable attributes and roles are version runs per slot; `-> _` roles keep
+their local reverse rows; index relations and reverse rows split per (predicate, class) (*Schema-compiled layout*).
+
+**T37. One sortable encoding per descriptor.** Fixed width, used by Ingest, inline columns, row orders and range
+tokens; floats, datetimes and measures take exact tokens through it; tokens longer than 256 bytes are hashed and marked
+lossy. Specified in stage 6.5's first phase.
+
+**T38. Scan order and logical conflict keys.** Slot order within each bucket group, resume strictly past (bucket group,
+slot, neighbour, statement), a partial lane X page conflicting on its whole (graph, relation, bucket group); conflict
+keys in logical families (*The read path and storage lanes*, section 5).
+
+**T39. Ingest's framing.** Command 26, a 4 KiB-aligned Round section, owned scatter parts in `OrderedLog`, aligned
+receive buffers, a cluster-wide `max_ingest`, the share in the session key (*Writes through the protocol*).
+
+**T40. Every piece of state has a home.** The dictionary's three kinds as class I runs with key bytes; `@set`
+combinations keyed by participant IDs; the session table a class M run; the catalog from the metadata group; the
+applied position and the mapping contract's version in the grid's superblock (*Record runs*).
+
+**T41. Toolchain.** The four decoder lints (`indexing_slicing`, `arithmetic_side_effects`, `cast_possible_truncation`,
+`cast_sign_loss`) enabled globally when the KV crates are removed, the tile crates satisfying them from their first
+line; the baseline target features kept unless E4 measures a gap; cache frames as `BytesMut` slabs; no cancelled I/O;
+the polling fallback detected and logged; partition cores from the second allowed CPU (*Larger than memory*).
 
 ## 7. Experiments
 
@@ -955,6 +1081,7 @@ Read for this draft:
 - compio-driver 0.12.5 and compio-runtime 0.12.6 as `Cargo.lock` pins them: `ProactorBuilder` (`single_issuer`,
   `defer_taskrun`), `RuntimeBuilder::with_proactor`, the `unsafe trait OpCode`.
 - `specification/binary_protocol/PROTOCOL.md` sections 4.4, 4.6, 6.6, 11.12, 12.1 and 12.2.
+- `openspec/notes/UltraGraphDB Tile Store Feasibility.md`, the study of this design against the source.
 - `openspec/benches/benches-2026-11-09.md`; `openspec/notes/backlog.md` items 18 and 19;
   `openspec/designs/UltraGraphDB Shard-per-Core Write Path.md` (P8–P11, P18, P24);
   `openspec/designs/UltraGraphDB Distribution Architecture.md`; `openspec/designs/UltraGraphDB Distribution Protocol.md`;

@@ -13,6 +13,8 @@ pub enum Language {
     Gql,
     /// 2: the SPARQL core.
     Sparql,
+    /// 3: UQL, its CRUD subset from stage 6 (`QUERY-ULTRA-QL.md` section 4.1).
+    Uql,
 }
 
 impl Language {
@@ -23,16 +25,18 @@ impl Language {
             Language::Pattern => 0,
             Language::Gql => 1,
             Language::Sparql => 2,
+            Language::Uql => 3,
         }
     }
 
-    /// The language the byte `number` names; `None` past 2.
+    /// The language the byte `number` names; `None` past 3.
     #[must_use]
     pub fn from_number(number: u8) -> Option<Self> {
         match number {
             0 => Some(Language::Pattern),
             1 => Some(Language::Gql),
             2 => Some(Language::Sparql),
+            3 => Some(Language::Uql),
             _ => None,
         }
     }

@@ -11,7 +11,8 @@ use crate::types::frame_view::FrameView;
 use crate::types::join::Join;
 use crate::types::join_view::JoinView;
 use crate::types::role_kind::RoleKind;
-use crate::utils::sections::{Sections, expect_command, text};
+use crate::utils::body::{read_sections, text};
+use crate::utils::command_header::expect_command;
 use crate::utils::whole_records::whole_records;
 
 impl<'a> BodyView<'a> for JoinView<'a> {
@@ -30,7 +31,7 @@ impl<'a> BodyView<'a> for JoinView<'a> {
                 return Err(ProtocolError::field_value(command, "kind", number.into()));
             }
         };
-        let sections = Sections::<2>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<2>(command, frame.body(), 0)?;
         let address = text(command, 0, sections.get(0))?;
         if !address.starts_with("tcp://") && !address.starts_with("unix://") {
             return Err(ProtocolError::field_value(

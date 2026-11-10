@@ -5,6 +5,7 @@
 
 use std::marker::PhantomData;
 
+use ultragraphdb_core_body::Sections;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -13,8 +14,9 @@ use crate::types::bind_kind::BindKind;
 use crate::types::bind_view::BindView;
 use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
+use crate::utils::body::read_sections;
+use crate::utils::command_header::expect_command;
 use crate::utils::fields::{epoch, identity};
-use crate::utils::sections::{Sections, expect_command};
 
 impl<'a> BodyView<'a> for BindView<'a> {
     const COMMAND: Command = Command::Bind;
@@ -48,7 +50,7 @@ impl<'a> BodyView<'a> for BindView<'a> {
         if transaction == [0; 16] {
             return Err(ProtocolError::field_value(command, "transaction", 0));
         }
-        let _sections: Sections<'_, 0> = Sections::read(command, frame.body(), 0)?;
+        let _sections: Sections<'_, 0> = read_sections(command, frame.body(), 0)?;
         Ok(Self {
             frame: PhantomData,
             partition,

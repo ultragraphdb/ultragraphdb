@@ -8,13 +8,11 @@ use ultragraphdb_error_protocol::ProtocolError;
 use crate::traits::body_view::BodyView;
 use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
-use crate::types::string_list::StringList;
 use crate::types::welcome::Welcome;
 use crate::types::welcome_view::WelcomeView;
+use crate::utils::body::{read_sections, read_string_list, text};
+use crate::utils::command_header::expect_command;
 use crate::utils::constants::{MAX_FRAME_FLOOR, MAX_FRAME_SIZE};
-use crate::utils::sections::Sections;
-use crate::utils::sections::expect_command;
-use crate::utils::sections::text;
 
 impl<'a> BodyView<'a> for WelcomeView<'a> {
     const COMMAND: Command = Command::Welcome;
@@ -49,9 +47,9 @@ impl<'a> BodyView<'a> for WelcomeView<'a> {
         if initial_credit == 0 {
             return Err(ProtocolError::field_value(command, "initial_credit", 0));
         }
-        let sections = Sections::<3>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<3>(command, frame.body(), 0)?;
         let server = text(command, 0, sections.get(0))?;
-        let mechanisms = StringList::read(command, (1, 2), sections.get(1), sections.get(2))?;
+        let mechanisms = read_string_list(command, (1, 2), sections.get(1), sections.get(2))?;
         let authenticates = auth == 1;
         if authenticates == mechanisms.is_empty() {
             return Err(ProtocolError::count_mismatch(

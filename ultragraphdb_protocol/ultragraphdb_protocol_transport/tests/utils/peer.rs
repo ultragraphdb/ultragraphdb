@@ -14,8 +14,10 @@ use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::feed::feed;
 
+/// The cluster every frame of these tests names.
 pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
+/// A client's end of a server connection: the frames it sends, numbered in order, read by a server's framer.
 pub struct Peer {
     framer: Framer,
     pool: BufferPool,

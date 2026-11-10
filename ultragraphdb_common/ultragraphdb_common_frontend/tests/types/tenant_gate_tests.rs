@@ -19,7 +19,14 @@ impl Authorizer for OnlyTenantOne {
 #[test]
 fn test_every_action_a_tenant_takes_passes_this_stage() {
     let gate = TenantGate::new(EveryAuthenticated);
-    for action in [Action::Read, Action::Write, Action::Declare, Action::Drop] {
+    // PROTOCOL.md §11.10: `read`, `write`, `declare`, `drop` and `purge` are asked of a tenant.
+    for action in [
+        Action::Read,
+        Action::Write,
+        Action::Declare,
+        Action::Drop,
+        Action::Purge,
+    ] {
         assert!(gate.check(7, action.number(), GateScope::Tenant(0)).is_ok());
     }
 }

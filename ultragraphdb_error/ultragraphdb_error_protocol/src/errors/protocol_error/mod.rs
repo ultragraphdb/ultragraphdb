@@ -61,7 +61,11 @@ pub enum ProtocolErrorEnum {
     /// receiver announced, or a stream receiver's buffer; stated by a header received, or what a frame being built
     /// would take.
     FrameTooLarge {
-        /// The frame's size in bytes, header and body.
+        /// The frame's size in bytes, header and body. For an answer cut into continuation frames (`PROTOCOL.md` §8.3,
+        /// §13.7) whose next frame within `limit` holds no unit of it, the least frame that holds one (§2.3, §4.1): the
+        /// frame header and the command header, 256 bytes; the section table, 8 bytes a section; and the unit (a
+        /// record, a u32, a character of a text, a byte of anything else) at the start of its section, padded to 8 for
+        /// the empty sections after it unless its section is the last; the least over the sections with bytes left.
         size: usize,
         /// The largest frame the receiver takes.
         limit: usize,

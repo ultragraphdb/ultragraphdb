@@ -4,7 +4,9 @@
  */
 
 use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
-use ultragraphdb_core_terms::{Datatype, EncodedTerm, Hash128, TermError, TermView, Text};
+use ultragraphdb_core_terms::{
+    Datatype, EncodedTerm, Hash128, TaggedDatatype, TermError, TermView, Text,
+};
 use ultragraphdb_tool_bdd::TestResult;
 
 /// A datatype no known-datatype code names.
@@ -110,3 +112,60 @@ fn test_a_results_reader_refuses_an_iri_and_reads_other_literals_as_the_store() 
     assert_eq!(string.result_view()?, string.view()?);
     Ok(())
 }
+
+/// Every encoding the check accepts is read (`PROTOCOL.md` §10.1, §10.5): tag `0x50`, a measure, its binary64 number
+/// big-endian (1.5 is `3F F8 00 00 00 00 00 00`), then its unit's code inline; tag `0x51`, a precision, one byte of 1
+/// (millennium) to 12 (nanosecond). A Result's reader and the store's read them alike.
+#[test]
+fn test_a_measure_and_a_precision_are_read_by_value() -> TestResult {
+    let measure = EncodedTerm::from_bytes(
+        &[&[0x50][..], &1.5f64.to_be_bytes(), &[3], b"m/s"].concat(),
+    )?;
+    let expected = TermView::Measure {
+        number: 1.5,
+        unit: "m/s",
+    };
+    assert_eq!(measure.result_view()?, expected);
+    assert_eq!(measure.view()?, expected);
+    for precision in [1, 9, 12] {
+        let term = EncodedTerm::from_bytes(&[0x51, precision])?;
+        assert_eq!(term.result_view()?, TermView::Precision(precision));
+        assert_eq!(term.view()?, TermView::Precision(precision));
+    }
+    Ok(())
+}
+
+/// Tags `0x30` and `0x31` naming codes 34 to 36 (§10.4) hold the lexical form of `ugdb:bfloat16vector`,
+/// `ugdb:measure` or `ugdb:precision`, inline or by its hash: read as a typed literal of that datatype.
+#[test]
+fn test_codes_34_to_36_are_read_as_typed_literals() -> TestResult {
+    let long = "[1, 2, 3, 4, 5, 6, 7, 8]";
+    let cases = [
+        (
+            [&[0x30, 35, 5][..], b"1.5 m"].concat(),
+            TaggedDatatype::Measure,
+            Text::Inline("1.5 m"),
+        ),
+        (
+            [&[0x30, 36, 6][..], b"second"].concat(),
+            TaggedDatatype::Precision,
+            Text::Inline("second"),
+        ),
+        (
+            [&[0x31, 34][..], Hash128::of(long.as_bytes()).as_bytes()].concat(),
+            TaggedDatatype::Bfloat16Vector,
+            Text::Hashed(Hash128::of(long.as_bytes())),
+        ),
+    ];
+    for (bytes, datatype, lexical) in cases {
+        let term = EncodedTerm::from_bytes(&bytes)?;
+        let expected = TermView::Typed {
+            datatype: Datatype::Tagged(datatype),
+            lexical,
+        };
+        assert_eq!(term.result_view()?, expected, "{bytes:02x?}");
+        assert_eq!(term.view()?, expected, "{bytes:02x?}");
+    }
+    Ok(())
+}
+

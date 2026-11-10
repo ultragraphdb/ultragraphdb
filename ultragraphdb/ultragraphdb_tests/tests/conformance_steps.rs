@@ -171,7 +171,9 @@ async fn the_golden_operations(client: &mut TestClient, session: Session) -> Tes
             .context("the unique predicate's term")?,
         other @ (CommitOperation::InsertIfAbsent { .. }
         | CommitOperation::CompareAndSet { .. }
-        | CommitOperation::CounterAdd { .. }) => {
+        | CommitOperation::CounterAdd { .. }
+        | CommitOperation::DeleteInstance { .. }
+        | CommitOperation::RetractInstance { .. }) => {
             return Err(TestError::new(format!("an upsert-and-link: {other:?}")));
         }
     };

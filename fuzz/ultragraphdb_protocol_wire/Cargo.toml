@@ -116,3 +116,12 @@ path = "fuzz_targets/resume_key.rs"
 test = false
 doc = false
 bench = false
+
+# The frames of one stream back to back, through the Describe and Catalog assemblers; an answer taken whole, cut again
+# within the largest frame, assembles to itself.
+[[bin]]
+name = "continuation"
+path = "fuzz_targets/continuation.rs"
+test = false
+doc = false
+bench = false

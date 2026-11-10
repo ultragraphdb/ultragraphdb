@@ -81,7 +81,7 @@ fn test_types_are_known_and_counted() -> TestResult {
             value: 0
         }
     );
-    let none = with_section(&bytes, 7, 3, |types| types.clear());
+    let none = with_section(&bytes, 10, 3, |types| types.clear());
     assert_eq!(
         PrepareView::from_frame(&frame_of(&none)?)
             .err()
@@ -94,7 +94,7 @@ fn test_types_are_known_and_counted() -> TestResult {
             expected: 1
         }
     );
-    let two = with_section(&bytes, 7, 4, |types| types.push(2));
+    let two = with_section(&bytes, 10, 4, |types| types.push(2));
     assert_eq!(
         PrepareView::from_frame(&frame_of(&two)?)
             .err()
@@ -184,10 +184,10 @@ fn test_a_pattern_is_of_language_0_and_names_nothing() -> TestResult {
     assert_eq!(view.language(), Language::Pattern);
     assert_eq!(view.text(), "");
     assert!(view.names().is_empty());
-    let named = with_section(&bytes, 7, 5, |ends| {
+    let named = with_section(&bytes, 10, 5, |ends| {
         ends.extend_from_slice(&1u32.to_le_bytes())
     });
-    let named = with_section(&named, 7, 6, |text| text.push(b'n'));
+    let named = with_section(&named, 10, 6, |text| text.push(b'n'));
     assert_eq!(
         refused(&named)?,
         ProtocolErrorEnum::CountMismatch {
@@ -205,7 +205,7 @@ fn test_a_pattern_is_of_language_0_and_names_nothing() -> TestResult {
 #[test]
 fn test_names_are_checked_after_the_pattern_or_the_text() -> TestResult {
     let bytes = golden("prepare")?.bytes()?;
-    let text_only = with_section(&bytes, 7, 6, |text| text.push(b'n'));
+    let text_only = with_section(&bytes, 10, 6, |text| text.push(b'n'));
     assert_eq!(
         refused(&text_only)?,
         ProtocolErrorEnum::CountMismatch {
@@ -215,11 +215,11 @@ fn test_names_are_checked_after_the_pattern_or_the_text() -> TestResult {
             expected: 0
         }
     );
-    let broken_pattern = with_section(&bytes, 7, 0, |pattern| pattern.push(0));
-    let both = with_section(&broken_pattern, 7, 6, |text| text.push(b'n'));
+    let broken_pattern = with_section(&bytes, 10, 0, |pattern| pattern.push(0));
+    let both = with_section(&broken_pattern, 10, 6, |text| text.push(b'n'));
     assert_eq!(refused(&both)?, refused(&broken_pattern)?);
-    let not_utf8 = with_section(&text_bytes("prepare_text")?, 7, 0, |text| text[0] = 0xFF);
-    let short_ends = with_section(&not_utf8, 7, 5, |ends| ends.truncate(3));
+    let not_utf8 = with_section(&text_bytes("prepare_text")?, 10, 0, |text| text[0] = 0xFF);
+    let short_ends = with_section(&not_utf8, 10, 5, |ends| ends.truncate(3));
     assert_eq!(refused(&short_ends)?, refused(&not_utf8)?);
     assert!(matches!(
         refused(&not_utf8)?,
@@ -229,19 +229,20 @@ fn test_names_are_checked_after_the_pattern_or_the_text() -> TestResult {
 }
 
 #[test]
-fn test_the_language_is_0_to_2_after_the_unused_bytes() -> TestResult {
+fn test_the_language_is_0_to_3_after_the_unused_bytes() -> TestResult {
+    // PROTOCOL.md section 8.1: 0 a quad pattern, 1 GQL, 2 SPARQL, 3 UQL; 4 names no language.
     let bytes = golden("prepare")?.bytes()?;
-    let frame = with_command_header(&bytes, |h| h[24] = 3);
+    let frame = with_command_header(&bytes, |h| h[24] = 4);
     assert_eq!(
         refused(&frame)?,
         ProtocolErrorEnum::FieldValue {
             command: 10,
             field: "language",
-            value: 3
+            value: 4
         }
     );
     let unused = with_command_header(&bytes, |h| {
-        h[24] = 3;
+        h[24] = 4;
         h[25] = 1;
     });
     assert_eq!(
@@ -253,7 +254,7 @@ fn test_the_language_is_0_to_2_after_the_unused_bytes() -> TestResult {
 
 #[test]
 fn test_a_text_is_utf8() -> TestResult {
-    let frame = with_section(&text_bytes("prepare_text")?, 7, 0, |text| text[0] = 0xFF);
+    let frame = with_section(&text_bytes("prepare_text")?, 10, 0, |text| text[0] = 0xFF);
     assert_eq!(
         refused(&frame)?,
         ProtocolErrorEnum::NotUtf8 {
@@ -269,7 +270,7 @@ fn test_a_text_is_utf8() -> TestResult {
 #[test]
 fn test_a_column_type_follows_the_language() -> TestResult {
     let pattern_frame = golden("prepare")?.bytes()?;
-    let integer = with_section(&pattern_frame, 7, 3, |types| types[0] = 3);
+    let integer = with_section(&pattern_frame, 10, 3, |types| types[0] = 3);
     assert_eq!(
         refused(&integer)?,
         ProtocolErrorEnum::FieldValue {
@@ -280,14 +281,14 @@ fn test_a_column_type_follows_the_language() -> TestResult {
     );
     let request = text_bytes("prepare_text")?;
     for number in 1..=13u8 {
-        let frame = with_section(&request, 7, 3, |types| types[0] = number);
+        let frame = with_section(&request, 10, 3, |types| types[0] = number);
         assert_eq!(
             PrepareView::from_frame(&frame_of(&frame)?)?.parameter_types()[0].number(),
             number
         );
     }
     for number in [0u8, 14] {
-        let frame = with_section(&request, 7, 3, |types| types[0] = number);
+        let frame = with_section(&request, 10, 3, |types| types[0] = number);
         assert_eq!(
             refused(&frame)?,
             ProtocolErrorEnum::FieldValue {
@@ -302,7 +303,7 @@ fn test_a_column_type_follows_the_language() -> TestResult {
 
 #[test]
 fn test_a_texts_names_count_its_parameters_and_columns() -> TestResult {
-    let request = with_section(&text_bytes("prepare_text")?, 7, 3, Vec::clear);
+    let request = with_section(&text_bytes("prepare_text")?, 10, 3, Vec::clear);
     assert_eq!(
         refused(&request)?,
         ProtocolErrorEnum::CountMismatch {
@@ -312,7 +313,7 @@ fn test_a_texts_names_count_its_parameters_and_columns() -> TestResult {
             expected: 1
         }
     );
-    let reply = with_section(&text_bytes("prepare_text_reply")?, 7, 4, |types| {
+    let reply = with_section(&text_bytes("prepare_text_reply")?, 10, 4, |types| {
         types.push(1)
     });
     assert_eq!(
@@ -325,4 +326,174 @@ fn test_a_texts_names_count_its_parameters_and_columns() -> TestResult {
         }
     );
     Ok(())
+}
+
+/// Stage 6: Prepare's ten sections, `language` 3 and its warnings (`PROTOCOL.md` §8.1, §4.9), over Prepares laid out by
+/// hand: sections 0 the text, 1 and 2 the term table, 3 and 4 the column types, 5 and 6 the names, 7 to 9 the
+/// warnings.
+mod stage_6 {
+    use ultragraphdb_error_protocol::ProtocolErrorEnum;
+    use ultragraphdb_protocol_wire::{
+        BodyBuilder, BodyView, ColumnType, Command, Header, Language, Prepare, PrepareView,
+        TermTable, Warning,
+    };
+    use ultragraphdb_tool_bdd::{Context, TestResult};
+
+    use crate::utils::golden_bodies::{CLUSTER, frame_of};
+    use crate::utils::ugs_frames::{prepare_frame, refused, strings, warning_sections};
+
+    const TEXT: &str = "Company { id }";
+    /// UQL0110, a retired name resolved in its deprecation window: language 3, number 110 (§4.9, §9.4).
+    const UQL0110: u32 = (3 << 16) | 110;
+
+    /// The ten sections of a text's answer: the text, no term, no parameter, one result column `id` of type 6, and
+    /// the warnings `warnings`.
+    fn answer_sections(warnings: [Vec<u8>; 3]) -> Vec<Vec<u8>> {
+        let [ends, text] = strings(&["id"]);
+        let [records, message_ends, message_text] = warnings;
+        vec![
+            TEXT.as_bytes().to_vec(),
+            vec![],
+            vec![],
+            vec![],
+            vec![6],
+            ends,
+            text,
+            records,
+            message_ends,
+            message_text,
+        ]
+    }
+
+    /// A UQL text's answer of ten sections, one warning: language 3, the column, the warning read in place.
+    #[test]
+    fn test_a_uql_answer_reads_its_ten_sections_and_warning() -> TestResult {
+        let bytes = prepare_frame(
+            2,
+            0x5C4E,
+            3,
+            &answer_sections(warning_sections(&[(UQL0110, 0, "UQL0110 m")])),
+        )?;
+        let view = PrepareView::from_frame(&frame_of(&bytes)?)?;
+        assert_eq!(view.language(), Language::Uql);
+        assert_eq!(view.text(), TEXT);
+        assert_eq!(
+            view.result_types(),
+            &[ColumnType::from_number(6).context("type 6")?]
+        );
+        view.check_reply()?;
+        let warning = view.warnings().get(0).context("the warning")?;
+        assert_eq!((warning.number(), warning.language()), (110, 3));
+        assert_eq!(warning.message(), "UQL0110 m");
+        Ok(())
+    }
+
+    /// The builder writes the same ten sections, language 3 at command-header offset 24.
+    #[test]
+    fn test_a_uql_answer_is_built_with_its_warning() -> TestResult {
+        let answer = Prepare::of_text(1, Language::Uql, TEXT, TermTable::new(), vec![], vec![])
+            .answered(
+                2,
+                0x5C4E,
+                vec![(
+                    "id".to_string(),
+                    ColumnType::from_number(6).context("type 6")?,
+                )],
+            )
+            .with_warnings(vec![
+                Warning::new(UQL0110, "UQL0110 m").with_location(10..17),
+            ]);
+        let header = Header::new(CLUSTER, Command::Prepare).with_stream(3);
+        let expected = prepare_frame(
+            2,
+            0x5C4E,
+            3,
+            &answer_sections(warning_sections(&[(UQL0110, 0, "UQL0110 m")])),
+        )?;
+        assert_eq!(answer.frame(header)?, expected);
+        Ok(())
+    }
+
+    /// Sections 7 to 9 are empty for a pattern, refused as `CountMismatch` naming `warnings`, and in a request, which
+    /// `check_request` refuses so.
+    #[test]
+    fn test_a_pattern_and_a_request_carry_no_warning() -> TestResult {
+        let warnings = || warning_sections(&[(UQL0110, 0, "m")]);
+        let count_field = |refusal: &ProtocolErrorEnum| match refusal {
+            ProtocolErrorEnum::CountMismatch { command, field, .. } => Some((*command, *field)),
+            _ => None,
+        };
+        // A request of the text: no term, no parameter, no result type and no name, with a warning.
+        let [records, message_ends, message_text] = warnings();
+        let request = prepare_frame(
+            0,
+            0,
+            3,
+            &[
+                TEXT.as_bytes().to_vec(),
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                records,
+                message_ends,
+                message_text,
+            ],
+        )?;
+        let view = PrepareView::from_frame(&frame_of(&request)?)?;
+        let refusal = view.check_request().err().context("a refusal")?.0;
+        assert_eq!(count_field(&refusal), Some((10, "warnings")), "{refusal:?}");
+        // A pattern of one unbound slot answered with a warning: the pattern's bytes from the golden reply.
+        let pattern = {
+            let golden = crate::utils::golden_bodies::golden("prepare_reply")?.bytes()?;
+            let data = crate::utils::golden_bodies::body_data(&golden).to_vec();
+            let mut sections = crate::utils::golden_bodies::split_sections(&data, 0, 7);
+            sections.extend(warnings());
+            prepare_frame(1, 0x5C4E, 0, &sections)?
+        };
+        let refusal = refused::<PrepareView>(&pattern)?;
+        assert_eq!(count_field(&refusal), Some((10, "warnings")), "{refusal:?}");
+        Ok(())
+    }
+
+    /// Sections 7 to 9 are all empty in a request (§8.1): messages without a warning are refused by `check_request` as
+    /// `CountMismatch` naming `warnings`, as a warning is.
+    #[test]
+    fn test_a_request_holding_messages_alone_is_refused() -> TestResult {
+        let [message_ends, message_text] = strings(&["UQL0110 m"]);
+        let request = prepare_frame(
+            0,
+            0,
+            3,
+            &[
+                TEXT.as_bytes().to_vec(),
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                message_ends,
+                message_text,
+            ],
+        )?;
+        let view = PrepareView::from_frame(&frame_of(&request)?)?;
+        assert!(view.warnings().is_empty());
+        let refusal = view.check_request().err().context("a refusal")?.0;
+        assert!(
+            matches!(
+                refusal,
+                ProtocolErrorEnum::CountMismatch {
+                    command: 10,
+                    field: "warnings",
+                    ..
+                }
+            ),
+            "{refusal:?}"
+        );
+        Ok(())
+    }
 }

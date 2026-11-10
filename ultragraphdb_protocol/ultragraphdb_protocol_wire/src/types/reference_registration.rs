@@ -5,6 +5,7 @@
 
 use ultragraphdb_core_ids::{BucketGroup, SystemId};
 
+use crate::types::reference_status::ReferenceStatus;
 use crate::utils::constants::ABSENT;
 use crate::utils::le::bytes_at;
 
@@ -14,7 +15,8 @@ pub(crate) const REGISTRATION_SIZE: usize = 48;
 /// A registration of a Reference body (`PROTOCOL.md` §13.15), 48 bytes: `partition` u32, the entity's home;
 /// `group` u32, the referring subject's bucket group, `ABSENT` for none; `iri` u32, the entity's IRI as an index
 /// into the body's term table, `ABSENT` when `entity` names it; `outcome` u16, 0 accepted or the error code refusing
-/// it; 2 zero bytes; `generation` u64; `close` u64, an epoch; `entity` 16 bytes, a system ID big-endian or all zero.
+/// it; `status` u8, in an accepted get-only reply what the home found, else 0; 1 zero byte; `generation` u64; `close`
+/// u64, an epoch; `entity` 16 bytes, a system ID big-endian or all zero.
 ///
 /// A request names the entity by its IRI or its ID, the generation last seen and no outcome or close; the home's
 /// reply keeps every field as sent and fills `outcome`, and, for an accepted registration, the entity's ID, the
@@ -25,6 +27,7 @@ pub struct ReferenceRegistration {
     group: Option<BucketGroup>,
     iri: Option<u32>,
     outcome: u16,
+    status: u8,
     generation: u64,
     close: u64,
     entity: Option<SystemId>,
@@ -50,6 +53,7 @@ impl ReferenceRegistration {
             group,
             iri,
             outcome: 0,
+            status: 0,
             generation,
             close: 0,
             entity,
@@ -62,6 +66,7 @@ impl ReferenceRegistration {
     pub fn accepted(self, entity: SystemId, generation: u64, close: u64) -> Self {
         Self {
             outcome: 0,
+            status: 0,
             generation,
             close,
             entity: Some(entity),
@@ -69,12 +74,33 @@ impl ReferenceRegistration {
         }
     }
 
-    /// The registration refused with the error code `outcome`: 26 (WrongPartition), 7 (Refused) or 17 (Unavailable); its
-    /// generation and close 0, its entity as sent.
+    /// The registration of a get-only batch accepted with `status`: the entity's ID for a live, deleted or retracted one,
+    /// `None` for an absent one, the member's `generation` and the latest `close` delivered to the home.
+    #[must_use]
+    pub fn answered(
+        self,
+        status: ReferenceStatus,
+        entity: Option<SystemId>,
+        generation: u64,
+        close: u64,
+    ) -> Self {
+        Self {
+            outcome: 0,
+            status: status.number(),
+            generation,
+            close,
+            entity,
+            ..self
+        }
+    }
+
+    /// The registration refused with the error code `outcome`: 26 (WrongPartition), 7 (Refused), 17 (Unavailable) or
+    /// 30 (EntityDeleted); its status, generation and close 0, its entity as sent.
     #[must_use]
     pub fn refused(self, outcome: u16) -> Self {
         Self {
             outcome,
+            status: 0,
             generation: 0,
             close: 0,
             entity: self.entity.filter(|_| self.iri.is_none()),
@@ -133,7 +159,7 @@ impl ReferenceRegistration {
             .chain(self.group.map_or(ABSENT, BucketGroup::get).to_le_bytes())
             .chain(self.iri.unwrap_or(ABSENT).to_le_bytes())
             .chain(self.outcome.to_le_bytes())
-            .chain([0; 2])
+            .chain([self.status, 0])
             .chain(self.generation.to_le_bytes())
             .chain(self.close.to_le_bytes())
             .chain(self.entity.map_or([0; 16], SystemId::to_be_bytes));
@@ -145,7 +171,7 @@ impl ReferenceRegistration {
     }
 
     /// The registration `bytes` hold; `None` for a group of 2¹⁸ or more but `ABSENT`, or an entity neither all zero
-    /// nor a valid system ID. The zero bytes are unchecked.
+    /// nor a valid system ID. The zero byte and the status's value are unchecked.
     pub(crate) fn decode(bytes: &[u8; REGISTRATION_SIZE]) -> Option<Self> {
         let group = match u32::from_le_bytes(bytes_at(bytes, 4)?) {
             ABSENT => None,
@@ -163,9 +189,22 @@ impl ReferenceRegistration {
             group,
             iri,
             outcome: u16::from_le_bytes(bytes_at(bytes, 12)?),
+            status: bytes.get(14).copied()?,
             generation: u64::from_le_bytes(bytes_at(bytes, 16)?),
             close: u64::from_le_bytes(bytes_at(bytes, 24)?),
             entity,
         })
+    }
+
+    /// In an accepted reply of a get-only batch, what the home found; `None` in a request, with mode 0 and in a
+    /// refused reply.
+    #[must_use]
+    pub fn status(&self) -> Option<ReferenceStatus> {
+        ReferenceStatus::from_number(self.status)
+    }
+
+    /// The `status` byte as the registration holds it.
+    pub(crate) fn status_byte(&self) -> u8 {
+        self.status
     }
 }

@@ -13,8 +13,9 @@ use crate::types::report_kind::ReportKind;
 use crate::types::report_view::ReportView;
 use crate::types::request_term_view::RequestTermView;
 use crate::types::term_table_view::TermTableView;
+use crate::utils::body::read_sections;
+use crate::utils::command_header::expect_command;
 use crate::utils::fields::at_least_one;
-use crate::utils::sections::{Sections, expect_command};
 use crate::utils::term_kind::term_kind;
 
 impl<'a> BodyView<'a> for ReportView<'a> {
@@ -32,7 +33,7 @@ impl<'a> BodyView<'a> for ReportView<'a> {
         let kind = ReportKind::from_number(number)
             .ok_or_else(|| ProtocolError::field_value(command, "kind", number.into()))?;
         let version = at_least_one(command, "version", header.u64_at(16))?;
-        let sections = Sections::<2>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<2>(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
             (0, 1),

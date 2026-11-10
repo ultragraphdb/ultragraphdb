@@ -99,3 +99,50 @@ fn test_iri_is_none_for_a_registration_whose_term_is_not_an_iri() -> TestResult 
     );
     Ok(())
 }
+
+/// Stage 6: the builder writes `mode` and a get-only reply's `status` (`PROTOCOL.md` §13.15), against the batches laid
+/// out by hand in the view's tests.
+mod stage_6 {
+    use ultragraphdb_core_ids::SystemId;
+    use ultragraphdb_protocol_wire::{
+        BodyBuilder, Command, Header, Reference, ReferenceMode, ReferenceStatus,
+    };
+    use ultragraphdb_tool_bdd::TestResult;
+
+    use crate::types::reference_view::reference_view_tests::stage_6::{
+        ENTITY, batch, registration,
+    };
+    use crate::utils::golden_bodies::CLUSTER;
+
+    /// A get-only request of one IRI, answered as retracted: mode 1, the ID, status 4, generation and close 0.
+    #[test]
+    fn test_a_get_only_batch_is_built_with_its_status() -> TestResult {
+        let mut request = Reference::request().with_mode(ReferenceMode::GetOnly);
+        let index =
+            request.register_iri(4, None, "https://example.org/deep_brain#Node/ORG%3Aacme", 0);
+        assert_eq!(request.mode(), ReferenceMode::GetOnly);
+        let header = || Header::new(CLUSTER, Command::Reference).with_stream(3);
+        assert_eq!(
+            request.frame(header())?,
+            batch(false, 1, registration(u32::MAX, 0, (0, 0), 0, 0, [0; 16]))?
+        );
+        let mut reply = request.into_reply();
+        assert!(reply.answer_get_only(
+            index,
+            ReferenceStatus::Retracted,
+            Some(SystemId::decode(&ENTITY)?),
+            0,
+            0
+        ));
+        assert!(!reply.answer_get_only(9, ReferenceStatus::Absent, None, 0, 0));
+        assert_eq!(
+            reply.registrations().first().and_then(|r| r.status()),
+            Some(ReferenceStatus::Retracted)
+        );
+        assert_eq!(
+            reply.frame(header())?,
+            batch(true, 1, registration(u32::MAX, 0, (0, 4), 0, 0, ENTITY))?
+        );
+        Ok(())
+    }
+}

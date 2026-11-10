@@ -6,8 +6,9 @@
 //! A key-value section: entries of `key_len` u32, `value_len` u32 (`u32::MAX` for a removal, which holds no value),
 //! the key, the value, then zeros to a multiple of 8.
 
+use ultragraphdb_core_body::{align8, as_u32};
+
 use crate::utils::constants::ABSENT;
-use crate::utils::sections::{align8, as_u32};
 
 /// The bytes an entry of a key of `key_len` and a value of `value_len` takes in its section, padding included.
 pub(crate) fn entry_size(key_len: usize, value_len: usize) -> usize {

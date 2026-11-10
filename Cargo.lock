@@ -3234,6 +3234,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_core_body"
+version = "0.1.0"
+dependencies = [
+ "ultragraphdb_tool_bdd",
+]
+
+[[package]]
 name = "ultragraphdb_core_catalog"
 version = "0.1.0"
 dependencies = [
@@ -3466,6 +3473,8 @@ dependencies = [
 name = "ultragraphdb_protocol_transport"
 version = "0.1.0"
 dependencies = [
+ "cucumber",
+ "futures",
  "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_wire",
  "ultragraphdb_tool_bdd",
@@ -3496,6 +3505,7 @@ dependencies = [
  "cucumber",
  "futures",
  "oxrdf",
+ "ultragraphdb_core_body",
  "ultragraphdb_core_catalog",
  "ultragraphdb_core_ids",
  "ultragraphdb_core_mapping",

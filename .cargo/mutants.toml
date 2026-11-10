@@ -46,6 +46,12 @@ exclude_re = [
     # `is_empty` is false for each. (`with true` is caught.)
     "ultragraphdb_core_terms/src/types/vector_view\\.rs:\\d+:\\d+: replace VectorView<'a>::is_empty -> bool with false",
 
+    # `Bfloat16VectorView::is_empty` versus `false`: no reachable view is empty. `Bfloat16VectorView::new` is
+    # `pub(crate)` and its one caller, `read_view` (`EncodedTerm::view` and `result_view`), builds it over a tag `0x41`
+    # encoding's elements, whose dimension `encoded_len` refuses at 0 ("an empty vector") before any reader sees it.
+    # (`with true` is caught.)
+    "ultragraphdb_core_terms/src/types/bfloat16_vector_view\\.rs:\\d+:\\d+: replace Bfloat16VectorView<'a>::is_empty -> bool with false$",
+
     # ---------------------------------------------------------------------------------------------
     # ultragraphdb_core_algo
     # ---------------------------------------------------------------------------------------------
@@ -210,6 +216,20 @@ exclude_re = [
 
     # `HeldView::to_body` versus `Ok(Default::default())`: `Held` is a unit struct, and its derived `Default` is `Held`.
     "ultragraphdb_protocol_wire/src/types/held_view/held_view_body_view\\.rs:\\d+:9: replace <impl BodyView<'a> for HeldView<'a>>::to_body -> Result<Held, ProtocolError> with Ok\\(Default::default\\(\\)\\)$",
+
+    # `r.start < limit` and `limit < r.end` versus `<=` in `Cut::end`, which finds the source text a continuation
+    # frame's cut falls inside (PROTOCOL.md §8.3). At `limit == r.start` the cut is the text's first byte, and
+    # `char_boundary(bytes, r.start, limit)` returns `limit` at once (`end <= floor`), the cut made with no text found.
+    # At `limit == r.end`, `char_boundary` backs off only when the byte at `r.end` continues a UTF-8 character
+    # (0b10xxxxxx); in an answer in §8.3's order that byte is the section's end, a later source's first byte (UTF-8
+    # text never starts with one) or a retired name's `item`, 1 to 5. Every answer a receiver takes is cut the same.
+    "ultragraphdb_protocol_wire/src/utils/continuation\\.rs:\\d+:(72|89): replace < with <= in Cut<'_>::end$",
+
+    # `CHUNK_SIZE + LEAF_SIZE` versus `CHUNK_SIZE - LEAF_SIZE` in `data_room`'s estimate of a frame's chunks, `near`,
+    # whose candidates are `near` and `near + 1`: measured, both return the same room for every `max_frame` from 0 to
+    # `MAX_FRAME_SIZE` (2^20), above which `data_room` clamps, and both equal a brute force of §2.3's layout (the largest
+    # body whose frame, its chunk table included, fits `max_frame`). (`with *` is caught.)
+    "ultragraphdb_protocol_wire/src/utils/continuation\\.rs:\\d+:69: replace \\+ with - in data_room$",
 
     # ---------------------------------------------------------------------------------------------
     # ultragraphdb_client_core

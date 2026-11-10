@@ -7,13 +7,13 @@
 //! to 23 and a ConditionalWrite's section 6, and its args, as an Operation's section 0 and a ConditionalWrite's section 1
 //! hold them. Bytes: `kind` u8, 7 zero bytes, `delta` i64, `properties` u32, `links` u32.
 
+use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::commit_operation::CommitOperation;
 use crate::types::link::Link;
 use crate::utils::constants::ABSENT;
 use crate::utils::le::bytes_at;
-use crate::utils::sections::as_u32;
 
 /// The size of an operation's fields.
 pub(crate) const OPERATION_FIELDS_SIZE: usize = 24;
@@ -40,6 +40,8 @@ impl OperationFields {
             } => (2, 0, properties.len(), links.len()),
             CommitOperation::CompareAndSet { .. } => (3, 0, 0, 0),
             CommitOperation::CounterAdd { delta, .. } => (4, *delta, 0, 0),
+            CommitOperation::DeleteInstance { .. } => (5, 0, 0, 0),
+            CommitOperation::RetractInstance { .. } => (6, 0, 0, 0),
         };
         Self {
             kind,
@@ -75,10 +77,10 @@ impl OperationFields {
         }
     }
 
-    /// Refused as [`ProtocolError::field_value`], in order: a `kind` other than 1 to 4, then a `delta`, `properties` or
+    /// Refused as [`ProtocolError::field_value`], in order: a `kind` other than 1 to 6, then a `delta`, `properties` or
     /// `links` the kind does not take.
     pub(crate) fn check(self, command: u16) -> Result<(), ProtocolError> {
-        if !(1..=4).contains(&self.kind) {
+        if !(1..=6).contains(&self.kind) {
             return Err(ProtocolError::field_value(
                 command,
                 "kind",
@@ -115,7 +117,9 @@ impl OperationFields {
         match self.kind {
             1 | 2 => 3 + 2 * u64::from(self.properties) + 3 * u64::from(self.links),
             3 => 5,
-            _ => 3,
+            4 => 3,
+            // Kinds 5 and 6: the graph and the instance.
+            _ => 2,
         }
     }
 
@@ -196,11 +200,19 @@ impl OperationFields {
                 expected: arg(3),
                 new: arg(4),
             },
-            _ => CommitOperation::CounterAdd {
+            4 => CommitOperation::CounterAdd {
                 graph,
                 subject: arg(1),
                 predicate: arg(2),
                 delta: self.delta,
+            },
+            5 => CommitOperation::DeleteInstance {
+                graph,
+                instance: arg(1),
+            },
+            _ => CommitOperation::RetractInstance {
+                graph,
+                instance: arg(1),
             },
         }
     }
@@ -245,6 +257,10 @@ pub(crate) fn push_args(operation: &CommitOperation, args: &mut Vec<u32>) {
             predicate,
             ..
         } => args.extend([graph(g), *subject, *predicate]),
+        CommitOperation::DeleteInstance { graph: g, instance }
+        | CommitOperation::RetractInstance { graph: g, instance } => {
+            args.extend([graph(g), *instance]);
+        }
     }
 }
 

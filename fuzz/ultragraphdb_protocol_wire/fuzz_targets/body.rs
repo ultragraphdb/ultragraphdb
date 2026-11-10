@@ -5,11 +5,14 @@
 
 //! Any bytes as a frame, read through its command's body view, the role commands' (512–767) among them: validation never panics; a body its view accepts reads
 //! back to an owned body that builds the same frame, byte for byte, or, for the bodies whose strings and terms a
-//! builder lays out canonically (Write, Describe, Result), a frame that builds itself again. An accepted frame holds what
+//! builder lays out canonically (Write, Describe, Result, and the warnings' messages of Prepare and Install, interned by
+//! the sender's convention alone, `PROTOCOL.md` §4.7), a frame that builds itself again. An accepted frame holds what
 //! its view promises: a commit's request fits its session; a Scan naming a transaction is at 1, waits for no epoch, names
 //! no deadline and holds at most as many terms as ranges, and any other names one; a frame whose value continues has end 0
-//! and an entry; a range 0 frame alone in its Scan's answer is taken when `LAST` says how it ended. A Prepare's request and
-//! reply rules, which a view of a body sent both ways cannot hold alone, never panic.
+//! and an entry; a range 0 frame alone in its Scan's answer is taken when `LAST` says how it ended; a Purge names 1 to
+//! 10,000 IRIs and removes at most as many, none in a request; a Migrate request holds no message and no report, and a
+//! message comes with a refusal of a failed run. A Prepare's request and reply rules, which a view of a body sent both
+//! ways cannot hold alone, never panic.
 
 #![no_main]
 
@@ -21,10 +24,10 @@ use ultragraphdb_protocol_wire::{
     ConditionalWriteView, CreditView, DefaultEntryView, DescribeView, DirectWriteView,
     DropCommandView, EntriesEnd, EntriesSequence, EntriesView, EpochCloseView, ErrorReplyView,
     ExecuteView, FLAG_LAST, FrameView, Header, HeldView, HelloView, InstallView, JoinView,
-    LeaseView, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, MembersView, OperationView, PlacementView,
-    PrepareView, QueryView, ReadView, RecallView, ReferenceView, RegisterView, ReportView,
-    ResultView, RoundView, ScanAt, ScanRange, ScanView, SubscribeView, VerifyView, WelcomeView,
-    WriteView,
+    LeaseView, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, MembersView, MigrateState, MigrateView,
+    OperationView, PURGE_IRIS_MAX, PlacementView, PrepareView, PurgeView, QueryView, ReadView,
+    RecallView, ReferenceView, RegisterView, ReportView, ResultView, RoundView, ScanAt, ScanRange,
+    ScanView, SubscribeView, VerifyView, WelcomeView, WriteView,
 };
 
 /// The golden frames' cluster, so seeds from `testdata/fuzz_seeds/body/` pass the cluster rule.
@@ -70,6 +73,8 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
         Command::ConditionalWrite => through::<ConditionalWriteView>(&frame),
         Command::Query => through::<QueryView>(&frame),
         Command::Install => through::<InstallView>(&frame),
+        Command::Purge => through::<PurgeView>(&frame),
+        Command::Migrate => through::<MigrateView>(&frame),
         Command::Join => through::<JoinView>(&frame),
         Command::Members => through::<MembersView>(&frame),
         Command::Subscribe => through::<SubscribeView>(&frame),
@@ -139,6 +144,21 @@ fn holds_its_rules(frame: &FrameView<'_>) {
     if let Ok(view) = ConditionalWriteView::from_frame(frame) {
         request_fits(view.session(), view.request());
     }
+    if let Ok(view) = PurgeView::from_frame(frame) {
+        assert!((1..=PURGE_IRIS_MAX).contains(&view.iri_count()));
+        assert!(view.removed() as usize <= view.iri_count());
+        assert!(view.epoch() != 0 || view.removed() == 0, "a request removes nothing");
+    }
+    if let Ok(view) = MigrateView::from_frame(frame) {
+        if view.state().is_none() {
+            assert!(view.message().is_empty() && view.report().is_empty());
+            assert_eq!(view.epoch(), 0, "a request names no epoch");
+        }
+        if !view.message().is_empty() || view.refusal() != 0 {
+            assert_eq!(view.state(), Some(MigrateState::Failed));
+            assert_ne!(view.refusal(), 0, "a message comes with its refusal");
+        }
+    }
     if let Ok(view) = ScanView::from_frame(frame) {
         if view.transaction() != [0; 16] {
             assert_eq!(
@@ -179,7 +199,7 @@ fuzz_target!(|data: &[u8]| {
     holds_its_rules(&frame);
     if matches!(
         command,
-        Command::Write | Command::Describe | Command::Result
+        Command::Write | Command::Describe | Command::Result | Command::Prepare | Command::Install
     ) {
         let (_, again) = rebuild(&rebuilt).expect("a rebuilt body reads");
         assert_eq!(again, rebuilt, "{command:?} rebuilds to itself");

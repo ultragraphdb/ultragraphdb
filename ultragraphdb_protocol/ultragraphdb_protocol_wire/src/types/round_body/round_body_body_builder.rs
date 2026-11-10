@@ -3,13 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{align8, as_u32, write_sections};
+
 use crate::traits::body_builder::BodyBuilder;
 use crate::types::command::Command;
 use crate::types::decision::Decision;
 use crate::types::round_body::{RECORD_ENTRY_SIZE, RoundBody};
 use crate::utils::constants::{ABSENT, COMMAND_HEADER_SIZE};
 use crate::utils::key_value_writer::write_entries;
-use crate::utils::sections::{align8, as_u32, write_sections};
 
 impl BodyBuilder for RoundBody {
     const COMMAND: Command = Command::Round;

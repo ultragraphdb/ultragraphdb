@@ -5,6 +5,7 @@
 
 mod reference_view_body_view;
 
+use crate::types::reference_mode::ReferenceMode;
 use crate::types::reference_registration::{REGISTRATION_SIZE, ReferenceRegistration};
 use crate::types::request_term_view::RequestTermView;
 use crate::types::term_table_view::TermTableView;
@@ -15,6 +16,7 @@ use crate::utils::le::bytes_at;
 pub struct ReferenceView<'a> {
     pub(crate) tenant: u64,
     reply: bool,
+    mode: ReferenceMode,
     registrations: &'a [u8],
     terms: TermTableView<'a>,
 }
@@ -23,7 +25,6 @@ pub struct ReferenceView<'a> {
 const _: () = assert!(size_of::<ReferenceView<'static>>() <= 64);
 
 impl<'a> ReferenceView<'a> {
-    /// Whether this is the home's reply.
     /// The tenant of the batch's entities.
     pub fn tenant(&self) -> u64 {
         self.tenant
@@ -77,5 +78,11 @@ impl<'a> ReferenceView<'a> {
     #[must_use]
     pub fn terms(&self) -> TermTableView<'a> {
         self.terms
+    }
+
+    /// The batch's mode.
+    #[must_use]
+    pub fn mode(&self) -> ReferenceMode {
+        self.mode
     }
 }

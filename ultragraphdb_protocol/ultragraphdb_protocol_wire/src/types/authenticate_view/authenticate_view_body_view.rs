@@ -10,9 +10,8 @@ use crate::types::authenticate::Authenticate;
 use crate::types::authenticate_view::AuthenticateView;
 use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
-use crate::utils::sections::Sections;
-use crate::utils::sections::expect_command;
-use crate::utils::sections::text;
+use crate::utils::body::{read_sections, text};
+use crate::utils::command_header::expect_command;
 
 impl<'a> BodyView<'a> for AuthenticateView<'a> {
     const COMMAND: Command = Command::Authenticate;
@@ -41,7 +40,7 @@ impl<'a> BodyView<'a> for AuthenticateView<'a> {
         if !last && expires != 0 {
             return Err(ProtocolError::field_value(command, "expires", expires));
         }
-        let sections = Sections::<2>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<2>(command, frame.body(), 0)?;
         let mechanism = text(command, 0, sections.get(0))?;
         if (step == 0) == mechanism.is_empty() {
             return Err(ProtocolError::field_value(

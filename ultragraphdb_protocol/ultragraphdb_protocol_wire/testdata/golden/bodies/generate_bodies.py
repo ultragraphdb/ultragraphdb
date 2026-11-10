@@ -331,16 +331,17 @@ op_args = [ABSENT, p, deep]
 golden("operation_deep", 9, command_header([(0, bytes([1]))]), sections([u32s(op_args)] + terms.sections()),
        stream=9)
 
-# 10 Prepare: (default graph, $0, <name>, ?), the parameter a node (1); the reply with statement 1, a schema id and
-# the result columns: the object a term (2), then the reifier column a node (1).
+# 10 Prepare (section 8.1): (default graph, $0, <name>, ?), the parameter a node (1); the reply with statement 1, a
+# schema id and the result columns: the object a term (2), then the reifier column a node (1). Ten sections: the
+# warnings (section 4.9), sections 7 to 9, empty for a pattern.
 for name, statement, schema, result_types in [("prepare", 0, 0, b""), ("prepare_reply", 1, 0x5C4E_3A2B_1D0F_7E6A,
                                                                        bytes([2, 1]))]:
     terms = Terms()
     slots = pattern(["default", 0, iri(f"{EX}name"), "unbound"], terms)
     golden(name, 10, command_header([(0, le(0, 8)), (8, le(statement, 8)), (16, le(schema, 8))]),
-           sections([slots] + terms.sections() + [bytes([1]), result_types, b"", b""]), stream=13)
+           sections([slots] + terms.sections() + [bytes([1]), result_types, b"", b"", b"", b"", b""]), stream=13)
 # A Prepare of a GQL text of tenant 4 with one parameter, $who, a node; the reply: statement 2, a schema id, the column
-# names following the parameter's and the columns' types, a node and a string.
+# names following the parameter's and the columns' types, a node and a string; no warning in either.
 GQL = "MATCH (n) WHERE n = $who RETURN n, n.name"
 for name, statement, schema, result_types, words in [("prepare_text", 0, 0, b"", ["who"]),
                                                      ("prepare_text_reply", 2, 0x5C4E_3A2B_1D0F_7E6A, bytes([1, 6]),
@@ -349,7 +350,8 @@ for name, statement, schema, result_types, words in [("prepare_text", 0, 0, b"",
     for word in words:
         names.push(word)
     golden(name, 10, command_header([(0, le(4, 8)), (8, le(statement, 8)), (16, le(schema, 8)), (24, bytes([1]))]),
-           sections([GQL.encode(), b"", b"", bytes([1]), result_types] + names.sections()), stream=47)
+           sections([GQL.encode(), b"", b"", bytes([1]), result_types] + names.sections() + [b"", b"", b""]),
+           stream=47)
 # 11 Execute: statement 1, in the transaction of stream 5, no limit, one parameter, no resume key.
 terms = Terms()
 params = [terms.add(iri(f"{EX}a"))]
@@ -357,19 +359,20 @@ golden("execute", 11, command_header([(0, le(1, 8)), (8, le(5, 8))]),
        sections(terms.sections() + [u32s(params), b""]), stream=15)
 
 
-# 12 Describe: the request, and the answer: labels, relationship types, property keys, then the declarations.
+# 12 Describe (section 8.3): the request, nine empty sections; and the answer: labels, relationship types, property
+# keys, then the declarations, each record's `extra` 0 (section 4.6), and no entry (sections 7 and 8 empty).
 def describe(labels, rels, props, read_version):
     global records, args, strings, terms
     strings, records, args, terms = Strings(), b"", [], Terms()
     secs = [u32s([strings.intern(s) for s in group]) for group in (labels, rels, props)]
     change(8, 0, [f"{EX}knows", ABSENT, 0, 0])
     change(8, 1, [f"{EX}name", ABSENT, 1, "term", 0])
-    change(9, 0, [f"{EX}Person", ABSENT], extra=1)
-    body = sections(strings.sections() + secs + [records, u32s(args)])
+    change(9, 0, [f"{EX}Person", ABSENT])
+    body = sections(strings.sections() + secs + [records, u32s(args), b"", b""])
     return command_header([(0, le(0, 8)), (8, le(read_version, 8))]), body
 
 
-golden("describe", 12, command_header([]), sections([b"", b"", b"", b"", b"", b"", b""]), stream=17)
+golden("describe", 12, command_header([]), sections([b""] * 9), stream=17)
 ch, body = describe([f"{EX}Person"], [f"{EX}knows"], [f"{EX}name"], 42)
 golden("describe_reply", 12, ch, body, stream=17)
 SCHEMA_ID = xxhash.xxh3_64_intdigest(describe([], [], [], 42)[1])
@@ -377,7 +380,8 @@ SCHEMA_ID = xxhash.xxh3_64_intdigest(describe([], [], [], 42)[1])
 # 13 Result (section 9.1): two unbound slots and the reifier column, three rows, read at epoch 30 in partition 2;
 # terms in order of first use, row by row; cells column by column; the first term an IRI, tag 0x01 and its text's
 # hash, a blank node, tag 0x02 and its skolem IRI's hash, and the first row's reifier, tag 0x02 and its skolem IRI's
-# hash, each text in the string list (section 10.1); no statement ID.
+# hash, each text in the string list (section 10.1); no statement ID. Twelve sections: no column name and no warning
+# (sections 7 to 11) on a pattern's batch.
 def sha16(text):
     return hashlib.sha256(text.encode()).digest()[:16]
 
@@ -398,15 +402,15 @@ for e in encodings:
 cells = u32s([0, 0, 4] + [1, 3, ABSENT] + [2, ABSENT, ABSENT])
 golden("result", 13, command_header([(0, le(3, 4)), (4, le(3, 4)), (8, le(30, 8)), (16, le(2, 4))]),
        sections([cells, u32s(offsets), b"".join(encodings), u32s([v for t in texts for v in t])]
-                + strings.sections() + [b"rk", b"", b""]),
+                + strings.sections() + [b"rk", b"", b"", b"", b"", b""]),
        stream=11, flags=1)
 # The same batch before its stream's last: not flagged, and holding no resume key.
 golden("result_more", 13, command_header([(0, le(3, 4)), (4, le(3, 4)), (8, le(30, 8)), (16, le(2, 4))]),
        sections([cells, u32s(offsets), b"".join(encodings), u32s([v for t in texts for v in t])]
-                + strings.sections() + [b"", b"", b""]),
+                + strings.sections() + [b"", b"", b"", b"", b"", b""]),
        stream=11)
 # A query's first batch: two projections named, `n` and `age`, one row of an IRI that is no blank node and a null, read at
-# level 2 over data that may have been retracted (monotonic 1), flagged LAST.
+# level 2 over data that may have been retracted (monotonic 1), flagged LAST; its compilation reported no warning.
 strings = Strings()
 query_text = strings.intern(f"{EX}a")
 names = Strings()
@@ -414,7 +418,7 @@ names.push("n")
 names.push("age")
 golden("result_query", 13, command_header([(0, le(2, 4)), (4, le(1, 4)), (8, le(30, 8)), (20, bytes([1]))]),
        sections([u32s([0, ABSENT]), u32s([0]), bytes([0x01]) + sha16(f"{EX}a"), u32s([query_text, ABSENT])]
-                + strings.sections() + [b""] + names.sections()),
+                + strings.sections() + [b""] + names.sections() + [b"", b"", b""]),
        stream=49, flags=1)
 # 14 Credit: two frames on stream 11.  15 Cancel.
 golden("credit", 14, command_header([(0, le(2, 4))]), sections([]), stream=11)
@@ -502,14 +506,16 @@ query_names.push("who")
 golden("query", 22, command_header([(0, le(5, 8)), (8, bytes([1])), (12, le(100, 4))]),
        sections([GQL.encode()] + query_names.sections() + [u32s([query_value])] + terms.sections() + [b"\x01\x02"]),
        stream=55)
-# 23 Install: a schema and a module of tenant 3, built on version 11; the reply, version 12 taking effect at epoch 44, and
-# the coordination report.
+# 23 Install (section 8.4): a schema and a module of tenant 3, built on version 11; the reply, version 12 taking effect
+# at epoch 44, `staged` 0 (no migration), and the coordination report. Seven sections: the report, the migration
+# report and the warnings (section 4.9), all empty in the request; the reply holds no migration and no warning.
 sources = Strings()
 for word in ["crm", "namespace crm {}", "crm/people", "module people {}"]:
     sources.push(word)
-golden("install", 23, command_header([(0, le(3, 8)), (8, le(11, 8))]), sections(sources.sections() + [b""]), stream=57)
-golden("install_reply", 23, command_header([(0, le(3, 8)), (8, le(12, 8)), (16, le(44, 8))]),
-       sections(sources.sections() + [b"coordination-free: 2"]), stream=57, flags=1)
+golden("install", 23, command_header([(0, le(3, 8)), (8, le(11, 8)), (24, le(0, 8))]),
+       sections(sources.sections() + [b"", b"", b"", b"", b""]), stream=57)
+golden("install_reply", 23, command_header([(0, le(3, 8)), (8, le(12, 8)), (16, le(44, 8)), (24, le(0, 8))]),
+       sections(sources.sections() + [b"coordination-free: 2", b"", b"", b"", b""]), stream=57, flags=1)
 
 
 # 17 Round (section 12.1): position 3, its header's sequence, its parent, incarnation 1, first version (7 << 22) | 100,

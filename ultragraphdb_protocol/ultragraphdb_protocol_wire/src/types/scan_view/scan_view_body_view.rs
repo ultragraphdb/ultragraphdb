@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{Sections, as_u32};
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -13,11 +14,12 @@ use crate::types::scan_at::ScanAt;
 use crate::types::scan_view::ScanView;
 use crate::types::term_table::kind;
 use crate::types::term_table_view::TermTableView;
+use crate::utils::body::{read_sections, records};
 use crate::utils::command_header::CommandHeader;
+use crate::utils::command_header::expect_command;
 use crate::utils::constants::SCAN_RANGE_SIZE;
 use crate::utils::fields::{epoch, identity, version};
 use crate::utils::le::bytes_at;
-use crate::utils::sections::{Sections, as_u32, expect_command, records};
 use crate::utils::term_kind::term_kind;
 
 /// The u32 at `at` of a range's record.
@@ -174,7 +176,7 @@ impl<'a> BodyView<'a> for ScanView<'a> {
         }
         let read_version = version(command, "read_version", read_version)?;
         let (wait, deadline_ms) = wait_and_deadline(command, header, at, named)?;
-        let sections = Sections::<4>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<4>(command, frame.body(), 0)?;
         let (ranges, keys) = (sections.get(0), sections.get(1));
         let chunks = records(command, 0, ranges, SCAN_RANGE_SIZE)?;
         if ranges.is_empty() {

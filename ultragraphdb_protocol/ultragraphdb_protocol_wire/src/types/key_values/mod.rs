@@ -3,12 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::align8;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::record_entry::RecordEntry;
 use crate::utils::constants::ABSENT;
 use crate::utils::le::bytes_at;
-use crate::utils::sections::align8;
 
 /// The entry at `at` of `bytes`: its key, value and the offset after its padding; `None` when it runs past.
 fn entry_at(bytes: &[u8], at: usize) -> Option<(RecordEntry<'_>, usize, usize)> {

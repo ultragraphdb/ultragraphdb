@@ -35,6 +35,7 @@ pub struct DropCommand {
     request: u64,
     commit_version: u64,
     token: Option<SessionToken>,
+    catalog: u64,
 }
 
 impl DropCommand {
@@ -47,6 +48,7 @@ impl DropCommand {
             request: 0,
             commit_version: 0,
             token: None,
+            catalog: 0,
         }
     }
 
@@ -127,5 +129,18 @@ impl DropCommand {
     /// The commit version; zero in a request.
     pub fn commit_version(&self) -> u64 {
         self.commit_version
+    }
+
+    /// The drop of a tenant's data or of everything in it, under the tenant's catalog version `catalog`, 0 for a
+    /// tenant holding none.
+    #[must_use]
+    pub fn with_catalog(self, catalog: u64) -> Self {
+        Self { catalog, ..self }
+    }
+
+    /// The catalog version a drop of kind 3 or 4 drops under; 0 for kinds 1 and 2.
+    #[must_use]
+    pub fn catalog(&self) -> u64 {
+        self.catalog
     }
 }

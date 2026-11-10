@@ -90,6 +90,8 @@ impl<M: ClientMechanism> ClientAuthentication<M> {
             | Command::ConditionalWrite
             | Command::Query
             | Command::Install
+            | Command::Purge
+            | Command::Migrate
             | Command::Join
             | Command::Members
             | Command::Subscribe

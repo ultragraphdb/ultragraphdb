@@ -21,8 +21,10 @@
 //! | 9 | Declare an entity type | bit 0: abstract | names: IRI, parent or [`crate::ABSENT`] |
 //! | 10 | Declare a relation | — | names: IRI, then its roles |
 //!
-//! `extra` is zero but in the data dictionary's answer, where an entity type's holds its preorder number.
+//! `extra` is zero in every record, a Describe's declarations included: a record names no place in the type hierarchy
+//! (`PROTOCOL.md` §4.6, §8.3).
 
+use ultragraphdb_core_body::{StringList, StringWriter, as_u32};
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::declared::Declared;
@@ -31,11 +33,9 @@ use crate::types::declared_kind::DeclaredKind;
 use crate::types::declared_predicate::DeclaredPredicate;
 use crate::types::declared_relation::DeclaredRelation;
 use crate::types::statement_target::StatementTarget;
-use crate::types::string_list::StringList;
 use crate::types::write_change::WriteChange;
+use crate::utils::body::records as whole_records;
 use crate::utils::constants::ABSENT;
-use crate::utils::sections::{as_u32, records as whole_records};
-use crate::utils::string_writer::StringWriter;
 
 /// The size of a change record.
 pub(crate) const CHANGE_RECORD_SIZE: usize = 16;
@@ -472,7 +472,7 @@ impl Record {
                 self.zero.into(),
             ));
         }
-        if self.extra != 0 && !(declarations_only && self.kind == ENTITY_TYPE) {
+        if self.extra != 0 {
             return Err(ProtocolError::field_value(
                 command,
                 "extra",

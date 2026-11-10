@@ -5,6 +5,7 @@
 
 use std::collections::BTreeSet;
 
+use ultragraphdb_core_body::Sections;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -15,9 +16,10 @@ use crate::types::placement::Placement;
 use crate::types::placement_view::PlacementView;
 use crate::types::preferred_leader::PreferredLeader;
 use crate::types::tenant_run::TenantRun;
+use crate::utils::body::read_sections;
 use crate::utils::command_header::CommandHeader;
+use crate::utils::command_header::expect_command;
 use crate::utils::fields::epoch;
-use crate::utils::sections::{Sections, expect_command};
 use crate::utils::whole_records::whole_records;
 
 /// One past the last bucket, 2²⁴: where the last range ends.
@@ -32,7 +34,7 @@ impl<'a> BodyView<'a> for PlacementView<'a> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
         let (position, asked, from, until) = epochs(command, header)?;
-        let sections = Sections::<3>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<3>(command, frame.body(), 0)?;
         let (ranges, runs, leaders) = (sections.get(0), sections.get(1), sections.get(2));
         if from == 0 {
             let bytes = ranges.len() + runs.len() + leaders.len();

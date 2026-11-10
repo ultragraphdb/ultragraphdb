@@ -12,10 +12,9 @@ use crate::types::error_reply::ErrorReply;
 use crate::types::error_reply_view::ErrorReplyView;
 use crate::types::frame_view::FrameView;
 use crate::types::term_table_view::TermTableView;
+use crate::utils::body::{read_sections, text};
+use crate::utils::command_header::expect_command;
 use crate::utils::constants::DETAIL_VALUE_CUT;
-use crate::utils::sections::Sections;
-use crate::utils::sections::expect_command;
-use crate::utils::sections::text;
 
 impl<'a> BodyView<'a> for ErrorReplyView<'a> {
     const COMMAND: Command = Command::Error;
@@ -41,7 +40,7 @@ impl<'a> BodyView<'a> for ErrorReplyView<'a> {
         if code == ErrorCode::OperationFailed && detail & !DETAIL_VALUE_CUT != 0 {
             return Err(ProtocolError::field_value(command, "detail", detail));
         }
-        let sections = Sections::<3>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<3>(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
             (1, 2),

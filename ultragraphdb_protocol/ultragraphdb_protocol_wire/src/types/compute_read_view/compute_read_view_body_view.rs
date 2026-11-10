@@ -13,10 +13,11 @@ use crate::types::frame_view::FrameView;
 use crate::types::quad_pattern::QuadPattern;
 use crate::types::read_level::ReadLevel;
 use crate::types::term_table_view::TermTableView;
+use crate::utils::body::read_sections;
 use crate::utils::command_header::CommandHeader;
+use crate::utils::command_header::expect_command;
 use crate::utils::constants::{MAX_FRAME_FLOOR, MAX_FRAME_SIZE};
 use crate::utils::fields::{boolean, epoch, identity, version};
-use crate::utils::sections::{Sections, expect_command};
 
 /// The transaction's fields of a ComputeRead's command header, checked in `PROTOCOL.md` §13.12's order after its
 /// unused bytes: `mode`, `level`, `named`, `read_version`, `epoch`, then `partition` and `transaction` against the mode.
@@ -96,7 +97,7 @@ impl<'a> BodyView<'a> for ComputeReadView<'a> {
         header.unused_zero(&[(0, 7), (8, 72)])?;
         let fields = transaction(command, header)?;
         let (max_frame, credit) = client_limits(command, header)?;
-        let sections = Sections::<4>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<4>(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
             (1, 2),

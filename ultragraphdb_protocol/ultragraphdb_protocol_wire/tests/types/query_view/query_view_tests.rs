@@ -59,10 +59,10 @@ fn test_unused_bytes_come_before_the_language() -> TestResult {
     Ok(())
 }
 
-/// A Query is a text: language 0, a quad pattern, is a Prepare's alone.
+/// A Query is a text: language 0, a quad pattern, is a Prepare's alone; 4 names no language (`PROTOCOL.md` §7.4).
 #[test]
-fn test_the_language_is_gql_or_sparql() -> TestResult {
-    for language in [0u8, 3] {
+fn test_the_language_is_gql_sparql_or_uql() -> TestResult {
+    for language in [0u8, 4] {
         let frame = with_command_header(&bytes()?, |h| h[8] = language);
         assert_eq!(
             refusal::<QueryView>(&frame)?,
@@ -168,4 +168,48 @@ fn test_the_parameter_count_is_the_number_of_names() -> TestResult {
         assert_eq!(view.to_body()?, query);
     }
     Ok(())
+}
+
+/// Stage 6: UQL is language 3 (`PROTOCOL.md` §7.4), over Queries laid out by hand.
+mod stage_6 {
+    use ultragraphdb_error_protocol::ProtocolErrorEnum;
+    use ultragraphdb_protocol_wire::{
+        BodyBuilder, BodyView, Command, Header, Language, Query, QueryView, TermTable,
+    };
+    use ultragraphdb_tool_bdd::TestResult;
+
+    use crate::utils::golden_bodies::{CLUSTER, frame_of};
+    use crate::utils::ugs_frames::{query_frame, refused};
+
+    /// wire-protocol, "Language 3 is read and built": the text `Company { id }` and no parameters, built and read
+    /// back, the view answering language 3 and the text.
+    #[test]
+    fn test_a_uql_query_is_built_and_read_back() -> TestResult {
+        let query = Query::new(5, Language::Uql, "Company { id }", TermTable::new());
+        let header = Header::new(CLUSTER, Command::Query).with_stream(3);
+        let bytes = query.frame(header)?;
+        assert_eq!(bytes, query_frame(3, "Company { id }")?);
+        let view = QueryView::from_frame(&frame_of(&bytes)?)?;
+        assert_eq!(view.language(), Language::Uql);
+        assert_eq!(view.text(), "Company { id }");
+        assert_eq!(view.parameter_count(), 0);
+        assert_eq!(view.to_body()?, query);
+        Ok(())
+    }
+
+    /// wire-protocol, "Language 4 is refused": `FieldValue` naming `language`; and 255 likewise.
+    #[test]
+    fn test_a_query_of_language_4_is_refused() -> TestResult {
+        for language in [4u8, 255] {
+            assert_eq!(
+                refused::<QueryView>(&query_frame(language, "Company { id }")?)?,
+                ProtocolErrorEnum::FieldValue {
+                    command: 22,
+                    field: "language",
+                    value: language.into()
+                }
+            );
+        }
+        Ok(())
+    }
 }

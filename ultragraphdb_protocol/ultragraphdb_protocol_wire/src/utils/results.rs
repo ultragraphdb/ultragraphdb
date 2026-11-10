@@ -6,11 +6,11 @@
 //! Commit-time operations' results (`PROTOCOL.md` §6.3), 16 bytes each: `value` i64, `node` u32, `created` u8, 3 zero
 //! bytes. A Commit reply's section 0 and a write-set record's section 9 hold them alike.
 
+use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::operation_result::OperationResult;
 use crate::utils::constants::OPERATION_RESULT_SIZE;
-use crate::utils::sections::as_u32;
 
 /// Checks `bytes`, section `section` of a body of `command` at body offset `offset`, as §6.3 checks each result in
 /// order: whole results ([`ProtocolError::section_length`]); bytes 13 to 15 zero ([`ProtocolError::padding_not_zero`]);

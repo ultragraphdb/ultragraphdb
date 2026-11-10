@@ -13,6 +13,7 @@ members = [
     "ultragraphdb_core/*",
     "ultragraphdb_error/*",
     "ultragraphdb_protocol/*",
+#    "ultragraphdb_schema/*",
     "ultragraphdb_store/*",
     "ultragraphdb_tool/*",
     "ultragraphdb_traits/*",
@@ -60,6 +61,7 @@ ultragraphdb_common_utils = { path = "ultragraphdb_common/ultragraphdb_common_ut
 ultragraphdb_common_version = { path = "ultragraphdb_common/ultragraphdb_common_version" }
 ## Core
 ultragraphdb_core_algo = { path = "ultragraphdb_core/ultragraphdb_core_algo" }
+ultragraphdb_core_body = { path = "ultragraphdb_core/ultragraphdb_core_body" }
 ultragraphdb_core_catalog = { path = "ultragraphdb_core/ultragraphdb_core_catalog" }
 ultragraphdb_core_codec = { path = "ultragraphdb_core/ultragraphdb_core_codec" }
 ultragraphdb_core_ids = { path = "ultragraphdb_core/ultragraphdb_core_ids" }
@@ -84,6 +86,8 @@ ultragraphdb_protocol_scram = { path = "ultragraphdb_protocol/ultragraphdb_proto
 ultragraphdb_protocol_transport = { path = "ultragraphdb_protocol/ultragraphdb_protocol_transport" }
 ultragraphdb_protocol_transport_compio = { path = "ultragraphdb_protocol/ultragraphdb_protocol_transport_compio" }
 ultragraphdb_protocol_wire = { path = "ultragraphdb_protocol/ultragraphdb_protocol_wire" }
+## Schema: Date schema and DDL
+
 ## Store: storage over the Store trait
 ultragraphdb_store_apply = { path = "ultragraphdb_store/ultragraphdb_store_apply" }
 ultragraphdb_store_hnsw = { path = "ultragraphdb_store/ultragraphdb_store_hnsw" }

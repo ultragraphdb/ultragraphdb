@@ -4,10 +4,12 @@
  */
 
 //! Structure-aware: bodies of every kind, their term tables included, built from arbitrary fields within each
-//! builder's rules, which must validate and read back to what was built; then arbitrary mutations of the body, of one
+//! builder's rules, which must validate and read back to what was built; a Describe answer and a Catalog version also cut
+//! into continuation frames within a `max_frame` (`PROTOCOL.md` §8.3, §13.7), each frame within it and the last alone
+//! flagged `LAST`, which their assemblers take back to what was built. Then arbitrary mutations of the body, of one
 //! section with the body laid out again around it and of the command header, the frame rebuilt around them so the body's
-//! checks are reached, which never panic. A DirectWrite, ConditionalWrite, Scan or Entries the mutations leave acceptable
-//! builds the same frame, byte for byte, and holds what its view promises.
+//! checks are reached, which never panic. A DirectWrite, ConditionalWrite, Scan, Entries, Purge, Migrate or Catalog the
+//! mutations leave acceptable builds the same frame, byte for byte, and holds what its view promises.
 
 #![no_main]
 
@@ -17,17 +19,21 @@ use std::num::NonZeroU32;
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
 use ultragraphdb_core_ids::{Epoch, SessionToken};
+use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
-    Authenticate, AuthenticateView, BodyBuilder, BodyView, ColumnType, Command, Commit,
-    CommitOperation, CommitView, ConditionalWrite, ConditionalWriteView, Credit, CreditView,
-    DirectWrite, DirectWriteView, Direction, DropCommand, DropCommandView, Entries, EntriesEnd,
-    EntriesView, ErrorCode, ErrorReply, ErrorReplyView, Execute, ExecuteView, FrameView, Header,
-    Hello, HelloView, Install, InstallView, Language, Link, MAX_EPOCH, MAX_FRAME_FLOOR,
-    MAX_FRAME_SIZE, Operation, OperationResult, OperationView, PatternSlot, Prepare, PrepareView,
-    QuadPattern, Query, QueryView, Read, ReadView, RequestTerm, ResultBatch, ResultTerm,
-    ResultView, RoundBody, RoundView, Scan, ScanAt, ScanRange, ScanView, StatementTarget,
-    TermTable, Welcome, WelcomeView, Write, WriteChange, WriteSetRecord, WriteView,
+    Authenticate, AuthenticateView, BodyBuilder, BodyView, Catalog, CatalogFrames, CatalogView,
+    ColumnType, Command, Commit, CommitOperation, CommitView, ConditionalWrite,
+    ConditionalWriteView, Credit, CreditView, Describe, DescribeEntry, DescribeFrames,
+    DescribeView, DirectWrite, DirectWriteView, Direction, DropCommand, DropCommandView, Entries,
+    EntriesEnd, EntriesView, EntryKind, ErrorCode, ErrorReply, ErrorReplyView, Execute,
+    ExecuteView, FLAG_LAST, FrameView, Header, Hello, HelloView, Install, InstallView, Language,
+    Link, MAX_EPOCH, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Migrate, MigrateAction, MigrateState,
+    MigrateView, Operation, OperationResult, OperationView, PURGE_IRIS_MAX, PatternSlot, Prepare,
+    PrepareView, Purge, PurgeView, QuadPattern, Query, QueryView, Read, ReadView, RequestTerm,
+    ResultBatch, ResultTerm, ResultView, RetiredItem, RetiredName, RoundBody, RoundView, Scan,
+    ScanAt, ScanRange, ScanView, StatementTarget, TermTable, WARNING_MESSAGE_MAX, WARNINGS_MAX,
+    Warning, Welcome, WelcomeView, Write, WriteChange, WriteSetRecord, WriteView,
 };
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
@@ -91,6 +97,28 @@ struct ScanFields {
     iris: Vec<String>,
 }
 
+/// A warning's fields, as [`warnings`] reads them.
+#[derive(Debug, Arbitrary)]
+struct WarningFields {
+    number: u16,
+    language: u8,
+    source: u32,
+    offset: u32,
+    length: u32,
+    message: String,
+}
+
+/// A Describe entry's fields, as [`describe_entries`] reads them: `bytes` for kinds 1 to 18, `text` a source's, and
+/// `retired` a retired name's item, whether it was renamed, its current name, version and window.
+#[derive(Debug, Arbitrary)]
+struct EntryFields {
+    kind: u8,
+    name: String,
+    bytes: Vec<u8>,
+    text: String,
+    retired: (u8, bool, String, u64, u64),
+}
+
 #[derive(Debug, Arbitrary)]
 enum Body {
     Hello {
@@ -123,6 +151,8 @@ enum Body {
         session: [u8; 16],
         request: u64,
         version: u64,
+        /// The catalog version a drop of kind 3 or 4 names.
+        catalog: u64,
     },
     Commit {
         session: [u8; 16],
@@ -149,6 +179,15 @@ enum Body {
         slots: [Slot; 4],
         node_parameters: bool,
     },
+    /// A Prepare of a text, language 1 to 3, its parameters' names and types; a reply's statement, schema id and
+    /// projections, with its warnings.
+    PrepareText {
+        language: u8,
+        text: String,
+        parameters: Vec<(String, u8)>,
+        answered: Option<(u64, u64, Vec<(String, u8)>)>,
+        warnings: Vec<WarningFields>,
+    },
     Execute {
         statement: u64,
         transaction: u64,
@@ -159,11 +198,17 @@ enum Body {
         changes: Vec<(u8, u16, u16, u16)>,
     },
     Operation(OperationFields),
-    /// A cell's odd value names a blank node, an even one an IRI; the last column, the reifier column, holds blank
-    /// nodes alone.
+    /// A cell's odd value names a blank node, an even one an IRI, the last column, the reifier column, among them.
     Result {
         columns: u8,
         rows: Vec<Vec<Option<u16>>>,
+    },
+    /// A query's first batch: its column names, rows of IRIs, blank nodes and the values of tags `0x41`, `0x50` and
+    /// `0x51`, and its warnings.
+    QueryResult {
+        names: Vec<String>,
+        rows: Vec<Vec<Option<u16>>>,
+        warnings: Vec<WarningFields>,
     },
     Round {
         decisions: Vec<Option<(u8, u64)>>,
@@ -197,7 +242,7 @@ enum Body {
     },
     Query {
         transaction: u64,
-        sparql: bool,
+        language: u8,
         limit: u32,
         text: String,
         parameters: Vec<(String, u16)>,
@@ -209,6 +254,35 @@ enum Body {
         sources: Vec<(String, String)>,
         /// A reply's version, the epoch it takes effect at and its report.
         answered: Option<(u64, u64, String)>,
+        /// A reply's staged namespace and its migration report, and its warnings.
+        staged: (u64, String),
+        warnings: Vec<WarningFields>,
+    },
+    Describe {
+        tenant: u64,
+        read_version: u64,
+        entries: Vec<EntryFields>,
+        max_frame: u16,
+    },
+    Purge {
+        tenant: u64,
+        iris: Vec<String>,
+        /// A reply's epoch and the instances it removed.
+        purged: Option<(u64, u32)>,
+    },
+    Migrate {
+        tenant: u64,
+        staged: u64,
+        action: u8,
+        /// A reply's state, epoch and report, and a failed run's refusal and message.
+        answered: Option<(u8, u64, String, Option<(u8, String)>)>,
+    },
+    Catalog {
+        tenant: u64,
+        version: u64,
+        /// A reply's epoch, position and bytes.
+        answered: Option<(u64, u64, Vec<u8>)>,
+        max_frame: u16,
     },
 }
 
@@ -374,7 +448,8 @@ fn change(fields: &ChangeFields, t: &impl Fn(u16) -> u32) -> WriteChange {
 /// The operation `fields` name, of each kind, over the term indices `t` gives.
 fn commit_operation(fields: &OperationFields, t: &impl Fn(u16) -> u32) -> CommitOperation {
     let [a, b, c, d] = fields.args;
-    match fields.kind % 4 {
+    let graph = (fields.delta % 2 == 0).then(|| t(c));
+    match fields.kind % 6 {
         0 => CommitOperation::InsertIfAbsent {
             graph: None,
             predicate: t(a),
@@ -405,13 +480,109 @@ fn commit_operation(fields: &OperationFields, t: &impl Fn(u16) -> u32) -> Commit
             expected: t(d),
             new: t(a),
         },
-        _ => CommitOperation::CounterAdd {
+        3 => CommitOperation::CounterAdd {
             graph: None,
             subject: t(a),
             predicate: t(b),
             delta: fields.delta,
         },
+        4 => CommitOperation::DeleteInstance {
+            graph,
+            instance: t(d),
+        },
+        _ => CommitOperation::RetractInstance {
+            graph,
+            instance: t(d),
+        },
     }
+}
+
+/// The warnings `fields` name, at most [`WARNINGS_MAX`]: each diagnostic's language 1 to 4, its location within a u32,
+/// its message at most [`WARNING_MESSAGE_MAX`] bytes, cut on a character boundary, and its source 0 unless `sourced`.
+fn warnings(fields: &[WarningFields], sourced: bool) -> Vec<Warning> {
+    fields
+        .iter()
+        .take(WARNINGS_MAX)
+        .map(|w| {
+            let diagnostic = ((1 + u32::from(w.language % 4)) << 16) | u32::from(w.number);
+            let mut end = w.message.len().min(WARNING_MESSAGE_MAX);
+            while !w.message.is_char_boundary(end) {
+                end -= 1;
+            }
+            Warning::new(diagnostic, &w.message[..end])
+                .with_source(if sourced { w.source } else { 0 })
+                .with_location(w.offset..w.offset.saturating_add(w.length))
+        })
+        .collect()
+}
+
+/// The entries `fields` name, each kind 1 to 20, in the order of a catalog version's entries, by kind, then by name as
+/// UTF-8 bytes, each kind and name once (`PROTOCOL.md` §8.3).
+fn describe_entries(fields: &[EntryFields]) -> Vec<DescribeEntry> {
+    let mut entries: Vec<DescribeEntry> = fields
+        .iter()
+        .filter_map(|f| {
+            let kind = EntryKind::from_number(1 + f.kind % 20)?;
+            Some(match kind {
+                EntryKind::Source => DescribeEntry::new(kind, &f.name, f.text.clone().into_bytes()),
+                EntryKind::RetiredName => {
+                    let (item, renamed, ref current, version, until) = f.retired;
+                    let item = RetiredItem::from_number(1 + item % 5)?;
+                    let retired = if renamed {
+                        RetiredName::renamed(item, current, version.max(1)).until(until)
+                    } else {
+                        RetiredName::retired(item, version.max(1))
+                    };
+                    DescribeEntry::retired(&f.name, retired)
+                }
+                _ => DescribeEntry::new(kind, &f.name, f.bytes.clone()),
+            })
+        })
+        .collect();
+    entries.sort_by(|a, b| (a.kind().number(), a.name().as_bytes()).cmp(&(b.kind().number(), b.name().as_bytes())));
+    entries.dedup_by(|a, b| (a.kind(), a.name()) == (b.kind(), b.name()));
+    entries
+}
+
+/// The frames `frames` cut an answer into within `max_frame`: each within it, the last alone flagged `LAST`, each taken
+/// by `push`.
+fn continues<E: Debug>(frames: &[Vec<u8>], max_frame: usize, mut push: impl FnMut(&FrameView<'_>) -> Result<(), E>) {
+    assert!(!frames.is_empty(), "an answer takes a frame");
+    for (i, frame) in frames.iter().enumerate() {
+        assert!(frame.len() <= max_frame, "a frame within max_frame");
+        let view = FrameView::validate(frame, CLUSTER, MAX_FRAME_SIZE).expect("a continuation frame validates");
+        assert_eq!(
+            view.header().flags() & FLAG_LAST != 0,
+            i + 1 == frames.len(),
+            "the last frame alone is flagged LAST"
+        );
+        push(&view).expect("a continuation frame is taken");
+    }
+}
+
+/// The term a query cell's value `n` picks: an IRI, a blank node, a bfloat16vector of 1 to 3 elements, a measure in
+/// metres or a precision (`PROTOCOL.md` sections 10.1, 10.5); `None` for an encoding refused.
+fn stage_6_term(n: u16) -> Option<ResultTerm> {
+    Some(match n % 5 {
+        0 => ResultTerm::iri(format!("http://ex.org/{n}")),
+        1 => ResultTerm::blank_node(format!(
+            "http://ex.org/.well-known/genid/{n:06x}-0123456789abcdef0123456789"
+        )),
+        2 => {
+            let dimension = 1 + n % 3;
+            let mut bytes = vec![0x41];
+            bytes.extend_from_slice(&dimension.to_le_bytes());
+            bytes.extend((0..2 * dimension).map(|i| i as u8));
+            ResultTerm::new(EncodedTerm::from_bytes(&bytes).ok()?)
+        }
+        3 => {
+            let mut bytes = vec![0x50];
+            bytes.extend_from_slice(&f64::from(n).to_be_bytes());
+            bytes.extend_from_slice(&[1, b'm']);
+            ResultTerm::new(EncodedTerm::from_bytes(&bytes).ok()?)
+        }
+        _ => ResultTerm::new(EncodedTerm::from_bytes(&[0x51, 1 + (n % 12) as u8]).ok()?),
+    })
 }
 
 /// `session` and `request` as a command header takes them: request 0 with no session, at least 1 with one.
@@ -874,12 +1045,11 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             // The unbound slots and the reifier column: 1 to 5 columns (PROTOCOL.md 9.1).
             let columns = 1 + u32::from(columns % 5);
             let mut batch = ResultBatch::new(columns);
-            let reifier = columns as usize - 1;
             for row in rows {
                 let cells: Vec<Option<ResultTerm>> = (0..columns as usize)
                     .map(|c| {
                         row.get(c).copied().flatten().map(|n| {
-                            if n % 2 == 1 || c == reifier {
+                            if n % 2 == 1 {
                                 ResultTerm::blank_node(format!(
                                     "http://ex.org/.well-known/genid/{n:06x}-0123456789abcdef0123456789"
                                 ))
@@ -945,13 +1115,14 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             session,
             request,
             version,
+            catalog,
         } => {
             let (session, request) = session_of(*session, *request);
             let command = match kind % 4 {
                 0 => DropCommand::predicate(*tenant, target.clone()),
                 1 => DropCommand::graph(*tenant, target.clone()),
-                2 => DropCommand::tenant_data(*tenant),
-                _ => DropCommand::whole_tenant(*tenant),
+                2 => DropCommand::tenant_data(*tenant).with_catalog(*catalog),
+                _ => DropCommand::whole_tenant(*tenant).with_catalog(*catalog),
             }
             .with_session(session, request)
             .with_commit_version(*version);
@@ -1108,17 +1279,13 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
         }
         Body::Query {
             transaction,
-            sparql,
+            language,
             limit,
             text,
             parameters,
             resume,
         } => {
-            let language = if *sparql {
-                Language::Sparql
-            } else {
-                Language::Gql
-            };
+            let language = Language::from_number(1 + language % 3)?;
             let built = parameters.iter().fold(
                 Query::new(*transaction, language, text.clone(), terms)
                     .with_limit(*limit)
@@ -1138,6 +1305,8 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             version,
             sources,
             answered,
+            staged,
+            warnings: warning_fields,
         } => {
             // At least one source, each name within its bound.
             if sources.is_empty() || sources.iter().any(|(name, _)| name.len() > 255) {
@@ -1146,7 +1315,14 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             let request = Install::new(*tenant, *version, sources.clone());
             let built = match answered {
                 Some((installed, epoch, report)) => {
-                    request.installed((*installed).max(1), 1 + epoch % MAX_EPOCH, report.clone())
+                    let reply = request
+                        .installed((*installed).max(1), 1 + epoch % MAX_EPOCH, report.clone())
+                        .with_warnings(warnings(warning_fields, true));
+                    // A migration report comes with a staged namespace alone.
+                    match staged {
+                        (0, _) => reply,
+                        (staged, report) => reply.with_staged(*staged).with_migration_report(report.clone()),
+                    }
                 }
                 None => request,
             };
@@ -1158,6 +1334,206 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                         InstallView::from_frame(f).unwrap().to_body().unwrap(),
                         built
                     )
+                }),
+            )
+        }
+        Body::PrepareText {
+            language,
+            text,
+            parameters,
+            answered,
+            warnings: warning_fields,
+        } => {
+            let language = Language::from_number(1 + language % 3)?;
+            let column = |byte: u8| ColumnType::from_number(1 + byte % 13);
+            let names = parameters.iter().map(|(name, _)| name.clone()).collect();
+            let types = parameters.iter().map(|(_, t)| column(*t)).collect::<Option<_>>()?;
+            let request = Prepare::of_text(0, language, text.clone(), terms, names, types);
+            // A reply names its statement, at least 1, and alone carries warnings (PROTOCOL.md 8.1).
+            let prepare = match answered {
+                Some((statement, schema, projections)) => {
+                    let projections = projections
+                        .iter()
+                        .map(|(name, t)| Some((name.clone(), column(*t)?)))
+                        .collect::<Option<_>>()?;
+                    request
+                        .answered((*statement).max(1), *schema, projections)
+                        .with_warnings(warnings(warning_fields, false))
+                }
+                None => request,
+            };
+            let frame = prepare.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(
+                        PrepareView::from_frame(f).unwrap().to_body().unwrap(),
+                        prepare
+                    )
+                }),
+            )
+        }
+        Body::QueryResult {
+            names,
+            rows,
+            warnings: warning_fields,
+        } => {
+            // One to four projections, each named (PROTOCOL.md 9.1), each cell's term as `stage_6_term` picks it.
+            let columns = 1 + names.len() % 4;
+            let column_names = (0..columns)
+                .map(|c| names.get(c).cloned().unwrap_or_default())
+                .collect();
+            let mut batch = ResultBatch::new(columns as u32)
+                .with_column_names(column_names)
+                .with_warnings(warnings(warning_fields, false));
+            for row in rows {
+                // A cell names its term, or none for null; a term its encoding refuses ends the input.
+                let cells = (0..columns)
+                    .map(|c| match row.get(c).copied().flatten() {
+                        None => Some(None),
+                        Some(n) => stage_6_term(n).map(Some),
+                    })
+                    .collect::<Option<Vec<Option<ResultTerm>>>>()?;
+                let refs: Vec<Option<&ResultTerm>> = cells.iter().map(Option::as_ref).collect();
+                batch.push_query_row(&refs).ok()?;
+            }
+            let frame = batch.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(
+                        ResultView::from_frame(f).unwrap().to_body().unwrap(),
+                        batch
+                    )
+                }),
+            )
+        }
+        Body::Describe {
+            tenant,
+            read_version,
+            entries,
+            max_frame,
+        } => {
+            let built = Describe::new(*tenant, *read_version).with_entries(describe_entries(entries));
+            let max_frame = 1024 + usize::from(*max_frame);
+            if let Ok(frames) = built.frames(header.clone(), max_frame) {
+                let mut answer = DescribeFrames::new();
+                continues(&frames, max_frame, |f| answer.push(f));
+                assert!(answer.is_last());
+                assert_eq!(
+                    answer.view().unwrap().to_body().unwrap(),
+                    built,
+                    "a Describe's frames take it back"
+                );
+            }
+            let frame = built.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(
+                        DescribeView::from_frame(f).unwrap().to_body().unwrap(),
+                        built
+                    )
+                }),
+            )
+        }
+        Body::Purge {
+            tenant,
+            iris,
+            purged,
+        } => {
+            // 1 to 10,000 IRIs, each once; a reply's epoch and at most as many removed (PROTOCOL.md 8.5).
+            let mut unique: Vec<String> = Vec::new();
+            for iri in iris.iter().take(PURGE_IRIS_MAX) {
+                if !unique.contains(iri) {
+                    unique.push(iri.clone());
+                }
+            }
+            if unique.is_empty() {
+                return None;
+            }
+            let count = unique.len() as u32;
+            let request = Purge::new(*tenant, unique);
+            let built = match purged {
+                Some((epoch, removed)) => request.purged(1 + epoch % MAX_EPOCH, removed % (count + 1)),
+                None => request,
+            };
+            let frame = built.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(PurgeView::from_frame(f).unwrap().to_body().unwrap(), built)
+                }),
+            )
+        }
+        Body::Migrate {
+            tenant,
+            staged,
+            action,
+            answered,
+        } => {
+            let request = Migrate::new(
+                *tenant,
+                (*staged).max(1),
+                MigrateAction::from_number(1 + action % 5)?,
+            );
+            // A reply's state 1 to 9; a refusal, UGS2201 to UGS2299, with its message for a failed run alone
+            // (PROTOCOL.md 8.6).
+            let built = match answered {
+                Some((state, epoch, report, refusal)) => {
+                    let state = MigrateState::from_number(1 + state % 9)?;
+                    let reply = request.answered(state, epoch % (MAX_EPOCH + 1), report.clone());
+                    match refusal {
+                        Some((number, message)) if state == MigrateState::Failed => {
+                            reply.refused(2_201 + u32::from(number % 99), message.clone())
+                        }
+                        _ => reply,
+                    }
+                }
+                None => request,
+            };
+            let frame = built.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(MigrateView::from_frame(f).unwrap().to_body().unwrap(), built)
+                }),
+            )
+        }
+        Body::Catalog {
+            tenant,
+            version,
+            answered,
+            max_frame,
+        } => {
+            // A request names the version, 0 for the current one; a reply a version of at least 1, its epoch, its
+            // position, at least 1, and its bytes (PROTOCOL.md 13.7).
+            let built = match answered {
+                Some((epoch, position, bytes)) => Catalog::reply(
+                    *tenant,
+                    (*version).max(1),
+                    epoch % (MAX_EPOCH + 1),
+                    (*position).max(1),
+                    bytes.clone(),
+                ),
+                None => Catalog::request(*tenant, *version),
+            };
+            let max_frame = 1024 + usize::from(*max_frame);
+            if let Ok(frames) = built.frames(header.clone(), max_frame) {
+                let mut answer = CatalogFrames::new();
+                continues(&frames, max_frame, |f| answer.push(f));
+                assert!(answer.is_last());
+                assert_eq!(
+                    answer.view().unwrap().to_body().unwrap(),
+                    built,
+                    "a Catalog's frames take it back"
+                );
+            }
+            let frame = built.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(CatalogView::from_frame(f).unwrap().to_body().unwrap(), built)
                 }),
             )
         }
@@ -1297,6 +1673,24 @@ fuzz_target!(|input: Input| {
             })
             .and_then(|v| v.to_body())
             .map(|body| reads_back(body, &mutated, |f| EntriesView::from_frame(f)?.to_body())),
+        Command::Install => InstallView::from_frame(&frame)
+            .and_then(|v| v.to_body())
+            .map(drop),
+        Command::Query => QueryView::from_frame(&frame)
+            .and_then(|v| v.to_body())
+            .map(drop),
+        Command::Describe => DescribeView::from_frame(&frame)
+            .and_then(|v| v.to_body())
+            .map(drop),
+        Command::Purge => PurgeView::from_frame(&frame)
+            .and_then(|v| v.to_body())
+            .map(|body| reads_back(body, &mutated, |f| PurgeView::from_frame(f)?.to_body())),
+        Command::Migrate => MigrateView::from_frame(&frame)
+            .and_then(|v| v.to_body())
+            .map(|body| reads_back(body, &mutated, |f| MigrateView::from_frame(f)?.to_body())),
+        Command::Catalog => CatalogView::from_frame(&frame)
+            .and_then(|v| v.to_body())
+            .map(|body| reads_back(body, &mutated, |f| CatalogView::from_frame(f)?.to_body())),
         _ => Ok(()),
     };
 });

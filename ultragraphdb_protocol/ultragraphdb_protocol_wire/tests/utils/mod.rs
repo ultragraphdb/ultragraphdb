@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod body_tests;
+#[cfg(test)]
 mod checksum_tests;
 #[cfg(test)]
 mod constants_tests;
@@ -15,3 +17,5 @@ pub mod golden_bodies;
 pub mod golden_roles;
 #[cfg(test)]
 pub mod term_records;
+#[cfg(test)]
+pub mod ugs_frames;

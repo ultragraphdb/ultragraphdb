@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::Sections;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -14,10 +15,11 @@ use crate::types::pattern_slot::PatternSlot;
 use crate::types::prepare::Prepare;
 use crate::types::prepare_view::PrepareView;
 use crate::types::quad_pattern::QuadPattern;
-use crate::types::string_list::StringList;
 use crate::types::term_table_view::TermTableView;
-use crate::utils::sections::Sections;
-use crate::utils::sections::{expect_command, text};
+use crate::types::warnings::Warnings;
+use crate::utils::body::{read_sections, read_string_list, text};
+use crate::utils::command_header::expect_command;
+use crate::utils::constants::WARNING_SIZE;
 
 /// The column types `bytes` hold, each 1 or 2 for a pattern and 1 to 13 for a text, refused as
 /// [`ProtocolError::field_value`] (`"column type"`).
@@ -117,7 +119,7 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
         let number = header.u8_at(24);
         let language = Language::from_number(number)
             .ok_or_else(|| ProtocolError::field_value(command, "language", number.into()))?;
-        let sections = Sections::<7>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<10>(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
             (1, 2),
@@ -142,7 +144,7 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
         } else {
             (None, text(command, 0, sections.get(0))?)
         };
-        let names = StringList::read(command, (5, 6), sections.get(5), sections.get(6))?;
+        let names = read_string_list(command, (5, 6), sections.get(5), sections.get(6))?;
         let parameter_types = column_types(command, language, sections.get(3))?;
         let result_types = column_types(command, language, sections.get(4))?;
         match &pattern {
@@ -156,6 +158,7 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
                 result_types.len(),
             )?,
         }
+        let warnings = read_warnings(command, pattern.is_some(), &sections)?;
         Ok(Self {
             tenant: header.u64_at(0),
             statement: header.u64_at(8),
@@ -167,6 +170,7 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
             parameter_types,
             result_types,
             names,
+            warnings,
         })
     }
 
@@ -193,6 +197,32 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
             parameters,
             self.parameter_types.clone(),
         )
-        .answered(self.statement, self.schema, projections))
+        .answered(self.statement, self.schema, projections)
+        .with_warnings(self.warnings.to_warnings()))
     }
+}
+
+/// The warnings of sections 7 to 9 (§4.9), empty for a pattern ([`ProtocolError::count_mismatch`] `"warnings"`).
+fn read_warnings<'a>(
+    command: u16,
+    pattern: bool,
+    sections: &Sections<'a, 10>,
+) -> Result<Warnings<'a>, ProtocolError> {
+    if pattern && let Some(held) = (7..10).map(|i| sections.get(i)).find(|s| !s.is_empty()) {
+        return Err(ProtocolError::count_mismatch(
+            command,
+            "warnings",
+            // The warnings a section holds, at least one where only the messages do; lossless: a `usize` is at most
+            // 64 bits.
+            held.len().div_ceil(WARNING_SIZE).max(1) as u64,
+            0,
+        ));
+    }
+    Warnings::read(
+        command,
+        (7, 8, 9),
+        sections.offset(7),
+        (sections.get(7), sections.get(8), sections.get(9)),
+        false,
+    )
 }

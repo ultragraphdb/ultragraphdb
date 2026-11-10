@@ -10,7 +10,8 @@ use crate::types::challenge::Challenge;
 use crate::types::challenge_view::ChallengeView;
 use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
-use crate::utils::sections::{Sections, expect_command, text};
+use crate::utils::body::{read_sections, text};
+use crate::utils::command_header::expect_command;
 
 /// The fewest iterations a reply names.
 const ITERATIONS_MIN: u32 = 4_096;
@@ -36,7 +37,7 @@ impl<'a> BodyView<'a> for ChallengeView<'a> {
                 iterations.into(),
             ));
         }
-        let sections = Sections::<2>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<2>(command, frame.body(), 0)?;
         let name = text(command, 0, sections.get(0))?;
         let salt = sections.get(1);
         match (request, salt.is_empty()) {

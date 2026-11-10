@@ -3,15 +3,15 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{StringWriter, as_u32, u32_bytes, write_sections};
+
 use crate::traits::body_builder::BodyBuilder;
 use crate::types::command::Command;
 use crate::types::result_batch::ResultBatch;
+use crate::types::warnings::warning_sections;
 use crate::utils::command_header::command_header;
 use crate::utils::constants::ABSENT;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
-use crate::utils::sections::write_sections;
-use crate::utils::sections::{as_u32, u32_bytes};
-use crate::utils::string_writer::StringWriter;
 
 impl BodyBuilder for ResultBatch {
     const COMMAND: Command = Command::Result;
@@ -48,6 +48,7 @@ impl BodyBuilder for ResultBatch {
             let _index: u32 = names.push(name);
         }
         let (name_ends, name_text) = names.sections();
+        let [warnings, message_ends, message_text] = warning_sections(self.warnings());
         write_sections(
             &[],
             &[
@@ -60,6 +61,9 @@ impl BodyBuilder for ResultBatch {
                 self.resume(),
                 &name_ends,
                 &name_text,
+                &warnings,
+                &message_ends,
+                &message_text,
             ],
         )
     }

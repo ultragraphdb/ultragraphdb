@@ -12,8 +12,8 @@ use crate::types::quad_pattern::QuadPattern;
 use crate::types::read::Read;
 use crate::types::read_view::ReadView;
 use crate::types::term_table_view::TermTableView;
-use crate::utils::sections::Sections;
-use crate::utils::sections::expect_command;
+use crate::utils::body::read_sections;
+use crate::utils::command_header::expect_command;
 
 impl<'a> BodyView<'a> for ReadView<'a> {
     const COMMAND: Command = Command::Read;
@@ -24,7 +24,7 @@ impl<'a> BodyView<'a> for ReadView<'a> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 12)])?;
-        let sections = Sections::<4>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<4>(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
             (1, 2),

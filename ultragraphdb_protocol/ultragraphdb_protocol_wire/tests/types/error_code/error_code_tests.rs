@@ -9,7 +9,7 @@ use ultragraphdb_protocol_wire::{ErrorCode, RefusedRequest, RunsAgain};
 fn test_codes_keep_their_numbers() {
     // The table of ErrorCode's docs.
     let numbers: Vec<u16> = ErrorCode::ALL.iter().map(|c| c.number()).collect();
-    assert_eq!(numbers, (1..=29).collect::<Vec<u16>>());
+    assert_eq!(numbers, (1..=31).collect::<Vec<u16>>());
     assert_eq!(ErrorCode::Protocol.number(), 1);
     assert_eq!(ErrorCode::Conflict.number(), 2);
     assert_eq!(ErrorCode::OperationFailed.number(), 8);
@@ -29,11 +29,16 @@ fn test_codes_keep_their_numbers() {
     assert_eq!(ErrorCode::LevelRefused.number(), 25);
     assert_eq!(ErrorCode::WrongPartition.number(), 26);
     assert_eq!(ErrorCode::AheadOfWatermark.number(), 27);
+    // PROTOCOL.md §9.4: stage 6's codes 30, EntityDeleted, and 31, Fenced.
+    assert_eq!(ErrorCode::EntityDeleted.number(), 30);
+    assert_eq!(ErrorCode::Fenced.number(), 31);
     for code in ErrorCode::ALL {
         assert_eq!(ErrorCode::from_number(code.number()), Some(code));
     }
     assert_eq!(ErrorCode::from_number(0), None);
-    assert_eq!(ErrorCode::from_number(30), None);
+    assert_eq!(ErrorCode::from_number(30), Some(ErrorCode::EntityDeleted));
+    assert_eq!(ErrorCode::from_number(31), Some(ErrorCode::Fenced));
+    assert_eq!(ErrorCode::from_number(32), None);
     assert_eq!(ErrorCode::from_number(u16::MAX), None);
 }
 
@@ -53,7 +58,9 @@ fn test_the_retryable_codes_are_the_tables() {
             ErrorCode::SessionBusy,
             ErrorCode::NotCommitted,
             ErrorCode::TimedOut,
-            ErrorCode::WrongPartition
+            ErrorCode::WrongPartition,
+            // PROTOCOL.md §9.4: code 31 is retryable after a delay; code 30 is not.
+            ErrorCode::Fenced
         ]
     );
 }
@@ -91,6 +98,7 @@ fn test_what_runs_again_is_the_tables() {
                 assert_eq!(runs, Some(RunsAgain::Transaction), "{code:?} {kind:?}");
             } else if ![
                 ErrorCode::Busy,
+                ErrorCode::Fenced,
                 ErrorCode::SessionBusy,
                 ErrorCode::TimedOut,
                 ErrorCode::Unavailable,
@@ -138,4 +146,25 @@ fn test_what_runs_again_is_the_tables() {
         ErrorCode::Unavailable.runs_again(RefusedRequest::Other),
         None
     );
+}
+
+/// PROTOCOL.md §9.4: code 31 runs again as code 5 does, after a delay: a one-frame write the request, every other the
+/// transaction; code 30 runs nothing again, a transaction resolving the IRI anew only when the client runs it.
+#[test]
+fn test_fenced_runs_again_as_busy_and_entity_deleted_not_at_all() {
+    for kind in [
+        RefusedRequest::Read,
+        RefusedRequest::Commit,
+        RefusedRequest::OneFrame,
+        RefusedRequest::Other,
+    ] {
+        assert_eq!(
+            ErrorCode::Fenced.runs_again(kind),
+            ErrorCode::Busy.runs_again(kind),
+            "{kind:?}"
+        );
+        assert_eq!(ErrorCode::EntityDeleted.runs_again(kind), None, "{kind:?}");
+    }
+    assert!(ErrorCode::Fenced.retryable());
+    assert!(!ErrorCode::EntityDeleted.retryable());
 }

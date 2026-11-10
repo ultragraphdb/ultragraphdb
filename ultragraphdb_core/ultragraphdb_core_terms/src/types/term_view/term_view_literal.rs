@@ -11,6 +11,7 @@ use crate::errors::term_error::TermError;
 use crate::types::datatype::Datatype;
 use crate::types::hash128::Hash128;
 use crate::types::known_datatype::{FLOAT32_VECTOR, KnownDatatype};
+use crate::types::tagged_datatype::TaggedDatatype;
 use crate::types::term_view::TermView;
 use crate::types::text::Text;
 use crate::utils::vector::format_vector;
@@ -18,7 +19,9 @@ use crate::utils::vector::format_vector;
 impl TermView<'_> {
     /// The literal this view holds, exactly as it was encoded: `datatype_iri` gives the IRI of a datatype named by
     /// its system ID, and `string` the string a hash names, a datatype's IRI a Result names by hash among them.
-    /// Refused for an ID, which names an IRI or a blank node, and for a datatype by hash whose string is no IRI.
+    /// Refused for an ID, which names an IRI or a blank node, for a datatype by hash whose string is no IRI, and, as
+    /// [`TermError::unknown_datatype`] naming its code, for a value of codes 34 to 36 held by value, whose lexical
+    /// form this mapping does not write.
     pub fn to_literal<E: From<TermError>>(
         &self,
         datatype_iri: impl FnOnce(SystemId) -> Result<NamedNode, E>,
@@ -66,6 +69,7 @@ impl TermView<'_> {
                 let lexical = text(lexical)?;
                 match datatype {
                     Datatype::Known(k) => typed(lexical, known_iri(*k)),
+                    Datatype::Tagged(t) => typed(lexical, NamedNodeRef::new_unchecked(t.iri())),
                     Datatype::Id(id) => Literal::new_typed_literal(lexical, datatype_iri(*id)?),
                     Datatype::Hashed(hash) => {
                         let iri = text(&Text::Hashed(*hash))?;
@@ -83,10 +87,18 @@ impl TermView<'_> {
                 format_vector(elements.iter()),
                 NamedNodeRef::new_unchecked(FLOAT32_VECTOR),
             ),
+            TermView::Bfloat16Vector(_) => return Err(by_value(TaggedDatatype::Bfloat16Vector)),
+            TermView::Measure { .. } => return Err(by_value(TaggedDatatype::Measure)),
+            TermView::Precision(_) => return Err(by_value(TaggedDatatype::Precision)),
         })
     }
 }
 
 fn known_iri(datatype: KnownDatatype) -> NamedNodeRef<'static> {
     NamedNodeRef::new_unchecked(datatype.iri())
+}
+
+/// The refusal of a value of `datatype` held by value, whose lexical form [`TermView::to_literal`] does not write.
+fn by_value<E: From<TermError>>(datatype: TaggedDatatype) -> E {
+    TermError::unknown_datatype(datatype.code()).into()
 }

@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{StringList, as_u32};
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -12,8 +13,8 @@ use crate::types::member::Member;
 use crate::types::members::Members;
 use crate::types::members_view::MembersView;
 use crate::types::role_kind::RoleKind;
-use crate::types::string_list::StringList;
-use crate::utils::sections::{Sections, as_u32, expect_command};
+use crate::utils::body::{read_sections, read_string_list};
+use crate::utils::command_header::expect_command;
 use crate::utils::whole_records::whole_records;
 
 impl<'a> BodyView<'a> for MembersView<'a> {
@@ -25,8 +26,8 @@ impl<'a> BodyView<'a> for MembersView<'a> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[])?;
-        let sections = Sections::<3>::read(command, frame.body(), 0)?;
-        let addresses = StringList::read(command, (1, 2), sections.get(1), sections.get(2))?;
+        let sections = read_sections::<3>(command, frame.body(), 0)?;
+        let addresses = read_string_list(command, (1, 2), sections.get(1), sections.get(2))?;
         let members = sections.get(0);
         let start = sections.offset(0);
         let limit = as_u32(addresses.len());

@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::direction::Direction;
@@ -12,7 +13,6 @@ use crate::types::request_term::RequestTerm;
 use crate::types::request_term_view::RequestTermView;
 use crate::types::term_table_view::TermTableView;
 use crate::utils::constants::MAX_TERM_DEPTH;
-use crate::utils::sections::as_u32;
 
 /// The size of a term record.
 pub(crate) const TERM_RECORD_SIZE: usize = 24;

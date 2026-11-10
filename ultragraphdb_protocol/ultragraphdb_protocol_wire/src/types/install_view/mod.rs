@@ -5,7 +5,9 @@
 
 mod install_view_body_view;
 
-use crate::types::string_list::StringList;
+use ultragraphdb_core_body::StringList;
+
+use crate::types::warnings::Warnings;
 
 /// The body of a received Install frame, read in place; see [`crate::Install`] for its layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,6 +17,9 @@ pub struct InstallView<'a> {
     epoch: u64,
     sources: StringList<'a>,
     report: &'a str,
+    staged: u64,
+    migration_report: &'a str,
+    warnings: Warnings<'a>,
 }
 
 impl<'a> InstallView<'a> {
@@ -53,5 +58,23 @@ impl<'a> InstallView<'a> {
     #[must_use]
     pub fn report(&self) -> &'a str {
         self.report
+    }
+
+    /// In a reply to sources holding a migration, the staged namespace's identifier; else 0, and 0 in a request.
+    #[must_use]
+    pub fn staged(&self) -> u64 {
+        self.staged
+    }
+
+    /// The migration report, borrowed from the frame; empty in a request and without a migration.
+    #[must_use]
+    pub fn migration_report(&self) -> &'a str {
+        self.migration_report
+    }
+
+    /// The compilation's warnings, read in place; empty in a request.
+    #[must_use]
+    pub fn warnings(&self) -> Warnings<'a> {
+        self.warnings
     }
 }

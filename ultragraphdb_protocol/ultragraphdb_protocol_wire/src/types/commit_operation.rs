@@ -58,4 +58,21 @@ pub enum CommitOperation {
         /// The amount added.
         delta: i64,
     },
+    /// The instance `instance` names deleted at commit: an entity with the relation instances its `@on_delete`
+    /// actions reach in the partition, and its tombstone; a retraction on an instance of a `@bitemporal` type.
+    DeleteInstance {
+        /// The graph's term index, `None` for the default graph.
+        graph: Option<u32>,
+        /// The instance's IRI, a term index: an entity's, a node-encoded relation instance's, or an edge-encoded
+        /// instance's reifier's.
+        instance: u32,
+    },
+    /// The instance `instance` names retracted at commit: its `asserted` closed and `@on_retract` applied to the
+    /// relation instances naming it in the partition.
+    RetractInstance {
+        /// The graph's term index, `None` for the default graph.
+        graph: Option<u32>,
+        /// The instance's IRI, a term index.
+        instance: u32,
+    },
 }

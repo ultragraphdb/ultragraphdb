@@ -1135,8 +1135,10 @@ each of its nine sections the concatenation, in frame order, of that section's b
 Order above once, on that body; a frame breaking the first's command header is refused as `FieldValue` (`"describe"`). A
 frame splits a section of records or u32s only between whole ones and a text only on a character boundary, so each
 frame's sections hold whole units (`SectionLength`) and UTF-8 (`NotUtf8`). Describe frames spend credit as Result frames
-do, the stream starting with the Welcome's `initial_credit` (section 11.3). A catalog version is at most
-`catalog_bytes_max` bytes (section 11.9), which bounds the answer.
+do, the stream starting with the Welcome's `initial_credit` (section 11.3). An answer's sections hold at most
+`catalog_bytes_max` bytes together (section 11.9), whatever the tenant holds: the frontend refuses a larger answer with
+code 6 (TooLarge), `detail` the bound, and a client refuses a stream passing it as `FieldValue` (`"describe"`) and reads
+no further frame of it, so assembling an answer is bounded on both sides.
 
 ### 8.4 Install (23)
 
@@ -1274,8 +1276,8 @@ transition it asks for, a state read at once, and the client follows the run by 
 
 Order: unused bytes 18–19 and 32–127 zero; `staged`; `action`; `state`, 0 in a request and 1 to 9 in a reply
 (`FieldValue` `"state"`); `refusal`, 0 unless `state` is 9 and then 0 or 2201 to 2299 (`FieldValue` `"refusal"`);
-`epoch` at most 2⁴² − 1 (`FieldValue` `"epoch"`); sections; in a request, both sections empty (`CountMismatch`
-`"migrate"`); sections 0 and 1 UTF-8 (`NotUtf8`, the section); section 0 empty when `refusal` is 0 (`CountMismatch`
+`epoch`, 0 in a request and at most 2⁴² − 1 in a reply (`FieldValue` `"epoch"`); sections; in a request, both
+sections empty (`CountMismatch` `"migrate"`); sections 0 and 1 UTF-8 (`NotUtf8`, the section); section 0 empty when `refusal` is 0 (`CountMismatch`
 `"message"`).
 
 An action the run's state does not take is refused with code 7 (Refused), `detail` 0, the message naming the state and
@@ -1925,7 +1927,7 @@ retraction, refuse the commit with code 7 and the schema's refusal number where 
   order (section 8.3).
   It covers the tenant's whole catalog, every namespace installed in it, so it changes with each catalog version of the
   tenant and with what the principal may read, and not with the data or a recorded default entry (section 11.13). For the golden `describe_reply.frame`, whose predicates `knows` and
-  `name` come in their IRIs' order and which holds no entry, it is `0x5000B62149F4DB68`.
+  `name` come in their IRIs' order and which holds no entry, it is `0x5FC0D2C82332781C`.
 
 ### 11.8 Resume keys
 
@@ -2907,7 +2909,8 @@ A tenant's catalog version from the metadata group: its number, the epoch it app
 `epoch` and `position` 0 and section 0 empty. A version's bytes, at most `catalog_bytes_max` (section 11.9), that do not
 fit one frame within the requester's `max_frame` continue in further Catalog frames on the stream, each with the first's
 command header, the last alone flagged `LAST`; the requester reads section 0 as the concatenation of every frame's, in
-order, and refuses a frame breaking the first's command header as `FieldValue` (`"catalog"`). The frames spend credit as
+order, and refuses a frame breaking the first's command header as `FieldValue` (`"catalog"`), and a stream whose
+section 0 passes `catalog_bytes_max` likewise, reading no further frame of it. The frames spend credit as
 Result frames do (section 11.3). A storage process reads with it each version an EpochClose announces
 before it takes the close as delivered, and on recovery each version its partitions' untrimmed logs name, before they
 replay (section 11.12).

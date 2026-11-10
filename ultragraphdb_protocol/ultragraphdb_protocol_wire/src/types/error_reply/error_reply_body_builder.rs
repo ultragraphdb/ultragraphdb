@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{align8, write_sections};
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_builder::BodyBuilder;
@@ -17,7 +18,6 @@ use crate::utils::command_header::command_header;
 use crate::utils::constants::{
     COMMAND_HEADER_SIZE, DETAIL_VALUE_CUT, HEADER_SIZE, LEAF_SIZE, MAX_FRAME_FLOOR,
 };
-use crate::utils::sections::{align8, write_sections};
 
 impl BodyBuilder for ErrorReply {
     const COMMAND: Command = Command::Error;

@@ -10,7 +10,7 @@ use ultragraphdb_core_ids::{SessionToken, Version};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
     Action, Begin, BeginView, BodyBuilder, BodyView, Command, DescribeView, ErrorCode, ErrorReply,
-    FrameView, InstallView, QueryView, ReadLevel, Register,
+    FrameView, InstallView, MigrateView, PurgeView, QueryView, ReadLevel, Register,
 };
 
 use super::{ClientSession, now};
@@ -34,7 +34,7 @@ pub(super) fn unknown_tenant(tenant: u64) -> ErrorReply {
 }
 
 /// A command the frontend does not serve in this stage: code 7, naming the command and the stage (`PROTOCOL.md` §11.2).
-fn later_stage(command: &str, stage: u32) -> ErrorReply {
+fn later_stage(command: &str, stage: &str) -> ErrorReply {
     ErrorReply::new(
         ErrorCode::Refused,
         format!("{command} is served from stage {stage}"),
@@ -111,6 +111,12 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         }
         if command == Command::Install {
             return self.install(&view).await;
+        }
+        if command == Command::Purge {
+            return self.purge(&view).await;
+        }
+        if command == Command::Migrate {
+            return self.migrate(&view).await;
         }
         if command == Command::Drop {
             return self.drop_request(stream, &view, frame.bytes()).await;
@@ -260,7 +266,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         {
             return Err(refusal);
         }
-        self.push_error(stream, &later_stage("a Query", 7));
+        self.push_error(stream, &later_stage("a Query", "7"));
         Ok(Answer::Open)
     }
 
@@ -268,7 +274,22 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     async fn install(&mut self, view: &FrameView<'_>) -> Result<Answer, ErrorReply> {
         let install = InstallView::from_frame(view).map_err(|rule| protocol(&rule))?;
         let _facts = self.gate(Action::Declare, install.tenant()).await?;
-        Err(later_stage("an Install", 6))
+        Err(later_stage("an Install", "6"))
+    }
+
+    /// A Purge: the gate, `purge` on the tenant, the tenant, and the stage that serves it, 8 (`PROTOCOL.md` §8.5,
+    /// §11.2, §11.10).
+    async fn purge(&mut self, view: &FrameView<'_>) -> Result<Answer, ErrorReply> {
+        let purge = PurgeView::from_frame(view).map_err(|rule| protocol(&rule))?;
+        let _facts = self.gate(Action::Purge, purge.tenant()).await?;
+        Err(later_stage("a Purge", "8"))
+    }
+
+    /// A Migrate: the gate, the tenant, and the stage that serves it, 9.5 (`PROTOCOL.md` §8.6, §11.2).
+    async fn migrate(&mut self, view: &FrameView<'_>) -> Result<Answer, ErrorReply> {
+        let migrate = MigrateView::from_frame(view).map_err(|rule| protocol(&rule))?;
+        let _facts = self.gate(Action::Declare, migrate.tenant()).await?;
+        Err(later_stage("a Migrate", "9.5"))
     }
 
     /// What the metadata group says of a tenant, answered within the client's `max_frame`.

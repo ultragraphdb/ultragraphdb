@@ -5,14 +5,13 @@
 
 mod query_view_body_view;
 
+use ultragraphdb_core_body::{StringList, u32_at};
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::command::Command;
 use crate::types::language::Language;
-use crate::types::string_list::StringList;
 use crate::types::term_table_view::TermTableView;
 use crate::utils::constants::QUERY_TEXT_RESERVE;
-use crate::utils::sections::u32_at;
 
 /// The body of a received Query frame, read in place; see [`crate::Query`] for its layout.
 #[derive(Debug, Clone, PartialEq, Eq)]

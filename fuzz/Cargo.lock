@@ -1615,6 +1615,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_core_body"
+version = "0.1.0"
+
+[[package]]
+name = "ultragraphdb_core_body_fuzz"
+version = "0.0.0"
+dependencies = [
+ "libfuzzer-sys",
+ "ultragraphdb_core_body",
+]
+
+[[package]]
 name = "ultragraphdb_core_catalog"
 version = "0.1.0"
 dependencies = [
@@ -1841,6 +1853,7 @@ dependencies = [
 name = "ultragraphdb_protocol_wire"
 version = "0.1.0"
 dependencies = [
+ "ultragraphdb_core_body",
  "ultragraphdb_core_ids",
  "ultragraphdb_core_terms",
  "ultragraphdb_error_protocol",

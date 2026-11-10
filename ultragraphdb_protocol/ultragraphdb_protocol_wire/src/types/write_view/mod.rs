@@ -5,7 +5,8 @@
 
 mod write_view_body_view;
 
-use crate::types::string_list::StringList;
+use ultragraphdb_core_body::StringList;
+
 use crate::types::term_table_view::TermTableView;
 use crate::types::write_change::WriteChange;
 use crate::utils::changes::{CHANGE_RECORD_SIZE, decode_change};

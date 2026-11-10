@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{Sections, StringList, as_u32, u32_at};
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -13,12 +14,11 @@ use crate::types::result_batch::ResultBatch;
 use crate::types::result_term::ResultTerm;
 use crate::types::result_term_view::{named_hash, result_encoding_whole};
 use crate::types::result_view::ResultView;
-use crate::types::string_list::StringList;
+use crate::types::warnings::Warnings;
+use crate::utils::body::{read_sections, read_string_list, records, u32s};
+use crate::utils::command_header::expect_command;
 use crate::utils::constants::{ABSENT, FLAG_LAST, QUERY_COLUMNS_MAX};
 use crate::utils::fields;
-use crate::utils::sections::Sections;
-use crate::utils::sections::expect_command;
-use crate::utils::sections::{as_u32, records, u32_at, u32s};
 
 impl<'a> BodyView<'a> for ResultView<'a> {
     const COMMAND: Command = Command::Result;
@@ -42,7 +42,7 @@ impl<'a> BodyView<'a> for ResultView<'a> {
         let number = header.u8_at(20);
         let monotonic = Monotonic::from_number(number)
             .ok_or_else(|| ProtocolError::field_value(command, "monotonic", number.into()))?;
-        let sections = Sections::<9>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<12>(command, frame.body(), 0)?;
         let offsets = u32s(command, 1, sections.get(1))?;
         let terms = offsets.len();
         let texts = sections.get(3);
@@ -55,17 +55,7 @@ impl<'a> BodyView<'a> for ResultView<'a> {
                 terms as u64,
             ));
         }
-        let strings = StringList::read(command, (4, 5), sections.get(4), sections.get(5))?;
-        let column_names = StringList::read(command, (7, 8), sections.get(7), sections.get(8))?;
-        // Lossless: a `usize` is at least 32 bits.
-        if !column_names.is_empty() && column_names.len() != columns as usize {
-            return Err(ProtocolError::count_mismatch(
-                command,
-                "column names",
-                column_names.len() as u64, // lossless: a `usize` is at most 64 bits
-                columns.into(),
-            ));
-        }
+        let (strings, column_names, warnings) = read_lists(command, &sections, columns)?;
         check_cells(
             command,
             sections.get(0),
@@ -97,6 +87,7 @@ impl<'a> BodyView<'a> for ResultView<'a> {
             partition: header.u32_at(16),
             monotonic,
             column_names,
+            warnings,
         })
     }
 
@@ -127,7 +118,8 @@ impl<'a> BodyView<'a> for ResultView<'a> {
             .with_resume(self.resume.to_vec())
             .with_read_at(self.epoch, self.partition)
             .with_monotonic(self.monotonic)
-            .with_column_names(self.column_names.iter().map(str::to_string).collect());
+            .with_column_names(self.column_names.iter().map(str::to_string).collect())
+            .with_warnings(self.warnings.to_warnings());
         for row in 0..self.rows {
             let cells: Vec<Option<&ResultTerm>> = (0..self.columns)
                 .map(|column| self.cell(column, row).and_then(|i| terms.get(i as usize)))
@@ -136,6 +128,34 @@ impl<'a> BodyView<'a> for ResultView<'a> {
         }
         Ok(batch)
     }
+}
+
+/// The batch's string lists, checked in §9.1's order: the strings (4, 5); the column names (7, 8), empty or one per
+/// column ([`ProtocolError::count_mismatch`] `"column names"`); the warnings (9 to 11, §4.9), each of source 0.
+fn read_lists<'a>(
+    command: u16,
+    sections: &Sections<'a, 12>,
+    columns: u32,
+) -> Result<(StringList<'a>, StringList<'a>, Warnings<'a>), ProtocolError> {
+    let strings = read_string_list(command, (4, 5), sections.get(4), sections.get(5))?;
+    let column_names = read_string_list(command, (7, 8), sections.get(7), sections.get(8))?;
+    // Lossless: a `usize` is at least 32 bits.
+    if !column_names.is_empty() && column_names.len() != columns as usize {
+        return Err(ProtocolError::count_mismatch(
+            command,
+            "column names",
+            column_names.len() as u64, // lossless: a `usize` is at most 64 bits
+            columns.into(),
+        ));
+    }
+    let warnings = Warnings::read(
+        command,
+        (9, 10, 11),
+        sections.offset(9),
+        (sections.get(9), sections.get(10), sections.get(11)),
+        false,
+    )?;
+    Ok((strings, column_names, warnings))
 }
 
 /// Whether a term of `tag` names a `text` and an `annotation` (`PROTOCOL.md` §10.3).

@@ -3,13 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{as_u32, write_sections};
+
 use crate::traits::body_builder::BodyBuilder;
 use crate::types::command::Command;
 use crate::types::entries::Entries;
 use crate::utils::command_header::command_header;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
 use crate::utils::key_value_writer::write_entries;
-use crate::utils::sections::{as_u32, write_sections};
 
 impl BodyBuilder for Entries {
     const COMMAND: Command = Command::Entries;

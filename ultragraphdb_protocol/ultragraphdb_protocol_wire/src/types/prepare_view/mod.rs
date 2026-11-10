@@ -5,6 +5,7 @@
 
 mod prepare_view_body_view;
 
+use ultragraphdb_core_body::StringList;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::column_type::ColumnType;
@@ -12,8 +13,8 @@ use crate::types::command::Command;
 use crate::types::language::Language;
 use crate::types::pattern_slot::PatternSlot;
 use crate::types::quad_pattern::QuadPattern;
-use crate::types::string_list::StringList;
 use crate::types::term_table_view::TermTableView;
+use crate::types::warnings::Warnings;
 
 /// The body of a received Prepare frame, read in place; see [`crate::Prepare`] for its layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +29,7 @@ pub struct PrepareView<'a> {
     parameter_types: Vec<ColumnType>,
     result_types: Vec<ColumnType>,
     names: StringList<'a>,
+    warnings: Warnings<'a>,
 }
 
 impl<'a> PrepareView<'a> {
@@ -87,9 +89,18 @@ impl<'a> PrepareView<'a> {
     }
 
     /// The rule a server holds a received Prepare to, a request: no result types, refused as
-    /// [`ProtocolError::count_mismatch`] (`"result types"`).
+    /// [`ProtocolError::count_mismatch`] (`"result types"`), and no warning (`"warnings"`).
     pub fn check_request(&self) -> Result<(), ProtocolError> {
-        self.result_types_count(0)
+        self.result_types_count(0)?;
+        if self.warnings.holds_sections() {
+            return Err(ProtocolError::count_mismatch(
+                Command::Prepare.number(),
+                "warnings",
+                self.warnings.len() as u64, // lossless: a `usize` is at most 64 bits
+                0,
+            ));
+        }
+        Ok(())
     }
 
     /// The rule a client holds a received Prepare to, an answer: one result type per unbound slot and one for the
@@ -120,5 +131,11 @@ impl<'a> PrepareView<'a> {
             self.result_types.len() as u64,
             expected as u64,
         ))
+    }
+
+    /// The compilation's warnings, read in place; empty in a request and for a pattern.
+    #[must_use]
+    pub fn warnings(&self) -> Warnings<'a> {
+        self.warnings
     }
 }

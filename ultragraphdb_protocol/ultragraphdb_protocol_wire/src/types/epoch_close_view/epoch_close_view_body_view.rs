@@ -11,8 +11,9 @@ use crate::types::command::Command;
 use crate::types::epoch_close::EpochClose;
 use crate::types::epoch_close_view::EpochCloseView;
 use crate::types::frame_view::FrameView;
+use crate::utils::body::read_sections;
+use crate::utils::command_header::expect_command;
 use crate::utils::fields::{boolean, epoch};
-use crate::utils::sections::{Sections, expect_command};
 use crate::utils::whole_records::whole_records;
 
 impl<'a> BodyView<'a> for EpochCloseView<'a> {
@@ -26,7 +27,7 @@ impl<'a> BodyView<'a> for EpochCloseView<'a> {
         header.unused_zero(&[(0, 17), (24, 32)])?;
         let closed = epoch(command, "epoch", header.u64_at(0), false)?;
         let more = boolean(command, "more", header.u8_at(16))?;
-        let sections = Sections::<2>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<2>(command, frame.body(), 0)?;
         let announcements =
             whole_records::<{ CatalogAnnouncement::SIZE }>(command, 0, sections.get(0))?;
         let evictions = whole_records::<16>(command, 1, sections.get(1))?;

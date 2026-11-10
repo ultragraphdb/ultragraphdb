@@ -83,7 +83,7 @@ an Install changes the version. Recording a default entry SHALL keep it.
 
 #### Scenario: The schema id's golden value
 - **WHEN** the schema id of the wire specification's golden Describe body is computed
-- **THEN** it is `0x5000B62149F4DB68`
+- **THEN** it is `0x5FC0D2C82332781C`
 
 ### Requirement: Install compiles a tenant's sources into a new version
 An Install SHALL name a tenant, the catalog version it builds on and one or more sources, each a name and a text. The

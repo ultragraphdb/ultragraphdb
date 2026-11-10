@@ -3,11 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod bfloat16_vector_view;
 pub mod datatype;
 pub mod encoded_literal;
 pub mod encoded_term;
 pub mod hash128;
 pub mod known_datatype;
+pub mod tagged_datatype;
 pub mod term_view;
 pub mod text;
 pub mod vector_view;

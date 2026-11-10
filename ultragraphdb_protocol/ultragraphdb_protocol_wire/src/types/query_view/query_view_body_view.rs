@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -11,9 +12,9 @@ use crate::types::frame_view::FrameView;
 use crate::types::language::Language;
 use crate::types::query::Query;
 use crate::types::query_view::QueryView;
-use crate::types::string_list::StringList;
 use crate::types::term_table_view::TermTableView;
-use crate::utils::sections::{Sections, as_u32, expect_command, text, u32s};
+use crate::utils::body::{read_sections, read_string_list, text, u32s};
+use crate::utils::command_header::expect_command;
 
 impl<'a> BodyView<'a> for QueryView<'a> {
     const COMMAND: Command = Command::Query;
@@ -31,7 +32,7 @@ impl<'a> BodyView<'a> for QueryView<'a> {
         let language = Language::from_number(number)
             .filter(|language| *language != Language::Pattern)
             .ok_or_else(|| ProtocolError::field_value(command, "language", number.into()))?;
-        let sections = Sections::<7>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<7>(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
             (4, 5),
@@ -39,7 +40,7 @@ impl<'a> BodyView<'a> for QueryView<'a> {
             sections.get(4),
             sections.get(5),
         )?;
-        let names = StringList::read(command, (1, 2), sections.get(1), sections.get(2))?;
+        let names = read_string_list(command, (1, 2), sections.get(1), sections.get(2))?;
         let values = u32s(command, 3, sections.get(3))?;
         if values.len() != names.len() {
             return Err(ProtocolError::count_mismatch(

@@ -104,7 +104,8 @@ impl Dictionary {
             .with_entity_types(
                 d.entity_types()
                     .iter()
-                    .map(|(t, preorder)| (declared_entity_type(t), *preorder))
+                    // PROTOCOL.md section 4.6: a declaration's `extra` is 0, the preorder number no longer sent.
+                    .map(|(t, _preorder)| (declared_entity_type(t), 0))
                     .collect(),
             )
             .with_relations(d.relations().iter().map(declared_relation).collect()))

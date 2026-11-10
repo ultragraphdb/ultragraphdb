@@ -54,7 +54,7 @@ fn test_the_golden_batch_reads_its_cells_and_terms() -> TestResult {
 }
 
 fn refused(index: usize, change: impl FnOnce(&mut Vec<u8>)) -> TestResult<ProtocolErrorEnum> {
-    let bytes = with_section(&golden("result")?.bytes()?, 9, index, change);
+    let bytes = with_section(&golden("result")?.bytes()?, 12, index, change);
     Ok(ResultView::from_frame(&frame_of(&bytes)?)
         .err()
         .context("a refusal")?
@@ -163,7 +163,7 @@ fn test_the_first_term_starts_its_section() -> TestResult {
     // A junk byte before the first encoding, every offset moved past it: each term would still parse.
     use crate::utils::golden_bodies::{body_data, join_sections, reframe, split_sections};
     let bytes = golden("result")?.bytes()?;
-    let mut secs = split_sections(body_data(&bytes), 0, 9);
+    let mut secs = split_sections(body_data(&bytes), 0, 12);
     secs[1] = secs[1]
         .chunks(4)
         .map(|c| c.try_into().map(|o| u32::from_le_bytes(o) + 1))
@@ -303,17 +303,11 @@ fn test_a_patterns_batch_holds_its_columns_and_reifier_column() -> TestResult {
         );
     }
     ResultView::from_frame(&frame_of(&bytes)?)?.check_pattern()?;
-    // Row 0's reifier cell, cell 6, naming term 0, an IRI; row 2's naming term 3, a literal.
-    let iri = with_section(&bytes, 9, 0, |cells| put(cells, 24, 0, 4));
-    assert_eq!(
-        refusal(&iri)?,
-        ProtocolErrorEnum::FieldValue {
-            command: 13,
-            field: "reifier",
-            value: 0
-        }
-    );
-    let literal = with_section(&bytes, 9, 0, |cells| put(cells, 32, 3, 4));
+    // Row 0's reifier cell, cell 6, naming term 0, an IRI: a declared relation's handle IRI, tag 0x01, is taken
+    // (PROTOCOL.md section 9.1); row 2's naming term 3, a literal, is not.
+    let iri = with_section(&bytes, 12, 0, |cells| put(cells, 24, 0, 4));
+    ResultView::from_frame(&frame_of(&iri)?)?.check_pattern()?;
+    let literal = with_section(&bytes, 12, 0, |cells| put(cells, 32, 3, 4));
     assert_eq!(
         refusal(&literal)?,
         ProtocolErrorEnum::FieldValue {
@@ -323,7 +317,7 @@ fn test_a_patterns_batch_holds_its_columns_and_reifier_column() -> TestResult {
         }
     );
     // A blank node there, the other one, reads.
-    let blank = with_section(&bytes, 9, 0, |cells| put(cells, 32, 4, 4));
+    let blank = with_section(&bytes, 12, 0, |cells| put(cells, 32, 4, 4));
     let read = ResultView::from_frame(&frame_of(&blank)?)?;
     read.check_pattern()?;
     assert_eq!(read.cell(2, 2), Some(4));
@@ -337,7 +331,7 @@ fn test_cells_count_rows_times_columns_in_sixty_four_bits() -> TestResult {
         put(h, 0, 4, 4);
         put(h, 4, 1 << 30, 4);
     });
-    let empty = with_section(&wrapped, 9, 0, |cells| cells.clear());
+    let empty = with_section(&wrapped, 12, 0, |cells| cells.clear());
     assert_eq!(
         ResultView::from_frame(&frame_of(&empty)?)
             .err()
@@ -392,7 +386,7 @@ fn test_each_term_is_one_whole_encoding() -> TestResult {
             .map_err(|e| e.0),
         Ok(Some(true))
     );
-    let short = with_section(&blank, 9, 2, |e| {
+    let short = with_section(&blank, 12, 2, |e| {
         assert!(e.pop().is_some(), "the section holds a byte to cut");
     });
     assert_eq!(
@@ -407,7 +401,7 @@ fn test_each_term_is_one_whole_encoding() -> TestResult {
         }
     );
     // A tag the store never writes, 0x03, is no encoding: term 3 starts after 17 + 4 + 17 bytes.
-    let unknown = with_section(&blank, 9, 2, |e| e[38] = 0x03);
+    let unknown = with_section(&blank, 12, 2, |e| e[38] = 0x03);
     assert_eq!(
         ResultView::from_frame(&frame_of(&unknown)?)
             .err()
@@ -451,9 +445,9 @@ fn test_a_batch_of_no_terms_holds_no_encodings() -> TestResult {
     )[2]
     .len();
     assert!(encodings > 0);
-    let none = with_section(&bytes, 9, 1, |offsets| offsets.clear());
-    let none = with_section(&none, 9, 3, |texts| texts.clear());
-    let none = with_section(&none, 9, 0, |cells| cells.fill(0xFF));
+    let none = with_section(&bytes, 12, 1, |offsets| offsets.clear());
+    let none = with_section(&none, 12, 3, |texts| texts.clear());
+    let none = with_section(&none, 12, 0, |cells| cells.fill(0xFF));
     assert_eq!(
         ResultView::from_frame(&frame_of(&none)?)
             .err()
@@ -467,7 +461,7 @@ fn test_a_batch_of_no_terms_holds_no_encodings() -> TestResult {
         }
     );
     // With the encodings emptied as well, the batch reads: its nine cells unbound.
-    let empty = with_section(&none, 9, 2, |e| e.clear());
+    let empty = with_section(&none, 12, 2, |e| e.clear());
     let view = ResultView::from_frame(&frame_of(&empty)?)?;
     assert_eq!(view.term_count(), 0);
     assert_eq!(view.cell(1, 2), Some(ABSENT));
@@ -482,18 +476,12 @@ fn test_the_golden_querys_batch_reads_its_names_and_flag() -> TestResult {
     let names: Vec<&str> = view.column_names().iter().collect();
     assert_eq!(names, ["n", "age"]);
     assert_eq!(view_any(&bytes)?, Ok(()));
-    // Its last column holds a null here; an IRI there is a pattern's refusal alone.
-    let iri = with_section(&bytes, 9, 0, |cells| put(cells, 4, 0, 4));
+    // Its last column holds a null here; an IRI there, as a pattern's reifier column holds a handle IRI (section 9.1),
+    // is taken by a pattern's rule too.
+    let iri = with_section(&bytes, 12, 0, |cells| put(cells, 4, 0, 4));
     let read = ResultView::from_frame(&frame_of(&iri)?)?;
     assert_eq!(read.cell(1, 0), Some(0));
-    assert_eq!(
-        read.check_pattern().err().context("a refusal")?.0,
-        ProtocolErrorEnum::FieldValue {
-            command: 13,
-            field: "reifier",
-            value: 0
-        }
-    );
+    read.check_pattern()?;
     Ok(())
 }
 
@@ -538,14 +526,14 @@ fn test_the_monotonic_byte_is_0_to_2_after_the_epoch() -> TestResult {
 #[test]
 fn test_column_names_are_empty_or_one_per_column() -> TestResult {
     let bytes = golden("result_query")?.bytes()?;
-    let empty = with_section(&bytes, 9, 7, Vec::clear);
-    let empty = with_section(&empty, 9, 8, Vec::clear);
+    let empty = with_section(&bytes, 12, 7, Vec::clear);
+    let empty = with_section(&empty, 12, 8, Vec::clear);
     assert!(
         ResultView::from_frame(&frame_of(&empty)?)?
             .column_names()
             .is_empty()
     );
-    let extra = with_section(&bytes, 9, 7, |ends| {
+    let extra = with_section(&bytes, 12, 7, |ends| {
         let last = ends[ends.len() - 4..].to_vec();
         ends.extend_from_slice(&last);
     });
@@ -604,7 +592,7 @@ fn test_a_terms_text_and_annotation_follow_its_tag() -> TestResult {
     let bytes = golden("result")?.bytes()?;
     for (encoding, text, annotation) in cases {
         let batch = |texts: [u32; 2]| -> Vec<u8> {
-            let one = with_section(&bytes, 9, 0, |cells| {
+            let one = with_section(&bytes, 12, 0, |cells| {
                 *cells = [
                     0u32, ABSENT, ABSENT, ABSENT, ABSENT, ABSENT, ABSENT, ABSENT, ABSENT,
                 ]
@@ -612,9 +600,9 @@ fn test_a_terms_text_and_annotation_follow_its_tag() -> TestResult {
                 .flat_map(|cell| cell.to_le_bytes())
                 .collect();
             });
-            let one = with_section(&one, 9, 1, |offsets| *offsets = vec![0; 4]);
-            let one = with_section(&one, 9, 2, |terms| terms.clone_from(&encoding));
-            with_section(&one, 9, 3, |pairs| {
+            let one = with_section(&one, 12, 1, |offsets| *offsets = vec![0; 4]);
+            let one = with_section(&one, 12, 2, |terms| terms.clone_from(&encoding));
+            with_section(&one, 12, 3, |pairs| {
                 *pairs = texts.iter().flat_map(|index| index.to_le_bytes()).collect();
             })
         };
@@ -676,4 +664,192 @@ fn test_a_batch_of_the_most_columns_is_read() -> TestResult {
         })
     );
     Ok(())
+}
+
+/// Stage 6: a Result's twelve sections, its warnings and its reifier column's handle IRIs (`PROTOCOL.md` §9.1, §4.9,
+/// §10.2), over batches laid out by hand.
+mod stage_6 {
+    use ultragraphdb_error_protocol::ProtocolErrorEnum;
+    use ultragraphdb_protocol_wire::{BodyView, ResultView};
+    use ultragraphdb_tool_bdd::{Context, TestResult};
+
+    use crate::utils::golden_bodies::frame_of;
+    use crate::utils::ugs_frames::{
+        UGS0902, named, no_rest, outcome, refused, result_frame, warning_sections,
+    };
+
+    /// `https://w3id.org/ultragraphdb/ns/tenant/0/` then `MemberOf/` and a handle, a declared relation's instance by
+    /// its handle IRI (`SCHEMA.md` section 7.3): bucket 0x00002A in 6 digits and 104 bits in 26.
+    const HANDLE: &str =
+        "https://w3id.org/ultragraphdb/ns/tenant/0/MemberOf/00002a-0000000000000000000000000b";
+
+    /// A read that matches nothing: one batch flagged `LAST`, `rows` 0, two columns, twelve empty sections.
+    #[test]
+    fn test_an_empty_batch_holds_twelve_sections() -> TestResult {
+        let bytes = result_frame(2, 0, &[], &[], no_rest(), true)?;
+        let view = ResultView::from_frame(&frame_of(&bytes)?)?;
+        assert_eq!((view.columns(), view.rows(), view.term_count()), (2, 0, 0));
+        assert!(view.warnings().is_empty());
+        view.check_pattern()?;
+        Ok(())
+    }
+
+    /// A body of nine sections, the layout before stage 6, is too short for twelve: 72 bytes, the table needing 96.
+    #[test]
+    fn test_a_batch_of_nine_sections_is_refused() -> TestResult {
+        let nine = crate::utils::ugs_frames::frame(
+            ultragraphdb_protocol_wire::Command::Result,
+            &[(0, &2u32.to_le_bytes())],
+            &[
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+            ],
+            true,
+        )?;
+        assert_eq!(
+            refused::<ResultView>(&nine)?,
+            ProtocolErrorEnum::BodyTooShort {
+                command: 13,
+                len: 72,
+                need: 96
+            }
+        );
+        Ok(())
+    }
+
+    /// wire-protocol, "A handle IRI is taken in the reifier column": a pattern's batch whose reifier cell names a term
+    /// of tag `0x01` is read; one of tag `0x30` is refused as `FieldValue` naming `reifier`, the row.
+    #[test]
+    fn test_a_handle_iri_is_taken_in_the_reifier_column() -> TestResult {
+        let handle = result_frame(1, 1, &[0], &[named(0x01, HANDLE)], no_rest(), true)?;
+        ResultView::from_frame(&frame_of(&handle)?)?.check_pattern()?;
+        // `0x30`, a literal of the known datatype `xsd:integer` (code 2), lexical form `7` inline.
+        let literal = result_frame(
+            1,
+            1,
+            &[0],
+            &[(vec![0x30, 2, 1, b'7'], None)],
+            no_rest(),
+            true,
+        )?;
+        let view = ResultView::from_frame(&frame_of(&literal)?)?;
+        assert_eq!(
+            view.check_pattern().err().context("a refusal")?.0,
+            ProtocolErrorEnum::FieldValue {
+                command: 13,
+                field: "reifier",
+                value: 0
+            }
+        );
+        Ok(())
+    }
+
+    /// A query's first batch carries its compilation's warnings in sections 9 to 11, each of source 0; another source
+    /// is refused as `FieldValue` naming `source`.
+    #[test]
+    fn test_a_querys_first_batch_carries_its_warnings_of_source_0() -> TestResult {
+        let [records, ends, text] = warning_sections(&[(UGS0902, 0, "m")]);
+        let bytes = result_frame(
+            0,
+            0,
+            &[],
+            &[],
+            [vec![], vec![], vec![], records, ends, text],
+            true,
+        )?;
+        let view = ResultView::from_frame(&frame_of(&bytes)?)?;
+        let warning = view.warnings().get(0).context("the warning")?;
+        assert_eq!((warning.number(), warning.message()), (902, "m"));
+        let [records, ends, text] = warning_sections(&[(UGS0902, 1, "m")]);
+        let sourced = result_frame(
+            0,
+            0,
+            &[],
+            &[],
+            [vec![], vec![], vec![], records, ends, text],
+            true,
+        )?;
+        assert_eq!(
+            refused::<ResultView>(&sourced)?,
+            ProtocolErrorEnum::FieldValue {
+                command: 13,
+                field: "source",
+                value: 1
+            }
+        );
+        assert_eq!(outcome::<ResultView>(&bytes)?, None);
+        Ok(())
+    }
+
+    /// One term of a query's batch, one column and one row.
+    fn one_term(encoding: Vec<u8>) -> TestResult<Vec<u8>> {
+        result_frame(1, 1, &[0], &[(encoding, None)], no_rest(), true)
+    }
+
+    fn bad_term() -> ProtocolErrorEnum {
+        ProtocolErrorEnum::BadTerm {
+            command: 13,
+            section: 2,
+            at: 0,
+        }
+    }
+
+    /// The datatypes 34 to 36 (§10.1, §10.4, §10.5): a `bfloat16vector` by tag `0x41`, a dimension u16 little-endian
+    /// of at least 1 and two bytes per element; a `measure` by `0x50`, an f64 big-endian and its unit's code inline, 1
+    /// to 15 bytes of UTF-8; a `precision` by `0x51`, a byte 1 to 12; each code in tags `0x30` and `0x31`.
+    #[test]
+    fn test_the_datatypes_34_to_36_are_whole_terms() -> TestResult {
+        // 1.0 and -2.0 as bfloat16, the high 16 bits of binary32: 0x3F80 and 0xC000, little-endian.
+        let vector = vec![0x41, 2, 0, 0x80, 0x3F, 0x00, 0xC0];
+        // 1.5 as binary64 big-endian, 0x3FF8000000000000, then the unit `m`.
+        let measure = [vec![0x50], 1.5f64.to_be_bytes().to_vec(), vec![1, b'm']].concat();
+        let accepted = [
+            vector,
+            measure,
+            vec![0x51, 1],
+            vec![0x51, 12],
+            vec![0x30, 34, 3, b'[', b'1', b']'],
+            vec![0x30, 35, 5, b'1', b'.', b'5', b' ', b'm'],
+            vec![0x30, 36, 4, b'y', b'e', b'a', b'r'],
+        ];
+        for encoding in accepted {
+            assert_eq!(
+                outcome::<ResultView>(&one_term(encoding.clone())?)?,
+                None,
+                "{encoding:?}"
+            );
+        }
+        let long_unit = [
+            vec![0x50],
+            1.5f64.to_be_bytes().to_vec(),
+            vec![16],
+            vec![b'u'; 16],
+        ]
+        .concat();
+        let refused_terms = [
+            vec![0x41, 0, 0],
+            vec![0x41, 2, 0, 0x80, 0x3F, 0x00],
+            [vec![0x50], 1.5f64.to_be_bytes().to_vec(), vec![0]].concat(),
+            long_unit,
+            [vec![0x50], 1.5f64.to_be_bytes().to_vec(), vec![1, 0xFF]].concat(),
+            vec![0x51, 0],
+            vec![0x51, 13],
+            vec![0x30, 37, 1, b'x'],
+        ];
+        for encoding in refused_terms {
+            assert_eq!(
+                refused::<ResultView>(&one_term(encoding.clone())?)?,
+                bad_term(),
+                "{encoding:?}"
+            );
+        }
+        Ok(())
+    }
 }

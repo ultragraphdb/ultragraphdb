@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{StringList, as_u32};
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -10,10 +11,10 @@ use crate::types::command::Command;
 use crate::types::conditional_write::ConditionalWrite;
 use crate::types::conditional_write_view::ConditionalWriteView;
 use crate::types::frame_view::FrameView;
-use crate::types::string_list::StringList;
+use crate::utils::body::read_sections;
 use crate::utils::changes::{RecordKinds, consume_records};
+use crate::utils::command_header::expect_command;
 use crate::utils::commit_operation_layout::{OPERATION_FIELDS_SIZE, consume_operations};
-use crate::utils::sections::{Sections, as_u32, expect_command};
 use crate::utils::whole_records::whole_records;
 use crate::utils::write_frame::WriteHeader;
 use crate::utils::write_sections::WriteSections;
@@ -61,7 +62,7 @@ impl<'a> ConditionalWriteView<'a> {
         let command = Self::COMMAND.number();
         let header =
             WriteHeader::read(command, expect_command(frame, Self::COMMAND)?, from_client)?;
-        let body = Sections::<7>::read(command, frame.body(), 0)?;
+        let body = read_sections::<7>(command, frame.body(), 0)?;
         let sections = WriteSections::read(command, &body)?;
         let operations = body.get(6);
         let whole = whole_records::<OPERATION_FIELDS_SIZE>(command, 6, operations)?;

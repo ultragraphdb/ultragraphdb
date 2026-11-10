@@ -19,6 +19,7 @@ pub struct DropCommandView<'a> {
     request: u64,
     commit_version: u64,
     token: Option<SessionToken>,
+    catalog: u64,
 }
 
 impl<'a> DropCommandView<'a> {
@@ -57,5 +58,11 @@ impl<'a> DropCommandView<'a> {
     /// The commit version; zero in a request.
     pub fn commit_version(&self) -> u64 {
         self.commit_version
+    }
+
+    /// The catalog version a drop of kind 3 or 4 drops under; 0 for kinds 1 and 2.
+    #[must_use]
+    pub fn catalog(&self) -> u64 {
+        self.catalog
     }
 }

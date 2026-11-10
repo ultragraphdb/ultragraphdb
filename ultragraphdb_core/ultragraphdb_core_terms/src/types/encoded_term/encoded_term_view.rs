@@ -13,7 +13,9 @@ use crate::errors::term_error::TermError;
 use crate::types::datatype::Datatype;
 use crate::types::encoded_term::{EncodedTerm, INLINE_MAX, tag};
 use crate::types::hash128::Hash128;
+use crate::types::bfloat16_vector_view::Bfloat16VectorView;
 use crate::types::known_datatype::KnownDatatype;
+use crate::types::tagged_datatype::TaggedDatatype;
 use crate::types::term_view::TermView;
 use crate::types::text::Text;
 use crate::types::vector_view::VectorView;
@@ -21,7 +23,8 @@ use ultragraphdb_core_ids::SystemId;
 
 impl EncodedTerm {
     /// What the encoding holds as the store keeps it, read without the dictionary: a datatype no code names, tags
-    /// `0x32` and `0x33`, by its IRI's system ID. Refused when an inline part is not UTF-8, a known datatype's code is
+    /// `0x32` and `0x33`, by its IRI's system ID; codes 34 to 36 and tags `0x41`, `0x50` and `0x51`, which a Result
+    /// holds and the store never encodes, as [`EncodedTerm::result_view`] reads them. Refused when an inline part is not UTF-8, a known datatype's code is
     /// unknown or an ID is no valid system ID.
     pub fn view(&self) -> Result<TermView<'_>, TermError> {
         read_view(self.as_bytes(), |bytes| id_at(bytes, 0).map(Datatype::Id))
@@ -62,7 +65,13 @@ fn read_view(
             .copied()
             .ok_or_else(|| TermError::truncated(bytes.to_vec()))
     };
-    let known = |code: u8| KnownDatatype::from_code(code).ok_or(TermError::unknown_datatype(code));
+    // A code of section 10.4: a known datatype's, or one of the three a Result holds by value under tags of their own.
+    let known = |code: u8| {
+        KnownDatatype::from_code(code)
+            .map(Datatype::Known)
+            .or_else(|| TaggedDatatype::from_code(code).map(Datatype::Tagged))
+            .ok_or(TermError::unknown_datatype(code))
+    };
     Ok(match bytes.first().copied().unwrap_or_default() {
         tag::ID => TermView::Id(id_at(bytes, 0)?),
         tag::BOOLEAN => TermView::Boolean(Boolean::from(first()? != 0)),
@@ -88,11 +97,11 @@ fn read_view(
         tag::SMALL_STRING => TermView::String(Text::Inline(inline(0)?.0)),
         tag::BIG_STRING => TermView::String(Text::Hashed(hash(0)?)),
         tag::SMALL_KNOWN => TermView::Typed {
-            datatype: Datatype::Known(known(first()?)?),
+            datatype: known(first()?)?,
             lexical: Text::Inline(inline(1)?.0),
         },
         tag::BIG_KNOWN => TermView::Typed {
-            datatype: Datatype::Known(known(first()?)?),
+            datatype: known(first()?)?,
             lexical: Text::Hashed(hash(1)?),
         },
         tag::SMALL_TYPED => TermView::Typed {
@@ -104,6 +113,14 @@ fn read_view(
             lexical: Text::Hashed(hash(16)?),
         },
         tag::VECTOR => TermView::Vector(VectorView::new(body.get(2..).unwrap_or_default())),
+        tag::BF16_VECTOR => {
+            TermView::Bfloat16Vector(Bfloat16VectorView::new(body.get(2..).unwrap_or_default()))
+        }
+        tag::MEASURE => TermView::Measure {
+            number: f64::from_be_bytes(fixed_at(bytes, 0)?),
+            unit: inline(8)?.0,
+        },
+        tag::PRECISION => TermView::Precision(first()?),
         _ => lang_string(bytes)?,
     })
 }

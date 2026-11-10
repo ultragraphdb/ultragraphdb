@@ -5,6 +5,7 @@
 
 use std::marker::PhantomData;
 
+use ultragraphdb_core_body::Sections;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -12,8 +13,9 @@ use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
 use crate::types::recall::Recall;
 use crate::types::recall_view::RecallView;
+use crate::utils::body::read_sections;
+use crate::utils::command_header::expect_command;
 use crate::utils::fields::{at_least_one, identity};
-use crate::utils::sections::{Sections, expect_command};
 
 impl<'a> BodyView<'a> for RecallView<'a> {
     const COMMAND: Command = Command::Recall;
@@ -33,7 +35,7 @@ impl<'a> BodyView<'a> for RecallView<'a> {
             return Err(ProtocolError::field_value(command, "session", 0));
         }
         let request = at_least_one(command, "request", header.u64_at(24))?;
-        let _sections: Sections<'_, 0> = Sections::read(command, frame.body(), 0)?;
+        let _sections: Sections<'_, 0> = read_sections(command, frame.body(), 0)?;
         Ok(Self {
             frame: PhantomData,
             partition,

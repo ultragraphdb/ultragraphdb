@@ -98,6 +98,8 @@ impl TestServer {
             | Command::Write
             | Command::Query
             | Command::Install
+            | Command::Purge
+            | Command::Migrate
             | Command::Result
             | Command::Credit
             | Command::Cancel

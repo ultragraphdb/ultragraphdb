@@ -18,7 +18,8 @@ pub struct OperationView<'a> {
 }
 
 impl<'a> OperationView<'a> {
-    /// The operation's kind: 1 insert-if-absent, 2 upsert-and-link, 3 compare-and-set, 4 counter add.
+    /// The operation's kind: 1 insert-if-absent, 2 upsert-and-link, 3 compare-and-set, 4 counter add, 5 delete an
+    /// instance, 6 retract an instance.
     pub fn kind(&self) -> u8 {
         self.fields.kind
     }

@@ -4,4 +4,4 @@
  */
 
 #[cfg(test)]
-mod reference_view_tests;
+pub mod reference_view_tests;

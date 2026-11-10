@@ -13,6 +13,7 @@ use xxhash_rust::xxh3::xxh3_64;
 
 use crate::errors::term_error::TermError;
 use crate::types::known_datatype::KnownDatatype;
+use crate::types::tagged_datatype::TaggedDatatype;
 
 /// The tags an encoding begins with. Each fixes how many bytes follow, or where to read their length, so an encoding
 /// inside a key ends where its tag says and a key needs no length field. They are stored: none changes meaning.
@@ -53,7 +54,16 @@ pub(crate) mod tag {
     pub const BIG_TYPED: u8 = 0x33;
     /// A vector: its dimension, a little-endian u16, then its elements, little-endian 32-bit floats.
     pub const VECTOR: u8 = 0x40;
+    /// A `bfloat16vector`: its dimension, a little-endian u16, then its elements, little-endian bfloat16s.
+    pub const BF16_VECTOR: u8 = 0x41;
+    /// A `measure` by value: its number, a big-endian binary64, then its unit's code as inline text.
+    pub const MEASURE: u8 = 0x50;
+    /// A `precision` by value: one byte, 1 millennium to 12 nanosecond.
+    pub const PRECISION: u8 = 0x51;
 }
+
+/// The precisions a `precision` names (`PROTOCOL.md` §10.5): 1 millennium to 12 nanosecond.
+const PRECISIONS: std::ops::RangeInclusive<u8> = 1..=12;
 
 /// The length of an IRI's or a blank node's encoding: the tag and the ID's 16 bytes.
 const ID_LEN: usize = 1 + SystemId::BYTES;
@@ -110,7 +120,8 @@ impl EncodedTerm {
     /// Whether `bytes`, received from a peer, hold exactly one whole encoding (`PROTOCOL.md` §10.1): its tag listed,
     /// each inline length at most 15 and its text UTF-8, a boolean's byte 0 or 1, a date or time's timezone offset
     /// within 14 hours and a duration's months and seconds not of opposite signs (§10.5), a known datatype's code one
-    /// of [`KnownDatatype`]'s, a vector's dimension at least 1, and exactly the length its tag gives.
+    /// of [`KnownDatatype`]'s or of the three §10.4 holds by tags of their own, a vector's dimension at least 1, a
+    /// measure's unit code at least 1 byte, a precision's byte 1 to 12, and exactly the length its tag gives.
     /// [`EncodedTerm::from_bytes`] holds the rules of length alone, for the store's own keys.
     pub fn check(bytes: &[u8]) -> Result<(), TermError> {
         let _whole: Self = Self::from_bytes(bytes)?;
@@ -123,9 +134,9 @@ impl EncodedTerm {
                 .is_some_and(|text| std::str::from_utf8(text).is_ok())
         };
         let known = |at: usize| {
-            bytes
-                .get(at)
-                .is_some_and(|code| KnownDatatype::from_code(*code).is_some())
+            bytes.get(at).is_some_and(|code| {
+                KnownDatatype::from_code(*code).is_some() || TaggedDatatype::from_code(*code).is_some()
+            })
         };
         // A duration's i64 months at byte 1 and i128 seconds at byte 9, which the length rules proved present: a
         // duration is negative as a whole, so its parts never have opposite signs.
@@ -175,6 +186,14 @@ impl EncodedTerm {
             )),
             tag::SMALL_KNOWN if !inline_utf8(2) => malformed("inline text that is not UTF-8"),
             tag::SMALL_TYPED if !inline_utf8(17) => malformed("inline text that is not UTF-8"),
+            // The unit's code after the 8-byte number: at least one byte, UTF-8.
+            tag::MEASURE if bytes.get(9).is_none_or(|n| *n == 0) => {
+                malformed("a measure without a unit")
+            }
+            tag::MEASURE if !inline_utf8(9) => malformed("inline text that is not UTF-8"),
+            tag::PRECISION if bytes.get(1).is_none_or(|p| !PRECISIONS.contains(p)) => {
+                malformed("a precision other than 1 to 12")
+            }
             _ => Ok(()),
         }
     }
@@ -186,7 +205,8 @@ impl EncodedTerm {
             .split_at_checked(len)
             .ok_or_else(|| TermError::truncated(bytes.to_vec()))?;
         debug_assert!(!encoding.is_empty(), "an encoding holds at least its tag");
-        let term = if encoding.first() == Some(&tag::VECTOR) {
+        // A vector's encoding may pass ENCODED_MAX; every other fits inline.
+        let term = if matches!(encoding.first(), Some(&(tag::VECTOR | tag::BF16_VECTOR))) {
             Self(Repr::Vector(encoding.into()))
         } else {
             Self::inline(encoding)
@@ -288,6 +308,15 @@ fn encoded_len(bytes: &[u8]) -> Result<usize, TermError> {
             }
             3 + 4 * dimension
         }
+        tag::BF16_VECTOR => {
+            let dimension = at(1)? | at(2)? << 8;
+            if dimension == 0 {
+                return Err(TermError::malformed(bytes.to_vec(), "an empty vector"));
+            }
+            3 + 2 * dimension
+        }
+        tag::MEASURE => 10 + inline_len(9)?,
+        tag::PRECISION => 2,
         other => return Err(TermError::unknown_tag(other)),
     };
     if bytes.len() < len {

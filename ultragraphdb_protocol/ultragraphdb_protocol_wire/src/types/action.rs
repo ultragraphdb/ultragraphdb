@@ -13,6 +13,7 @@
 /// | 4 | Drop |
 /// | 5 | Admin |
 /// | 6 | Operate |
+/// | 7 | Purge |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Action {
     /// Reading statements and their properties, and seeing declarations.
@@ -27,20 +28,23 @@ pub enum Action {
     Admin,
     /// Cluster operations: tenants, backup, restore, export.
     Operate,
+    /// The legal purge of a tenant's instances, every version of their data (`PROTOCOL.md` §8.5).
+    Purge,
 }
 
 impl Action {
     /// Every action, in the order of its number.
-    pub const ALL: [Action; 6] = [
+    pub const ALL: [Action; 7] = [
         Action::Read,
         Action::Write,
         Action::Declare,
         Action::Drop,
         Action::Admin,
         Action::Operate,
+        Action::Purge,
     ];
 
-    /// The action's number, 1 to 6.
+    /// The action's number, 1 to 7.
     pub fn number(self) -> u64 {
         Action::ALL
             .iter()

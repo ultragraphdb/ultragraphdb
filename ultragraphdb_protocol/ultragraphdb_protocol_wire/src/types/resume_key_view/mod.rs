@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{as_u32, u32_at};
 use ultragraphdb_error_protocol::ProtocolError;
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -10,9 +11,9 @@ use crate::types::command::Command;
 use crate::types::resume_key::RESUME_FIXED;
 use crate::types::resume_row::ResumeRow;
 use crate::types::term_table_view::TermTableView;
+use crate::utils::body::read_sections;
 use crate::utils::constants::ABSENT;
 use crate::utils::le::bytes_at;
-use crate::utils::sections::{Sections, as_u32, u32_at};
 
 /// The bytes of a resume key's last row: five u32 indices.
 const RESUME_ROW: usize = 20;
@@ -66,7 +67,7 @@ impl<'a> ResumeKeyView<'a> {
         if checksum != Some(xxh3_64(bytes.get(8..).unwrap_or_default())) {
             return Err(ProtocolError::field_value(command, "resume key", 0));
         }
-        let sections = Sections::<3>::read(command, bytes, RESUME_FIXED)?;
+        let sections = read_sections::<3>(command, bytes, RESUME_FIXED)?;
         let row = sections.get(0);
         if row.len() != RESUME_ROW {
             return Err(ProtocolError::count_mismatch(

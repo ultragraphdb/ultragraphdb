@@ -153,6 +153,8 @@ pub fn rebuild_role(frame: &FrameView<'_>) -> Result<Vec<u8>, ProtocolError> {
         | Command::DirectWrite
         | Command::ConditionalWrite
         | Command::Query
-        | Command::Install => Err(ProtocolError::wrong_command(512, command.number())),
+        | Command::Install
+        | Command::Purge
+        | Command::Migrate => Err(ProtocolError::wrong_command(512, command.number())),
     }
 }

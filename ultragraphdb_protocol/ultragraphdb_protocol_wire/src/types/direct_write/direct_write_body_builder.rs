@@ -3,12 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{u32_bytes, write_sections};
+
 use crate::traits::body_builder::BodyBuilder;
 use crate::types::command::Command;
 use crate::types::direct_write::DirectWrite;
 use crate::utils::changes::ChangeWriter;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
-use crate::utils::sections::{u32_bytes, write_sections};
 
 impl BodyBuilder for DirectWrite {
     const COMMAND: Command = Command::DirectWrite;

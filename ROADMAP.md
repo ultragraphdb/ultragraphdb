@@ -10,8 +10,8 @@
 | 5. Transactions, WAL and the zero-copy binary protocol | ✅ |
 | 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage) | ✅ |
 | 5.7 Benchmark three-role cluster architecture| ✅  |
-| 6. UGS: the full data definition and its implementation | `in progress` |
-| 6.5. Add tile based scalable distributed graph storeage engine  | `open` |
+| 6. UGS: the full data definition and its implementation | `in progress`; pauses after task group 1, resumes at group 2 on the tile store |
+| 6.5. The tile store: a graph-native storage engine replacing the KV store | `Research`; next after stage 6's group 1 |
 | 6.7 Harden transactions  with chaos testing against multiple UGS schemata | `open` |
 | 7. Query core: SPARQL and GQL where they overlap | `open` |
 | 7.5. Fuzzy test and harden query core | `open` |
@@ -22,10 +22,14 @@
 | 10.5. Bolt | `open` |
 | 11. API node: generated Protobuf, JSON Schema and GraphQL schemas served by a stateless binary | `open` |
 
+The order of work, decided 2026-11-10: stage 6 through its task group 1, then stage 6.5, then stage 6 from group 2, then
+6.7 and onward. Stage 6's storage groups would otherwise build a third of UGS's storage on KV structures stage 6.5
+deletes (`openspec/notes/UltraGraphDB Tile Store Feasibility.md`, B5).
+
 UltraGraphDB is distributed from the start: three roles, frontend, compute and storage, from one binary, replicated
 with VSR (`openspec/notes/UltraGraphDB Distribution Architecture.md`, and for the protocol itself
 `openspec/notes/UltraGraphDB Distribution Protocol.md`). A single machine runs the same topology folded
-into one container (`openspec/notes/UltraGraphDB Single-Container Deployment.md`). Stages 4 to 10 replace DQL with
+into one container (`openspec/notes/archive/UltraGraphDB Single-Container Deployment.md`). Stages 4 to 10 replace DQL with
 SPARQL and GQL; UltraQL follows stage 10, its CRUD subset served from stage 6 for testing
 (`specification/query/QUERY-ULTRA-QL.md` section 4.1). What the next stages must specify is tracked in `openspec/notes/backlog.md`.
 
@@ -50,7 +54,40 @@ SPARQL and GQL; UltraQL follows stage 10, its CRUD subset served from stage 6 fo
 - **6 UGS.** The schema language, specified in `specification/schema/SCHEMA.md` and prepared in
   `openspec/notes/prepare-stage-6.md`. Stage 6 builds what `SCHEMA.md` section 14 assigns it: the modelling core, local
   constraints, bitemporal statements, units, geometry, indexes and the RDF view, with the protocol's Install and
-  Describe and the client's; what crosses partitions waits for stage 8.
+  Describe and the client's; what crosses partitions waits for stage 8. The change pauses once task group 1, the wire,
+  is complete, and resumes at group 2 after stage 6.5, building its storage directly on tiles: group 2b, the Ultra Style
+  lift of the KV commit path, is superseded by 6.5's ownership refactor; groups 6 to 8 and 9.2 write the tile store's
+  delta entries, claims and index relations in place of keyspaces and posting lists, and `SCHEMA.md` section 12 is
+  restated as logical obligations before they start. The catalog version carries the compiled layout (the feasibility
+  study's section 8), so the compiled layout lands with groups 3 and 4.
+- **6.5 The tile store.** The storage engine of `openspec/notes/UltraGraphDB Scalable Tile Store.md` (T1–T29), built
+  on the generic layout every tenant has before UGS resumes, in seven phases whose order follows from the feasibility
+  study (`openspec/notes/UltraGraphDB Tile Store Feasibility.md`):
+  1. *Decisions and specifications:* the study's blockers and resolutions adopted into the design note; the logical
+     conflict keys, the scan order, the sortable value encoding, `Id128` and Ingest's framing specified; PROTOCOL
+     sections 12 and 13 and the storage specifications rewritten; the cluster-wide `[tiles]` settings.
+  2. *Ownership and the seam:* the engine owned by its core, transactions and Scans holding handles, restartable reads,
+     the two overlays and logical conflict keys, all over the KV store behind a logical engine interface, every suite
+     green, so the KV store becomes the differential oracle.
+  3. *Format and grid:* the durable seam moved below the transactions layer; tile encodings, filters, digests and their
+     fuzz targets and golden vectors; extents, free set, manifest, superblock and checkpoints with the extended fault
+     simulator; `RoundModel` extended with checkpoints, the logged fold horizon and lanes, and proved.
+  4. *The engine:* slots, deltas, versions, lanes, deterministic compaction and statistics on the generic layout,
+     differential-tested against the KV store; `wal_bench` ported with an engine switch; experiments E1 to E3 and E6.
+  5. *The runtime:* turns of intake, commit batch, lanes, beat, checkpoint step and one I/O submission; the sync split
+     into issue and completion; bounded channels that wake the core; `single_issuer` and `defer_taskrun` with a fallback;
+     checkpoint, trim and recovery from the grid's superblock; fjall's workers, the discard thread and the executor
+     retired; E9 and E10.
+  6. *The protocol:* the frontier command, lane L's per-frame versions, one resume rule, Ingest (command 26) with its
+     Round section; E12.
+  7. *The KV store removed:* `ultragraphdb_store_kv`, `ultragraphdb_traits_store`, `ultragraphdb_store_posting`,
+     `ultragraphdb_core_codec` and `ultragraphdb_store_hnsw` (rebuilt in stage 8) deleted with their specifications; the
+     four decoder lints enabled; the benchmark of `openspec/benches/benches-2026-11-09.md` rerun the same way and
+     recorded beside it.
+
+  The exit gate: every suite green on the tile store alone; the differential test passed on every workload before the
+  removal; two simulated replicas byte-identical under every fault class; the Lean amendments proved; the benchmark
+  recorded. The LDBC comparison (E7) needs the query core and runs from stage 7.
 - **7 Query core.** Only what SPARQL and GQL share: CRUD, pattern matching, filters, ordering, aggregates, bounded walks
   over one relation, and vector and text search. Where the two languages diverge, and full conformance testing, follow
   in stage 9. The design is `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`, "The query core".
@@ -58,7 +95,10 @@ SPARQL and GQL; UltraQL follows stage 10, its CRUD subset served from stage 6 fo
   sequencer in one container, two storage groups by default; VSR's first build, its groups of three replicas running on
   the `dev-ha` profile, proved and simulated acknowledging from memory; epochs, change streams, Calvin ordering for
   multi-group transactions, write classification from the schema. The DeepBrain MVP runs here, on the single container: the first
-  stage whose topology it can run on, since no role runs alone.
+  stage whose topology it can run on, since no role runs alone. For the tile store it adds: the read barrier for
+  linearizable latest-state reads (T28); followers compacting for themselves with the checkpoint identity on `Prepare`,
+  `PrepareOk` and the commit heartbeat, and lazy state sync (T29); HNSW rebuilt over adjacency blocks at fixed log
+  positions; materialization of derivations across partitions.
 - **9 Full conformance.** Everything outside the core, the W3C suites, the openCypher TCK and the GQL feature register.
 - **9.5 Schema evolution with checked data migration.** Every change to an installed schema is built here, since it
   needs the cluster: until then a tenant takes one Install (stage 6). The changes in place of `SCHEMA.md` section 13
@@ -68,9 +108,11 @@ SPARQL and GQL; UltraQL follows stage 10, its CRUD subset served from stage 6 fo
   an epoch behind a write fence. Bitemporal history stays read-only in the source version. The semantics are CQL's
   functorial data migration, taken from the papers. The stage follows conformance so that stage 8's cluster carries a
   migration that changes placement (`@colocate`). Specified in `specification/schema/SCHEMA-EVOLUTION.md`.
-- **10 Full distribution and tiles.** Clustering at scale, Jepsen, tiles and storage/compute separation across nodes. Stage
-  10 opens by measuring replication on physical Linux nodes, which sets the acknowledgement's default and decides CURP's
-  fast path ("Experiments" in the distribution protocol note).
+- **10 Full distribution.** Clustering at scale, Jepsen, and storage/compute separation across nodes: tiles in S3 mode,
+  cached on compute, and analytical projections. Stage 10 opens by measuring replication on physical Linux nodes, which
+  sets the acknowledgement's default and decides CURP's fast path ("Experiments" in the distribution protocol note), and
+  measures the tile store on physical drives: device placement (zones, FDP, NVMe passthrough), registered buffers, and
+  the networking share of CPU that gates a bi-channel prototype (E8, E9, E13).
 - **10.5 Bolt.** The Bolt adapter and Neo4j's schema procedures; Neo4j drivers run the TCK through it.
 - **11 API node.** From a settled UGS schema, generators emit Protobuf, JSON Schema and GraphQL schemas, each with a
   per-type report of what the target cannot express, as Hydra's adapters report it. A stateless binary loads a catalog

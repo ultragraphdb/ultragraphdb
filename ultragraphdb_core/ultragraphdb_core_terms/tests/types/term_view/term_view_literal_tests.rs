@@ -5,7 +5,9 @@
 
 use oxrdf::{Literal, NamedNode};
 use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
-use ultragraphdb_core_terms::{Datatype, Hash128, TermError, TermView, Text};
+use ultragraphdb_core_terms::{
+    Datatype, EncodedTerm, Hash128, TaggedDatatype, TermError, TermView, Text,
+};
 use ultragraphdb_tool_bdd::TestResult;
 
 fn id(sequence: u64) -> TestResult<SystemId> {
@@ -82,3 +84,45 @@ fn test_a_datatype_by_hash_is_the_iri_its_hash_names() -> TestResult {
     );
     Ok(())
 }
+
+/// A lexical form of codes 34 to 36 is a literal of that datatype's IRI (`PROTOCOL.md` §10.4).
+#[test]
+fn test_a_lexical_form_of_codes_34_to_36_is_a_literal_of_its_datatype() -> TestResult {
+    let view = TermView::Typed {
+        datatype: Datatype::Tagged(TaggedDatatype::Measure),
+        lexical: Text::Inline("1.5 m"),
+    };
+    let literal = view.to_literal(
+        |_| Ok::<_, TermError>(NamedNode::new_unchecked("http://e/x")),
+        |_| Ok(String::new()),
+    )?;
+    assert_eq!(
+        literal,
+        Literal::new_typed_literal(
+            "1.5 m",
+            NamedNode::new_unchecked("https://w3id.org/ultragraphdb/ns/measure")
+        )
+    );
+    Ok(())
+}
+
+/// A value of codes 34 to 36 held by value, under tags `0x41`, `0x50` and `0x51`, is refused as a literal, naming its
+/// code: the mapping writes no lexical form of it.
+#[test]
+fn test_a_value_of_codes_34_to_36_by_value_names_its_code() -> TestResult {
+    let encodings: [(Vec<u8>, u8); 3] = [
+        (vec![0x41, 1, 0, 0x80, 0x3F], 34),
+        ([&[0x50][..], &1.5f64.to_be_bytes(), &[1], b"m"].concat(), 35),
+        (vec![0x51, 9], 36),
+    ];
+    for (bytes, code) in encodings {
+        let term = EncodedTerm::from_bytes(&bytes)?;
+        let refused = term.result_view()?.to_literal(
+            |_| Ok::<_, TermError>(NamedNode::new_unchecked("http://e/x")),
+            |_| Ok(String::new()),
+        );
+        assert_eq!(refused, Err(TermError::unknown_datatype(code)), "{bytes:02x?}");
+    }
+    Ok(())
+}
+

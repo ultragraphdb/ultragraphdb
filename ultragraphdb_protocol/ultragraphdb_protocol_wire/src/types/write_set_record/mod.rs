@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::write_sections_into;
+
 use crate::types::operation_result::OperationResult;
 use crate::types::record_kind::RecordKind;
 use crate::types::record_operation::RecordOperation;
@@ -10,7 +12,6 @@ use crate::types::record_registration::RecordRegistration;
 use crate::types::term_table::TermTable;
 use crate::utils::key_value_writer::write_entries;
 use crate::utils::results::encode_results;
-use crate::utils::sections::write_sections_into;
 
 /// One entry of a write-set record's key-value sections: a key and its value, `None` for a removal.
 pub type OwnedEntry = (Vec<u8>, Option<Vec<u8>>);

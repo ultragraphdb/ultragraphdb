@@ -10,8 +10,9 @@ use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
 use crate::types::verify::Verify;
 use crate::types::verify_view::VerifyView;
+use crate::utils::body::{read_sections, text};
+use crate::utils::command_header::expect_command;
 use crate::utils::fields::boolean;
-use crate::utils::sections::{Sections, expect_command, text};
 
 /// The size of a ClientProof and of a ServerSignature: an HMAC-SHA-256.
 const PROOF_SIZE: usize = 32;
@@ -42,7 +43,7 @@ impl<'a> BodyView<'a> for VerifyView<'a> {
         if !verified && principal != 0 {
             return Err(ProtocolError::field_value(command, "principal", principal));
         }
-        let sections = Sections::<4>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<4>(command, frame.body(), 0)?;
         let name = text(command, 0, sections.get(0))?;
         let auth_message = text(command, 1, sections.get(1))?;
         let client_proof = proof(command, "proof", sections.get(2))?;

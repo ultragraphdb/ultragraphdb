@@ -3,12 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::column_type::ColumnType;
 use crate::types::pattern_slot::PatternSlot;
 use crate::utils::le::bytes_at;
-use crate::utils::sections::as_u32;
 
 /// The size of a pattern on the wire: four slots of 8 bytes.
 pub(crate) const PATTERN_SIZE: usize = 32;

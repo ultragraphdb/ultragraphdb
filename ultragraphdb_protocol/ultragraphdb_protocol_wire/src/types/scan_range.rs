@@ -3,8 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::as_u32;
+
 use crate::utils::constants::SCAN_RANGE_SIZE;
-use crate::utils::sections::as_u32;
 
 /// One range of a Scan (`PROTOCOL.md` §13.13): the partition read, the first key, inclusive, the key past the range's
 /// last, exclusive, empty for the end of the first key's tenant in its keyspace, and the object encoding its first list

@@ -62,6 +62,10 @@ pub enum Command {
     Query,
     /// The sources of a tenant's schema, installed as a catalog version.
     Install,
+    /// 24: the legal purge of the instances a list of IRIs names (`PROTOCOL.md` §8.5).
+    Purge,
+    /// 25: one action of a migration's run (`PROTOCOL.md` §8.6).
+    Migrate,
     /// Role command 512: a storage or compute process registers with the frontend: its kind, role address and partitions.
     Join,
     /// Role command 513: the roles that joined: each storage partition's process address and each compute process's.
@@ -106,7 +110,7 @@ pub enum Command {
 
 impl Command {
     /// Every command, in the order of its number.
-    pub const ALL: [Command; 43] = [
+    pub const ALL: [Command; 45] = [
         Command::Hello,
         Command::Welcome,
         Command::Register,
@@ -130,6 +134,8 @@ impl Command {
         Command::ConditionalWrite,
         Command::Query,
         Command::Install,
+        Command::Purge,
+        Command::Migrate,
         Command::Join,
         Command::Members,
         Command::Subscribe,
@@ -178,6 +184,8 @@ impl Command {
             Command::ConditionalWrite => 21,
             Command::Query => 22,
             Command::Install => 23,
+            Command::Purge => 24,
+            Command::Migrate => 25,
             Command::Join => 512,
             Command::Members => 513,
             Command::Subscribe => 514,
@@ -228,6 +236,8 @@ impl Command {
             21 => Ok(Command::ConditionalWrite),
             22 => Ok(Command::Query),
             23 => Ok(Command::Install),
+            24 => Ok(Command::Purge),
+            25 => Ok(Command::Migrate),
             512 => Ok(Command::Join),
             513 => Ok(Command::Members),
             514 => Ok(Command::Subscribe),
@@ -297,6 +307,8 @@ impl Command {
             | Command::Authenticate
             | Command::Drop
             | Command::Install
+            | Command::Purge
+            | Command::Migrate
             | Command::Join
             | Command::Members
             | Command::Lease
@@ -334,5 +346,16 @@ impl Command {
             return Ok(self);
         }
         Err(ProtocolError::command_not_served(self.number()))
+    }
+
+    /// Whether a frame of this command spends its stream's credit (`PROTOCOL.md` §11.3): a Result, an Entries, and the
+    /// frames of a Describe's or a Catalog's answer. A receiver, the side that dialled, refuses one past its stream's
+    /// credit as [`ProtocolError::past_credit`].
+    #[must_use]
+    pub fn spends_credit(self) -> bool {
+        matches!(
+            self,
+            Command::Result | Command::Entries | Command::Describe | Command::Catalog
+        )
     }
 }

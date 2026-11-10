@@ -3,12 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::write_sections;
+
 use crate::traits::body_builder::BodyBuilder;
 use crate::types::command::Command;
 use crate::types::verify::Verify;
 use crate::utils::command_header::command_header;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
-use crate::utils::sections::write_sections;
 
 impl BodyBuilder for Verify {
     const COMMAND: Command = Command::Verify;

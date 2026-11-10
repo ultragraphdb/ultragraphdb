@@ -14,8 +14,8 @@ use ultragraphdb_protocol_wire::{
     AbortView, AuthenticateView, BeginView, BodyBuilder, BodyView, CancelView, Command, CommitView,
     ConditionalWriteView, CreditView, DescribeView, DirectWriteView, DropCommandView,
     ErrorReplyView, ExecuteView, FrameView, Header, HelloView, InstallView, MAX_FRAME_SIZE,
-    OperationView, PrepareView, QueryView, ReadView, RegisterView, ResultView, RoundView,
-    WelcomeView, WriteView,
+    MigrateView, OperationView, PrepareView, PurgeView, QueryView, ReadView, RegisterView,
+    ResultView, RoundView, WelcomeView, WriteView,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -68,16 +68,16 @@ pub const BODIES: [GoldenBody; 45] = [
     GoldenBody { name: "operation", command: 9, stream: 5, flags: 0, sequence: 1, size: 541, checksum: 0x819c_9678_0d07_b06d, checksum_body: 0xc763_0be0_93aa_4f02 },
     GoldenBody { name: "operation_counter", command: 9, stream: 7, flags: 0, sequence: 1, size: 387, checksum: 0x853a_2deb_e648_b96d, checksum_body: 0x95e0_a48a_8ed2_701c },
     GoldenBody { name: "operation_deep", command: 9, stream: 9, flags: 0, sequence: 1, size: 1_142, checksum: 0x08b8_0462_4235_b2ce, checksum_body: 0xb338_de68_2070_1115 },
-    GoldenBody { name: "prepare", command: 10, stream: 13, flags: 0, sequence: 1, size: 400, checksum: 0x1afa_bac1_36b6_ae18, checksum_body: 0x0ea6_87b3_a366_9b25 },
-    GoldenBody { name: "prepare_reply", command: 10, stream: 13, flags: 0, sequence: 1, size: 408, checksum: 0x6a25_2586_08d8_b46c, checksum_body: 0xf702_c1a7_1b71_4f5f },
-    GoldenBody { name: "prepare_text", command: 10, stream: 47, flags: 0, sequence: 1, size: 379, checksum: 0xda16_3519_018e_4230, checksum_body: 0x5991_1c31_6efe_5865 },
-    GoldenBody { name: "prepare_text_reply", command: 10, stream: 47, flags: 0, sequence: 1, size: 400, checksum: 0xb817_8d8c_9cc8_6df1, checksum_body: 0xb3e0_7db9_d719_67e5 },
+    GoldenBody { name: "prepare", command: 10, stream: 13, flags: 0, sequence: 1, size: 424, checksum: 0xc398_910d_333a_345c, checksum_body: 0xc209_440e_9b7e_7ff7 },
+    GoldenBody { name: "prepare_reply", command: 10, stream: 13, flags: 0, sequence: 1, size: 432, checksum: 0xdfc9_7b3d_e08e_4fb2, checksum_body: 0x6432_4584_c0b6_9480 },
+    GoldenBody { name: "prepare_text", command: 10, stream: 47, flags: 0, sequence: 1, size: 408, checksum: 0x89e9_cc67_d166_6497, checksum_body: 0x177b_0cd5_01d8_063a },
+    GoldenBody { name: "prepare_text_reply", command: 10, stream: 47, flags: 0, sequence: 1, size: 424, checksum: 0xd837_aa7e_c98a_bc45, checksum_body: 0x47ef_99f0_5b8f_8245 },
     GoldenBody { name: "execute", command: 11, stream: 15, flags: 0, sequence: 1, size: 336, checksum: 0xf929_6433_8595_88a7, checksum_body: 0xb518_2367_cd44_9c6f },
-    GoldenBody { name: "describe", command: 12, stream: 17, flags: 0, sequence: 1, size: 312, checksum: 0xe91a_4ff9_f41a_ff36, checksum_body: 0x2464_7a33_d027_0e23 },
-    GoldenBody { name: "describe_reply", command: 12, stream: 17, flags: 0, sequence: 1, size: 508, checksum: 0x54d7_f94e_ef66_1ff6, checksum_body: 0xac5c_0976_b32b_d2d2 },
-    GoldenBody { name: "result", command: 13, stream: 11, flags: 1, sequence: 1, size: 768, checksum: 0x0326_b205_3c05_7082, checksum_body: 0x4741_a8f3_8066_cd77 },
-    GoldenBody { name: "result_more", command: 13, stream: 11, flags: 0, sequence: 1, size: 760, checksum: 0x1770_c914_7505_b67f, checksum_body: 0xc322_03a5_472f_3256 },
-    GoldenBody { name: "result_query", command: 13, stream: 49, flags: 1, sequence: 1, size: 412, checksum: 0x8f05_2f30_8871_85c8, checksum_body: 0x9abf_49fe_7ef9_dd47 },
+    GoldenBody { name: "describe", command: 12, stream: 17, flags: 0, sequence: 1, size: 328, checksum: 0xf056_75a0_8bc8_df02, checksum_body: 0x1824_2aed_3dce_fd46 },
+    GoldenBody { name: "describe_reply", command: 12, stream: 17, flags: 0, sequence: 1, size: 528, checksum: 0x0772_835f_528c_08cd, checksum_body: 0x1170_c15d_90e8_58c0 },
+    GoldenBody { name: "result", command: 13, stream: 11, flags: 1, sequence: 1, size: 792, checksum: 0x35fd_8547_fed2_3edb, checksum_body: 0x0f5c_e0c2_2ee5_6688 },
+    GoldenBody { name: "result_more", command: 13, stream: 11, flags: 0, sequence: 1, size: 784, checksum: 0x1385_29a8_b7ec_604a, checksum_body: 0xb22a_d94b_8ad2_fa6d },
+    GoldenBody { name: "result_query", command: 13, stream: 49, flags: 1, sequence: 1, size: 440, checksum: 0xe268_e188_96e6_e8a5, checksum_body: 0x9d07_aecd_41ca_879a },
     GoldenBody { name: "credit", command: 14, stream: 11, flags: 0, sequence: 1, size: 256, checksum: 0x2f73_37ee_fe0c_7c44, checksum_body: 0x2d06_8005_38d3_94c2 },
     GoldenBody { name: "cancel", command: 15, stream: 11, flags: 0, sequence: 1, size: 256, checksum: 0x5032_665c_3cbb_1b5f, checksum_body: 0x2d06_8005_38d3_94c2 },
     GoldenBody { name: "error", command: 16, stream: 5, flags: 1, sequence: 1, size: 312, checksum: 0xd3ee_ce7e_9292_95f8, checksum_body: 0x5167_54f7_3689_214d },
@@ -91,13 +91,16 @@ pub const BODIES: [GoldenBody; 45] = [
     GoldenBody { name: "conditional_write", command: 21, stream: 23, flags: 0, sequence: 1, size: 1_160, checksum: 0xb280_d563_ea97_e8be, checksum_body: 0xb121_49ff_c0b7_9217 },
     GoldenBody { name: "conditional_write_operation_only", command: 21, stream: 25, flags: 0, sequence: 1, size: 448, checksum: 0xeec2_d1a6_f624_39f6, checksum_body: 0x7699_41f1_2690_5a19 },
     GoldenBody { name: "query", command: 22, stream: 55, flags: 0, sequence: 1, size: 426, checksum: 0xde88_1a19_1157_741c, checksum_body: 0xd8fa_93b2_7257_917b },
-    GoldenBody { name: "install", command: 23, stream: 57, flags: 0, sequence: 1, size: 344, checksum: 0x5d25_3abe_9296_eedd, checksum_body: 0xb9fe_5c00_deb3_f0b7 },
-    GoldenBody { name: "install_reply", command: 23, stream: 57, flags: 1, sequence: 1, size: 364, checksum: 0x5a75_a586_dfdd_5973, checksum_body: 0xd35e_266f_733a_ba57 },
+    GoldenBody { name: "install", command: 23, stream: 57, flags: 0, sequence: 1, size: 376, checksum: 0x8a67_bc35_2661_60cd, checksum_body: 0x3a6e_45e2_37ec_4d25 },
+    GoldenBody { name: "install_reply", command: 23, stream: 57, flags: 1, sequence: 1, size: 400, checksum: 0x472f_4b10_eab9_11a1, checksum_body: 0x6884_209e_1a1c_c74d },
     GoldenBody { name: "round", command: 17, stream: 0, flags: 0, sequence: 3, size: 5_520, checksum: 0x9516_930d_4ee7_72f5, checksum_body: 0xf685_3c79_e1db_4579 },
 ];
 
-/// The schema id the generator printed for the golden Describe answer's declarations.
-pub const DESCRIBE_SCHEMA_ID: u64 = 0x2a50_3ff2_d84c_0c42;
+/// The schema id of the golden Describe answer's declarations, as `PROTOCOL.md` section 11.7 states it for the golden
+/// `describe_reply.frame`: XXH3-64 of the nine-section body with the entity type's `extra` 0, as section 4.6 requires
+/// (xxHash 0.8.2 through Python's xxhash 3.6.0). The value before stage 6, `0x5000_B621_49F4_DB68`, hashed the retired
+/// preorder number 1 there; the specification was corrected in group 1 (`notes/group-1.md`).
+pub const DESCRIBE_SCHEMA_ID: u64 = 0x5fc0_d2c8_2332_781c;
 
 /// The golden frame named `name`.
 ///
@@ -302,6 +305,8 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
         Command::ConditionalWrite => through::<ConditionalWriteView>(&frame),
         Command::Query => through::<QueryView>(&frame),
         Command::Install => through::<InstallView>(&frame),
+        Command::Purge => through::<PurgeView>(&frame),
+        Command::Migrate => through::<MigrateView>(&frame),
         Command::Join
         | Command::Members
         | Command::Subscribe

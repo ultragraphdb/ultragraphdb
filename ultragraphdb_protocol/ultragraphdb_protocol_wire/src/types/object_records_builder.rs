@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use crate::utils::sections::as_u32;
+use ultragraphdb_core_body::as_u32;
 
 /// A value of a keyspace of lists being written: object records back to back, in the list's order; see
 /// [`crate::ObjectRecords`] for their layout.

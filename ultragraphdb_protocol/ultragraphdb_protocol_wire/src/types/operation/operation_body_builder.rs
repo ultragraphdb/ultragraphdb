@@ -3,14 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{u32_bytes, write_sections};
+
 use crate::traits::body_builder::BodyBuilder;
 use crate::types::command::Command;
 use crate::types::operation::Operation;
 use crate::utils::command_header::command_header;
 use crate::utils::commit_operation_layout::{OperationFields, push_args};
 use crate::utils::constants::COMMAND_HEADER_SIZE;
-use crate::utils::sections::u32_bytes;
-use crate::utils::sections::write_sections;
 
 impl BodyBuilder for Operation {
     const COMMAND: Command = Command::Operation;

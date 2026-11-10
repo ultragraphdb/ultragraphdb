@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{Sections, align8, as_u32};
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -16,9 +17,10 @@ use crate::types::round_body::{DECISION_SIZE, RECORD_ENTRY_SIZE, RoundBody};
 use crate::types::round_header::RoundHeader;
 use crate::types::round_view::RoundView;
 use crate::types::write_set_record_view::WriteSetRecordView;
+use crate::utils::body::{read_sections, records};
+use crate::utils::command_header::expect_command;
 use crate::utils::constants::ABSENT;
 use crate::utils::le::bytes_at;
-use crate::utils::sections::{Sections, align8, as_u32, expect_command, records};
 
 /// The sections of a Round body: decisions, the record table, the records, the dictionary entries.
 const ROUND_SECTIONS: usize = 4;
@@ -90,7 +92,7 @@ impl<'a> RoundView<'a> {
     /// value present (`"dictionary entry"`), each key above the one before (`"dictionary order"`, naming the entry).
     pub fn from_body(round: RoundHeader, body: &'a [u8]) -> Result<Self, ProtocolError> {
         let command = Command::Round.number();
-        let sections = Sections::<ROUND_SECTIONS>::read(command, body, 0)?;
+        let sections = read_sections::<ROUND_SECTIONS>(command, body, 0)?;
         let (decisions, committed) = read_decisions(command, &sections, round.transactions())?;
         check_first_version(command, round.first_version(), committed)?;
         let records = read_records(command, &sections, committed)?;

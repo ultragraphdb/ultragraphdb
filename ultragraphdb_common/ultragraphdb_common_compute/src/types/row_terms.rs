@@ -133,7 +133,9 @@ pub(crate) fn result_term(tenant: u64, term: &EncodedTerm, names: &Names) -> Opt
             hashed(language)?,
         ),
         TermView::Typed { datatype, lexical } => match datatype {
-            Datatype::Known(_) => with_texts(ResultTerm::new(term.clone()), hashed(lexical)?, None),
+            Datatype::Known(_) | Datatype::Tagged(_) => {
+                with_texts(ResultTerm::new(term.clone()), hashed(lexical)?, None)
+            }
             Datatype::Id(id) => {
                 let iri = names.of_id(id)?;
                 let encoded = hashed_datatype(term, iri)?;
@@ -162,7 +164,10 @@ pub(crate) fn result_term(tenant: u64, term: &EncodedTerm, names: &Names) -> Opt
         | TermView::Duration(_)
         | TermView::YearMonthDuration(_)
         | TermView::DayTimeDuration(_)
-        | TermView::Vector(_) => ResultTerm::new(term.clone()),
+        | TermView::Vector(_)
+        | TermView::Bfloat16Vector(_)
+        | TermView::Measure { .. }
+        | TermView::Precision(_) => ResultTerm::new(term.clone()),
     })
 }
 

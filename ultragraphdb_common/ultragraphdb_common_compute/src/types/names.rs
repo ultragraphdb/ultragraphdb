@@ -106,7 +106,10 @@ impl Names {
             | TermView::Duration(_)
             | TermView::YearMonthDuration(_)
             | TermView::DayTimeDuration(_)
-            | TermView::Vector(_) => {}
+            | TermView::Vector(_)
+            | TermView::Bfloat16Vector(_)
+            | TermView::Measure { .. }
+            | TermView::Precision(_) => {}
         }
     }
 

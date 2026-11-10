@@ -42,6 +42,7 @@ pub use crate::types::cancel::Cancel;
 pub use crate::types::cancel_view::CancelView;
 pub use crate::types::catalog::Catalog;
 pub use crate::types::catalog_announcement::CatalogAnnouncement;
+pub use crate::types::catalog_frames::CatalogFrames;
 pub use crate::types::catalog_view::CatalogView;
 pub use crate::types::challenge::Challenge;
 pub use crate::types::challenge_view::ChallengeView;
@@ -73,6 +74,9 @@ pub use crate::types::declared_relation::DeclaredRelation;
 pub use crate::types::default_entry::DefaultEntry;
 pub use crate::types::default_entry_view::DefaultEntryView;
 pub use crate::types::describe::Describe;
+pub use crate::types::describe_entry::DescribeEntry;
+pub use crate::types::describe_entry_view::DescribeEntryView;
+pub use crate::types::describe_frames::DescribeFrames;
 pub use crate::types::describe_view::DescribeView;
 pub use crate::types::direct_write::DirectWrite;
 pub use crate::types::direct_write_view::DirectWriteView;
@@ -84,6 +88,7 @@ pub use crate::types::entries::Entries;
 pub use crate::types::entries_end::EntriesEnd;
 pub use crate::types::entries_sequence::EntriesSequence;
 pub use crate::types::entries_view::EntriesView;
+pub use crate::types::entry_kind::EntryKind;
 pub use crate::types::epoch_close::EpochClose;
 pub use crate::types::epoch_close_view::EpochCloseView;
 pub use crate::types::error_code::ErrorCode;
@@ -110,6 +115,10 @@ pub use crate::types::link::Link;
 pub use crate::types::member::Member;
 pub use crate::types::members::Members;
 pub use crate::types::members_view::MembersView;
+pub use crate::types::migrate::Migrate;
+pub use crate::types::migrate_action::MigrateAction;
+pub use crate::types::migrate_state::MigrateState;
+pub use crate::types::migrate_view::MigrateView;
 pub use crate::types::monotonic::Monotonic;
 pub use crate::types::object_record::ObjectRecord;
 pub use crate::types::object_records::ObjectRecords;
@@ -123,6 +132,8 @@ pub use crate::types::placement_view::PlacementView;
 pub use crate::types::preferred_leader::PreferredLeader;
 pub use crate::types::prepare::Prepare;
 pub use crate::types::prepare_view::PrepareView;
+pub use crate::types::purge::Purge;
+pub use crate::types::purge_view::PurgeView;
 pub use crate::types::quad_pattern::QuadPattern;
 pub use crate::types::query::Query;
 pub use crate::types::query_view::QueryView;
@@ -136,7 +147,9 @@ pub use crate::types::record_kind::RecordKind;
 pub use crate::types::record_operation::RecordOperation;
 pub use crate::types::record_registration::RecordRegistration;
 pub use crate::types::reference::Reference;
+pub use crate::types::reference_mode::ReferenceMode;
 pub use crate::types::reference_registration::ReferenceRegistration;
+pub use crate::types::reference_status::ReferenceStatus;
 pub use crate::types::reference_view::ReferenceView;
 pub use crate::types::refused_request::RefusedRequest;
 pub use crate::types::register::Register;
@@ -153,6 +166,10 @@ pub use crate::types::result_view::ResultView;
 pub use crate::types::resume_key::ResumeKey;
 pub use crate::types::resume_key_view::ResumeKeyView;
 pub use crate::types::resume_row::ResumeRow;
+pub use crate::types::retired_fate::RetiredFate;
+pub use crate::types::retired_item::RetiredItem;
+pub use crate::types::retired_name::RetiredName;
+pub use crate::types::retired_name_view::RetiredNameView;
 pub use crate::types::role_kind::RoleKind;
 pub use crate::types::round_body::RoundBody;
 pub use crate::types::round_header::RoundHeader;
@@ -164,7 +181,6 @@ pub use crate::types::scan_range::ScanRange;
 pub use crate::types::scan_view::ScanView;
 pub use crate::types::statement_cache::StatementCache;
 pub use crate::types::statement_target::StatementTarget;
-pub use crate::types::string_list::StringList;
 pub use crate::types::subscribe::Subscribe;
 pub use crate::types::subscribe_view::SubscribeView;
 pub use crate::types::tenant_run::TenantRun;
@@ -172,6 +188,9 @@ pub use crate::types::term_table::TermTable;
 pub use crate::types::term_table_view::TermTableView;
 pub use crate::types::verify::Verify;
 pub use crate::types::verify_view::VerifyView;
+pub use crate::types::warning::Warning;
+pub use crate::types::warning_view::WarningView;
+pub use crate::types::warnings::Warnings;
 pub use crate::types::welcome::Welcome;
 pub use crate::types::welcome_view::WelcomeView;
 pub use crate::types::write::Write;
@@ -181,11 +200,12 @@ pub use crate::types::write_set_record_view::WriteSetRecordView;
 pub use crate::types::write_view::WriteView;
 pub use crate::utils::checksum::{xxh3_64, xxh3_64_with_seed};
 pub use crate::utils::constants::{
-    ABSENT, CHUNK_SIZE, COMMAND_HEADER_SIZE, DEFAULT_INITIAL_CREDIT, DEFAULT_MAX_STREAMS,
-    DEFAULT_MAX_WRITE_SET, DEFAULT_TRANSACTION_MS, DETAIL_TRANSACTION_NOT_HELD, DETAIL_VALUE_CUT,
-    FIRST_CHUNK_SIZE, FLAG_LAST, HEADER_SIZE, LEAF_SIZE, MAX_EPOCH, MAX_FRAME_FLOOR,
-    MAX_FRAME_SIZE, MAX_TERM_DEPTH, OPERATION_RESULT_SIZE, PATTERN_COLUMNS_MAX, PROTOCOL_VERSION,
-    QUERY_COLUMNS_MAX, QUERY_TEXT_RESERVE, RECORD_FIXED_SIZE, RECORD_OPERATION_SIZE,
-    RECORD_REGISTRATION_SIZE, RECORD_SECTIONS, REPLICA_COMMANDS, RETIRED_COMMANDS, ROLE_COMMANDS,
-    ROLE_MAX_STREAMS, SCAN_RANGE_SIZE, SOURCE_NAME_MAX,
+    ABSENT, CATALOG_BYTES_MAX, CHUNK_SIZE, COMMAND_HEADER_SIZE, DEFAULT_INITIAL_CREDIT,
+    DEFAULT_MAX_STREAMS, DEFAULT_MAX_WRITE_SET, DEFAULT_TRANSACTION_MS, DESCRIBE_ENTRY_SIZE,
+    DETAIL_TRANSACTION_NOT_HELD, DETAIL_VALUE_CUT, FIRST_CHUNK_SIZE, FLAG_LAST, HEADER_SIZE,
+    LEAF_SIZE, MAX_EPOCH, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, MAX_TERM_DEPTH, OPERATION_RESULT_SIZE,
+    PATTERN_COLUMNS_MAX, PROTOCOL_VERSION, PURGE_IRIS_MAX, QUERY_COLUMNS_MAX, QUERY_TEXT_RESERVE,
+    RECORD_FIXED_SIZE, RECORD_OPERATION_SIZE, RECORD_REGISTRATION_SIZE, RECORD_SECTIONS,
+    REPLICA_COMMANDS, RETIRED_COMMANDS, RETIRED_NAME_SIZE, ROLE_COMMANDS, ROLE_MAX_STREAMS,
+    SCAN_RANGE_SIZE, SOURCE_NAME_MAX, WARNING_MESSAGE_MAX, WARNING_SIZE, WARNINGS_MAX,
 };

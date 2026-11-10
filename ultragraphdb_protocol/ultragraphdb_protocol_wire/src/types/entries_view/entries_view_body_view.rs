@@ -12,8 +12,9 @@ use crate::types::entries_end::EntriesEnd;
 use crate::types::entries_view::EntriesView;
 use crate::types::frame_view::FrameView;
 use crate::types::key_values::KeyValues;
+use crate::utils::body::read_sections;
+use crate::utils::command_header::expect_command;
 use crate::utils::fields::{boolean, epoch, version};
-use crate::utils::sections::{Sections, expect_command};
 
 impl<'a> BodyView<'a> for EntriesView<'a> {
     const COMMAND: Command = Command::Entries;
@@ -46,7 +47,7 @@ impl<'a> BodyView<'a> for EntriesView<'a> {
         }
         let read_at = epoch(command, "epoch", header.u64_at(16), true)?;
         let chosen = version(command, "version", header.u64_at(24))?;
-        let sections = Sections::<1>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<1>(command, frame.body(), 0)?;
         let entries = KeyValues::read(command, 0, sections.offset(0), sections.get(0))?;
         if let Some(index) = entries.iter().position(|entry| entry.value().is_none()) {
             // Lossless: a `usize` is at most 64 bits.

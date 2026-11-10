@@ -11,8 +11,9 @@ use crate::types::closed_partition::ClosedPartition;
 use crate::types::closed_view::{ClosedView, PARTITION_SIZE};
 use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
+use crate::utils::body::{read_sections, records};
+use crate::utils::command_header::expect_command;
 use crate::utils::fields::epoch;
-use crate::utils::sections::{Sections, expect_command, records};
 
 impl<'a> BodyView<'a> for ClosedView<'a> {
     const COMMAND: Command = Command::Closed;
@@ -23,7 +24,7 @@ impl<'a> BodyView<'a> for ClosedView<'a> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[])?;
-        let sections = Sections::<1>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<1>(command, frame.body(), 0)?;
         let partitions = sections.get(0);
         let whole = records(command, 0, partitions, PARTITION_SIZE)?;
         if partitions.is_empty() {

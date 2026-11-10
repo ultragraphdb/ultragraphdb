@@ -424,12 +424,12 @@ fn test_check_refuses_what_a_peer_may_not_send() {
             [&[0x32][..], &[0; 15], &[9, 1, 0xFF]].concat(),
             malformed(&[&[0x32][..], &[0; 15], &[9, 1, 0xFF]].concat(), not_utf8),
         ),
-        // A known datatype's code outside section 10.4 (point 13): 0 and 34 are one below and one above codes 1 to
-        // 33, 200 far outside, under the hashed tag.
+        // A known datatype's code outside section 10.4 (point 13): 0 and 37 are one below and one above codes 1 to
+        // 36, 200 far outside, under the hashed tag.
         (vec![0x30, 0, 1, b'x'], Err(TermError::unknown_datatype(0))),
         (
-            vec![0x30, 34, 1, b'x'],
-            Err(TermError::unknown_datatype(34)),
+            vec![0x30, 37, 1, b'x'],
+            Err(TermError::unknown_datatype(37)),
         ),
         (
             [&[0x31, 200][..], &[0; 16]].concat(),
@@ -457,6 +457,10 @@ fn test_check_refuses_what_a_peer_may_not_send() {
     ];
     for (bytes, expected) in cases {
         assert_eq!(EncodedTerm::check(&bytes), expected, "{bytes:02x?}");
+    }
+    // Codes 34 to 36, the last three section 10.4 lists, are known.
+    for code in 34..=36 {
+        assert_eq!(EncodedTerm::check(&[0x30, code, 1, b'x']), Ok(()), "{code}");
     }
 }
 
@@ -635,4 +639,65 @@ fn test_check_refuses_a_timezone_offset_beyond_fourteen_hours() -> TestResult {
     assert_eq!(&east.as_bytes()[17..], &840i16.to_be_bytes());
     assert_eq!(EncodedTerm::check(east.as_bytes()), Ok(()));
     Ok(())
+}
+
+#[test]
+fn test_the_three_tags_of_section_10_4s_codes_34_to_36_take_their_tables_lengths() -> TestResult {
+    // PROTOCOL.md section 10.1: 0x41, a bfloat16vector, is its dimension, a little-endian u16, then that many 2-byte
+    // elements, 3 + 2 × dimension bytes; 0x50, a measure, an 8-byte number then its unit's code as inline text, 10 + n;
+    // 0x51, a precision, one byte, 2. Dimension 258 is the bytes 02 01; the unit "m/s" is 3 bytes.
+    let bf16 = [&[0x41, 0x02, 0x01][..], &[0u8; 2 * 258]].concat();
+    let measure = [&[0x50][..], &1.5f64.to_be_bytes(), &[3], b"m/s"].concat();
+    let precision = vec![0x51, 12];
+    for (bytes, len) in [(bf16, 3 + 2 * 258), (measure, 10 + 3), (precision, 2)] {
+        let with_rest = [&bytes[..], b"rest"].concat();
+        let (term, rest) = EncodedTerm::read(&with_rest)?;
+        assert_eq!(
+            (term.as_bytes(), rest),
+            (&bytes[..], &b"rest"[..]),
+            "{:#04x}",
+            bytes[0]
+        );
+        assert_eq!(term.as_bytes().len(), len);
+        assert_eq!(EncodedTerm::check(&bytes), Ok(()), "{:#04x}", bytes[0]);
+    }
+    // A bfloat16vector of dimension 3, where 2 × 3 and 2 + 3 differ, and of no dimension.
+    let three = [0x41, 3, 0, 0x80, 0x3F, 0, 0x40, 0x40, 0x40];
+    assert_eq!(EncodedTerm::check(&three), Ok(()));
+    assert_eq!(
+        EncodedTerm::read(&[0x41, 0, 0]).map(|_| ()),
+        Err(TermError::malformed(vec![0x41, 0, 0], "an empty vector"))
+    );
+    Ok(())
+}
+
+#[test]
+fn test_check_refuses_a_measure_without_a_unit_and_a_precision_outside_1_to_12() {
+    // PROTOCOL.md sections 10.1 and 10.5: a measure's unit code is at least 1 byte of UTF-8, and a precision's byte is
+    // 1 (millennium) to 12 (nanosecond); any other is no whole encoding.
+    let number = 1.5f64.to_be_bytes();
+    let measure = |unit: &[u8]| [&[0x50][..], &number, &[unit.len() as u8], unit].concat();
+    let malformed = |bytes: &[u8], reason| Err(TermError::malformed(bytes.to_vec(), reason));
+    let cases: Vec<(Vec<u8>, Result<(), TermError>)> = vec![
+        (measure(b""), malformed(&measure(b""), "a measure without a unit")),
+        (
+            measure(&[0xFF]),
+            malformed(&measure(&[0xFF]), "inline text that is not UTF-8"),
+        ),
+        (measure(b"m"), Ok(())),
+        (measure("µm".as_bytes()), Ok(())),
+        (
+            vec![0x51, 0],
+            malformed(&[0x51, 0], "a precision other than 1 to 12"),
+        ),
+        (
+            vec![0x51, 13],
+            malformed(&[0x51, 13], "a precision other than 1 to 12"),
+        ),
+        (vec![0x51, 1], Ok(())),
+        (vec![0x51, 12], Ok(())),
+    ];
+    for (bytes, expected) in cases {
+        assert_eq!(EncodedTerm::check(&bytes), expected, "{bytes:02x?}");
+    }
 }

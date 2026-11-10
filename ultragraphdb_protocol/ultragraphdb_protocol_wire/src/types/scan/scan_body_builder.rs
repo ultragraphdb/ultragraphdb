@@ -3,14 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::{as_u32, write_sections};
+
 use crate::traits::body_builder::BodyBuilder;
 use crate::types::command::Command;
 use crate::types::scan::Scan;
 use crate::utils::command_header::command_header;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
 use crate::utils::constants::SCAN_RANGE_SIZE;
-use crate::utils::sections::as_u32;
-use crate::utils::sections::write_sections;
 
 impl BodyBuilder for Scan {
     const COMMAND: Command = Command::Scan;

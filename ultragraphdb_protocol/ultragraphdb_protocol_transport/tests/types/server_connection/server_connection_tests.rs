@@ -2105,3 +2105,42 @@ fn test_a_bind_opens_the_stream_a_partition_takes_a_transaction_on() -> TestResu
     }
     Ok(())
 }
+
+/// Stage 6: Purge (24) and Migrate (25) each open a stream of their own (`PROTOCOL.md` §3, §11.2), where the frontend
+/// refuses them by stage, and the connection goes on.
+#[test]
+fn test_a_purge_and_a_migrate_open_streams_and_a_refusal_keeps_the_connection() -> TestResult {
+    use ultragraphdb_protocol_wire::{Migrate, MigrateAction, Purge};
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now)?;
+    let purge = Purge::new(0, vec!["https://example.org/i/1".to_string()]);
+    request(&mut connection, &mut peer, 1, &purge, now)?;
+    request(
+        &mut connection,
+        &mut peer,
+        3,
+        &Migrate::new(0, 5, MigrateAction::Start),
+        now,
+    )?;
+    connection.refuse(
+        1,
+        &ErrorReply::new(ErrorCode::Refused, "Purge is served from stage 8"),
+    )?;
+    connection.refuse(
+        3,
+        &ErrorReply::new(ErrorCode::Refused, "Migrate is served from stage 9.5"),
+    )?;
+    let frames = sent(&mut connection)?;
+    let refusals: Vec<(u64, (ErrorCode, u64))> = frames
+        .iter()
+        .map(|(stream, _, _, frame)| Ok((*stream, error(frame)?)))
+        .collect::<TestResult<_>>()?;
+    assert_eq!(
+        refusals,
+        vec![(1, (ErrorCode::Refused, 0)), (3, (ErrorCode::Refused, 0))]
+    );
+    assert!(!connection.is_closing());
+    request(&mut connection, &mut peer, 5, &Describe::request(0), now)?;
+    Ok(())
+}

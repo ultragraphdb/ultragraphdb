@@ -55,3 +55,17 @@ pub(crate) fn command_header(fields: &[(usize, &[u8])]) -> [u8; COMMAND_HEADER_S
     }
     header
 }
+
+/// The command header of `frame`, refused as [`ProtocolError::wrong_command`] when the frame is not of `command`.
+pub(crate) fn expect_command<'a>(
+    frame: &crate::types::frame_view::FrameView<'a>,
+    command: crate::types::command::Command,
+) -> Result<CommandHeader<'a>, ProtocolError> {
+    if frame.command() != command {
+        return Err(ProtocolError::wrong_command(
+            command.number(),
+            frame.command().number(),
+        ));
+    }
+    Ok(CommandHeader(frame.header().command_header()))
+}

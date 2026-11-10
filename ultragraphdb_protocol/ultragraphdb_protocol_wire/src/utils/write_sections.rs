@@ -5,13 +5,13 @@
 
 //! What DirectWrite and ConditionalWrite share (`PROTOCOL.md` §6.6): sections 0 to 5.
 
+use ultragraphdb_core_body::{Sections, StringList};
 use ultragraphdb_error_protocol::ProtocolError;
 
-use crate::types::string_list::StringList;
 use crate::types::term_table_view::TermTableView;
 use crate::types::write_change::WriteChange;
+use crate::utils::body::{read_string_list, u32s};
 use crate::utils::changes::{CHANGE_RECORD_SIZE, decode_change};
-use crate::utils::sections::{Sections, u32s};
 
 /// Sections 0 to 5 of a received body: the term table and the args checked, the names found empty; the records the
 /// caller's.
@@ -37,7 +37,7 @@ impl<'a> WriteSections<'a> {
             sections.get(2),
             sections.get(3),
         )?;
-        let names = StringList::read(command, (4, 5), sections.get(4), sections.get(5))?;
+        let names = read_string_list(command, (4, 5), sections.get(4), sections.get(5))?;
         if !names.is_empty() {
             return Err(ProtocolError::count_mismatch(
                 command,

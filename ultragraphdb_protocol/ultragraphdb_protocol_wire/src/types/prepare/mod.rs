@@ -9,6 +9,7 @@ use crate::types::column_type::ColumnType;
 use crate::types::language::Language;
 use crate::types::quad_pattern::QuadPattern;
 use crate::types::term_table::TermTable;
+use crate::types::warning::Warning;
 
 /// What a statement is prepared from: a quad pattern with parameter slots, or a query text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,13 +32,16 @@ enum Source {
 ///
 /// | Section | Contents |
 /// |---|---|
-/// | 0 | language 0: the pattern, four [`crate::PatternSlot`]s; 1 or 2: the query text, UTF-8 |
+/// | 0 | language 0: the pattern, four [`crate::PatternSlot`]s; 1 to 3: the query text, UTF-8 |
 /// | 1 | the term table's records |
 /// | 2 | the term table's text |
 /// | 3 | parameter types, one [`crate::ColumnType`] byte per parameter |
 /// | 4 | result column types, one byte per result column: each unbound slot, then the reifier column, or each projection; none in a request |
 /// | 5 | names: ends; for a text, in a request the parameter names, in a reply the parameter names then the result column names; empty for a pattern |
 /// | 6 | names: text |
+/// | 7 | the warnings (`PROTOCOL.md` §4.9); empty in a request and for a pattern |
+/// | 8 | the warnings' messages: ends |
+/// | 9 | the warnings' messages: text |
 ///
 /// The request's terms are a [`crate::TermTable`] in two sections, its records and its text; every term the body
 /// names is an index into it.
@@ -52,6 +56,7 @@ pub struct Prepare {
     parameter_types: Vec<ColumnType>,
     result_types: Vec<ColumnType>,
     names: Vec<String>,
+    warnings: Vec<Warning>,
 }
 
 impl Prepare {
@@ -75,6 +80,7 @@ impl Prepare {
             parameter_types,
             result_types,
             names: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -98,6 +104,7 @@ impl Prepare {
             parameter_types,
             result_types: Vec::new(),
             names,
+            warnings: Vec::new(),
         }
     }
 
@@ -178,5 +185,17 @@ impl Prepare {
     #[must_use]
     pub fn names(&self) -> &[String] {
         &self.names
+    }
+
+    /// The answer for a text with its compilation's warnings.
+    #[must_use]
+    pub fn with_warnings(self, warnings: Vec<Warning>) -> Self {
+        Self { warnings, ..self }
+    }
+
+    /// The compilation's warnings; empty in a request and for a pattern.
+    #[must_use]
+    pub fn warnings(&self) -> &[Warning] {
+        &self.warnings
     }
 }

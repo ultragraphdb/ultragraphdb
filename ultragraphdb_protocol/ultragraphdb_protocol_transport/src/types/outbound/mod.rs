@@ -9,12 +9,11 @@ use ultragraphdb_protocol_wire::{Command, FLAG_LAST, Header, HeaderView};
 
 use crate::errors::transport_error::TransportError;
 
-/// Whether `frame`, whose header `push` read, is a Result or an Entries frame, the frames credit meters
-/// (`PROTOCOL.md` §11.3).
+/// Whether `frame`, whose header `push` read, is a frame credit meters: a Result, an Entries, or a frame of a
+/// Describe's or a Catalog's answer (`PROTOCOL.md` §11.3).
 fn is_metered(frame: &[u8]) -> bool {
-    HeaderView::new(frame).is_ok_and(|h| {
-        h.command() == Command::Result.number() || h.command() == Command::Entries.number()
-    })
+    HeaderView::new(frame)
+        .is_ok_and(|h| Command::from_number(h.command()).is_ok_and(Command::spends_credit))
 }
 
 /// Whether `frame` is its stream's last.
@@ -220,7 +219,7 @@ impl Outbound {
             .collect()
     }
 
-    /// Grants `stream` credit for `frames` more Result or Entries frames; ignored for a stream not open.
+    /// Grants `stream` credit for `frames` more frames that spend credit; ignored for a stream not open.
     pub fn grant(&mut self, stream: u64, frames: u32) {
         if let Some(state) = self.streams.get_mut(&stream) {
             state.credit = state.credit.saturating_add(frames);

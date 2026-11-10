@@ -188,8 +188,7 @@ impl<S: DurableStorage> PartitionCore<'_, S> {
             let wire = one
                 .operation(index)
                 .ok_or_else(|| ErrorReply::new(ErrorCode::Protocol, "an operation not held"))?;
-            let operation =
-                operation_of(&wire, one.terms(), &terms).map_err(|rule| protocol(&rule))?;
+            let operation = operation_of(&wire, one.terms(), &terms)?;
             match self.host.operate_bound(key, operation, now) {
                 Ok(BoundStep::Done) => {}
                 Ok(BoundStep::Waiting) => {

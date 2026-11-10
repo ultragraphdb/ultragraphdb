@@ -9,7 +9,7 @@ use ultragraphdb_protocol_wire::{Command, REPLICA_COMMANDS, ROLE_COMMANDS};
 /// The registry as assigned on 2026-10-27, in the order of the design note's body table, with Authenticate and Drop
 /// added on 2026-10-30, the role commands 512 to 530 of `PROTOCOL.md` §3 on 2026-11-03, DirectWrite and
 /// ConditionalWrite on 2026-11-05, and Query, Install and Held later that day. These numbers are never reused; a change here is a protocol break.
-const REGISTRY: [(Command, u16); 43] = [
+const REGISTRY: [(Command, u16); 45] = [
     (Command::Hello, 1),
     (Command::Welcome, 2),
     (Command::Register, 3),
@@ -33,6 +33,9 @@ const REGISTRY: [(Command, u16); 43] = [
     (Command::ConditionalWrite, 21),
     (Command::Query, 22),
     (Command::Install, 23),
+    // PROTOCOL.md §3: stage 6's Purge and Migrate.
+    (Command::Purge, 24),
+    (Command::Migrate, 25),
     (Command::Join, 512),
     (Command::Members, 513),
     (Command::Subscribe, 514),
@@ -76,7 +79,7 @@ fn test_exactly_the_registry_is_known() {
     let known: Vec<u16> = (0..=u16::MAX)
         .filter(|n| Command::from_number(*n).is_ok())
         .collect();
-    let assigned: Vec<u16> = (1..=23).chain(512..=531).collect();
+    let assigned: Vec<u16> = (1..=25).chain(512..=531).collect();
     assert_eq!(known, assigned);
     for number in (0..=u16::MAX).filter(|n| !assigned.contains(n)) {
         assert_eq!(
@@ -88,7 +91,7 @@ fn test_exactly_the_registry_is_known() {
 
 #[test]
 fn test_unassigned_numbers_are_unknown_commands() {
-    for number in [0, 24, 255, 532, 767, 1_000, u16::MAX] {
+    for number in [0, 26, 255, 532, 767, 1_000, u16::MAX] {
         assert_eq!(
             Command::from_number(number),
             Err(ProtocolError(ProtocolErrorEnum::UnknownCommand {
@@ -143,7 +146,7 @@ fn test_a_client_connection_refuses_every_role_command_by_number() {
 }
 
 /// Section 3's "Answered by", each request with the commands that answer it.
-const ANSWERS: [(Command, &[Command]); 32] = [
+const ANSWERS: [(Command, &[Command]); 34] = [
     (Command::Hello, &[Command::Welcome]),
     (Command::Register, &[Command::Register]),
     (Command::Begin, &[Command::Begin]),
@@ -160,6 +163,8 @@ const ANSWERS: [(Command, &[Command]); 32] = [
     (Command::ConditionalWrite, &[Command::Commit]),
     (Command::Query, &[Command::Result]),
     (Command::Install, &[Command::Install]),
+    (Command::Purge, &[Command::Purge]),
+    (Command::Migrate, &[Command::Migrate]),
     (Command::Join, &[Command::Join]),
     (Command::Members, &[Command::Members]),
     (Command::Subscribe, &[Command::EpochClose]),
@@ -205,4 +210,33 @@ fn test_an_error_answers_any_request_and_another_command_is_not_served() {
         Command::Held.answering(Command::Commit),
         Err(ProtocolError::command_not_served(531))
     );
+}
+
+/// PROTOCOL.md §11.3: Result and Entries frames, and the frames of a Describe's or a Catalog's answer, spend credit;
+/// every other frame leaves it.
+#[test]
+fn test_result_entries_describe_and_catalog_frames_spend_credit() {
+    let spending = [
+        Command::Result,
+        Command::Entries,
+        Command::Describe,
+        Command::Catalog,
+    ];
+    for (command, _) in REGISTRY {
+        assert_eq!(
+            command.spends_credit(),
+            spending.contains(&command),
+            "{command:?}"
+        );
+    }
+}
+
+/// PROTOCOL.md §3: Purge and Migrate are answered by themselves, "both" commands, and are no role commands.
+#[test]
+fn test_purge_and_migrate_answer_themselves() {
+    for command in [Command::Purge, Command::Migrate] {
+        assert!(command.answered_by(command), "{command:?}");
+        assert!(!command.answered_by(Command::Result), "{command:?}");
+        assert!(!command.is_role(), "{command:?}");
+    }
 }

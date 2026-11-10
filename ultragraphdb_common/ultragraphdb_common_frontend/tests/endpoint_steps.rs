@@ -23,8 +23,8 @@ use ultragraphdb_protocol_wire::{
     Action, Begin, BodyBuilder, BodyView, Command, Commit, CommitOperation, CommitView,
     ComputeReadView, ConditionalWrite, Credit, DEFAULT_INITIAL_CREDIT, DeclaredPredicate, Describe,
     DirectWrite, DropCommand, ErrorCode, ErrorReply, ErrorReplyView, Header, Hello, Install,
-    Language, MAX_FRAME_SIZE, Prepare, Query, ReadLevel, RequestTerm, TermTable, Write,
-    WriteChange,
+    Language, MAX_FRAME_SIZE, Migrate, MigrateAction, Prepare, Purge, Query, ReadLevel,
+    RequestTerm, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -1147,6 +1147,48 @@ fn a_command_of_a_later_stage_is_refused_on_its_stream_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
+#[when("a client sends a well-formed Purge and a well-formed Migrate")]
+fn purge_and_migrate_are_refused_by_stage(w: &mut Steps) -> TestResult {
+    let options = Options::default();
+    run(w, options, |stage| async move {
+        let _whole = &stage;
+        let mut client = stage.ann().await?;
+        let purge = client
+            .send(&Purge::new(
+                0,
+                vec!["https://example.org/deep_brain#Node/ORG%3Aacme".to_string()],
+            ))
+            .await?;
+        let got = client.got(purge).await?;
+        assert_eq!(got.code, Some(ErrorCode::Refused));
+        assert!(
+            got.message.contains("Purge") && got.message.contains("stage 8"),
+            "{}",
+            got.message
+        );
+        let migrate = client
+            .send(&Migrate::new(0, 5, MigrateAction::Start))
+            .await?;
+        let got_2 = client.got(migrate).await?;
+        assert_eq!(got_2.code, Some(ErrorCode::Refused));
+        assert!(
+            got_2.message.contains("Migrate") && got_2.message.contains("stage 9.5"),
+            "{}",
+            got_2.message
+        );
+        // The connection stays open: a Begin is answered on it.
+        let _open = client.begin(0).await?;
+        Ok(())
+    })
+}
+
+#[then(
+    "each is refused with code 7 on its stream, the message naming the command and its stage, and the connection stays open"
+)]
+fn purge_and_migrate_are_refused_by_stage_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
 #[when("an authenticated principal sends a Begin naming tenant 0")]
 fn the_gate_allows_an_authenticated_principal_in_this_stage(w: &mut Steps) -> TestResult {
     let options = Options::default();
@@ -1244,6 +1286,20 @@ fn a_principal_the_gate_denies_learns_nothing_of_a_number(w: &mut Steps) -> Test
         assert_eq!(
             (there.code, there.detail, &there.message),
             (not.code, not.detail, &not.message)
+        );
+        // A Purge takes `purge` on its tenant, checked before its stage (PROTOCOL.md §8.5, §11.10).
+        let iris = vec!["https://example.org/deep_brain#Node/ORG%3Aacme".to_string()];
+        let purge_there = client.send(&Purge::new(0, iris.clone())).await?;
+        let purge_there = client.got(purge_there).await?;
+        let purge_not = client.send(&Purge::new(9, iris)).await?;
+        let purge_not = client.got(purge_not).await?;
+        assert_eq!(
+            (purge_there.code, purge_there.detail),
+            (Some(ErrorCode::PermissionDenied), Action::Purge.number())
+        );
+        assert_eq!(
+            (purge_there.code, purge_there.detail, &purge_there.message),
+            (purge_not.code, purge_not.detail, &purge_not.message)
         );
         Ok(())
     })

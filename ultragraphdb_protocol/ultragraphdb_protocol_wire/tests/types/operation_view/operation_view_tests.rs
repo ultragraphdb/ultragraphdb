@@ -43,12 +43,13 @@ fn header_refused(name: &str, change: impl FnOnce(&mut [u8])) -> TestResult<Prot
 
 #[test]
 fn test_command_header_fields_fit_the_kind() -> TestResult {
+    // PROTOCOL.md §7.3: kinds 1 to 6; 7 is the first number no kind has.
     assert_eq!(
-        header_refused("operation", |h| h[0] = 5)?,
+        header_refused("operation", |h| h[0] = 7)?,
         ProtocolErrorEnum::FieldValue {
             command: 9,
             field: "kind",
-            value: 5
+            value: 7
         }
     );
     assert_eq!(
@@ -189,4 +190,161 @@ fn test_every_property_and_link_reads_from_its_args() -> TestResult {
     assert_eq!((view.kind(), view.properties(), view.links()), (2, 2, 3));
     assert_eq!(view.operation(), operation);
     Ok(())
+}
+
+/// Stage 6: Operation kinds 5, delete an instance, and 6, retract an instance (`PROTOCOL.md` §7.3), over Operations
+/// laid out by hand: `kind` at 0, `delta` at 8, `properties` at 16, `links` at 20; the args, then the term table.
+mod stage_6 {
+    use ultragraphdb_error_protocol::ProtocolErrorEnum;
+    use ultragraphdb_protocol_wire::{
+        ABSENT, BodyBuilder, BodyView, Command, CommitOperation, Header, Operation, OperationView,
+        RequestTermView, TermTable,
+    };
+    use ultragraphdb_tool_bdd::{Context, TestResult};
+
+    use crate::utils::golden_bodies::{CLUSTER, frame_of};
+    use crate::utils::ugs_frames::{frame, iri_terms, outcome, refused, u32s};
+
+    const INSTANCE: &str = "https://example.org/deep_brain#Node/ORG%3Aacme";
+    const GRAPH: &str = "https://example.org/g";
+
+    /// An Operation of `kind` and the header fields `fields` past it, its `args` over the IRIs `iris`.
+    fn operation(fields: &[(usize, &[u8])], args: &[u32], iris: &[&str]) -> TestResult<Vec<u8>> {
+        let [records, text] = iri_terms(iris);
+        frame(
+            Command::Operation,
+            fields,
+            &[u32s(args), records, text],
+            false,
+        )
+    }
+
+    fn field_value(field: &'static str, value: u64) -> ProtocolErrorEnum {
+        ProtocolErrorEnum::FieldValue {
+            command: 9,
+            field,
+            value,
+        }
+    }
+
+    /// wire-protocol, "A retract operation is read and built": kind 6 naming the default graph and the instance's IRI,
+    /// built and read back, the view answering kind 6, the graph `ABSENT` and the IRI.
+    #[test]
+    fn test_a_retract_operation_is_built_and_read_back() -> TestResult {
+        let mut terms = TermTable::new();
+        let instance = terms.iri(INSTANCE);
+        let retract = Operation::new(
+            terms,
+            CommitOperation::RetractInstance {
+                graph: None,
+                instance,
+            },
+        );
+        let bytes = retract.frame(Header::new(CLUSTER, Command::Operation).with_stream(3))?;
+        assert_eq!(bytes, operation(&[(0, &[6])], &[ABSENT, 0], &[INSTANCE])?);
+        let view = OperationView::from_frame(&frame_of(&bytes)?)?;
+        assert_eq!(view.kind(), 6);
+        assert_eq!(
+            view.operation(),
+            CommitOperation::RetractInstance {
+                graph: None,
+                instance: 0
+            }
+        );
+        assert_eq!(
+            view.terms().get(0).context("the instance")?,
+            RequestTermView::Iri(INSTANCE)
+        );
+        assert_eq!(view.to_body()?, retract);
+        Ok(())
+    }
+
+    /// Kind 5 deletes the instance a named graph's term names: graph term 0, instance term 1.
+    #[test]
+    fn test_a_delete_operation_names_its_graph_and_instance() -> TestResult {
+        let bytes = operation(&[(0, &[5])], &[0, 1], &[GRAPH, INSTANCE])?;
+        let view = OperationView::from_frame(&frame_of(&bytes)?)?;
+        assert_eq!(
+            view.operation(),
+            CommitOperation::DeleteInstance {
+                graph: Some(0),
+                instance: 1
+            }
+        );
+        Ok(())
+    }
+
+    /// wire-protocol, "A delete operation with a third arg is refused": `CountMismatch` naming `args`; one arg alike.
+    #[test]
+    fn test_a_delete_or_retract_takes_two_args() -> TestResult {
+        assert_eq!(
+            refused::<OperationView>(&operation(&[(0, &[5])], &[ABSENT, 0, 0], &[INSTANCE])?)?,
+            ProtocolErrorEnum::CountMismatch {
+                command: 9,
+                field: "args",
+                count: 3,
+                expected: 2
+            }
+        );
+        assert_eq!(
+            refused::<OperationView>(&operation(&[(0, &[6])], &[ABSENT], &[INSTANCE])?)?,
+            ProtocolErrorEnum::CountMismatch {
+                command: 9,
+                field: "args",
+                count: 1,
+                expected: 2
+            }
+        );
+        Ok(())
+    }
+
+    /// A kind above 6 is refused as `FieldValue` naming `kind`; kinds 5 and 6 take no `delta`, `properties` or `links`;
+    /// the instance is a term, never `ABSENT`.
+    #[test]
+    fn test_a_delete_or_retract_takes_no_other_field() -> TestResult {
+        let args = [ABSENT, 0];
+        assert_eq!(
+            refused::<OperationView>(&operation(&[(0, &[7])], &args, &[INSTANCE])?)?,
+            field_value("kind", 7)
+        );
+        assert_eq!(
+            refused::<OperationView>(&operation(
+                &[(0, &[5]), (8, &1i64.to_le_bytes())],
+                &args,
+                &[INSTANCE]
+            )?)?,
+            field_value("delta", 1)
+        );
+        assert_eq!(
+            refused::<OperationView>(&operation(
+                &[(0, &[6]), (16, &1u32.to_le_bytes())],
+                &args,
+                &[INSTANCE]
+            )?)?,
+            field_value("properties", 1)
+        );
+        assert_eq!(
+            refused::<OperationView>(&operation(
+                &[(0, &[5]), (20, &1u32.to_le_bytes())],
+                &args,
+                &[INSTANCE]
+            )?)?,
+            field_value("links", 1)
+        );
+        assert_eq!(
+            refused::<OperationView>(&operation(&[(0, &[5])], &[ABSENT, ABSENT], &[INSTANCE])?)?,
+            ProtocolErrorEnum::IndexOutOfRange {
+                command: 9,
+                section: 0,
+                at: 1,
+                index: ABSENT,
+                limit: 1
+            }
+        );
+        assert_eq!(
+            outcome::<OperationView>(&operation(&[(0, &[6])], &args, &[INSTANCE])?)?,
+            None
+        );
+        Ok(())
+    }
 }

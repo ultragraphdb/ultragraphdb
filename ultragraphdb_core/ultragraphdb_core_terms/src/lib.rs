@@ -11,11 +11,13 @@ mod types;
 mod utils;
 
 pub use crate::errors::term_error::{TermError, TermErrorEnum};
+pub use crate::types::bfloat16_vector_view::Bfloat16VectorView;
 pub use crate::types::datatype::Datatype;
 pub use crate::types::encoded_literal::EncodedLiteral;
 pub use crate::types::encoded_term::{ENCODED_MAX, EncodedTerm, INLINE_MAX, VECTOR_MAX};
 pub use crate::types::hash128::Hash128;
 pub use crate::types::known_datatype::{FLOAT32_VECTOR, KnownDatatype, SYSTEM_VOCABULARY};
+pub use crate::types::tagged_datatype::TaggedDatatype;
 pub use crate::types::term_view::TermView;
 pub use crate::types::text::Text;
 pub use crate::types::vector_view::VectorView;

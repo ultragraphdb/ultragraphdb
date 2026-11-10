@@ -5,6 +5,13 @@
 
 mod catalog_body_builder;
 
+use ultragraphdb_error_protocol::ProtocolError;
+
+use crate::traits::body_builder::BodyBuilder;
+use crate::types::command::Command;
+use crate::types::header::Header;
+use crate::utils::continuation::{Cut, continuation_frames};
+
 /// A tenant's catalog version from the metadata group (`PROTOCOL.md` §13.7): its number, the epoch it applies from and
 /// its bytes, carried opaque. A body with `position` 0 is a request.
 ///
@@ -78,5 +85,20 @@ impl Catalog {
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    /// The reply as the frames that carry it within `max_frame` (`PROTOCOL.md` §13.7): one frame when its bytes fit,
+    /// else as many as they take, each with this command header, the last alone flagged `LAST`. `header` gives every
+    /// frame's other fields.
+    ///
+    /// # Errors
+    ///
+    /// [`ultragraphdb_error_protocol::ProtocolError::frame_too_large`] when a frame within `max_frame` holds no byte of
+    /// the version left, naming the least frame that holds one.
+    pub fn frames(&self, header: Header, max_frame: usize) -> Result<Vec<Vec<u8>>, ProtocolError> {
+        let header = header
+            .with_command(Command::Catalog)
+            .with_command_header(self.command_header());
+        continuation_frames(header, max_frame, &[(&self.bytes, Cut::Units(1))])
     }
 }

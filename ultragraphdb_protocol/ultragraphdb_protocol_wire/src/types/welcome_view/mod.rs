@@ -3,9 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-mod welcome_view_body_view;
+use ultragraphdb_core_body::StringList;
 
-use crate::types::string_list::StringList;
+mod welcome_view_body_view;
 
 /// The body of a received Welcome frame, read in place; see [`crate::Welcome`] for its layout.
 #[derive(Debug, Clone, PartialEq, Eq)]

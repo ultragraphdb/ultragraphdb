@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::Sections;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::command::Command;
@@ -14,6 +15,7 @@ use crate::types::record_registration::RecordRegistration;
 use crate::types::term_table::{TERM_RECORD_SIZE, kind};
 use crate::types::term_table_view::TermTableView;
 use crate::types::write_set_record::WriteSetRecord;
+use crate::utils::body::read_sections;
 use crate::utils::constants::{
     ABSENT, OPERATION_RESULT_SIZE, RECORD_FIXED_SIZE, RECORD_OPERATION_SIZE,
     RECORD_REGISTRATION_SIZE, RECORD_SECTIONS,
@@ -23,7 +25,6 @@ use crate::utils::operation::{
     check_operations, check_registrations, operation_at, registration_at,
 };
 use crate::utils::results::{check_results, result_at};
-use crate::utils::sections::Sections;
 
 /// The fixed part's fields, read and checked.
 #[derive(Debug, Clone, Copy)]
@@ -202,7 +203,7 @@ impl<'a> WriteSetRecordView<'a> {
     /// Drop's nonzero read version).
     pub fn new(bytes: &'a [u8]) -> Result<Self, ProtocolError> {
         let command = Command::Round.number();
-        let sections = Sections::<RECORD_SECTIONS>::read(command, bytes, RECORD_FIXED_SIZE)?;
+        let sections = read_sections::<RECORD_SECTIONS>(command, bytes, RECORD_FIXED_SIZE)?;
         let fixed = read_fixed(command, sections.fixed())?;
         let tables = read_tables(command, &sections)?;
         check_operations(command, 3, sections.offset(3), sections.get(3))?;

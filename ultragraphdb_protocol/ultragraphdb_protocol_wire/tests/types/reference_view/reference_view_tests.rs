@@ -105,8 +105,10 @@ fn test_the_golden_reply_reads_in_place() -> TestResult {
     Ok(())
 }
 
+/// `PROTOCOL.md` §13.15: `reply` at 0 is boolean, `mode` at 1 and `tenant` at 8 its other fields; bytes 2–7 and 16–127
+/// are unused.
 #[test]
-fn test_the_command_header_holds_the_reply_flag_alone() -> TestResult {
+fn test_the_reply_flag_is_boolean_and_the_unused_bytes_are_zero() -> TestResult {
     let bytes = with_command_header(&golden("reference")?, |h| h[0] = 2);
     assert_eq!(
         refusal::<ReferenceView>(&bytes)?,
@@ -116,7 +118,7 @@ fn test_the_command_header_holds_the_reply_flag_alone() -> TestResult {
             value: 2
         }
     );
-    for at in [1usize, 127] {
+    for at in [2usize, 127] {
         let unused = with_command_header(&golden("reference")?, |h| h[at] = 1);
         assert_eq!(
             refusal::<ReferenceView>(&unused)?,
@@ -167,19 +169,18 @@ fn test_the_registrations_are_whole_and_at_least_one() -> TestResult {
     Ok(())
 }
 
+/// `PROTOCOL.md` §13.15: a registration's byte 15 is zero, its byte 14 `status`.
 #[test]
-fn test_zero_bytes_are_named_at_their_body_offset() -> TestResult {
-    for at in [14usize, 15] {
-        let bytes = with_registration("reference", 1, |r| r[at] = 1)?;
-        // Section 0 starts at body offset 24, after the table of three sections.
-        assert_eq!(
-            refusal::<ReferenceView>(&bytes)?,
-            ProtocolErrorEnum::PaddingNotZero {
-                command: 526,
-                offset: 24 + 48 + at
-            }
-        );
-    }
+fn test_the_zero_byte_is_named_at_its_body_offset() -> TestResult {
+    let bytes = with_registration("reference", 1, |r| r[15] = 1)?;
+    // Section 0 starts at body offset 24, after the table of three sections.
+    assert_eq!(
+        refusal::<ReferenceView>(&bytes)?,
+        ProtocolErrorEnum::PaddingNotZero {
+            command: 526,
+            offset: 24 + 48 + 15
+        }
+    );
     Ok(())
 }
 
@@ -340,4 +341,178 @@ fn test_a_torn_term_record_is_refused() -> TestResult {
         "a record short of its size"
     );
     Ok(())
+}
+
+/// Stage 6: Reference's `mode` and its registrations' `status` (`PROTOCOL.md` §13.15), over batches laid out by hand:
+/// `reply` at 0, `mode` at 1, `tenant` at 8; each registration `partition`, `group`, `iri`, `outcome`, `status`, a zero
+/// byte, `generation`, `close` and `entity`.
+pub mod stage_6 {
+    use ultragraphdb_error_protocol::ProtocolErrorEnum;
+    use ultragraphdb_protocol_wire::{
+        BodyView, Command, ReferenceMode, ReferenceStatus, ReferenceView,
+    };
+    use ultragraphdb_tool_bdd::{Context, TestResult};
+
+    use crate::utils::golden_bodies::frame_of;
+    use crate::utils::ugs_frames::{frame, iri_terms, outcome, refused};
+
+    /// An entity of type prefix 3, sequence 7, bucket 0x2A, big-endian: a valid system ID (§1).
+    pub const ENTITY: [u8; 16] = [0, 3, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0x2A, 0, 0, 0];
+    const IRI: &str = "https://example.org/deep_brain#Node/ORG%3Aacme";
+
+    /// A registration's 48 bytes.
+    pub fn registration(
+        group: u32,
+        iri: u32,
+        outcome_status: (u16, u8),
+        generation: u64,
+        close: u64,
+        entity: [u8; 16],
+    ) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&4u32.to_le_bytes());
+        out.extend_from_slice(&group.to_le_bytes());
+        out.extend_from_slice(&iri.to_le_bytes());
+        out.extend_from_slice(&outcome_status.0.to_le_bytes());
+        out.extend_from_slice(&[outcome_status.1, 0]);
+        out.extend_from_slice(&generation.to_le_bytes());
+        out.extend_from_slice(&close.to_le_bytes());
+        out.extend_from_slice(&entity);
+        out
+    }
+
+    /// A batch in tenant 0 of `mode`, a reply when `reply`, of `registration` naming the IRI as term 0.
+    pub fn batch(reply: bool, mode: u8, registration: Vec<u8>) -> TestResult<Vec<u8>> {
+        let [records, text] = iri_terms(&[IRI]);
+        frame(
+            Command::Reference,
+            &[(0, &[u8::from(reply), mode])],
+            &[registration, records, text],
+            false,
+        )
+    }
+
+    fn rejected() -> ProtocolErrorEnum {
+        ProtocolErrorEnum::FieldValue {
+            command: 526,
+            field: "registration",
+            value: 0,
+        }
+    }
+
+    /// A get-only request reads its mode; its registration carries no status.
+    #[test]
+    fn test_a_get_only_request_reads_its_mode() -> TestResult {
+        let bytes = batch(false, 1, registration(u32::MAX, 0, (0, 0), 0, 0, [0; 16]))?;
+        let view = ReferenceView::from_frame(&frame_of(&bytes)?)?;
+        assert_eq!(view.mode(), ReferenceMode::GetOnly);
+        assert_eq!(
+            view.registration(0).context("a registration")?.status(),
+            None
+        );
+        let zero = batch(false, 0, registration(u32::MAX, 0, (0, 0), 0, 0, [0; 16]))?;
+        assert_eq!(
+            ReferenceView::from_frame(&frame_of(&zero)?)?.mode(),
+            ReferenceMode::GetOrCreate
+        );
+        assert_eq!(
+            refused::<ReferenceView>(&batch(
+                false,
+                2,
+                registration(u32::MAX, 0, (0, 0), 0, 0, [0; 16])
+            )?)?,
+            ProtocolErrorEnum::FieldValue {
+                command: 526,
+                field: "mode",
+                value: 2
+            }
+        );
+        Ok(())
+    }
+
+    /// An accepted get-only reply answers each status: absent with no ID, live with its generation and close, deleted
+    /// and retracted with the ID and neither.
+    #[test]
+    fn test_a_get_only_reply_answers_each_status() -> TestResult {
+        let cases = [
+            (
+                registration(u32::MAX, 0, (0, 1), 0, 0, [0; 16]),
+                ReferenceStatus::Absent,
+            ),
+            (
+                registration(0x2A, 0, (0, 2), 3, 30, ENTITY),
+                ReferenceStatus::Live,
+            ),
+            (
+                registration(u32::MAX, 0, (0, 3), 0, 0, ENTITY),
+                ReferenceStatus::Deleted,
+            ),
+            (
+                registration(u32::MAX, 0, (0, 4), 0, 0, ENTITY),
+                ReferenceStatus::Retracted,
+            ),
+        ];
+        for (bytes, status) in cases {
+            let frame_bytes = batch(true, 1, bytes)?;
+            let view = ReferenceView::from_frame(&frame_of(&frame_bytes)?)?;
+            assert_eq!(
+                view.registration(0).context("a registration")?.status(),
+                Some(status)
+            );
+        }
+        Ok(())
+    }
+
+    /// `status` is 0 with mode 0 and in a refused reply, 1 to 4 in an accepted get-only one; an absent entity's ID
+    /// all zero; a deleted or retracted one's `generation` and `close` 0.
+    #[test]
+    fn test_a_status_follows_mode_and_outcome() -> TestResult {
+        let broken = [
+            batch(true, 1, registration(u32::MAX, 0, (0, 0), 0, 0, ENTITY))?,
+            batch(true, 1, registration(u32::MAX, 0, (0, 5), 0, 0, ENTITY))?,
+            batch(true, 0, registration(u32::MAX, 0, (0, 2), 0, 0, ENTITY))?,
+            batch(true, 1, registration(u32::MAX, 0, (17, 1), 0, 0, [0; 16]))?,
+            batch(true, 1, registration(u32::MAX, 0, (0, 1), 0, 0, ENTITY))?,
+            batch(true, 1, registration(u32::MAX, 0, (0, 4), 1, 0, ENTITY))?,
+            batch(true, 1, registration(u32::MAX, 0, (0, 3), 0, 30, ENTITY))?,
+            batch(false, 1, registration(u32::MAX, 0, (0, 1), 0, 0, [0; 16]))?,
+        ];
+        for bytes in &broken {
+            assert_eq!(refused::<ReferenceView>(bytes)?, rejected());
+        }
+        Ok(())
+    }
+
+    /// A live entity's accepted get-only registration names its ID and, with a group, the member's generation, at least
+    /// 1 (§13.15): either missing is refused as `FieldValue` naming `registration`.
+    #[test]
+    fn test_a_live_entity_names_its_id_and_its_members_generation() -> TestResult {
+        let no_id = batch(true, 1, registration(u32::MAX, 0, (0, 2), 0, 0, [0; 16]))?;
+        assert_eq!(refused::<ReferenceView>(&no_id)?, rejected());
+        let no_generation = batch(true, 1, registration(0x2A, 0, (0, 2), 0, 30, ENTITY))?;
+        assert_eq!(refused::<ReferenceView>(&no_generation)?, rejected());
+        Ok(())
+    }
+
+    /// `outcome` 30 refuses a registration with mode 0, named by its ID; with mode 1 a reply's outcome is 0, 17 or 26.
+    #[test]
+    fn test_outcome_30_belongs_to_mode_0() -> TestResult {
+        let by_id = registration(u32::MAX, u32::MAX, (30, 0), 0, 0, ENTITY);
+        assert_eq!(
+            outcome::<ReferenceView>(&batch(true, 0, by_id.clone())?)?,
+            None
+        );
+        assert_eq!(
+            refused::<ReferenceView>(&batch(true, 1, by_id)?)?,
+            rejected()
+        );
+        for refusal in [17u16, 26] {
+            let refused_reply = registration(u32::MAX, 0, (refusal, 0), 0, 0, [0; 16]);
+            assert_eq!(
+                outcome::<ReferenceView>(&batch(true, 1, refused_reply)?)?,
+                None
+            );
+        }
+        Ok(())
+    }
 }

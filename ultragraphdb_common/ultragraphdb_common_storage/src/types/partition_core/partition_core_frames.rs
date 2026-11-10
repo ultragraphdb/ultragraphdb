@@ -199,7 +199,6 @@ impl<S: DurableStorage> PartitionCore<'_, S> {
             let terms =
                 FrameTerms::of(operation.terms()).map_err(|rule| ErrorReply::protocol(&rule))?;
             operation_of(&operation.operation(), operation.terms(), &terms)
-                .map_err(|rule| ErrorReply::protocol(&rule))
         })();
         let now = self.now_us();
         let step = read.and_then(|operation| {

@@ -10,10 +10,9 @@ use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
 use crate::types::hello::Hello;
 use crate::types::hello_view::HelloView;
+use crate::utils::body::{read_sections, text};
+use crate::utils::command_header::expect_command;
 use crate::utils::constants::{MAX_FRAME_FLOOR, MAX_FRAME_SIZE};
-use crate::utils::sections::Sections;
-use crate::utils::sections::expect_command;
-use crate::utils::sections::text;
 
 impl<'a> BodyView<'a> for HelloView<'a> {
     const COMMAND: Command = Command::Hello;
@@ -44,7 +43,7 @@ impl<'a> BodyView<'a> for HelloView<'a> {
                 max_frame.into(),
             ));
         }
-        let sections = Sections::<1>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<1>(command, frame.body(), 0)?;
         Ok(Self {
             protocol_min,
             protocol_max,

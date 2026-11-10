@@ -7,11 +7,11 @@ mod round_body_body_builder;
 
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
+use ultragraphdb_core_body::as_u32;
 
 use crate::types::decision::Decision;
 use crate::types::error_code::ErrorCode;
 use crate::types::round_header::RoundHeader;
-use crate::utils::sections::as_u32;
 
 /// The size of a decision.
 pub(crate) const DECISION_SIZE: usize = 16;

@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_core_ids::{Bucket, BucketGroup, Sequence, SystemId, TypePrefix};
-use ultragraphdb_protocol_wire::{ABSENT, ReferenceRegistration};
+use ultragraphdb_protocol_wire::{ABSENT, ReferenceRegistration, ReferenceStatus};
 use ultragraphdb_tool_bdd::TestResult;
 
 fn entity(sequence: u64, bucket: u32) -> TestResult<SystemId> {
@@ -89,5 +89,43 @@ fn test_accepting_a_refused_registration_clears_its_outcome() -> TestResult {
         .accepted(entity(5, 6)?, 0, 9);
     assert_eq!(accepted.outcome(), 0);
     assert_eq!(&accepted.encode()[12..14], &[0, 0]);
+    Ok(())
+}
+
+/// Each answer sets the reply fields `PROTOCOL.md` §13.15 gives it, whatever the registration held before: a get-only
+/// answer of a live entity its outcome 0, its status, the member's generation and the latest close; a refusal its status,
+/// generation and close 0; a get-or-create acceptance its status 0, which mode 0 holds.
+#[test]
+fn test_each_answer_sets_status_outcome_generation_and_close() -> TestResult {
+    let group = BucketGroup::new(0x2A)?;
+    let id = entity(5, 6)?;
+    let live = ReferenceRegistration::request(3, Some(group), Some(0), None, 3)
+        .refused(17)
+        .answered(ReferenceStatus::Live, Some(id), 4, 30);
+    assert_eq!(
+        (live.outcome(), live.status(), live.generation(), live.close()),
+        (0, Some(ReferenceStatus::Live), 4, 30)
+    );
+    assert_eq!(live.entity(), Some(id));
+    let refused = live.refused(26);
+    assert_eq!(
+        (
+            refused.outcome(),
+            refused.status(),
+            refused.generation(),
+            refused.close()
+        ),
+        (26, None, 0, 0)
+    );
+    let accepted = live.accepted(id, 5, 31);
+    assert_eq!(
+        (
+            accepted.outcome(),
+            accepted.status(),
+            accepted.generation(),
+            accepted.close()
+        ),
+        (0, None, 5, 31)
+    );
     Ok(())
 }

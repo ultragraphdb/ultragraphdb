@@ -5,6 +5,7 @@
 
 use std::marker::PhantomData;
 
+use ultragraphdb_core_body::Sections;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -12,8 +13,9 @@ use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
 use crate::types::lease::Lease;
 use crate::types::lease_view::LeaseView;
+use crate::utils::body::read_sections;
+use crate::utils::command_header::expect_command;
 use crate::utils::fields::at_least_one;
-use crate::utils::sections::{Sections, expect_command};
 
 impl<'a> BodyView<'a> for LeaseView<'a> {
     const COMMAND: Command = Command::Lease;
@@ -34,7 +36,7 @@ impl<'a> BodyView<'a> for LeaseView<'a> {
         if !request && (start == 0 || start.checked_add(size) != Some(end)) {
             return Err(ProtocolError::field_value(command, "block", start));
         }
-        let _sections: Sections<'_, 0> = Sections::read(command, frame.body(), 0)?;
+        let _sections: Sections<'_, 0> = read_sections(command, frame.body(), 0)?;
         Ok(Self {
             frame: PhantomData,
             type_prefix,

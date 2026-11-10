@@ -10,8 +10,9 @@ use crate::types::catalog::Catalog;
 use crate::types::catalog_view::CatalogView;
 use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
+use crate::utils::body::read_sections;
+use crate::utils::command_header::expect_command;
 use crate::utils::fields::{at_least_one, epoch};
-use crate::utils::sections::{Sections, expect_command};
 
 impl<'a> BodyView<'a> for CatalogView<'a> {
     const COMMAND: Command = Command::Catalog;
@@ -32,7 +33,7 @@ impl<'a> BodyView<'a> for CatalogView<'a> {
             let _version = at_least_one(command, "version", version)?;
             let _epoch = epoch(command, "epoch", effective, true)?;
         }
-        let sections = Sections::<1>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<1>(command, frame.body(), 0)?;
         let bytes = sections.get(0);
         if request && !bytes.is_empty() {
             return Err(ProtocolError::count_mismatch(

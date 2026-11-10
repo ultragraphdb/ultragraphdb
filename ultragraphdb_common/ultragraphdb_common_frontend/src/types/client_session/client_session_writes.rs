@@ -114,6 +114,10 @@ pub(super) fn operation_destination(
         | CommitOperation::UpsertAndLink {
             predicate, value, ..
         } => claim_of(table, *predicate, *value).map_or(Destination::InTurn, Destination::Claim),
+        // `check_operation` refuses kinds 5 and 6 before a destination is asked; the transaction's partition is theirs.
+        CommitOperation::DeleteInstance { .. } | CommitOperation::RetractInstance { .. } => {
+            Destination::InTurn
+        }
     }
 }
 

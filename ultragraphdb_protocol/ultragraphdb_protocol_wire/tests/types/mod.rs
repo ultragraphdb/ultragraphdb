@@ -34,6 +34,8 @@ pub mod catalog;
 #[cfg(test)]
 mod catalog_announcement;
 #[cfg(test)]
+mod catalog_frames;
+#[cfg(test)]
 mod catalog_view;
 #[cfg(test)]
 mod challenge;
@@ -92,6 +94,12 @@ mod default_entry_view;
 #[cfg(test)]
 pub mod describe;
 #[cfg(test)]
+mod describe_entry;
+#[cfg(test)]
+mod describe_entry_view;
+#[cfg(test)]
+mod describe_frames;
+#[cfg(test)]
 mod describe_view;
 #[cfg(test)]
 pub mod direct_write;
@@ -111,6 +119,8 @@ mod entries_end;
 mod entries_sequence;
 #[cfg(test)]
 mod entries_view;
+#[cfg(test)]
+mod entry_kind;
 #[cfg(test)]
 pub mod epoch_close;
 #[cfg(test)]
@@ -164,6 +174,14 @@ pub mod members;
 #[cfg(test)]
 mod members_view;
 #[cfg(test)]
+mod migrate;
+#[cfg(test)]
+mod migrate_action;
+#[cfg(test)]
+mod migrate_state;
+#[cfg(test)]
+mod migrate_view;
+#[cfg(test)]
 mod monotonic;
 #[cfg(test)]
 mod object_record;
@@ -190,6 +208,10 @@ pub mod prepare;
 #[cfg(test)]
 mod prepare_view;
 #[cfg(test)]
+mod purge;
+#[cfg(test)]
+mod purge_view;
+#[cfg(test)]
 mod quad_pattern;
 #[cfg(test)]
 pub mod query;
@@ -214,9 +236,13 @@ mod record_registration;
 #[cfg(test)]
 pub mod reference;
 #[cfg(test)]
+mod reference_mode;
+#[cfg(test)]
 mod reference_registration;
 #[cfg(test)]
-mod reference_view;
+mod reference_status;
+#[cfg(test)]
+pub mod reference_view;
 #[cfg(test)]
 mod register;
 #[cfg(test)]
@@ -242,6 +268,14 @@ mod resume_key;
 #[cfg(test)]
 mod resume_row;
 #[cfg(test)]
+mod retired_fate;
+#[cfg(test)]
+mod retired_item;
+#[cfg(test)]
+mod retired_name;
+#[cfg(test)]
+mod retired_name_view;
+#[cfg(test)]
 mod role_kind;
 #[cfg(test)]
 pub mod round_body;
@@ -260,8 +294,6 @@ mod scan_view;
 #[cfg(test)]
 mod statement_cache;
 #[cfg(test)]
-mod string_list;
-#[cfg(test)]
 pub mod subscribe;
 #[cfg(test)]
 mod subscribe_view;
@@ -275,6 +307,12 @@ pub mod term_table_view;
 mod verify;
 #[cfg(test)]
 mod verify_view;
+#[cfg(test)]
+mod warning;
+#[cfg(test)]
+mod warning_view;
+#[cfg(test)]
+mod warnings;
 #[cfg(test)]
 mod welcome;
 #[cfg(test)]

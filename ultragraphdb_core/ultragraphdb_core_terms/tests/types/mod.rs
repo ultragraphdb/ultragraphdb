@@ -4,11 +4,15 @@
  */
 
 #[cfg(test)]
+mod bfloat16_vector_view_tests;
+#[cfg(test)]
 mod encoded_term;
 #[cfg(test)]
 mod hash128_tests;
 #[cfg(test)]
 mod known_datatype_tests;
+#[cfg(test)]
+mod tagged_datatype_tests;
 #[cfg(test)]
 mod term_view;
 #[cfg(test)]

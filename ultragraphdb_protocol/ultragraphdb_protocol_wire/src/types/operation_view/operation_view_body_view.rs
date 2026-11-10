@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -11,10 +12,9 @@ use crate::types::frame_view::FrameView;
 use crate::types::operation::Operation;
 use crate::types::operation_view::OperationView;
 use crate::types::term_table_view::TermTableView;
+use crate::utils::body::{read_sections, u32s};
+use crate::utils::command_header::expect_command;
 use crate::utils::commit_operation_layout::OperationFields;
-use crate::utils::sections::Sections;
-use crate::utils::sections::expect_command;
-use crate::utils::sections::{as_u32, u32s};
 
 impl<'a> BodyView<'a> for OperationView<'a> {
     const COMMAND: Command = Command::Operation;
@@ -27,7 +27,7 @@ impl<'a> BodyView<'a> for OperationView<'a> {
         header.unused_zero(&[(0, 1), (8, 24)])?;
         let fields = OperationFields::read(header.0);
         fields.check(command)?;
-        let sections = Sections::<3>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<3>(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
             (1, 2),

@@ -3,19 +3,20 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::write_sections;
+
 use crate::traits::body_builder::BodyBuilder;
 use crate::types::command::Command;
 use crate::types::reference::Reference;
 use crate::utils::command_header::command_header;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
-use crate::utils::sections::write_sections;
 
 impl BodyBuilder for Reference {
     const COMMAND: Command = Command::Reference;
 
     fn command_header(&self) -> [u8; COMMAND_HEADER_SIZE] {
         command_header(&[
-            (0, &[u8::from(self.reply)]),
+            (0, &[u8::from(self.reply), self.mode.number()]),
             (8, &self.tenant.to_le_bytes()),
         ])
     }

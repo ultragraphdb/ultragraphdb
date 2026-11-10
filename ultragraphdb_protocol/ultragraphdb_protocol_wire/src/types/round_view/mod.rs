@@ -6,6 +6,7 @@
 mod round_view_body_view;
 
 use std::ops::Range;
+use ultragraphdb_core_body::{as_u32, u32_at};
 
 use crate::types::command::Command;
 use crate::types::decision::Decision;
@@ -13,7 +14,7 @@ use crate::types::key_values::KeyValues;
 use crate::types::round_body::{DECISION_SIZE, RECORD_ENTRY_SIZE};
 use crate::types::round_header::RoundHeader;
 use crate::types::write_set_record_view::WriteSetRecordView;
-use crate::utils::sections::{Sections, as_u32, u32_at};
+use crate::utils::body::read_sections;
 
 /// The body of a received Round frame, read in place; see [`crate::RoundBody`] for its layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +61,7 @@ impl<'a> RoundView<'a> {
     /// bytes before its chunk table, which need not pass its checks: how a damaged chunk is named by the entries it
     /// holds. Empty when the body's table or decisions cannot be read.
     pub fn transactions_overlapping(body: &[u8], range: Range<usize>) -> Vec<u32> {
-        let Ok(sections) = Sections::<4>::read(Command::Round.number(), body, 0) else {
+        let Ok(sections) = read_sections::<4>(Command::Round.number(), body, 0) else {
             return Vec::new();
         };
         let committed = sections

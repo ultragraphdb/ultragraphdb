@@ -3,13 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::write_sections;
+
 use crate::traits::body_builder::BodyBuilder;
 use crate::types::command::Command;
 use crate::types::drop_command::DropCommand;
 use crate::types::term_table::TermTable;
 use crate::utils::command_header::command_header;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
-use crate::utils::sections::write_sections;
 use crate::utils::token;
 
 impl BodyBuilder for DropCommand {
@@ -23,6 +24,7 @@ impl BodyBuilder for DropCommand {
             (32, &self.request().to_le_bytes()),
             (40, &self.commit_version().to_le_bytes()),
             (48, &token::encode(self.token())),
+            (72, &self.catalog().to_le_bytes()),
         ])
     }
 

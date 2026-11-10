@@ -72,6 +72,7 @@ fn count(operation: &CommitOperation) -> usize {
         } => 3 + 2 * properties.len() + 3 * links.len(),
         CommitOperation::CompareAndSet { .. } => 5,
         CommitOperation::CounterAdd { .. } => 3,
+        CommitOperation::DeleteInstance { .. } | CommitOperation::RetractInstance { .. } => 2,
     }
 }
 
@@ -398,8 +399,9 @@ fn test_an_operations_unused_bytes_are_zero_at_their_body_offset() -> TestResult
 }
 
 #[test]
-fn test_an_operations_kind_is_1_to_4() -> TestResult {
-    for kind in [0u8, 5] {
+fn test_an_operations_kind_is_1_to_6() -> TestResult {
+    // PROTOCOL.md §6.7 and §7.3: kinds 1 to 6; 0 and 7 are one below and one above them.
+    for kind in [0u8, 7] {
         assert_eq!(
             refused(6, |o| o[0] = kind)?,
             field_value("kind", kind.into())
@@ -701,4 +703,87 @@ fn test_a_principal_is_read_and_refused_from_a_client() -> TestResult {
     assert_eq!(view.to_body()?.principal(), 9);
     assert_eq!(view_any(&relayed)?, Ok(()));
     Ok(())
+}
+
+/// Stage 6: a ConditionalWrite's operations take kinds 5 and 6 (`PROTOCOL.md` §6.7, §7.3), over a ConditionalWrite
+/// laid out by hand: tenant 4 at 24, through no session; no change; the args, two IRIs, no name, and two operations.
+mod stage_6 {
+    use ultragraphdb_error_protocol::ProtocolErrorEnum;
+    use ultragraphdb_protocol_wire::{
+        ABSENT, BodyBuilder, BodyView, Command, CommitOperation, ConditionalWrite,
+        ConditionalWriteView, Header, TermTable,
+    };
+    use ultragraphdb_tool_bdd::TestResult;
+
+    use crate::utils::golden_bodies::{CLUSTER, frame_of};
+    use crate::utils::ugs_frames::{frame, iri_terms, refused, u32s};
+
+    const A: &str = "https://example.org/deep_brain#Node/ORG%3Aacme";
+    const B: &str = "https://example.org/deep_brain#Node/ORG%3Abeta";
+
+    /// An operation's 24 bytes: `kind`, 7 zero bytes, `delta`, `properties` and `links` 0.
+    fn fields(kind: u8) -> Vec<u8> {
+        let mut out = vec![0u8; 24];
+        if let Some(byte) = out.first_mut() {
+            *byte = kind;
+        }
+        out
+    }
+
+    fn conditional(kinds: [u8; 2]) -> TestResult<Vec<u8>> {
+        let [records, text] = iri_terms(&[A, B]);
+        frame(
+            Command::ConditionalWrite,
+            &[(24, &4u64.to_le_bytes())],
+            &[
+                vec![],
+                u32s(&[ABSENT, 0, ABSENT, 1]),
+                records,
+                text,
+                vec![],
+                vec![],
+                [fields(kinds[0]), fields(kinds[1])].concat(),
+            ],
+            false,
+        )
+    }
+
+    /// A delete of `A` and a retraction of `B`, built and read back.
+    #[test]
+    fn test_a_conditional_write_holds_a_delete_and_a_retraction() -> TestResult {
+        let mut terms = TermTable::new();
+        let (a, b) = (terms.iri(A), terms.iri(B));
+        let operations = vec![
+            CommitOperation::DeleteInstance {
+                graph: None,
+                instance: a,
+            },
+            CommitOperation::RetractInstance {
+                graph: None,
+                instance: b,
+            },
+        ];
+        let write = ConditionalWrite::new(4, terms, vec![], operations.clone());
+        let bytes = write.frame(Header::new(CLUSTER, Command::ConditionalWrite).with_stream(3))?;
+        assert_eq!(bytes, conditional([5, 6])?);
+        let view = ConditionalWriteView::from_frame(&frame_of(&bytes)?)?;
+        assert_eq!(view.operation_count(), 2);
+        assert_eq!(view.operation(0), operations.first().cloned());
+        assert_eq!(view.operation(1), operations.get(1).cloned());
+        Ok(())
+    }
+
+    /// A kind above 6 in section 6 is refused as `FieldValue` naming `kind`.
+    #[test]
+    fn test_an_operation_of_kind_7_is_refused() -> TestResult {
+        assert_eq!(
+            refused::<ConditionalWriteView>(&conditional([5, 7])?)?,
+            ProtocolErrorEnum::FieldValue {
+                command: 21,
+                field: "kind",
+                value: 7
+            }
+        );
+        Ok(())
+    }
 }

@@ -13,6 +13,7 @@ use oxsdatatypes::{
 
 use ultragraphdb_core_ids::SystemId;
 
+use crate::types::bfloat16_vector_view::Bfloat16VectorView;
 use crate::types::datatype::Datatype;
 use crate::types::text::Text;
 use crate::types::vector_view::VectorView;
@@ -76,4 +77,15 @@ pub enum TermView<'a> {
     },
     /// A `ugdb:float32vector` literal, by value.
     Vector(VectorView<'a>),
+    /// A `ugdb:bfloat16vector`, by value: a Result's tag `0x41` (`PROTOCOL.md` §10.1).
+    Bfloat16Vector(Bfloat16VectorView<'a>),
+    /// A `ugdb:measure`, by value: a Result's tag `0x50` (§10.1, §10.5).
+    Measure {
+        /// The number in its own unit, an IEEE 754 binary64.
+        number: f64,
+        /// The unit's UCUM code.
+        unit: &'a str,
+    },
+    /// A `ugdb:precision`, by value: a Result's tag `0x51`, 1 millennium to 12 nanosecond (§10.5).
+    Precision(u8),
 }

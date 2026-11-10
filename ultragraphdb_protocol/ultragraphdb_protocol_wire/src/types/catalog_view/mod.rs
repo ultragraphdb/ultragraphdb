@@ -5,6 +5,9 @@
 
 mod catalog_view_body_view;
 
+use crate::utils::constants::COMMAND_HEADER_SIZE;
+use crate::utils::le::bytes_at;
+
 /// The body of a received Catalog frame, read in place; see [`crate::Catalog`] for its layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CatalogView<'a> {
@@ -19,6 +22,19 @@ pub struct CatalogView<'a> {
 const _: () = assert!(size_of::<CatalogView<'static>>() <= 64);
 
 impl<'a> CatalogView<'a> {
+    /// The reply of continuation frames as one: the fields of `header`, a frame's command header its view checked, and
+    /// `bytes`, every frame's section 0 concatenated.
+    pub(crate) fn assembled(header: &[u8; COMMAND_HEADER_SIZE], bytes: &'a [u8]) -> Self {
+        let field = |at: usize| bytes_at(header, at).map_or(0, u64::from_le_bytes);
+        Self {
+            tenant: field(0),
+            version: field(8),
+            epoch: field(16),
+            position: field(24),
+            bytes,
+        }
+    }
+
     /// The tenant.
     pub fn tenant(&self) -> u64 {
         self.tenant

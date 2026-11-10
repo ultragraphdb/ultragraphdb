@@ -12,10 +12,10 @@ use crate::types::commit_view::CommitView;
 use crate::types::frame_view::FrameView;
 use crate::types::term_table::kind;
 use crate::types::term_table_view::TermTableView;
+use crate::utils::body::read_sections;
+use crate::utils::command_header::expect_command;
 use crate::utils::fields::{identity, session_request};
 use crate::utils::results::check_results;
-use crate::utils::sections::Sections;
-use crate::utils::sections::expect_command;
 use crate::utils::term_kind::term_kind;
 use crate::utils::token;
 
@@ -36,7 +36,7 @@ impl<'a> BodyView<'a> for CommitView<'a> {
         let commit_version = header.u64_at(24);
         let token = token::commit_token(command, header, 32, commit_version, session)?;
         let reply = commit_version != 0;
-        let sections = Sections::<3>::read(command, frame.body(), 0)?;
+        let sections = read_sections::<3>(command, frame.body(), 0)?;
         let nodes = TermTableView::read(
             command,
             (1, 2),

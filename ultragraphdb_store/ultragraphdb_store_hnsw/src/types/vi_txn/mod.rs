@@ -155,7 +155,10 @@ pub(crate) fn vector_elements(encoding: &[u8]) -> Option<Vec<u8>> {
         | TermView::DayTimeDuration(_)
         | TermView::String(_)
         | TermView::LangString { .. }
-        | TermView::Typed { .. } => None,
+        | TermView::Typed { .. }
+        | TermView::Bfloat16Vector(_)
+        | TermView::Measure { .. }
+        | TermView::Precision(_) => None,
     }
 }
 

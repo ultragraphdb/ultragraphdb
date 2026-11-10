@@ -26,6 +26,7 @@ ultragraphdb_cluster_metadata = { path = "../ultragraphdb_cluster/ultragraphdb_c
 ultragraphdb_cluster_placement = { path = "../ultragraphdb_cluster/ultragraphdb_cluster_placement" }
 ultragraphdb_cluster_sequencer = { path = "../ultragraphdb_cluster/ultragraphdb_cluster_sequencer" }
 ultragraphdb_common_telemetry = { path = "../ultragraphdb_common/ultragraphdb_common_telemetry" }
+ultragraphdb_core_body = { path = "../ultragraphdb_core/ultragraphdb_core_body" }
 ultragraphdb_core_catalog = { path = "../ultragraphdb_core/ultragraphdb_core_catalog" }
 ultragraphdb_core_codec = { path = "../ultragraphdb_core/ultragraphdb_core_codec" }
 ultragraphdb_core_ids = { path = "../ultragraphdb_core/ultragraphdb_core_ids" }

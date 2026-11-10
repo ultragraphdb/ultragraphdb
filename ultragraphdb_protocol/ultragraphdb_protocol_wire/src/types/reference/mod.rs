@@ -7,7 +7,9 @@ mod reference_body_builder;
 
 use ultragraphdb_core_ids::{BucketGroup, SystemId};
 
+use crate::types::reference_mode::ReferenceMode;
 use crate::types::reference_registration::ReferenceRegistration;
+use crate::types::reference_status::ReferenceStatus;
 use crate::types::request_term::RequestTerm;
 use crate::types::term_table::TermTable;
 
@@ -17,6 +19,8 @@ use crate::types::term_table::TermTable;
 /// | Command header | Field | Type |
 /// |---|---|---|
 /// | 0 | `reply` | u8 boolean: 0 the request, 1 the home's reply |
+/// | 1 | `mode` | u8: 0 get or create, 1 get-only, for participant checks |
+/// | 8 | `tenant` | u64: the tenant of the batch's entities |
 ///
 /// | Section | Contents |
 /// |---|---|
@@ -27,6 +31,7 @@ use crate::types::term_table::TermTable;
 pub struct Reference {
     tenant: u64,
     reply: bool,
+    mode: ReferenceMode,
     registrations: Vec<ReferenceRegistration>,
     terms: TermTable,
 }
@@ -44,6 +49,7 @@ impl Reference {
         Self {
             tenant: 0,
             reply,
+            mode: ReferenceMode::GetOrCreate,
             registrations,
             terms,
         }
@@ -159,5 +165,36 @@ impl Reference {
             | RequestTerm::LanguageLiteral { .. }
             | RequestTerm::Triple { .. } => None,
         }
+    }
+
+    /// The batch in `mode`: get or create, or get-only for participant checks.
+    #[must_use]
+    pub fn with_mode(self, mode: ReferenceMode) -> Self {
+        Self { mode, ..self }
+    }
+
+    /// The batch's mode.
+    #[must_use]
+    pub fn mode(&self) -> ReferenceMode {
+        self.mode
+    }
+
+    /// Registration `index` of a get-only batch accepted with `status`: the entity's ID for a live, deleted or
+    /// retracted one, `None` for an absent one; for a live one naming a bucket group, the member's `generation` and
+    /// the latest `close` delivered to the home, else 0. `false` past the last registration.
+    pub fn answer_get_only(
+        &mut self,
+        index: usize,
+        status: ReferenceStatus,
+        entity: Option<SystemId>,
+        generation: u64,
+        close: u64,
+    ) -> bool {
+        self.registrations
+            .get_mut(index)
+            .map(|registration| {
+                *registration = registration.answered(status, entity, generation, close);
+            })
+            .is_some()
     }
 }

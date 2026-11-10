@@ -580,3 +580,77 @@ fn test_a_stream_never_flagged_is_never_reported() -> TestResult {
     assert!(outbound.take_ready().is_empty());
     Ok(())
 }
+
+/// Stage 6: a Describe's and a Catalog's answer spend credit as Result frames do (`PROTOCOL.md` §11.3, §8.3, §13.7).
+mod stage_6 {
+    use ultragraphdb_protocol_transport::Outbound;
+    use ultragraphdb_protocol_wire::{
+        BodyBuilder, Catalog, Command, Describe, ErrorCode, ErrorReply, FLAG_LAST, Header,
+    };
+    use ultragraphdb_tool_bdd::TestResult;
+
+    use super::{CLUSTER, drain, next};
+
+    fn header(command: Command, stream: u64, last: bool) -> Header {
+        Header::new(CLUSTER, command)
+            .with_stream(stream)
+            .with_flags(if last { FLAG_LAST } else { 0 })
+    }
+
+    /// Five frames of a Describe answer under an initial credit of 4: four leave, the fifth after a Credit of one.
+    #[test]
+    fn test_a_describes_frames_spend_credit() -> TestResult {
+        let mut outbound = Outbound::new(4, 4);
+        outbound.open(1)?;
+        for index in 0..5u64 {
+            let frame = Describe::new(0, 42).frame(header(Command::Describe, 1, index == 4))?;
+            outbound.push(1, frame)?;
+        }
+        assert_eq!(drain(&mut outbound)?.len(), 4);
+        assert_eq!(outbound.credit(1), Some(0));
+        assert_eq!(outbound.queued(1), 1);
+        assert_eq!(next(&mut outbound)?, None);
+        outbound.grant(1, 1);
+        assert_eq!(drain(&mut outbound)?.len(), 1);
+        assert!(!outbound.is_open(1));
+        Ok(())
+    }
+
+    /// A Catalog reply's frames spend credit too: one credit, two frames.
+    #[test]
+    fn test_a_catalogs_frames_spend_credit() -> TestResult {
+        let mut outbound = Outbound::new(4, 1);
+        outbound.open(3)?;
+        for index in 0..2u64 {
+            let frame = Catalog::reply(1, 7, 30, 2, vec![1, 2]).frame(header(
+                Command::Catalog,
+                3,
+                index == 1,
+            ))?;
+            outbound.push(3, frame)?;
+        }
+        assert_eq!(drain(&mut outbound)?.len(), 1);
+        assert_eq!(outbound.credit(3), Some(0));
+        assert_eq!(outbound.queued(3), 1);
+        Ok(())
+    }
+
+    /// A Describe frame spends its stream's one credit; an Error after it spends none and leaves with no credit left.
+    #[test]
+    fn test_an_error_on_a_describes_stream_spends_no_credit() -> TestResult {
+        let mut outbound = Outbound::new(4, 1);
+        outbound.open(1)?;
+        outbound.push(
+            1,
+            Describe::new(0, 42).frame(header(Command::Describe, 1, false))?,
+        )?;
+        assert_eq!(drain(&mut outbound)?.len(), 1);
+        assert_eq!(outbound.credit(1), Some(0));
+        let refusal = ErrorReply::new(ErrorCode::Unavailable, "the metadata group")
+            .frame(header(Command::Error, 1, true))?;
+        outbound.push(1, refusal)?;
+        assert_eq!(drain(&mut outbound)?.len(), 1);
+        assert!(!outbound.is_open(1));
+        Ok(())
+    }
+}

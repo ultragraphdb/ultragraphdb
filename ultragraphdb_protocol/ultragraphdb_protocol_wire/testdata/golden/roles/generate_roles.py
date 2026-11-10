@@ -383,15 +383,17 @@ golden("entries_continued", 525, command_header([(0, le(1, 4)), (8, bytes([1])),
        sections([kv([(b"\x10list-b", object_record(b"\x30abc") + object_record(sid(1, 23, 0x000A03), [sid(2, 33, 0x000B03)]))])]),
        stream=41, flags=1, sequence=2)
 
-# 526 Reference: registration records of 48 bytes (partition u32, group u32, iri u32, outcome u16, 2 zero bytes,
-# generation u64, close u64, entity 16 bytes), the term table of the IRIs named by text, kind 1 each. Registration 0
+# 526 Reference (section 13.15): `reply` at 0, `mode` at 1 (0 get or create, 1 get-only), `tenant` at 8; registration
+# records of 48 bytes (partition u32, group u32, iri u32, outcome u16, status u8, 1 zero byte, generation u64, close u64,
+# entity 16 bytes), the term table of the IRIs named by text, kind 1 each. Every batch here is of mode 0, so every
+# `status` is 0. Registration 0
 # names <o> by its IRI for bucket group 0x2A, last seen at generation 4; 1 names a predicate by its system ID, no group;
 # 2 names a blank node by its skolem IRI for group 0x10, never seen. The reply accepts 0 (generation 5, close 41) and 1
 # (close 41), and refuses 2 with 26 (WrongPartition). A second reply refuses 2 with 17 (Unavailable), a store that failed
 # at the home.
-def registration(partition, group, iri_index, outcome, generation, close, entity):
-    return (le(partition, 4) + le(group, 4) + le(iri_index, 4) + le(outcome, 2) + bytes(2) + le(generation, 8)
-            + le(close, 8) + entity)
+def registration(partition, group, iri_index, outcome, generation, close, entity, status=0):
+    return (le(partition, 4) + le(group, 4) + le(iri_index, 4) + le(outcome, 2) + bytes([status, 0])
+            + le(generation, 8) + le(close, 8) + entity)
 
 
 REF_O, REF_BLANK = f"{EX}o", f"{SKOLEM}00a001-0123456789abcdef0123456789"
@@ -406,7 +408,7 @@ reply_regs = [(3, 0x2A, o_index, 0, 5, 41, REF_ENTITY), (5, ABSENT, ABSENT, 0, 0
 unavailable_regs = reply_regs[:2] + [(8, 0x10, blank_index, 17, 0, 0, bytes(16))]
 for name, reply, regs in [("reference", 0, request_regs), ("reference_reply", 1, reply_regs),
                           ("reference_unavailable", 1, unavailable_regs)]:
-    golden(name, 526, command_header([(0, bytes([reply]))]),
+    golden(name, 526, command_header([(0, bytes([reply, 0]))]),
            sections([b"".join(registration(*r) for r in regs)] + terms.sections()), stream=25)
 
 # 527 CloseRequest: partition 7 asks to close its open epoch 30.

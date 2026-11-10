@@ -1,0 +1,41 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_core_body, run by scripts/fuzz.sh; a member of the fuzz workspace in fuzz/.
+# Its targets call the crate's public decoders only.
+
+[package]
+name = "ultragraphdb_core_body_fuzz"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[lints]
+workspace = true
+
+[dependencies]
+libfuzzer-sys = { workspace = true }
+ultragraphdb_core_body = { workspace = true }
+
+# Any bytes as a body of 1, 3, 7 or 9 sections after a fixed part of 0, 8, 16 or 24 bytes: read or refused with a
+# BodyError, never a panic; an accepted body written again gives its bytes.
+[[bin]]
+name = "sections"
+path = "fuzz_targets/sections.rs"
+test = false
+doc = false
+bench = false
+
+# Any bytes as a string list's two sections: read or refused with a BodyError, never a panic; an accepted list written
+# again gives its bytes.
+[[bin]]
+name = "string_list"
+path = "fuzz_targets/string_list.rs"
+test = false
+doc = false
+bench = false

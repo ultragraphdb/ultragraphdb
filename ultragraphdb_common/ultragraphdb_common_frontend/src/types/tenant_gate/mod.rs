@@ -30,7 +30,13 @@ impl<A: Authorizer> TenantGate<A> {
     pub fn check(&self, principal: u64, action: u64, scope: GateScope) -> Result<(), ErrorReply> {
         let allowed = match (Action::from_number(action), scope) {
             (
-                Some(known @ (Action::Read | Action::Write | Action::Declare | Action::Drop)),
+                Some(
+                    known @ (Action::Read
+                    | Action::Write
+                    | Action::Declare
+                    | Action::Drop
+                    | Action::Purge),
+                ),
                 GateScope::Tenant(tenant),
             ) => self.authorizer.allows(principal, known, tenant),
             (Some(Action::Admin | Action::Operate) | None, GateScope::Tenant(_))

@@ -5,7 +5,9 @@
 
 use oxrdf::{GraphName, NamedNode, NamedOrBlankNode, Term, TermRef};
 use ultragraphdb_error_protocol::ProtocolError;
-use ultragraphdb_protocol_wire::{Command, CommitOperation, Link, TermTableView};
+use ultragraphdb_protocol_wire::{
+    Command, CommitOperation, ErrorCode, ErrorReply, Link, TermTableView,
+};
 use ultragraphdb_store_apply::{Operation, OperationLink};
 use ultragraphdb_transactions_txn::FrameTerms;
 
@@ -14,8 +16,33 @@ use ultragraphdb_transactions_txn::FrameTerms;
 ///
 /// # Errors
 ///
-/// [`ProtocolError::field_value`] naming a term of the wrong kind for its place.
+/// Code 1 naming the [`ProtocolError::field_value`] of a term of the wrong kind for its place; code 7, `detail` 0, for
+/// kinds 5 and 6, which `PROTOCOL.md` §7.3 refuses in a tenant with no schema, as every tenant is until Install is
+/// served.
 pub(crate) fn operation_of(
+    operation: &CommitOperation,
+    table: &TermTableView<'_>,
+    terms: &FrameTerms,
+) -> Result<Operation, ErrorReply> {
+    let instance = match operation {
+        CommitOperation::DeleteInstance { .. } => Some((5, "delete an instance")),
+        CommitOperation::RetractInstance { .. } => Some((6, "retract an instance")),
+        CommitOperation::InsertIfAbsent { .. }
+        | CommitOperation::UpsertAndLink { .. }
+        | CommitOperation::CompareAndSet { .. }
+        | CommitOperation::CounterAdd { .. } => None,
+    };
+    if let Some((kind, name)) = instance {
+        return Err(ErrorReply::new(
+            ErrorCode::Refused,
+            format!("an Operation of kind {kind}, {name}, is refused: the tenant holds no schema"),
+        ));
+    }
+    read_operation(operation, table, terms).map_err(|rule| ErrorReply::protocol(&rule))
+}
+
+/// The operation of kinds 1 to 4 `operation` names, its terms read from `table`.
+fn read_operation(
     operation: &CommitOperation,
     table: &TermTableView<'_>,
     terms: &FrameTerms,
@@ -73,6 +100,21 @@ pub(crate) fn operation_of(
             predicate: reader.iri(*predicate, "predicate")?,
             delta: *delta,
         },
+        // `operation_of` refuses kinds 5 and 6 before reading.
+        CommitOperation::DeleteInstance { .. } => {
+            return Err(ProtocolError::field_value(
+                Command::Operation.number(),
+                "kind",
+                5,
+            ));
+        }
+        CommitOperation::RetractInstance { .. } => {
+            return Err(ProtocolError::field_value(
+                Command::Operation.number(),
+                "kind",
+                6,
+            ));
+        }
     })
 }
 

@@ -21,10 +21,15 @@ pub mod utils {
     pub mod golden_bodies;
     #[path = "golden_roles.rs"]
     pub mod golden_roles;
+    #[path = "term_records.rs"]
+    pub mod term_records;
+    #[path = "ugs_frames.rs"]
+    pub mod ugs_frames;
 }
 
 mod bodies_steps;
 mod frames_steps;
+mod ugs_steps;
 
 use crate::utils::golden::{CLUSTER, CREDIT, GOLDEN, HELLO, READ, put, reseal};
 
@@ -44,6 +49,7 @@ pub struct Steps {
     statements: Vec<u64>,
     truncations: usize,
     terms: Vec<(Vec<u8>, Option<String>)>,
+    ugs: ugs_steps::UgsSteps,
 }
 
 // One header for every frame.
@@ -242,7 +248,7 @@ fn cluster_named(w: &mut Steps) {
 #[when("a frame with a valid checksum names an unknown command")]
 fn unknown_command(w: &mut Steps) -> TestResult {
     let mut bytes = CREDIT.bytes()?;
-    put(&mut bytes, 54, 24, 2);
+    put(&mut bytes, 54, 26, 2);
     reseal(&mut bytes);
     assert_eq!(HeaderView::new(&bytes)?.checksum(), xxh3_64(&bytes[8..256]));
     w.refusals = FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
@@ -261,10 +267,10 @@ fn command_named(w: &mut Steps) -> TestResult {
     assert_eq!(
         w.refusals,
         vec![ProtocolError(ProtocolErrorEnum::UnknownCommand {
-            command: 24
+            command: 26
         })]
     );
-    assert_eq!(w.refusals[0].to_string(), "unknown command 24");
+    assert_eq!(w.refusals[0].to_string(), "unknown command 26");
     let other = FrameView::validate(&w.frames[0], SERVER, MAX_FRAME_SIZE)
         .context("another frame is served")?;
     assert_eq!(other.command(), Command::Read);
@@ -280,7 +286,7 @@ fn retired_number(w: &mut Steps) -> TestResult {
     let numbers: Vec<u16> = RETIRED_COMMANDS
         .iter()
         .copied()
-        .chain((0..=u16::MAX).filter(|n| !(1..=23).contains(n) && !(512..=531).contains(n)))
+        .chain((0..=u16::MAX).filter(|n| !(1..=25).contains(n) && !(512..=531).contains(n)))
         .collect();
     let golden = CREDIT.bytes()?;
     w.refusals = numbers

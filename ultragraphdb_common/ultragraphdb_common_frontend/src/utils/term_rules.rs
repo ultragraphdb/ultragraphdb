@@ -414,5 +414,20 @@ pub fn check_operation(
             slots.node(*subject, "subject")?;
             slots.predicate(*predicate)
         }
+        // `PROTOCOL.md` §7.3: either kind in a tenant with no schema is refused with code 7, `detail` 0; no tenant holds
+        // one until Install is served, and the commit step decides neither kind before then.
+        CommitOperation::DeleteInstance { .. } => Err(instance_operation(5, "delete an instance")),
+        CommitOperation::RetractInstance { .. } => {
+            Err(instance_operation(6, "retract an instance"))
+        }
     }
+}
+
+/// The refusal of an Operation of `kind`, which names an instance of a declared type, in a tenant that holds no schema:
+/// code 7, `detail` 0, the message naming the kind.
+fn instance_operation(kind: u8, name: &str) -> ErrorReply {
+    ErrorReply::new(
+        ErrorCode::Refused,
+        format!("an Operation of kind {kind}, {name}, is refused: the tenant holds no schema"),
+    )
 }

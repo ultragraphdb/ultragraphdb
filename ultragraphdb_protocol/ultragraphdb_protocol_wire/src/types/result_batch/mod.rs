@@ -7,6 +7,7 @@ mod result_batch_body_builder;
 
 use std::collections::HashMap;
 
+use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_builder::BodyBuilder;
@@ -14,11 +15,13 @@ use crate::types::chunk_layout::ChunkLayout;
 use crate::types::command::Command;
 use crate::types::monotonic::Monotonic;
 use crate::types::result_term::ResultTerm;
-use crate::utils::constants::{ABSENT, HEADER_SIZE};
-use crate::utils::sections::as_u32;
+use crate::types::warning::Warning;
+use crate::utils::constants::{ABSENT, HEADER_SIZE, WARNING_SIZE};
 
-/// The section table of a batch's nine sections and the padding of up to 7 bytes before each.
-const SECTIONS_OVERHEAD: usize = 72 + 9 * 7;
+/// The section table of a batch's twelve sections and the padding of up to 7 bytes before each of the nine that can
+/// follow a section ending off a multiple of 8: every one but section 0, which starts at the table's end, and sections 4
+/// and 10, which follow the 8-byte texts and the 24-byte warnings.
+const SECTIONS_OVERHEAD: usize = 96 + 9 * 7;
 
 /// What a term takes beside its bytes: its offset, its text's and annotation's string indices, and their strings' two ends.
 const TERM_OVERHEAD: usize = 4 + 8 + 8;
@@ -58,6 +61,9 @@ fn term_size(term: &ResultTerm) -> usize {
 /// | 6 | the resume key; empty on every batch but the stream's last |
 /// | 7 | column names: ends; one name per column on a query's first batch, empty otherwise |
 /// | 8 | column names: text |
+/// | 9 | the warnings (`PROTOCOL.md` §4.9): on a query's first batch, those its compilation reported or its Prepare answered; empty otherwise |
+/// | 10 | the warnings' messages: ends |
+/// | 11 | the warnings' messages: text |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResultBatch {
     columns: u32,
@@ -71,6 +77,7 @@ pub struct ResultBatch {
     partition: u32,
     monotonic: Monotonic,
     column_names: Vec<String>,
+    warnings: Vec<Warning>,
 }
 
 impl ResultBatch {
@@ -88,18 +95,21 @@ impl ResultBatch {
             partition: 0,
             monotonic: Monotonic::Snapshot,
             column_names: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
     /// Appends a row, a term or `None` (unbound) per column, the last its statement's reifier; a term already in the
     /// table is not added again. Refused as [`ProtocolError::count_mismatch`] (`"row"`) when the row's length is not
-    /// the batch's column count, and as [`ProtocolError::field_value`] (`"reifier"`) when its reifier is not a blank
-    /// node.
+    /// the batch's column count, and as [`ProtocolError::field_value`] (`"reifier"`) when its reifier is a literal: the
+    /// reifier column holds a blank node, by its skolem IRI, or an IRI, a declared relation's handle IRI (`PROTOCOL.md`
+    /// §9.1, §10.2).
     pub fn push_row(&mut self, row: &[Option<&ResultTerm>]) -> Result<(), ProtocolError> {
         // A row of the wrong width is refused by its width first, as `push_cells` checks it.
         if row.len() == self.columns as usize // lossless: a `usize` is at least 32 bits
             && let Some(Some(reifier)) = row.last()
-            && !reifier.is_blank_node()
+            // An IRI or a blank node is named by its hash, a literal never.
+            && reifier.hash().is_none()
         {
             return Err(ProtocolError::field_value(
                 Command::Result.number(),
@@ -252,16 +262,39 @@ impl ResultBatch {
         // The casts are lossless: a `usize` is at least 32 bits.
         let rows = self.rows as usize + usize::from(!row.is_empty());
         let cells = rows.saturating_mul(self.columns as usize);
+        // Each column name's end and bytes (sections 7 and 8).
+        let names = self.column_names.iter().fold(0usize, |sum, name| {
+            sum.saturating_add(4).saturating_add(name.len())
+        });
+        // Each warning's 24 bytes and its message's end and bytes, a message two warnings share counted twice.
+        let warnings = self.warnings.iter().fold(0usize, |sum, warning| {
+            sum.saturating_add(WARNING_SIZE + 4)
+                .saturating_add(warning.message().len())
+        });
         let data = SECTIONS_OVERHEAD
             .saturating_add(cells.saturating_mul(4))
             .saturating_add(terms.saturating_mul(TERM_OVERHEAD))
             .saturating_add(bytes)
-            .saturating_add(resume);
+            .saturating_add(resume)
+            .saturating_add(names)
+            .saturating_add(warnings);
         HEADER_SIZE.saturating_add(ChunkLayout::of_data(data).body_len())
     }
 
     /// The bytes the batch's body takes, before its chunk table, so a sender cuts batches below the maximum frame.
     pub fn encoded_len(&self) -> usize {
         self.body().len()
+    }
+
+    /// The batch with the warnings its query's compilation reported, or its Prepare answered: a query's first batch.
+    #[must_use]
+    pub fn with_warnings(self, warnings: Vec<Warning>) -> Self {
+        Self { warnings, ..self }
+    }
+
+    /// The warnings; empty on every batch but a query's first.
+    #[must_use]
+    pub fn warnings(&self) -> &[Warning] {
+        &self.warnings
     }
 }

@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::StringList;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -10,9 +11,9 @@ use crate::types::command::Command;
 use crate::types::direct_write::DirectWrite;
 use crate::types::direct_write_view::DirectWriteView;
 use crate::types::frame_view::FrameView;
-use crate::types::string_list::StringList;
+use crate::utils::body::read_sections;
 use crate::utils::changes::{RecordKinds, check_records};
-use crate::utils::sections::{Sections, expect_command};
+use crate::utils::command_header::expect_command;
 use crate::utils::write_frame::WriteHeader;
 use crate::utils::write_sections::WriteSections;
 
@@ -54,7 +55,7 @@ impl<'a> DirectWriteView<'a> {
         let command = Self::COMMAND.number();
         let header =
             WriteHeader::read(command, expect_command(frame, Self::COMMAND)?, from_client)?;
-        let body = Sections::<6>::read(command, frame.body(), 0)?;
+        let body = read_sections::<6>(command, frame.body(), 0)?;
         let sections = WriteSections::read(command, &body)?;
         if sections.records.is_empty() {
             return Err(ProtocolError::count_mismatch(command, "changes", 0, 1));

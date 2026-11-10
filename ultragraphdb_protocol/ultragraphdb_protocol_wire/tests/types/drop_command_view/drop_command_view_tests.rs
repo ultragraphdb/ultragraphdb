@@ -54,7 +54,8 @@ fn refused(change: impl FnOnce(&mut [u8])) -> TestResult<ProtocolErrorEnum> {
 
 #[test]
 fn test_unused_bytes_kind_and_tenant_are_checked_in_order() -> TestResult {
-    for at in [1usize, 7, 72, 127] {
+    // PROTOCOL.md section 6.5: bytes 72 to 79 hold `catalog`; 1 to 7 and 80 to 127 are unused.
+    for at in [1usize, 7, 80, 127] {
         assert_eq!(
             refused(|h| {
                 h[at] = 1;
@@ -279,4 +280,78 @@ fn test_a_reply_through_no_session_holds_the_zero_token() -> TestResult {
         }
     );
     Ok(())
+}
+
+/// Stage 6: Drop's `catalog` (`PROTOCOL.md` §6.5): the catalog version a drop of kind 3 or 4 drops under, 0 for kinds
+/// 1 and 2.
+mod stage_6 {
+    use ultragraphdb_error_protocol::ProtocolErrorEnum;
+    use ultragraphdb_protocol_wire::{
+        BodyBuilder, BodyView, Command, DropCommand, DropCommandView, Header,
+    };
+    use ultragraphdb_tool_bdd::TestResult;
+
+    use crate::utils::golden_bodies::{CLUSTER, frame_of, golden, with_command_header};
+    use crate::utils::ugs_frames::{frame, refused};
+
+    fn catalog_named(catalog: u64) -> ProtocolErrorEnum {
+        ProtocolErrorEnum::FieldValue {
+            command: 19,
+            field: "catalog",
+            value: catalog,
+        }
+    }
+
+    /// wire-protocol, "A Drop of a predicate names no catalog version": kind 1 with `catalog` 7 is refused, and kind 2
+    /// likewise.
+    #[test]
+    fn test_a_drop_of_a_predicate_or_graph_names_no_catalog_version() -> TestResult {
+        let graph = golden("drop")?.bytes()?;
+        let predicate = with_command_header(&graph, |h| {
+            h[0] = 1;
+            h[72] = 7;
+        });
+        assert_eq!(refused::<DropCommandView>(&predicate)?, catalog_named(7));
+        let graph_catalog = with_command_header(&graph, |h| h[72] = 7);
+        assert_eq!(
+            refused::<DropCommandView>(&graph_catalog)?,
+            catalog_named(7)
+        );
+        Ok(())
+    }
+
+    /// A drop of a tenant's data names its catalog version at offset 72, built and read back; one of everything in a
+    /// tenant holding none names 0.
+    #[test]
+    fn test_a_drop_of_a_tenants_data_names_its_catalog_version() -> TestResult {
+        let drop = DropCommand::tenant_data(6).with_catalog(7);
+        assert_eq!(drop.catalog(), 7);
+        let expected = frame(
+            Command::Drop,
+            &[
+                (0, &[3]),
+                (8, &6u64.to_le_bytes()),
+                (72, &7u64.to_le_bytes()),
+            ],
+            &[vec![], vec![]],
+            false,
+        )?;
+        let header = Header::new(CLUSTER, Command::Drop).with_stream(3);
+        let bytes = drop.frame(header)?;
+        assert_eq!(bytes, expected);
+        let view = DropCommandView::from_frame(&frame_of(&bytes)?)?;
+        assert_eq!(view.catalog(), 7);
+        assert_eq!(view.to_body()?.catalog(), 7);
+        let whole = frame(
+            Command::Drop,
+            &[(0, &[4]), (8, &3u64.to_le_bytes())],
+            &[vec![], vec![]],
+            false,
+        )?;
+        assert_eq!(
+            DropCommandView::from_frame(&frame_of(&whole)?)?.catalog(),
+            0
+        );
+        Ok(())
+    }
 }

@@ -5,14 +5,14 @@
 
 mod result_view_body_view;
 
+use ultragraphdb_core_body::{StringList, u32_at};
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::command::Command;
 use crate::types::monotonic::Monotonic;
 use crate::types::result_term_view::ResultTermView;
-use crate::types::string_list::StringList;
+use crate::types::warnings::Warnings;
 use crate::utils::constants::{ABSENT, PATTERN_COLUMNS_MAX};
-use crate::utils::sections::u32_at;
 
 /// The body of a received Result frame, read in place; see [`crate::ResultBatch`] for its layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +29,7 @@ pub struct ResultView<'a> {
     partition: u32,
     monotonic: Monotonic,
     column_names: StringList<'a>,
+    warnings: Warnings<'a>,
 }
 
 impl<'a> ResultView<'a> {
@@ -106,12 +107,12 @@ impl<'a> ResultView<'a> {
 
     /// The rules a receiver that asked a quad pattern holds its batch to (`PROTOCOL.md` §9.1), which a batch's bytes
     /// alone do not tell from a query's: `columns` 1 to [`PATTERN_COLUMNS_MAX`]; each cell of the reifier column, the
-    /// last, [`ABSENT`] or a term of tag `0x02`.
+    /// last, [`ABSENT`] or a term of tag `0x01`, a declared relation's handle IRI, or `0x02`, a skolem IRI.
     ///
     /// # Errors
     ///
     /// [`ProtocolError::field_value`] `"columns"` for a column count outside the range; [`ProtocolError::field_value`]
-    /// `"reifier"`, naming the row, for a reifier cell neither [`ABSENT`] nor of tag `0x02`.
+    /// `"reifier"`, naming the row, for a reifier cell neither [`ABSENT`] nor of tag `0x01` or `0x02`.
     pub fn check_pattern(&self) -> Result<(), ProtocolError> {
         let command = Command::Result.number();
         if !(1..=PATTERN_COLUMNS_MAX).contains(&self.columns) {
@@ -124,11 +125,18 @@ impl<'a> ResultView<'a> {
         let reifier = self.columns.saturating_sub(1);
         for row in 0..self.rows {
             let cell = self.cell(reifier, row).unwrap_or(ABSENT);
-            let blank = cell == ABSENT || self.term(cell).is_some_and(|t| t.is_blank_node());
-            if !blank {
+            // A term of tag 0x01 or 0x02 names its node by a hash.
+            let named = cell == ABSENT || self.term(cell).is_some_and(|t| t.hash().is_some());
+            if !named {
                 return Err(ProtocolError::field_value(command, "reifier", row.into()));
             }
         }
         Ok(())
+    }
+
+    /// The warnings, read in place; empty on every batch but a query's first.
+    #[must_use]
+    pub fn warnings(&self) -> Warnings<'a> {
+        self.warnings
     }
 }
