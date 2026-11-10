@@ -48,22 +48,22 @@ the next round of this incarnation.
 - **THEN** the scan stops after the current incarnation's rounds
 
 ### Requirement: Recovery replays the log above the store
-On start, recovery SHALL read the store's applied log position, which every store batch records with its data, and
-apply every later round in order; applying a round SHALL be idempotent. A checkpoint SHALL record its position.
-Recovery SHALL refuse to start, naming both positions, when the store's applied position is below the checkpoint's;
-naming the position, when the store's applied position is above the log's tail; and when the log has a gap between the
-store's position and its tail.
+On start, recovery SHALL read the position of the store's last checkpoint from its grid's superblock, the authority
+for it (`specification/storage/STORAGE.md` sections 12.3 and 17.2), and apply every later round in order. Recovery SHALL
+refuse to start, naming both positions, when the log's first round kept is above the position after the checkpoint's;
+naming the position, when the checkpoint's position is above the log's tail; and when the log has a gap between the
+checkpoint's position and its tail.
 
-#### Scenario: Rounds lost from the store are replayed
-- **WHEN** rounds 1 to 10 are synced in the log, the store had applied up to round 7, and power is lost
+#### Scenario: Rounds above the checkpoint are replayed
+- **WHEN** rounds 1 to 10 are synced in the log, the store's last checkpoint holds round 7, and power is lost
 - **THEN** after recovery the store holds rounds 1 to 10
 
 #### Scenario: A store ahead of the log refuses to start
-- **WHEN** the store's applied position lies beyond the log's tail
+- **WHEN** the store's checkpoint position lies beyond the log's tail
 - **THEN** the node refuses to start, naming the position
 
-#### Scenario: A store behind its checkpoint refuses to start
-- **WHEN** a checkpoint at position 40 has trimmed the log, and the store reopened has applied position 30
+#### Scenario: A store behind the log's trim refuses to start
+- **WHEN** a checkpoint at position 40 has trimmed the log, and the store reopened holds a checkpoint at position 30
 - **THEN** the node refuses to start, naming 30 and 40, and replays nothing
 
 ### Requirement: Corruption is detected and never read as absence
@@ -84,8 +84,10 @@ is lost with the truncation; the report names it.
 
 ### Requirement: The superblock
 The superblock SHALL be two copies written alternately, each through a temporary file synced, renamed over the older
-copy, and its directory synced; it SHALL hold the cluster, the incarnation, the last checkpoint's position and checksum,
-and the first segment kept. Reading it SHALL give one of three outcomes: empty, present, or unreadable; an unreadable
+copy, and its directory synced; it SHALL record its segments alone: the cluster and the incarnation their rounds carry,
+the first segment kept, and the position and frame checksum of the last round its trim removed, which the first round
+kept names as its parent. The checkpoint is the store's grid superblock's, which is authoritative
+(`specification/storage/STORAGE.md` section 12.3). Reading it SHALL give one of three outcomes: empty, present, or unreadable; an unreadable
 copy SHALL refuse the start and every write, and SHALL never be read as a fresh log.
 
 #### Scenario: A corrupt copy is not a fresh deployment
@@ -93,9 +95,11 @@ copy SHALL refuse the start and every write, and SHALL never be read as a fresh 
 - **THEN** the node refuses to start with an error naming the copy, and does not create a new log
 
 ### Requirement: Checkpoints trim the log
-At a checkpoint the store SHALL be explicitly synced, since its journal is never synced on its own, the checkpoint's
-position recorded in the superblock, and the segments wholly below it zeroed, synced and kept as spares, which a new
-segment reuses before one is created; a trim SHALL never remove or zero a round the store has not durably applied.
+A checkpoint SHALL follow `specification/storage/STORAGE.md` section 17.1: the store's grid synced and its superblock's
+four copies written first, and only then the log's superblock written and the log trimmed through the checkpoint's
+position, the segments holding no round above it zeroed, synced and kept as spares, which a new segment reuses before
+one is created. A trim SHALL never remove or zero a round above the position of the grid's durable superblock, and a
+crash between the grid's superblock and the trim SHALL leave the checkpoint in force, the trim done again at the next.
 
 #### Scenario: A checkpoint recycles old segments
 - **WHEN** rounds fill four segments and a checkpoint is taken at the end of the third
@@ -137,9 +141,9 @@ named; the new dictionary entries the round creates, a copied entry of another p
 counting as one; each registration the partition accepted as an entity's home, with its own commit version and the
 referrer-set member it adds or renews (term-dictionary, "A reference to another partition's entity registers at its
 home"); an index build's start and completion records (commit-rounds); the one catalog version the round was validated
-against; and the version of the derivation that turns quads into keys. Replaying a record SHALL derive the same keys and
-values on every replica and in every version that reads it; a record naming a derivation version the reader does not
-know SHALL be refused, naming the version.
+against; and the derivation version it was applied under (`specification/storage/STORAGE.md` section 3.2). Replaying a
+record SHALL derive the same state on every replica; a record naming another derivation version than the reader's own
+SHALL be refused, naming both.
 
 #### Scenario: Replay derives the same keys
 - **WHEN** a round holding a first reference to an entity another partition owns, with its registration mark and the
@@ -159,16 +163,16 @@ know SHALL be refused, naming the version.
   replayed
 - **THEN** the referrer set holds both members, each at the commit version the record lists for its registration
 
-#### Scenario: An unknown derivation version is refused
-- **WHEN** a record names a derivation version above the reader's
-- **THEN** replay fails with an error naming the version, and applies nothing of the record
+#### Scenario: Another derivation version is refused
+- **WHEN** a record names a derivation version other than the reader's
+- **THEN** replay fails with an error naming both versions, and applies nothing of the record
 
 ### Requirement: The log is the only synced stream
-The store SHALL write with its own journal unsynced (fjall's manual journal persistence), and the log SHALL be the only
-stream synced per round. After a crash the store SHALL recover a prefix of its batches, and recovery SHALL replay the
-log from the store's applied position, which every store batch records with its data.
+The store SHALL sync its grid at checkpoints alone (`specification/storage/STORAGE.md` section 17.1), and the log SHALL be
+the only stream synced per round. After a crash the store SHALL open at its last durable checkpoint, and recovery SHALL
+replay the log from the position its grid's superblock records.
 
 #### Scenario: A crash loses no acknowledged round
-- **WHEN** rounds are acknowledged, the process is killed before the store's journal is synced, and it restarts
-- **THEN** every acknowledged round is held after recovery, replayed from the log above the store's applied position
+- **WHEN** rounds are acknowledged, the process is killed between two checkpoints, and it restarts
+- **THEN** every acknowledged round is held after recovery, replayed from the log above the last checkpoint's position
 

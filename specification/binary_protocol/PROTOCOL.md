@@ -27,13 +27,14 @@ This file leads the code: group 8 of stage 5.5 brings the crates and the golden 
     levels and session tokens, role connections, declarations and drops
 12. Internal to the server and the log: Round and the write-set record
 13. Bodies of role commands: Join, Members, Subscribe, EpochClose, Lease, Placement, Catalog, Challenge, Verify, Bind,
-    Recall, ComputeRead, Scan, Entries, Reference, CloseRequest, Closed, DefaultEntry, Report, Held
+    Recall, ComputeRead, Scan, Entries, Reference, CloseRequest, Closed, DefaultEntry, Report, Held, Frontier,
+    Neighbours
 
 ## 1. Conventions
 
 | Rule | Statement |
 |---|---|
-| Byte order | Little-endian, except inside a result term's encoding (section 10), and a system ID. A result term keeps the store's sortable value encoding, so its by-value numbers are big-endian, which sorts keys as their values, and a vector's elements little-endian; section 10 states the order per field. A system ID is big-endian (below) |
+| Byte order | Little-endian, except inside a result term's encoding (section 10), and a system ID. A result term keeps the store's term encoding (`../storage/STORAGE.md` section 5.1), which orders for equality only: its by-value numbers are big-endian and a vector's elements little-endian; section 10 states the order per field. A system ID is big-endian (below) |
 | System ID | 16 bytes, the 128-bit ID the store names an entity or a statement by, big-endian as the store compares it: type prefix (bytes 0–1), sequence (2–9), bucket (10–12), reserved (13–15, zero). It is valid when its type prefix and sequence are not 0 and its reserved bytes are zero. System IDs cross only between roles, in role commands (section 13), and into the log (section 12). A client names and receives an entity by its IRI, a blank node by its skolem IRI, a statement without a statement ID by its quad and one with a statement ID by its reifier's skolem IRI (sections 4.4, 4.6, 9.1, 10.2); no frame a client sends or receives holds a system ID |
 | Version | u64: `epoch << 22 \| sequence`, the sequence even, 0 to 2²² − 2. The version bound of epoch `e`, `e << 22 \| 0x3FFFFF`, is above every version stamped at or below `e`. A field holding a version or a version bound has its low 22 bits even or all ones, refused otherwise as `FieldValue` naming the field |
 | Epoch | u64 holding an epoch number of 42 bits, 1 to 2⁴² − 1, or 0 for none where a field allows it; a receiver refuses any other value as `FieldValue` naming the field |
@@ -208,6 +209,7 @@ A client refusing a frame from the server closes the connection.
 | 23 | Install | both | sections | Install, or Error |
 | 24 | Purge | both | sections | Purge, or Error |
 | 25 | Migrate | both | sections | Migrate, or Error |
+| 26 | Ingest | both; client → server, and frontend → storage | sections | Ingest, or Error |
 | 256–511 | reserved for the replica commands of stage 8 | | | |
 | 512 | Join | both; storage, compute → frontend | sections | Join, or Error |
 | 513 | Members | both; storage, compute → frontend | sections | Members |
@@ -229,7 +231,9 @@ A client refusing a frame from the server closes the connection.
 | 529 | DefaultEntry | both; storage → frontend | sections | DefaultEntry, or Error |
 | 530 | Report | both; storage → frontend | sections | Report, or Error |
 | 531 | Held | storage → frontend | empty | nothing |
-| 532–767 | reserved for role commands | | | |
+| 532 | Frontier | compute → storage | sections | Neighbours frames, or Error |
+| 533 | Neighbours | storage → compute | sections | Credit when compute wants more |
+| 534–767 | reserved for role commands | | | |
 
 A receiver refuses every other number, and the reserved ones, as `UnknownCommand`. A retired command's number stays
 retired and is refused the same way; no command is retired. "Both" means the request and its reply share the command and
@@ -254,9 +258,12 @@ the sections:
 | F + 8N | the sections, in order |
 
 Section 0 starts at `align8(F + 8N)`. Section i ≥ 1 starts at `align8(end of section i − 1)`, where `align8(x)` rounds
-up to a multiple of 8. The bytes between a section's predecessor's end and its start are zero. The body ends where its
-last section ends; no padding follows the last section. A section of length 0 still has its offset. A body with
-`N = 0` sections is empty.
+up to a multiple of 8. A command may declare a section *block-aligned*: when it is not empty, it starts at the least
+body offset at or above that start whose frame offset (the body offset plus 256) is a multiple of 4,096, and the
+records its command places in it start at frame offsets that are multiples of 4,096 too, as its command states; an
+empty block-aligned section starts where any other would. The bytes between a section's predecessor's end and its start
+are zero. The body ends where its last section ends; no padding follows the last section. A section of length 0 still
+has its offset. A body with `N = 0` sections is empty.
 
 This layout has one encoding: the table's offsets follow from the lengths.
 
@@ -552,7 +559,7 @@ The server's answer to Hello: the protocol chosen, its limits, and how the conne
 | 4 | 4 | `release` | u32 | the server's release |
 | 8 | 4 | `max_frame` | u32 | the largest frame the server takes, 524,288 to 1,048,576 (`FieldValue` `"max_frame"`) |
 | 12 | 4 | `max_streams` | u32 | the streams a connection holds in flight, at least 1 (`FieldValue` `"max_streams"`) |
-| 16 | 4 | `initial_credit` | u32 | the Result, Entries, Describe or Catalog frames each stream answering a read, a Describe or a Catalog may send before a Credit, at least 1 (`FieldValue` `"initial_credit"`) |
+| 16 | 4 | `initial_credit` | u32 | the Result, Entries, Neighbours, Describe or Catalog frames each stream answering a read, a Describe or a Catalog may send before a Credit, at least 1 (`FieldValue` `"initial_credit"`) |
 | 20 | 4 | `max_write_set` | u32 | the largest write set a transaction commits, in bytes: its write-set record rounded up to 8 bytes and the dictionary entries it adds to its round (section 11.9) |
 | 24 | 4 | `transaction_ms` | u32 | the longest a read-write transaction lives, in milliseconds (section 11.9) |
 
@@ -806,6 +813,133 @@ Order: as DirectWrite's, except that section 0 may be empty, and that section 6 
 operation in order, by section 7.3's Order: bytes 1–7 zero (`PaddingNotZero` at the body offset); `kind`; `delta`; `properties`; `links`; its
 count, and each arg, an arg's `IndexOutOfRange` naming section 1, where this command's args are. A record running past the args is section 4.6's `CountMismatch` `"args"`. An operation running past them, or args left
 after the last operation, is `FieldValue` `"args_start"`, the index of the arg where that operation or those args begin.
+
+### 6.8 Ingest (26)
+
+A block-columnar insert in one frame: blocks of statements of one graph and predicate, or of instances of one type, laid
+out by column (`../../openspec/notes/UltraGraphDB Scalable Tile Store.md`, section 4.17). It opens a stream of its own and
+needs no Begin, as a DirectWrite does. The frontend splits it into one share per partition its rows reach; each share
+commits atomically at its partition, as a transaction of its own, and a refused share writes nothing of any block, while
+the other shares commit or fail on their own (T23, T24). The reply lists every share's outcome and ends the stream.
+Every rule of section 6.6 holds of an Ingest and of each share except where this section states another: its request
+number from the session's one counter, one commit in flight per session, a lost reply in doubt, the token, the checks of
+the session, the rights and the tenant gate, and the blind predicates of a tenant that holds a schema. An Ingest inserts
+and nothing else: a delete, an operation or a statement property set alone is a Write's, a DirectWrite's or a
+ConditionalWrite's (T25).
+
+| Command header | Width | Field | Type | Rule |
+|---|---|---|---|---|
+| 0 | 16 | `session` | session (section 1) | all zero for none |
+| 16 | 8 | `request` | u64 | as Commit's: at least 1 with a session, 0 with none (`FieldValue` `"request"`) |
+| 24 | 8 | `tenant` | u64 | the tenant it acts in |
+| 32 | 24 | `token` | session token (section 4.8) | as DirectWrite's |
+| 56 | 8 | `principal` | u64 | as DirectWrite's: 0 from a client, refused at the client endpoint (`FieldValue` `"principal"`), filled by the frontend when it relays a share |
+| 64 | 8 | `catalog` | u64 | the tenant's catalog version the client encoded the frame against; 0 for a tenant holding none |
+| 72 | 4 | `share` | u32 | 0 from a client, refused at the client endpoint (`FieldValue` `"share"`); the share's number, from 1, when the frontend relays a share |
+
+| Section | Contents |
+|---|---|
+| 0 | the term table's records (section 4.4) |
+| 1 | the term table's text |
+| 2 | the blocks, 32 bytes each, at least one in a request; empty in a reply |
+| 3 | the blocks' data, each block's at a section offset that is a multiple of 8, back to back in block order, the bytes between zero |
+| 4 | the shares' outcomes, 48 bytes each; empty in a request |
+
+| Block offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 1 | `kind` | u8: 1 a relation block, 2 an entity block |
+| 1 | 1 | zero | 0 |
+| 2 | 2 | `columns` | u16: the block's columns |
+| 4 | 4 | `rows` | u32: the block's rows, at least 1 |
+| 8 | 4 | `entries` | u32: a relation block's neighbours, at least `rows`; 0 for an entity block |
+| 12 | 4 | `graph` | u32: the graph's term index; `ABSENT` for the default graph |
+| 16 | 4 | `subject` | u32: a relation block's predicate, an IRI's term index; an entity block's type, the term index of the type's class IRI (`../schema/SCHEMA.md` section 11.2) |
+| 20 | 4 | `data` | u32: the offset of the block's data in section 3 |
+| 24 | 4 | `data_len` | u32: its length |
+| 28 | 4 | zero | 0 |
+
+A block's data is its parts in this order, each starting at a multiple of 8 from the data's first byte, the bytes
+between zero; `n` is `entries` for a relation block and `rows` for an entity block:
+
+| Part | Length | Holds |
+|---|---|---|
+| `rows` | 4 × `rows` | u32 per row, its subject's term index: a relation block's subjects, each once; an entity block's key column, its instances, each once, a keyed instance by the IRI its key mints and a new keyless one by a blank node |
+| `ends` | 4 × `rows` | relation blocks only: u32 per row, the end of its neighbours in `neighbours`, strictly increasing, the last `entries`; row `i` holds the neighbours from `ends[i − 1]`, 0 for the first, to `ends[i]` |
+| `neighbours` | 4 × `entries` | relation blocks only: u32 per neighbour, the object's term index |
+| column 0 to `columns − 1` | each as below | a value per row of an entity block, per neighbour of a relation block |
+
+| Column offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 4 | `predicate` | u32: the attribute's predicate, an IRI's term index |
+| 4 | 4 | `width` | u32: the value's width in bytes, 1 to 256, for a fixed-width value; 0 for a variable-width one |
+| 8 | 4 | `present` | u32: the values present |
+| 12 | 4 | zero | 0 |
+| 16 | 8 × ⌈n / 64⌉ | `validity` | u64 words: bit `i mod 64` of word `i div 64` set when value `i` is present; the bits at or past `n` zero |
+| | `present × width`, or `4 × present` and the values' bytes | `values` | the present values in order, each in its attribute descriptor's sortable encoding (`../storage/STORAGE.md` section 5.2): fixed-width values back to back; variable-width ones as `present` u32 ends, each the offset just past its value within the bytes that follow, nondecreasing, then the bytes |
+| | to a multiple of 8 | zero | 0 |
+
+| Outcome offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 4 | `share` | u32: the share's number, from 1 |
+| 4 | 4 | `partition` | u32: the partition the share reached |
+| 8 | 2 | `outcome` | u16: 0 committed, else the error code refusing the share (section 9.4) |
+| 10 | 2 | zero | 0 |
+| 12 | 4 | `block` | u32: a refused share's first failing block, its index in the frame; `ABSENT` for a refusal naming no block, and for a committed share |
+| 16 | 4 | `row` | u32: that block's first failing row, its index in the block; `ABSENT` for a refusal of the block whole, and wherever `block` is `ABSENT` |
+| 20 | 4 | zero | 0 |
+| 24 | 8 | `detail` | u64: the refusal's `detail`, as its code defines; 0 for a committed share |
+| 32 | 8 | `commit_version` | u64: a committed share's commit version; 0 for a refused one |
+| 40 | 8 | `position` | u64: a committed share's round's position in its partition's log; 0 for a refused one. With `partition` and the epoch of `commit_version` it is the share's session token (section 4.8) |
+
+A request holds its blocks and no outcome; a reply holds the request's command header as its receiver took it, sections
+0 to 3 empty and its outcomes: a partition's reply its share's one, the frontend's reply to the client every share's, by
+`share`, which numbers the shares from 1 in ascending order of their partitions.
+
+Order: unused bytes 76–127 zero; `request`; `token` as section 4.8 says; `principal`; `share`; sections; a request:
+section 4 empty (`CountMismatch` `"shares"`), the term table (0, 1), section 2 a whole number of 32-byte blocks
+(`SectionLength`, section 2) and not empty (`CountMismatch` `"blocks"`); each block in order: bytes 1 and 28–31 zero
+(`PaddingNotZero` at the body offset); `kind` 1 or 2 (`FieldValue` `"block kind"`); `rows` at least 1, and `entries` at
+least `rows` for kind 1 and 0 for kind 2 (`CountMismatch` `"block rows"`); `graph` `ABSENT` or below the term table's
+length, and `subject` below it (`IndexOutOfRange`, section 2, the block); `data` at the end of the block before's data,
+rounded up to a multiple of 8, 0 for the first (`FieldValue` `"block data"`); `data` and `data_len` within section 3
+(`IndexOutOfRange`, section 2, the block); then its data, each part in order: every term index below the term table's
+length (`IndexOutOfRange`, section 3, the offset); no row repeating a term an earlier row of the block names
+(`FieldValue` `"row"`, the row); `ends` strictly increasing, the last `entries` (`FieldValue` `"ends"`); each column:
+bytes 12–15 zero (`PaddingNotZero`); `width` at most 256 (`FieldValue` `"width"`); the bits at or past `n` clear
+(`PaddingNotZero`); `present` equal to the bits set (`CountMismatch` `"column values"`); a variable-width column's ends
+nondecreasing and the last equal to its bytes' length (`FieldValue` `"column ends"`); the padding zero
+(`PaddingNotZero`); `data_len` equal to the length the parts take (`CountMismatch` `"block data"`); section 3 ending with
+the last block's data (`CountMismatch` `"block data"`). A reply: sections 0 to 3 empty (`CountMismatch` `"shares"`);
+section 4 a whole number of 48-byte outcomes (`SectionLength`, section 4) and not empty (`CountMismatch` `"shares"`);
+each outcome in order: bytes 10–11 and 20–23 zero (`PaddingNotZero`); `share` one above the outcome before's, 1 for the
+first, and `partition` at least 1 and above the outcome before's (`FieldValue` `"share"`); with `outcome` 0, `block` and
+`row` `ABSENT`, `detail` 0, `commit_version` a version and `position` at least 1; with any other, `outcome` an error
+code, `row` `ABSENT` where `block` is, and `commit_version` and `position` 0 (`FieldValue` `"outcome"`, the outcome's
+index). The term table's order stays the sender's convention (section 4.7).
+
+The frontend checks the session and the rights as for a Commit (section 11.5), and each term as section 4.4 states,
+refusing the frame whole as that section says. It refuses with code 2 (Conflict), kind 5 (Catalog), before any
+partition sees it, a frame whose `catalog` is not the tenant's current version, the message naming both versions: the
+client describes the catalog again (section 8.3) and encodes against the version in effect. It finds each row's
+partition as section 11.12 finds a first request's subject's (*Writes*), and the rows whose subjects are new blank nodes
+at the one partition section 6.6 gives a write naming only new blank nodes, by the frame's `session` and `request`. It
+then relays a share to each partition reached, on a new stream to its role address: the frame's command header with
+`principal` and `share` filled, its term table whole, and of each block the rows that partition owns, with their
+neighbours and their columns' values, in their order; a block with no such row is left out of the share, and the
+share's blocks and rows are numbered anew. Once every share is answered it answers the client with one reply, naming
+each refused share's block and row by their indices in the client's frame. A resend is split and relayed the same way,
+and each partition's session table decides its share as section 6.6 states, keyed by the session and the share
+(`../storage/STORAGE.md` section 9.3, kind 10), so a resend commits only the shares not yet committed and answers the
+rest from the tables.
+
+A partition executes its share in one turn at its visibility watermark as section 6.6 states, and refuses it in its
+outcome: with code 2, kind 5, when `catalog` is not the version in effect at the round's epoch; with code 7 (Refused),
+the block named, for a block naming a type, an attribute or a predicate the version does not declare, a column whose
+`width` is not its descriptor's sortable width, or a column or an entity block in a tenant holding no schema, whose
+relation blocks carry no column; with code 7 and the row named for a value its check refuses; with code 6 (TooLarge),
+`detail` the bound, for a share whose body and resolution do not fit one round of its partition's log beside that round's
+header and tables. Its round logs the share's body as received, with its resolution, and no write-set record
+(section 12.1).
 
 ## 7. Bodies of data requests
 
@@ -1361,7 +1495,7 @@ in a frame not flagged `LAST` (`FieldValue` `"resume key"`).
 
 ### 9.2 Credit (14)
 
-More credit for the frame's stream: `frames` more Result, Entries, Describe or Catalog frames may be sent.
+More credit for the frame's stream: `frames` more Result, Entries, Neighbours, Describe or Catalog frames may be sent.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
@@ -1426,7 +1560,7 @@ and the value, already within the room, is not cut again.
 | 14 | SessionBusy | yes, after a delay | 0 | The session has a commit in flight, or a retried commit is still in a partition's commit step; or a full registry holds no session it may evict for a Register (section 11.5) |
 | 15 | Limit | no | the limit | A bound is reached: past the frontend's connections, an Error on stream 0 in place of the Welcome, then the close; past the Welcome's `max_streams`, on the new stream; past `held_bytes`, on the transaction's stream, ending the transaction (section 11.9) |
 | 16 | ProtocolVersion | no | the server's highest protocol | No protocol both sides speak; the server closes the connection |
-| 17 | Unavailable | on a read, yes, the read again from its start or a resume key; no otherwise; on a Commit, Drop, DirectWrite or ConditionalWrite it leaves the request in doubt (section 11.5) | 0 | The role or partition the request reaches stopped on an invariant violation, refuses writes after a failed log sync, until it restarts, or its role connection closed under the request (section 11.12); no compute process answers a read, or a hung one sent it nothing (section 11.12); a read found a list naming a dictionary entry its partition lacks (section 13.12); or a store failed under a Scan or a home's registration (sections 13.13, 13.15); requests reaching other partitions are served |
+| 17 | Unavailable | on a read, yes, the read again from its start or a resume key; no otherwise; on a Commit, Drop, DirectWrite, ConditionalWrite or Ingest it leaves the request in doubt (section 11.5) | 0 | The role or partition the request reaches stopped on an invariant violation, refuses writes after a failed log sync, until it restarts, or its role connection closed under the request (section 11.12); no compute process answers a read, or a hung one sent it nothing (section 11.12); a read found a list naming a dictionary entry its partition lacks (section 13.12); or a store failed under a Scan or a home's registration (sections 13.13, 13.15); requests reaching other partitions are served |
 | 18 | NotCommitted | yes | the request | A retried commit no partition's session table holds, with no transaction open: the request was not committed, and the client runs its transaction again (section 11.5) |
 | 19 | AuthenticationFailed | no | 0 | The authentication exchange failed; the server closes the connection. The message says nothing of what failed |
 | 20 | Unauthenticated | no | 0 | A request before the connection authenticated, refused on the request's stream while the connection stays open for authentication; or an authentication not complete within its timeout, an Error on stream 0, after which the server closes the connection (section 11.1) |
@@ -1739,6 +1873,7 @@ ends the connection: an Error of code 22 (CredentialExpired) on stream 0, then t
 | Write, Operation | the transaction's stream | none; a refusal is an Error on the stream, which ends the transaction and answers its next request |
 | Commit | the transaction's stream; a retry goes on a new stream of its own | Commit or Error; the stream ends |
 | DirectWrite, ConditionalWrite | a new stream; a retry goes on a new stream of its own | Commit or Error; the stream ends |
+| Ingest | a new stream; a retry goes on a new stream of its own | Ingest or Error; the stream ends |
 | Abort | the transaction's stream | none; the stream ends |
 | Prepare, Install, Drop, Purge, Migrate | a new stream | Prepare, Install, Drop, Purge or Migrate, or Error; the stream ends |
 | Describe | a new stream | Describe frames, the last flagged `LAST`; or Error |
@@ -1779,6 +1914,7 @@ A request declares its type by the command that carries it, so the server choose
 | Read-only | Begin `mode` 1, then Read or Execute | No read set, no commit; a level names how far it may lag (section 11.11) |
 | DirectWrite | DirectWrite (section 6.6) | One frame and its reply: no Begin, no Bind stream, no open transaction, and nothing read reaches the client |
 | ConditionalWrite | ConditionalWrite (section 6.7) | As DirectWrite, its conditions decided in commit order, and the outcome reported in the reply |
+| Ingest | Ingest (section 6.8) | As DirectWrite, inserts alone, by blocks; one atomic share per partition, each share's outcome in the reply |
 | Read-write | Begin `mode` 0, then any of Read, Execute, Write, Operation, Query, and Commit or Abort | An open transaction, validated at commit, and aborted to the client on a conflict |
 | Query | Begin `mode` 1 then Query of a statement without a writing clause; Begin `mode` 0 then any Query | As Read-only or Read-write by the transaction; a statement with a writing clause and no reading clause, whose writes the catalog's request-typing facts classify coordination-free (`../schema/SCHEMA.md` section 9.6), is executed as a DirectWrite's changes are, in one turn at the watermark |
 
@@ -1790,7 +1926,7 @@ DirectWrite, it is two independent requests, and a commit between them is a lost
 
 Each read's stream, and each Describe's and Catalog's, starts with the Welcome's `initial_credit`. The server sends a
 Result frame on a stream only while the stream's credit is above 0, and each Result frame it sends spends 1. A Credit
-frame on the stream adds `frames` (saturating at 2³² − 1). Only Result and Entries frames, and the frames of a
+frame on the stream adds `frames` (saturating at 2³² − 1). Only Result, Entries and Neighbours frames, and the frames of a
 Describe's or a Catalog's answer (sections 8.3, 13.7), spend credit; an Error and every other frame leave it. The server
 ignores Credit for a stream that is not open. A receiver of frames that spend credit, always the side that dialled,
 refuses a frame past its stream's credit as a protocol violation, code 1 (Protocol) by the rule `PastCredit` naming the
@@ -1803,7 +1939,7 @@ buffer left to read into, and refuses one past them before it is sent, so a read
 a reply needs; a client whose buffers are all held reads nothing until one is given back, which holds the server back
 and loses no connection. It sends a Register answered code 14 again itself, on a new stream after the retry delay and
 within the attempts of a commit's resend, and then returns that code 14 (sections 9.4, 11.5). On a role connection,
-credit holds the same way for Entries frames as for Result frames, each connection's streams on their own, and a
+credit holds the same way for Entries and Neighbours frames as for Result frames, each connection's streams on their own, and a
 ComputeRead's stream starts with its `credit` in place of the Welcome's (section 13.12).
 
 ### 11.4 Cancel and disconnection
@@ -2150,10 +2286,10 @@ Subscribe's closes.
 |---|---|---|
 | The frontend's role address | Join, Members, Placement, Catalog | storage and compute |
 | | Subscribe, Lease, CloseRequest, DefaultEntry, Report | storage |
-| A partition's role address | DirectWrite, ConditionalWrite | the frontend |
+| A partition's role address | DirectWrite, ConditionalWrite, Ingest | the frontend |
 | | Bind, then Write, Operation, Commit and Abort, or Drop, on the Bind's stream; Recall | the frontend |
 | | Reference | storage and the frontend |
-| | Scan, Closed | compute |
+| | Scan, Frontier, Closed | compute |
 | A compute process's role address | ComputeRead | the frontend |
 
 An endpoint refuses every other command as `CommandNotServed` (section 2.5). Challenge and Verify (sections 13.8,
@@ -2215,7 +2351,7 @@ answers whether the participant is absent, live, retracted or deleted, and its t
 connection's receive buffer as it arrives, hands the copy to its core and reads the connection's next frame, without waiting for
 the core to take the request: the core takes its requests between turns, and a turn may wait on its log's sync, so the requests a
 connection carries during a sync reach the core together and its commits share the next round. A partition parks a Write, Operation,
-DirectWrite or ConditionalWrite waiting on its registrations' answers, and a Write, Operation or Commit behind a read of its
+DirectWrite, ConditionalWrite or Ingest share waiting on its registrations' answers, and a Write, Operation or Commit behind a read of its
 transaction waiting on a home (section 13.13): it copies the frame out of the connection's receive buffer, reads the connection's
 next frame, and sends the request's answer on its stream once it has one. A frame arriving on a stream with a request parked is
 parked behind it and taken in its order, so a stream's requests take effect and are answered in the order they were sent, a Commit
@@ -2239,7 +2375,7 @@ stopped connection, a frontend's own Reference, a Cancel or a Commit, waits at m
 **Frames on their way.** A frontend's role connection is one queue its client connections share, first in, first out, and a frame
 leaves it as the role reads. What a client connection has on its way to a role is counted per client connection, against
 `endpoint.held_bytes` (section 11.9): a Write or Operation no read holds back, from its arrival until it leaves the queue, and a
-transaction's first until it is answered, since a refusal resends it; a DirectWrite or ConditionalWrite until it is answered or passes
+transaction's first until it is answered, since a refusal resends it; a DirectWrite, ConditionalWrite or Ingest until it is answered or passes
 `transaction_ms`; a Bind, ComputeRead, Reference, Recall or Credit until it leaves the queue. A Commit, a Drop and a Cancel are not
 counted: each stream sends one, and `max_streams` bounds them. Once the count reaches the bound, the frontend stops reading that
 client connection until it falls below it, and goes on sending what it answers, so a partition that stops reading reaches the client
@@ -2346,8 +2482,9 @@ arrive first: the frontend holds it until the Bind stream ends, then answers the
 code 4 (PastLimit), or the code 23 a read's refusal cancelled the stream with, and sends nothing further when it has already
 answered the read.
 
-Compute reads through storage's read kernel, Scan (section 13.13): key ranges of the partition at a role address, at a
-version, each bounded by a row limit, in key order, batched per address. It resolves a bound term in the partition whose
+Compute reads through storage's read kernels: Scan (section 13.13), key ranges of the partition at a role address, at a
+version, each bounded by a row limit, in key order, batched per address; and Frontier (section 13.21), many rows of one
+relation in one direction with a type range, inline filters and a top-k. It resolves a bound term in the partition whose
 lists it reads; an absent entry there means that partition holds no statement of the term and answers no row. Only where one
 ID must key several partitions, a reverse read's object and a resume key's terms, does it read the term's home. It names a
 row's system IDs by the dictionary of the partition that answered the row. A term and a list keyed by its ID take two Scans,
@@ -2509,16 +2646,17 @@ effect at the round's epoch.
 No client sends or receives these. Each partition's log stores each of its rounds as a Round frame, header and body,
 and stage 8's replication will carry the same bytes. A Round frame's header holds `sequence` its round's `position`,
 `stream` 0, `flags` 0, `protocol` 1, `view` 0, `replica` 0 and `release` the release of the node that wrote it. The
-record is logical: it holds what each entry decided as quads and system IDs, never the keys the store derives from
-them, and replaying it derives the same keys and values on every replica and in every release that knows its
-derivation version.
+record is logical: it holds what each entry decided as quads and system IDs, never the entries the store derives from
+them, and replaying it derives the same state on every replica and in every release whose derivation version
+(`../storage/STORAGE.md` section 3.2) it names.
 
 ### 12.1 Round (17)
 
 The log record of one partition's round: each entry's decision in round order, the write-set record of each committed
-one, and the dictionary entries the round creates. An entry is a transaction, a Drop, a Purge, a registration the
-partition accepted as an entity's home, which its commit step admits as it admits a transaction, or an index build's
-start or completion. Committed entry k of the round (counting committed ones from 0) has commit version `first_version +
+one or, for an Ingest share, its body as received with its resolution (T39), and the dictionary entries the round
+creates. An entry is a transaction, an Ingest share, a Drop, a Purge, a registration the partition accepted as an
+entity's home, which its commit step admits as it admits a transaction, or an index build's start or completion.
+Committed entry k of the round (counting committed ones from 0) has commit version `first_version +
 2k`. A round closes when a close is delivered to its partition, so its entries carry one epoch, `first_version >> 22`,
 and each tenant's records name the one catalog version in effect at it.
 
@@ -2529,14 +2667,17 @@ and each tenant's records name the one catalog version in effect at it.
 | 16 | 8 | `incarnation` | u64: the log's incarnation, raised each time a log is created afresh |
 | 24 | 8 | `first_version` | u64: the commit version of the round's first committed entry |
 | 32 | 4 | `transactions` | u32: the decision count, one per entry |
-| 36 | 4 | `derivation` | u32: the version of the derivation that turns the round's quads into keys, at least 1 |
+| 40 | 8 | `derivation` | u64: the derivation version the round was applied under (`../storage/STORAGE.md` section 3.2), any value |
+| 48 | 8 | `horizon` | u64: the fold horizon (`../storage/STORAGE.md` section 14.2) the partition's primary stamped on the round, 0, a version or a version bound (section 1), never below the round before's |
 
 | Section | Contents |
 |---|---|
 | 0 | decisions, 16 bytes each |
-| 1 | the record table: per committed entry `offset` u32 and `len` u32 within section 2 |
+| 1 | the record table, 16 bytes per committed entry |
 | 2 | the write-set records (section 12.2) |
-| 3 | the dictionary entries the round creates, in the key-value layout of section 12.2: each a key of the dictionary keyspace and its value, each once, in ascending key order; an entry another partition's entity holds there, copied at the partition's first reference to it, counts in both directions as the round's |
+| 3 | the dictionary entries the round creates, in the key-value layout of section 12.2: each its record kind (`../storage/STORAGE.md` section 9.3, kinds 1 to 3) as one byte followed by the record's key, and its value, each once, in ascending key order; an entry another partition's entity holds there, copied at the partition's first reference to it, counts in both directions as the round's |
+| 4 | the Ingest bodies, block-aligned (section 4.1): each committed share's body as its frame carried it, the data before any chunk table, each starting at a frame offset that is a multiple of 4,096, the bytes between zero |
+| 5 | the Ingest resolutions, one per Ingest body |
 
 | Decision offset | Width | Field | Type |
 |---|---|---|---|
@@ -2545,24 +2686,68 @@ and each tenant's records name the one catalog version in effect at it.
 | 4 | 4 | `record` | u32: the committed entry's record index, counting from 0; `ABSENT` for an abort |
 | 8 | 8 | `detail` | u64: the abort's detail; 0 for a commit |
 
-Record 0 starts at section offset 0 and record i at `align8` of record i − 1's end; the padding between is zero and
-section 2 ends with the last record.
+| Record table offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 4 | `offset` | u32: a write-set record's offset in section 2; an Ingest body's offset in section 4 |
+| 4 | 4 | `len` | u32: its length |
+| 8 | 4 | `resolution` | u32: an Ingest entry's resolution's offset in section 5; `ABSENT` for a write-set record |
+| 12 | 4 | `resolution_len` | u32: that resolution's length; 0 for a write-set record |
 
-Order: unused bytes 40–127 zero; `derivation` at least 1 (`FieldValue` `"derivation"`); sections; decisions a whole
+The first write-set record starts at section 2's offset 0 and each later one at `align8` of the one before's end; the
+first resolution likewise in section 5; the first Ingest body at section 4's offset 0 and each later one at the least
+offset at or above the end of the one before whose frame offset is a multiple of 4,096. The padding between is zero, and
+each of the three sections ends with its last record.
+
+An Ingest entry's resolution is what the partition decided for a body it logs as received: the body layout of section
+4.1 with a 64-byte fixed part and two sections, its offsets counted from its first byte.
+
+| Fixed part | Width | Field | Type |
+|---|---|---|---|
+| 0 | 8 | `tenant` | u64 |
+| 8 | 8 | `catalog` | u64: the catalog version of `tenant` in effect at the round's epoch, which the share was validated against |
+| 16 | 8 | `read_version` | u64: the version the share executed at, its partition's visibility watermark |
+| 24 | 16 | `session` | session (section 1): the share's, all zero for none |
+| 40 | 8 | `request` | u64: the share's request number, 0 for none |
+| 48 | 8 | `principal` | u64: the principal the share acted for |
+| 56 | 4 | `share` | u32: the share's number, at least 1 |
+| 60 | 4 | zero | 0 |
+
+| Section | Contents |
+|---|---|
+| 0 | per entry of the body's term table, in table order, the 16-byte system ID it resolved to; 16 zero bytes for a literal and for a term no block of the body names |
+| 1 | the statement IDs, 24 bytes each, one per edge the share gave a statement ID, ascending by `block`, then `entry`: `block` u32, a relation block's index in the body; `entry` u32, the neighbour's index in its block; then the statement ID, 16 bytes |
+
+The resolution and the body hold everything replay needs: each block's statements, quads of the resolved system IDs and
+the column values, and its session-table entry, the share's reply rebuilt from the round. The conflict keys of the
+share's inserts (section 12.2) follow from the two and are not logged.
+
+Order: unused bytes 36–39 and 56–127 zero; `horizon` 0, a version or a version bound (`FieldValue` `"horizon"`);
+sections; decisions a whole
 number of 16 bytes (`SectionLength`); their count equals `transactions` (`CountMismatch` `"decisions"`); each decision:
 bytes 2–3 zero (`PaddingNotZero`); a commit's `record` equals the commits before it (`FieldValue` `"record"`) and its
 `detail` is 0 (`FieldValue` `"detail"`); an abort's `outcome` is an error code (`FieldValue` `"outcome"`) and its
 `record` is `ABSENT` (`FieldValue` `"record"`); the last committed entry's version within `first_version`'s epoch,
-its sequence at most 2²² − 2 (`FieldValue` `"first_version"`); the record table a whole number of 8 bytes; one entry per
-commit (`CountMismatch` `"records"`); each entry: inside section 2 (`IndexOutOfRange`, section 1), at the expected
-offset (`FieldValue` `"record offset"`), padding zero (`PaddingNotZero`), the record valid (`Record`, wrapping the
-record's refusal), and the records of one tenant, kind 2 aside, naming one `catalog` (`FieldValue` `"catalog"`);
-section 2 ends with the last record (`TrailingBytes`); section 3's entries each inside the section
+its sequence at most 2²² − 2 (`FieldValue` `"first_version"`); the record table a whole number of 16 bytes; one entry per
+commit (`CountMismatch` `"records"`); each entry: with `resolution` `ABSENT`, `resolution_len` 0 (`FieldValue`
+`"record"`), the record inside section 2 (`IndexOutOfRange`, section 1), at the expected offset (`FieldValue`
+`"record offset"`), padding zero (`PaddingNotZero`), the record valid (`Record`, wrapping the record's refusal); with
+`resolution` not `ABSENT`, the body inside section 4 and the resolution inside section 5 (`IndexOutOfRange`, section 1),
+each at its expected offset (`FieldValue` `"record offset"`), padding zero (`PaddingNotZero`), the body valid as an Ingest
+request's (section 6.8) and the resolution valid (`Record`, wrapping the refusal); and the records and resolutions of one
+tenant, kind 2 aside, naming one `catalog` (`FieldValue` `"catalog"`); sections 2, 4 and 5 each ending with their last
+record (`TrailingBytes`); a resolution valid when: its fixed part and table hold (section 4.1), bytes 60–63 zero
+(`PaddingNotZero`), `share` at least 1 (`FieldValue` `"share"`), section 0 16 bytes per entry of its body's term table
+(`CountMismatch` `"resolution terms"`), each ID all zero or a valid system ID (`FieldValue` `"resolution term"`),
+section 1 a whole number of 24-byte entries (`SectionLength`), each naming a relation block of its body and a neighbour
+below that block's `entries`, after the entry before, its ID a valid system ID (`FieldValue` `"resolution
+statement"`); section 3's entries each inside the section
 (`EntryOutOfBounds`) with zero padding (`PaddingNotZero`), every value present (`FieldValue` `"dictionary entry"`),
 each key above the one before, compared byte by byte (`FieldValue` `"dictionary order"`).
 
-Replaying a round whose `derivation` the reader does not know is refused with an error naming the version, and applies
-nothing of the round.
+Replaying a round whose `derivation` is not the reader's own derivation version (`../storage/STORAGE.md` section 3.2) is
+refused with an error naming both (`DerivationMismatch`), and applies nothing of the round; so is a round whose `horizon`
+is below the round before's, naming both horizons. The golden `round.frame` follows this layout once the code change
+that brings `ultragraphdb_protocol_wire` to it regenerates it: this file leads the code.
 
 ### 12.2 Write-set record
 
@@ -2592,17 +2777,17 @@ sections 9 to 11, so the log holds exactly what was applied and what was answere
 | 3 | operations, 24 bytes each |
 | 4 | registrations, 32 bytes each |
 | 5 | the commit record the client attached, bytes |
-| 6 | conflict points: entries whose value is present and empty, a key written |
-| 7 | conflict statements: a list key and the object it changed |
-| 8 | conflict ranges: the first key and the key past the last |
+| 6 | conflict points: entries whose key is a conflict key written and whose value is present and empty |
+| 7 | conflict statements: entries whose key is a forward or reverse row's conflict key and whose value is the canonical key of the neighbour it changed (`../storage/STORAGE.md` section 5.4), a system ID or a term encoding |
+| 8 | conflict ranges: entries whose key is a range's first conflict key and whose value is the conflict key past its last, empty for the end of every key |
 | 9 | the commit-time operations' results, 16 bytes each in the Commit reply's result layout (section 6.3), in the order the transaction asked them; empty for a transaction that asked none |
 | 10 | the results' term table's records (section 4.4), as the Commit reply holds them |
 | 11 | the results' term table's text |
 
 A quad is its graph, subject and predicate, each a 16-byte system ID and the default graph its own encoding, and its
-object, a system ID or a literal's term encoding, in the encoding the round's `derivation` names. Every key the store
-derives from the record, a reverse, predicate-list, index, count or statistics entry, a dictionary entry aside, is
-derived on apply and on replay and never logged. Sections 0 and 1 hold what the transaction changed, never an ID an object
+object, a system ID or a literal's term encoding, in the encoding the round's `derivation` names. Every entry the store
+derives from the record, a reverse, index, count or statistics entry, a dictionary entry aside, is derived on apply and
+on replay and never logged. Sections 0 and 1 hold what the transaction changed, never an ID an object
 already held and keeps: an entry of section 0 holding an ID adds it to the IDs its quad holds, an entry of section 1 holding one
 removes it and leaves the object held, and an empty entry of section 1 removes the object with every ID. So a parallel edge logs one
 entry whatever its object holds, and `statements_per_object_max` (section 11.9) is reached through commits.
@@ -2610,7 +2795,7 @@ entry whatever its object holds, and `statements_per_object_max` (section 11.9) 
 | Kind | Fixed part | Sections |
 |---|---|---|
 | 1, a transaction | every field | 0 to 2 and 5 to 11 as it wrote and answered; 3 one operation 8 per entity it deleted at its home, else empty; 4 the registrations it relied on as a referrer, each the entity's ID, the bucket group and the generation the home's reply named |
-| 1, a Drop | every field, `read_version` 0 | 3 one drop, operations 1 to 4; 8 the dropped key ranges; every other empty |
+| 1, a Drop | every field, `read_version` 0 | 3 one drop, operations 1 to 4; 8 the conflict ranges the drop covers, below; every other empty |
 | 1, a Purge | `tenant`, `catalog` and `principal`; every other field 0 | 3 one operation 9 per instance the purge removes in the partition; every other empty |
 | 2 | `tenant`; every other field 0 | 4 one registration: the member it adds or renews, at the entry's commit version; or none, for an entity the home got or created for a registration naming no bucket group, whose dictionary entries the round's dictionary section carries; every other empty |
 | 3 | `tenant`, `catalog`; every other field 0 | 3 one operation, 6 or 7; every other empty |
@@ -2629,7 +2814,7 @@ entry whatever its object holds, and `statements_per_object_max` (section 11.9) 
 | 24 | 8 | `generation` | u64: kind 1, the generation the home's reply named; kind 2, the member's generation the registration leaves, at least 1 |
 
 - **A drop** (operations 1 to 4, the Drop command's kinds 1 to 4) removes what section 6.5 says of its kind in the
-  partition, which derives the key removals on apply and on replay. Its record holds the dropped key ranges in section
+  partition, which derives the key removals on apply and on replay. Its record holds the conflict ranges it covers in section
   8, so a transaction reading or writing into them below the drop's version conflicts; it is the last record of its
   round.
 - **An entity delete** (operation 8), which UGS brings with stage 6 (`../schema/SCHEMA.md` section 8.5) and a transaction
@@ -2671,6 +2856,29 @@ entry whatever its object holds, and `statements_per_object_max` (section 11.9) 
   Drop reply for a record holding a drop, rebuilt from the record, its commit version, its round's position and, for a
   Drop of a predicate or graph, the dropped IRI's dictionary entry.
 
+**Conflict keys** name what a write changes and a read depends on in logical families, never in the store's tiles,
+so a tile's split or move changes no conflict (T38). A conflict key is the tenant as a big-endian u64, the graph's
+system ID, the predicate's system ID, the family's byte, then the family's key; a family with no graph or no predicate
+holds 16 bytes of `0xFF` in its place, which no system ID holds, so it orders after every graph and every predicate.
+Keys compare byte by byte, so a tenant's keys, a graph's in a tenant and a predicate's in a graph are each one range.
+
+| Family | Byte | Graph | Predicate | Key |
+|---|---|---|---|---|
+| Forward row | 1 | the statement's | the statement's | the subject's bucket group as a big-endian u32, then its system ID, so a bucket group's rows are one range (T38) |
+| Reverse row | 2 | the statement's | the statement's | the object's canonical key: a system ID, or a literal's term encoding |
+| Index token | 3 | the statement's | the indexed predicate | the token (`../storage/STORAGE.md` section 5.3) |
+| Count | 4 | the statement's | the counted predicate | the direction, 1 a subject's count or 2 an object's, then the counted node's canonical key |
+| Statement | 5 | the statement's | the statement's | the statement's ID |
+| Mark | 6 | `0xFF` × 16 | `0xFF` × 16 | the entity's system ID, then the referring bucket group as 3 big-endian bytes |
+| Claim | 7 | `0xFF` × 16 | a `@unique` claim's predicate; else `0xFF` × 16 | the claim's kind, 1 a key, 2 a `@unique` value, 3 an idempotency value, 4 a `@set` combination, then its key as the store's record of that claim holds it after its predicate (`../storage/STORAGE.md` section 9.3, kinds 4, 5, 13 and 12) |
+| Session | 8 | `0xFF` × 16 | `0xFF` × 16 | the session's 16 bytes, then the share as a big-endian u32, 0 outside an Ingest share |
+
+A range's past key is the least key above every key its prefix begins: the prefix with its last byte below `0xFF`
+raised by one and the bytes after it dropped, or empty when every byte is `0xFF`. A drop's conflict ranges are: a
+tenant's data and everything in a tenant, the tenant's prefix; a graph, the tenant and the graph; a predicate, the tenant,
+each graph holding it in the partition and the predicate, and the tenant, `0xFF` × 16 and the predicate for its
+`@unique` claims.
+
 A key-value section is entries back to back, each 8-aligned within the section:
 
 | Entry offset | Width | Field |
@@ -2690,7 +2898,9 @@ present, empty or of 16 bytes (`FieldValue` `"statement id"`); every conflict po
 `operation` 1 to 4 or 6 to 9 (`FieldValue` `"operation"`), bytes 2–7 zero (`PaddingNotZero`), its `argument` as the
 table states (`FieldValue` `"argument"`); section 4 a whole number of 32-byte registrations (`SectionLength`), each
 `entity` a valid system ID, `group` below 2¹⁸, bytes 20–23 zero and `generation` at least 1 (`FieldValue`
-`"registration"`); section 9 a whole number of 16-byte results, each checked as section 6.3 checks a result, and the
+`"registration"`); every key of sections 6 to 8, and every value of section 8 not empty, a conflict key: a known family
+byte at offset 40 and, for families 1 to 5, a graph and a predicate that are not `0xFF` × 16, for families 6 and 8, both
+`0xFF` × 16 (`FieldValue` `"conflict key"`); section 9 a whole number of 16-byte results, each checked as section 6.3 checks a result, and the
 term table (10, 11) as section 6.3 checks it; the sections each kind holds, as the table above states (`CountMismatch`
 `"record sections"`).
 
@@ -2698,18 +2908,16 @@ The keys' and values' contents, the quads' and the statement records' encodings 
 the server alone writes and reads them, and the derivation version and the store's mapping contract version them. This
 file states their framing.
 
-Recovery replays the log's rounds above the store's applied log position, which every store batch records with its
-data, in order, and applying a round is idempotent. Each committed entry is applied at its commit version through the
+Recovery replays the log's rounds above the position of the store's last checkpoint (`../storage/STORAGE.md` section
+17.2), in order. Each committed entry is applied at its commit version through the
 derivation its round names: a transaction's quads, statement records and drop with every entry they derive, and its
-committed request with its stored reply into the partition's session table; a registration into its entity's referrer
+committed request with its stored reply into the partition's session table; an Ingest share's statements, from its body
+and its resolution, likewise; a registration into its entity's referrer
 set; and the round's dictionary entries. A build whose start the log holds without its completion runs its backfill
 again from its start version, so the log stays the only synced stream. Each undeclared predicate a replayed round
 first wrote is asked of the metadata group for its default entry again (section 11.12).
 
-A checkpoint syncs the store, whose journal is never synced on its own, records its position in the superblock, and
-trims the log through it. Recovery refuses to start, naming both positions, when the store's applied position is below
-the checkpoint's; naming the position, when it is beyond the log's tail; and naming the first missing position, when
-the log has a gap between the store's position and its tail.
+Checkpoints, the log's trim and recovery's refusals are `../storage/STORAGE.md` section 17's.
 
 ## 13. Bodies of role commands
 
@@ -3086,8 +3294,9 @@ conflicts.
 
 ### 13.13 Scan (524)
 
-Storage's read kernel: the entries of key ranges of the partition at a role address, at one version, at most
-`limit` entries of each, in key order, batched per address. Compute builds each range from a pattern's terms and
+One of storage's two read kernels, beside Frontier (section 13.21): the entries of key ranges of the partition at a
+role address, at one version, at most `limit` entries of each, in key order, batched per address. A Scan reads in lane
+S, or in lane X when it names a transaction (`../storage/STORAGE.md` section 18.1); lane L is a Frontier's. Compute builds each range from a pattern's terms and
 the store's key encoding, and reads the dictionary, a referrer set or a list by Scans as it reads the quads; a lookup of
 one key is a range holding it alone. Keys here are the store's keys without their 8-byte version suffix, and carry
 system IDs.
@@ -3219,7 +3428,9 @@ A batch of one range's entries, or of a run of one-key dictionary ranges', so th
 not one per term. A batch of one range holds its entries in key order, and a run holds them in its ranges' order: each key once, with its value visible at the version the range was read
 at; a key removed at that version is absent. A Scan's answer gives its ranges in order, each in one or more Entries
 frames, the last of which says how the range ended; the stream's last frame, the last range's last, carries `LAST`.
-Entries frames spend credit as Result frames do (section 11.3).
+Entries frames spend credit as Result frames do (section 11.3). Every Entries frame of a Scan names the one version the
+Scan chose, as its lane S or X has it; frames each naming the version of their own turn are a lane L Frontier's
+(section 13.22).
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
@@ -3446,3 +3657,134 @@ frontend takes Held as the request's answer (section 11.12, *Reads*) and relays 
 reply. The stream stays open.
 
 The command header is all zero. No sections. Order: command header bytes 0–127 zero; sections.
+
+### 13.21 Frontier (532)
+
+Storage's second read kernel, beside Scan: compute sends a frontier, many rows of one relation in one direction, and
+the partition answers each row's surviving entries in its family's order (`../storage/STORAGE.md` section 18.5), in
+Neighbours frames on the request's stream. A request names its lane (`../storage/STORAGE.md` section 18.1): L, the
+partition's latest applied state, each frame one turn's and naming the version it read; S, one version for every
+frame, which the partition retains until the request ends; X, a read-write transaction's reads at its read version, with
+its own writes over them, recorded in its reads. A row is named as its family keys it, never by a slot: a forward row by
+its subject's system ID, a reverse row by its object's system ID or a literal's term encoding, an index row by its
+token (`../storage/STORAGE.md` sections 5.1, 5.3 and 7.1).
+
+| Command header | Width | Field | Type | Rule |
+|---|---|---|---|---|
+| 0 | 1 | `lane` | u8 | 1 L, 2 S, 3 X (`FieldValue` `"lane"`) |
+| 1 | 1 | `kind` | u8 | the adjacency kind read (`../storage/STORAGE.md` section 7.1): 1 forward edges, 2 forward values, 3 reverse entries, 4 an index relation (`FieldValue` `"kind"`) |
+| 2 | 1 | `tokenizer` | u8 | for kind 4, the index's tokenizer identifier byte, not `0xFF`; 0 otherwise (`FieldValue` `"tokenizer"`) |
+| 3 | 1 | `filters` | u8 | the inline-column filters, 0 to 8 (`FieldValue` `"filters"`) |
+| 4 | 4 | `partition` | u32 | the partition read, at least 1 (`FieldValue` `"partition"`) |
+| 8 | 8 | `tenant` | u64 | |
+| 16 | 8 | `read_version` | u64 | lane S: the version or version bound read at; lane X: the Bind's answer (section 13.10); lane L: 0 (`FieldValue` `"read_version"`) |
+| 24 | 8 | `principal` | u64 | the client's principal |
+| 32 | 16 | `transaction` | bytes | lane X: the transaction's identity, as its Bind named it; all zero otherwise (`FieldValue` `"transaction"`) |
+| 48 | 2 | `prefix_first` | u16 | kind 1: the first type prefix of the neighbours' type range; 0 with no range |
+| 50 | 2 | `prefix_past` | u16 | kind 1: one past its last, above `prefix_first`; 0 with no range (`FieldValue` `"prefix"`) |
+| 52 | 4 | `top` | u32 | the most entries answered per row, read in the family's order; 0 for every entry |
+| 56 | 8 | zero | 0 | |
+| 64 | 16 | `graph` | system ID (section 1) | the graph's; 16 zero bytes for the default graph |
+| 80 | 16 | `predicate` | system ID (section 1) | the relation's predicate, a valid system ID (`FieldValue` `"predicate"`) |
+
+| Section | Contents |
+|---|---|
+| 0 | the rows' keys' ends: u32 per row, the offset just past its key in section 1, at least one row |
+| 1 | the rows' keys, back to back: kinds 1 and 2, a system ID; kind 3, a system ID or a term encoding; kind 4, a token |
+| 2 | the filters, 40 bytes each |
+| 3 | the resume key: empty to start; else the one a Neighbours frame of the same request gave, unchanged |
+
+| Filter offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 1 | `column` | u8: the inline column, 0 to 7, as the layout numbers them (`../storage/STORAGE.md` section 7.3) |
+| 1 | 1 | `bounds` | u8: bit 0 `low` holds a bound, bit 1 `high` does; bits 2 to 7 zero |
+| 2 | 1 | `width` | u8: the column's width, 1 to 16 |
+| 3 | 5 | zero | 0 |
+| 8 | 16 | `low` | the least value passing, its sortable encoding in the first `width` bytes, the rest zero; all zero without bit 0 |
+| 24 | 16 | `high` | the greatest value passing, likewise; all zero without bit 1 |
+
+An entry passes a filter when its column holds a value at or above `low` and at or below `high`, compared byte by byte,
+each bound present; an entry with no value in the column passes none. A block whose column's values cannot pass is
+skipped unread. An entry survives when its neighbour's type prefix lies in the type range, it passes every filter, and
+it is among the first `top` of its row that do.
+
+The partition answers the rows in the order of their resume keys, each by its family in the row's bucket group and, for
+a predicate held in both storage classes, both families merged in the family's order (`../storage/STORAGE.md` sections
+13.1 and 14.3); a request holding a resume key answers only what lies strictly after it. A resume key is the store's,
+`../storage/STORAGE.md` section 18.3's bytes: compute holds it opaque and sends it back to the same partition unchanged.
+Each frame is one turn's work, within `lane_entries_max` entries examined and `lane_bytes_max` bytes of body
+(`../storage/STORAGE.md` section 3.1); one that stops with entries left ends with its resume key, and the next frame,
+when its stream holds credit, continues strictly after it. In lane L each frame reads the latest applied state of its own
+turn, so an entry inserted behind the resume key between frames is not answered; a lane L request sent back to loading
+twice is answered in lane S at the latest applied version at that moment, its frames naming that version (section 18.6
+there).
+
+In lane X the partition records, before a frame leaves, the range of the conflict key (section 12.2) of each row the
+frame reaches, entries or none, so an insert into it conflicts; a frame ending inside a row records instead its family's
+range in that row's bucket group, a forward row's, or its whole family's otherwise (T38). A request of lane S or X whose
+`read_version` is below the partition's latest logged fold horizon is refused with code 3 (TooOld), and one whose `read_version` is above the
+partition's visibility watermark in an epoch it has not closed with code 27 (AheadOfWatermark), `detail` the watermark.
+A lane the catalog does not allow for the family is refused with code 7 (Refused), the message naming the lane and the
+predicate (`Lane`, `../storage/STORAGE.md` section 18.1).
+
+Order: unused bytes 56–63 and 96–127 zero; `lane`; `kind`; `tokenizer`, nonzero exactly for kind 4; `filters`;
+`partition`; `read_version` 0 for lane 1 and a version or version bound for lanes 2 and 3; `transaction` not zero exactly
+for lane 3; `prefix_first` and `prefix_past` both 0, or `prefix_first` below `prefix_past` with kind 1 (`FieldValue`
+`"prefix"`); `predicate`; sections; section 0 a whole number of u32s (`SectionLength`) and not empty (`CountMismatch`
+`"rows"`); each end at least the one before and above it, every key holding at least one byte, the last end section 1's
+length (`FieldValue` `"rows"`, the row); kinds 1 and 2 each key 16 bytes and a valid system ID (`FieldValue` `"row"`, the
+row); section 2 a whole number of 40-byte filters (`SectionLength`), `filters` of them (`CountMismatch` `"filters"`),
+each: bytes 3–7 zero and the bytes of `low` and `high` past `width`, and an absent bound's, zero (`PaddingNotZero`),
+`column` at most 7, `bounds` bits 2 to 7 zero, `width` 1 to 16 (`FieldValue` `"filter"`, the filter). A request naming a
+partition the role address does not serve is refused with Error 1 (Protocol), the message naming it, and a `transaction`
+the partition does not hold with Error 1, `detail` 1, as a Scan's is.
+
+### 13.22 Neighbours (533)
+
+A batch of a Frontier's answer: the rows the turn reached and their surviving entries. Neighbours frames spend credit as
+Entries frames do (section 11.3), and the stream's last frame carries `LAST`.
+
+| Command header | Width | Field | Type | Rule |
+|---|---|---|---|---|
+| 0 | 4 | `rows` | u32 | the batch's row records |
+| 4 | 4 | `entries` | u32 | the batch's entries |
+| 8 | 8 | `version` | u64 | the version the frame read: in lane L the partition's latest applied version at its turn, which the frames of one request may each name differently; in lanes S and X the request's `read_version` (`FieldValue` `"version"`) |
+| 16 | 1 | `end` | u8 | 1 the request's answer ends with this frame; 0 a resume key follows in section 4 and the answer goes on (`FieldValue` `"end"`) |
+| 24 | 8 | `widths` | bytes | byte `c` the width of the family's inline column `c`, 1 to 16, and 0 past its last column |
+
+| Section | Contents |
+|---|---|
+| 0 | the rows, 16 bytes each, in answer order |
+| 1 | the entries, 32 bytes each, row by row in the family's order |
+| 2 | the neighbours' bytes, back to back |
+| 3 | the inline values: per entry, each inline column's value in `width` bytes, zero where absent |
+| 4 | the resume key when `end` is 0; empty otherwise |
+
+| Row offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 4 | `row` | u32: the row's index in the request |
+| 4 | 4 | `first` | u32: its first entry's index in section 1, where the row before's entries end |
+| 8 | 4 | `count` | u32: its entries in this frame, 0 for a row holding none that survive |
+| 12 | 1 | `more` | u8: 1 the row continues in the next frame; 0 otherwise |
+| 13 | 3 | zero | 0 |
+
+| Entry offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 4 | `neighbour` | u32: its neighbour's offset in section 2, where the entry before's ends |
+| 4 | 4 | `neighbour_len` | u32: its length: 16 for kinds 1, 3 and 4, whose neighbours a frame names by system ID, the subject's for kinds 3 and 4; kind 2's a term encoding in the generic layout or a sortable value in a compiled one |
+| 8 | 16 | `statement` | system ID (section 1): the statement's ID; 16 zero bytes for none |
+| 24 | 1 | `valid` | u8: bit `c` set when inline column `c` holds a value |
+| 25 | 7 | zero | 0 |
+
+Order: unused bytes 17–23 and 32–127 zero; `version` a version or version bound; `end` 0 or 1; `widths` each 0 to 16,
+none nonzero after a 0 (`FieldValue` `"widths"`); sections; section 0 a whole number of 16-byte rows, `rows` of them,
+and section 1 of 32-byte entries, `entries` of them (`SectionLength`, `CountMismatch` `"entries"`); each row: bytes 13–15
+zero (`PaddingNotZero`), `first` where the row before's entries end and `first + count` within the entries, `more` 0
+or 1, and 1 only on the frame's last row (`FieldValue` `"row"`, the row); the rows' entries ending with the last entry
+(`CountMismatch` `"entries"`); each entry: bytes 25–31 zero (`PaddingNotZero`), `neighbour` where the entry before's
+ends and within section 2, `statement` zero or a valid system ID, `valid` without bits past the family's columns
+(`FieldValue` `"entry"`, the entry); section 2 ending with the last neighbour (`CountMismatch` `"neighbours"`); section 3
+the entries times the columns' widths (`CountMismatch` `"inline values"`); section 4 empty exactly when `end` is 1
+(`CountMismatch` `"resume key"`). The receiver, the side that dialled, refuses as section 13.14 has it for Entries,
+closing the connection: in lanes S and X a `version` other than the first frame's; a frame after one with `end` 1; a row
+continued by a frame whose first row is not that row; `LAST` on a frame without `end` 1, or `end` 1 without `LAST`.

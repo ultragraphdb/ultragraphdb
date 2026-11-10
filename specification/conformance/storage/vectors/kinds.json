@@ -1,0 +1,753 @@
+{
+  "specification": "STORAGE.md sections 7 to 9: every kind tiles.json leaves out",
+  "settings": "defaults of section 3.1",
+  "tiles": {
+    "adjacency_forward_values": {
+      "input": {
+        "rows": [
+          {
+            "key_hex": "00000000",
+            "neighbours": [
+              "11000000000000002a",
+              "2003416461"
+            ]
+          },
+          {
+            "key_hex": "00000002",
+            "neighbours": [
+              "2000"
+            ]
+          }
+        ]
+      },
+      "header": {
+        "shape": 1,
+        "kind": 2,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "000100000000000003eeab0107000000",
+        "type": 0,
+        "direction": 1,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 3,
+        "rows": 2,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "000000001100ff00ff00ff00ff00ff00ff00ff2a0000",
+      "tile_key_hex": "0102000000000000000700000000000000000000000000000000000100000000000003eeab010700000000000100000002af00000000001100ff00ff00ff00ff00ff00ff00ff2a0000",
+      "file": "tiles/adjacency_forward_values.tile",
+      "length": 304,
+      "checksum": "98749d89aa4039fa",
+      "digest": "7529a2e6a48f3e29cb1eeb1461eefa44"
+    },
+    "adjacency_index": {
+      "input": {
+        "rows": [
+          {
+            "key_hex": "05800000000000001f",
+            "neighbours": [
+              0,
+              4
+            ]
+          },
+          {
+            "key_hex": "05800000000000002d",
+            "neighbours": [
+              1
+            ]
+          }
+        ]
+      },
+      "header": {
+        "shape": 1,
+        "kind": 4,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "000100000000000003ebab0104000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 3,
+        "rows": 2,
+        "span": 0,
+        "tokenizer": 5
+      },
+      "fence_hex": "058000ff00ff00ff00ff00ff00ff1f000000000000",
+      "tile_key_hex": "0104000000000000000700000000000000000000000000000000000100000000000003ebab010400000000000000050002af00058000ff00ff00ff00ff00ff00ff1f000000000000",
+      "file": "tiles/adjacency_index.tile",
+      "length": 304,
+      "checksum": "e775a965de8a85bf",
+      "digest": "76643f760c21694e89ef73b90723c053"
+    },
+    "adjacency_version_run": {
+      "input": {
+        "rows": [
+          {
+            "key_hex": "00000000",
+            "neighbours": [
+              "000000000a0000026472616674",
+              "000000000a80000666696e616c"
+            ]
+          }
+        ]
+      },
+      "header": {
+        "shape": 1,
+        "kind": 5,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "000100000000000003efab0108000000",
+        "type": 0,
+        "direction": 1,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 2,
+        "rows": 1,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "0000000000ff00ff00ff00ff0a00ff00ff0264726166740000",
+      "tile_key_hex": "0105000000000000000700000000000000000000000000000000000100000000000003efab010800000000000100000002af000000000000ff00ff00ff00ff0a00ff00ff0264726166740000",
+      "file": "tiles/adjacency_version_run.tile",
+      "length": 296,
+      "checksum": "29fbcc509eca869e",
+      "digest": "d44fbc788be07d2ce39da3a1467191be"
+    },
+    "column_variable": {
+      "input": {
+        "attribute_type": "String",
+        "base": 0,
+        "span": 4096,
+        "folded": {
+          "0": "416461",
+          "3": "",
+          "7": "4772c3a97461"
+        }
+      },
+      "header": {
+        "shape": 2,
+        "kind": 2,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "000100000000000003edab0106000000",
+        "type": 3,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 3,
+        "rows": 0,
+        "span": 4096,
+        "tokenizer": 0
+      },
+      "fence_hex": "00000000",
+      "tile_key_hex": "0202000000000000000700000000000000000000000000000000000100000000000003edab010600000000030000000002af0000000000",
+      "file": "tiles/column_variable.tile",
+      "length": 712,
+      "checksum": "f2b726e86b5e4783",
+      "digest": "9b3998398d9c3851d13ff57a6953ae4c"
+    },
+    "column_identity": {
+      "input": {
+        "slots": {
+          "0": {
+            "sequence": 17,
+            "bucket": 11255809
+          },
+          "1": {
+            "sequence": 18,
+            "bucket": 11255810
+          },
+          "2": {
+            "sequence": 20,
+            "bucket": 11255812
+          }
+        }
+      },
+      "header": {
+        "shape": 2,
+        "kind": 3,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 3,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 3,
+        "rows": 0,
+        "span": 4096,
+        "tokenizer": 0
+      },
+      "fence_hex": "00000000",
+      "tile_key_hex": "02030000000000000007000000000000000000000000000000000000000000000000000000000000000000030000000002af0000000000",
+      "file": "tiles/column_identity.tile",
+      "length": 728,
+      "checksum": "d44637232d2d261b",
+      "digest": "e2e47faf7b8545f8ac333d118e808613"
+    },
+    "record_id_to_term": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "00030000000000000011abc001000000",
+            "value_hex": "01687474703a2f2f65782e6f72672f616c696365"
+          },
+          {
+            "key_hex": "00030000000000000012abc002000000",
+            "value_hex": "01687474703a2f2f65782e6f72672f626f62"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 2,
+        "flags": 2,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 2,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff0000",
+      "tile_key_hex": "03020000000000000007000000000000000000000000000000000000000000000000000000000000000000000001000002af0000ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff0000",
+      "file": "tiles/record_id_to_term.tile",
+      "length": 304,
+      "checksum": "6c5a48c529bf0a61",
+      "digest": "2600d3f3d5c1c3abda96cd4ee7080674"
+    },
+    "record_hash_to_text": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "897caa5f48b5ad826aefc8adedd629f9",
+            "value_hex": "6120737472696e672077686f7365206c65786963616c20666f726d206973206c6f6e676572207468616e206669667465656e206279746573"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 3,
+        "flags": 2,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 4294967295,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "897caa5f48b5ad826aefc8adedd629f90000",
+      "tile_key_hex": "0303000000000000000700000000000000000000000000000000000000000000000000000000000000000000000100ffffffff897caa5f48b5ad826aefc8adedd629f90000",
+      "file": "tiles/record_hash_to_text.tile",
+      "length": 304,
+      "checksum": "9e0513277061dd54",
+      "digest": "3984a0b96d094d93a4eb2f1997140140"
+    },
+    "record_key_claim": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "000301616c696365",
+            "value_hex": "00030000000000000011abc001000000"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 4,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0301616c6963650000",
+      "tile_key_hex": "03040000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0301616c6963650000",
+      "file": "tiles/record_key_claim.tile",
+      "length": 256,
+      "checksum": "0a0b7d1138d64723",
+      "digest": "9b4483f796b3dc72e92419965a52e15d"
+    },
+    "record_unique_claim": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "000100000000000003ebab0104000000800000000000001f",
+            "value_hex": "00030000000000000011abc001000000"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 5,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 4294967295,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0100ff00ff00ff00ff00ff00ff03ebab010400ff00ff00ff8000ff00ff00ff00ff00ff00ff1f0000",
+      "tile_key_hex": "0305000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00ff0100ff00ff00ff00ff00ff00ff03ebab010400ff00ff00ff8000ff00ff00ff00ff00ff00ff1f0000",
+      "file": "tiles/record_unique_claim.tile",
+      "length": 272,
+      "checksum": "9ee600720891c7ce",
+      "digest": "f3b07d6e2841c7031e50caa08227faf3"
+    },
+    "record_mark": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "00030000000000000011abc00100000002af00",
+            "value_hex": "0000000000000002"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 6,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff02af00ff0000",
+      "tile_key_hex": "03060000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff02af00ff0000",
+      "file": "tiles/record_mark.tile",
+      "length": 256,
+      "checksum": "b7396bf4f6becc49",
+      "digest": "aaa7942841c01646625876746ce4e187"
+    },
+    "record_referrer_set": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "00030000000000000011abc001000000",
+            "value_hex": "02af000000000000000028000000000000000102af0100000000000000290000000000000003"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 7,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff0000",
+      "tile_key_hex": "03070000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff0000",
+      "file": "tiles/record_referrer_set.tile",
+      "length": 288,
+      "checksum": "2dafdc34343912b3",
+      "digest": "4d8004a12502c9e3e8526bc18f108b7f"
+    },
+    "record_tombstone": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "00030000000000000012abc002000000",
+            "value_hex": "0200c00a00000000"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 8,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0300ff00ff00ff00ff00ff00ff00ff12abc00200ff00ff00ff0000",
+      "tile_key_hex": "03080000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0300ff00ff00ff00ff00ff00ff00ff12abc00200ff00ff00ff0000",
+      "file": "tiles/record_tombstone.tile",
+      "length": 256,
+      "checksum": "ee5f73e54bf9a782",
+      "digest": "9cdc52e097d367f7a52976f8ece17503"
+    },
+    "record_session": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "000102030405060708090a0b0c0d0e0f00000000",
+            "value_hex": "05000000000000000a00000b000000004006000000000000040000000000000001020304"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 10,
+        "flags": 0,
+        "tenant": 0,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 4294967295,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0102030405060708090a0b0c0d0e0f00ff00ff00ff00ff0000",
+      "tile_key_hex": "030a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00ff0102030405060708090a0b0c0d0e0f00ff00ff00ff00ff0000",
+      "file": "tiles/record_session.tile",
+      "length": 280,
+      "checksum": "1a290f2973f781c5",
+      "digest": "e5870e582443fc410c0b82bfa4a81097"
+    },
+    "record_slot_map": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "0000000000000011",
+            "value_hex": "00000000"
+          },
+          {
+            "key_hex": "0000000000000012",
+            "value_hex": "01000000"
+          },
+          {
+            "key_hex": "0000000000000014",
+            "value_hex": "02000000"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 11,
+        "flags": 2,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 3,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff00ff00ff00ff00ff00ff00ff110000",
+      "tile_key_hex": "030b0000000000000007000000000000000000000000000000000000000000000000000000000000000000000001000002af0000ff00ff00ff00ff00ff00ff00ff110000",
+      "file": "tiles/record_slot_map.tile",
+      "length": 280,
+      "checksum": "a1dd6d8a189597f9",
+      "digest": "f45586b127c2a458f6aee0a2d210da26"
+    },
+    "record_set_combination": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "000900030000000000000011abc00100000000030000000000000012abc002000000",
+            "value_hex": "00090000000000000003abc001000000"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 12,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0900ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff00ff0300ff00ff00ff00ff00ff00ff00ff12abc00200ff00ff00ff0000",
+      "tile_key_hex": "030c0000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0900ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff00ff0300ff00ff00ff00ff00ff00ff00ff12abc00200ff00ff00ff0000",
+      "file": "tiles/record_set_combination.tile",
+      "length": 280,
+      "checksum": "f3cefd4dfa6d5b43",
+      "digest": "4723b84fb591e2f5c0248d85f86c62b1"
+    },
+    "record_idempotency_claim": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "00030192f3a1b2c3d4e5f60718293a4b5c6d",
+            "value_hex": "00030000000000000011abc001000000"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 13,
+        "flags": 2,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff030192f3a1b2c3d4e5f60718293a4b5c6d0000",
+      "tile_key_hex": "030d0000000000000007000000000000000000000000000000000000000000000000000000000000000000000001000002af0000ff030192f3a1b2c3d4e5f60718293a4b5c6d0000",
+      "file": "tiles/record_idempotency_claim.tile",
+      "length": 264,
+      "checksum": "12714e1c7daa5cc4",
+      "digest": "4d09ceed28686cc04e18c14ecc27e9e7"
+    },
+    "record_drop_marker": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "000000000b400000",
+            "value_hex": "020000000000000000020000000000000001ab0109000000"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 14,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 4294967295,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff00ff00ff00ff0b4000ff00ff0000",
+      "tile_key_hex": "030e000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00ff00ff00ff00ff0b4000ff00ff0000",
+      "file": "tiles/record_drop_marker.tile",
+      "length": 264,
+      "checksum": "ff1b7b42c85384b2",
+      "digest": "9fde3ecf600fd80b2c25fe430560a5f7"
+    },
+    "record_build": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "0000000000000672",
+            "value_hex": "0300000000000000000100000000000003ebab01040000000000000500030000000000000011abc001000000"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 15,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 4294967295,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff00ff00ff00ff00ff00ff06720000",
+      "tile_key_hex": "030f000000000000000700000000000000000000000000000000000000000000000000000000000000000000000000ffffffff00ff00ff00ff00ff00ff00ff06720000",
+      "file": "tiles/record_build.tile",
+      "length": 280,
+      "checksum": "66a33f7575e3eada",
+      "digest": "fa521399b638481337db3b75e6d704d0"
+    },
+    "record_statement": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "00090000000000000004abc001000000",
+            "value_hex": "0000000000000000000000000000000000030000000000000011abc001000000000100000000000003e9ab01020000000100030000000000000012abc002000000010000001900000019000000000100000000000003ebab01040000001100000000000007e3000000"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 18,
+        "flags": 0,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 1,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0900ff00ff00ff00ff00ff00ff00ff04abc00100ff00ff00ff0000",
+      "tile_key_hex": "03120000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0900ff00ff00ff00ff00ff00ff00ff04abc00100ff00ff00ff0000",
+      "file": "tiles/record_statement.tile",
+      "length": 352,
+      "checksum": "c9fd513c330d8c6f",
+      "digest": "b42d6d5fe976f12048554de131c02c10"
+    },
+    "record_mark_versioned": {
+      "input": {
+        "records": [
+          {
+            "key_hex": "00030000000000000011abc00100000002af00",
+            "value_hex": "0000000000000001"
+          },
+          {
+            "key_hex": "00030000000000000011abc00100000002af00",
+            "value_hex": "0000000000000002"
+          }
+        ]
+      },
+      "header": {
+        "shape": 3,
+        "kind": 6,
+        "flags": 1,
+        "tenant": 7,
+        "graph": "00000000000000000000000000000000",
+        "subject": "00000000000000000000000000000000",
+        "type": 0,
+        "direction": 0,
+        "order": 0,
+        "group": 175872,
+        "built": 1800,
+        "previous": 0,
+        "horizon": 188743679,
+        "entries": 2,
+        "rows": 0,
+        "span": 0,
+        "tokenizer": 0
+      },
+      "fence_hex": "00ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff02af00ff0000",
+      "tile_key_hex": "03060000000000000007000000000000000000000000000000000000000000000000000000000000000000000000000002af0000ff0300ff00ff00ff00ff00ff00ff00ff11abc00100ff00ff00ff02af00ff0000",
+      "file": "tiles/record_mark_versioned.tile",
+      "length": 368,
+      "checksum": "d3a576360fe56e6f",
+      "digest": "6ff346165ed3c49cb80a02131f5c60c0"
+    }
+  }
+}

@@ -106,7 +106,7 @@ changing any of them before stage 9.5 (`fixed`). They are integers.
 | Setting | Default | Bounds | Meaning |
 |---|---|---|---|
 | `extent_bytes` | 1,048,576 | a power of two, 131,072 to 67,108,864 | Bytes of an extent |
-| `grid_extents` | 16,384 | 16 to 16,777,216 | Extents of the grid; the grid holds `extent_bytes × grid_extents` bytes |
+| `grid_extents` | 16,384 | 64 to 16,777,216 | Extents of the grid; the grid holds `extent_bytes × grid_extents` bytes. At 64 or more, the cleaner (below `cleaner_free_percent`, at least 5% of 64) is due before admission stops at fewer than 8 free extents (section 12.4) |
 | `tile_bytes_max` | 65,536 | a multiple of 4,096, 16,384 to 1,048,576, at most `extent_bytes − 4,096` | The largest tile |
 | `tile_entries_max` | 4,096 | 256 to 65,536 | The most entries compaction puts into one adjacency block or record run |
 | `chunk_slots` | 4,096 | a power of two, 1,024 to 65,536 | The most slots a column chunk covers (section 8.3) |
@@ -120,12 +120,14 @@ changing any of them before stage 9.5 (`fixed`). They are integers.
 | `cold_after_rounds` | 65,536 | 1,024 to 2^32 | A tile whose predecessor lived this many rounds or more is written to the cold stream |
 | `cleaner_free_percent` | 15 | 5 to 50 | The share of free extents below which the cleaner runs |
 | `checkpoint_bytes` | 268,435,456 | a multiple of 4,096, 16,777,216 to 2^34 | Log bytes between checkpoints (`C`) |
-| `retention_ms` | 30,000 | at least the read-write transaction bound plus the longest read deadline the cluster allows | How far back a snapshot read is answerable |
+| `retention_ms` | 30,000 | 15,000 to 3,600,000 | How far back a snapshot read on a follower is answerable: the read-write transaction bound (10 s) plus 5 s at least; a snapshot read whose version falls below the logged horizon answers `TooOld` |
 | `lane_entries_max` | 65,536 | 1,024 to 1,048,576 | Entries one lane L request examines in a turn |
 | `lane_bytes_max` | 262,144 | 16,384 to the smallest `max_frame` of the cluster minus 256 | Bytes one lane L request answers in a turn |
 
 Settings that change no byte stay per node, in `[storage]`: the tile cache's size, I/O depths and
-`power_loss_protection`, which tunes the log's round batching and never removes a sync.
+`power_loss_protection`, which tunes the log's round batching and never removes a sync. `max_ingest`, the largest
+Ingest share, is cluster-wide too but bounds requests, not bytes the store writes from a round, so it is the
+protocol's (`PROTOCOL.md` section 6.8) and outside the derivation version.
 
 ### 3.2 The derivation version
 
@@ -527,7 +529,7 @@ out is zero.
 
 | Kinds | `tenant` | `graph` | `group` |
 |---|---|---|---|
-| 1, 2, 4, 6, 7, 8, 11, 12, 13, 18 | the tenant | zero | the bucket group of the first system ID the record names, in its key or, for kind 1, its value; for kind 11 the group whose slots it maps |
+| 1, 2, 4, 6, 7, 8, 11, 12, 13, 18, 19 | the tenant | zero | the bucket group of the first system ID the record names, in its key or, for kind 1, its value; for kind 11 the group whose slots it maps |
 | 3 | the tenant | zero | `ABSENT` |
 | 5, 9 | the tenant | the graph | `ABSENT` |
 | 10 | 0 | zero | `ABSENT` |
@@ -552,7 +554,7 @@ Inside keys and values, an ID is its 16 bytes and a term encoding is section 5.1
 | 7 | Referrer set | the entity's system ID | the members in group order, each the group as 3 big-endian bytes, the epoch it was added at and its generation as big-endian u64s |
 | 8 | Tombstone | the entity's system ID | the delete's version as a u64 |
 | 9 | Statistics | the predicate's system ID | the statistics' format of section 9.4 |
-| 10 | Session | the session's 16 bytes, then the share as a u32 (0 for a request that is not an Ingest share) | the request as a u64, the commit version as a u64, the round's position as a u64, the reply's length as a u32, four zero bytes, then the stored reply's body as `PROTOCOL.md` section 6.3 frames it |
+| 10 | Session | the session's 16 bytes, then the share as a u32 (0 for a request that is not an Ingest share) | the request as a u64, the commit version as a u64, the round's position as a u64, the reply's length as a u32, four zero bytes, then the stored reply's body: a Commit reply as `PROTOCOL.md` section 6.3 frames it, or for an Ingest share its outcome as section 6.8 frames it |
 | 11 | Slot map | the sequence as a u64 | the slot as a u32 |
 | 12 | `@set` combination | the relation's type prefix as a u16, then the participants' system IDs in role order (a `@symmetric` relation's in ID order) | the instance's system ID |
 | 13 | Idempotency claim | the type prefix as a u16, then the `Id128` as 16 big-endian bytes | the instance's system ID |
@@ -561,6 +563,7 @@ Inside keys and values, an ID is its 16 bytes and a term encoding is section 5.1
 | 16 | Manifest leaf | a tile key (section 13.1) | the tile's reference, then its `entries` as a u32 and four zero bytes |
 | 17 | Manifest root | the first tile key of a leaf | the leaf's reference |
 | 18 | Statement record | the statement's system ID | the quad, the graph, subject and predicate as system IDs and the object's term encoding, then its properties as a BYTES encoding (section 4.3) of entries each a predicate's system ID followed by a term encoding |
+| 19 | `@limit` aggregate (`SCHEMA.md` section 8.6) | the relation's type prefix as a u16, the constraint's index among the relation's `@limit` constraints as a u16, the participant's system ID, then the group's sortable value (empty without a grouping) | the instance count as a u64, then for a `sum` the summed attribute's sortable encoding |
 
 A slot map and an identity column are per (bucket group, type): `group` and `type` in the header name them.
 
@@ -654,9 +657,11 @@ Extent 0 holds the superblock's four copies in blocks 0 to 3; its other blocks a
 | 120 | 24 | `free_set` | the free set's reference |
 | 144 | 8 | `mapping` | the mapping contract's version (`mapping-contract` capability) the replica's terms follow |
 | 152 | 16 | `identity` | the checkpoint identity (section 11.3) |
-| 168 | 3,928 | zero | |
+| 168 | 8 | `log_bytes` | `T(position)`, the Round frames' total length through `position` (section 17.1), which a recovering replica cannot recompute once the log is trimmed |
+| 176 | 3,920 | zero | |
 
-The superblock is authoritative (T32): the WAL's own superblock records only its segments.
+The superblock is authoritative (T32): the WAL's own superblock records its segments and the position and checksum of
+the last round it trimmed, the parent of the first round it keeps, and nothing of the store's state.
 
 ### 12.4 Allocation, release and reuse
 
@@ -726,7 +731,26 @@ Which families exist, and for each the kind, direction, inline columns, order an
 tenant's catalog version (section 21): the generic layout, for a tenant with no schema, has for every (graph, predicate)
 a forward family of kind 1 for entity objects, of kind 2 for other terms, a reverse family of kind 3, the index
 families its tokenizers declare, and no inline column; a governed tenant's layout is compiled once by the schema
-compiler, as the catalog version's entries, and decoded, never recompiled, by every replica (T35).
+compiler, as the catalog version's Layout entry (`CATALOG.md` section 5.11), and decoded, never recompiled, by every
+replica (T35). The compiler derives it from the declarations alone, in this order, per graph the type or relation
+lives in and per bucket group:
+
+| Declared | Families and columns |
+|---|---|
+| An entity type | the identity column (column kind 3) and a slot map (record kind 11); per attribute, below |
+| A single-valued attribute of fixed or variable width that is not `@bitemporal` | a column chunk family of kind 1 (fixed width) or 2 (variable) |
+| A set- or list-valued attribute | a forward family of kind 2, the elements as sortable values |
+| A revisable attribute or role of a `@bitemporal` type | a version run family (kind 5) |
+| An attribute with `@index(range)`, `@index(interval)`, `@index(geo)` or `@index(fulltext)`, or a `count` index | an index family (kind 4) per tokenizer, the tokenizer's identifier in its key |
+| `@key`, `@unique`, `@idempotency`, `@set`, `@limit` | record families of kinds 4, 5, 13, 12 and 19 |
+| An edge-encoded relation | on its anchor, a forward family of kind 1 (the other participant's ID) with the relation's fixed-width attributes of at most 16 bytes together as inline columns in declaration order, and a reverse family of kind 3; a single-valued anchor role of a relation that is not `@bitemporal` is a column chunk family of kind 1 holding the participant's ID instead |
+| A node-encoded relation | as an entity type, its roles as attributes holding participants' IDs, each with a reverse family of kind 3 |
+| T16's order attribute | the `order` of the forward or reverse family it orders |
+| A type or relation of storage class I (section 14.3) | `class_i` on each of its families; an attribute name shared across classes gives a family per class |
+| Any declaration | the dictionary, statement, mark, referrer, tombstone and statistics families (record kinds 1 to 3, 6 to 9, 18) |
+
+The Layout entry lists the families in tile-key order of their family keys with the group field zero; a replica
+instantiates them per bucket group as its first change in that group arrives.
 
 ## 14. Versions, the fold horizon and the delta
 
@@ -780,10 +804,10 @@ visible entry of its row key and neighbour, whatever their statement slots.
 
 ### 14.5 Folding
 
-When compaction writes an entry with created version at or below `H`, the entry is written without versions if every
-entry of its output tile qualifies; otherwise the tile is `versioned` and the entry keeps its created version. An entry
-deleted at or below `H` is removed, its hash counted as removed (section 11.2). A tile is `versioned` exactly when at
-least one of its entries has a created version above `H` or, in class M, a nonzero deleted version.
+When compaction writes an entry, an entry deleted at or below `H` is removed, its hash counted as removed (section
+11.2), and an entry created at or below `H` takes created version 0. A tile is `versioned` exactly when at least one of
+its entries has a created version above `H` or, in class M, a nonzero deleted version; a tile that is not `versioned`
+writes no version section, every entry of it created at 0 and live.
 
 ### 14.6 Slots
 
@@ -791,9 +815,10 @@ A slot is given to an entity of the replica's own buckets, per (bucket group of 
 next after the highest given, from 0, the first time a committed record names it as a subject or as an instance: in
 round order, then in the round's record order, then in the order of the record's sections 0 to 2 and their entries.
 Slots are never reused, and a deleted entity's slot stays as a hole. An entity of another partition takes no slot: it
-is named by its system ID. The slot map (kind 11) maps the
-entity's sequence to its slot, the identity column (column kind 3) maps back. A slot never leaves the replica: rounds,
-frames and the WAL name system IDs. A bucket group moved in from another partition keeps its slot maps and identity
+is named by its system ID. A slot reaches no other replica's or role's state: rounds, the WAL and every answer name
+system IDs, and the one frame field holding slots, a resume key (section 18.3), is opaque bytes only the issuing replica
+reads. The slot map (kind 11) maps the
+entity's sequence to its slot, the identity column (column kind 3) maps back. A bucket group moved in from another partition keeps its slot maps and identity
 columns unchanged; its tiles keep their bytes (section 16.8).
 
 ## 15. Apply
@@ -879,9 +904,11 @@ complete, is not queued again.
 A rewrite starts at the boundary its tile leaves the queue's head, its *deciding boundary*. Its inputs are fixed there:
 the tile, the delta changes belonging to it at that boundary, and the fold horizon `H` logged at that boundary's round;
 changes applied later stay in the delta for a later rewrite. It also takes the next tile of the family, in tile-key
-order, with that tile's delta changes, when the first tile holds fewer than `tile_entries_max / 4` entries and the two
-tiles hold at most `tile_entries_max` entries together, both counted before the merge; the next tile then leaves the
-queue. The family's last tile takes no next tile. A column chunk takes none. The rewrite:
+order, with that tile's delta changes, when the first tile holds fewer than `tile_entries_max / 4` entries, the two
+tiles hold at most `tile_entries_max` entries together, both counted before the merge, and the next tile is not an
+input of a rewrite in progress; the next tile then leaves the queue. The family's last tile takes no next tile. A column
+chunk takes none. A family with no tile has one rewrite, of its *new tile*, whose input is the family's delta changes
+alone. The rewrite:
 
 1. merges the tiles' entries and the delta changes in the order of section 7.4 (or 8.1, or 9.1), applying each delete to the
    entry it names, and lists the entries added and removed (section 11.2);
@@ -914,8 +941,9 @@ so no I/O timing changes what is written or where.
 
 ### 16.5 Placement order
 
-Within one boundary, rewrites complete in queue order, and each places its outputs in tile-key order; the cleaner's
-moves follow; the free set and manifest tiles of a checkpoint come last (section 17.1).
+Within one boundary, in turn: rewrites in progress complete in the order they started, then queued rewrites in queue
+order, each placing its outputs in tile-key order; at a checkpoint, the drain's rewrites (section 17.1, step 0); the
+cleaner's moves; the manifest leaves, root and free set of a checkpoint last.
 
 ### 16.6 The cleaner
 
@@ -948,18 +976,26 @@ partition.
 Let `T(p)` be the total length of the Round frames at positions 1 to `p`. The first checkpoint is due at the first round
 boundary `p` with `T(p) ≥ checkpoint_bytes`; after a checkpoint at `q`, the next is due at the first boundary `p` with
 `T(p) ≥ (T(q) div checkpoint_bytes + 1) × checkpoint_bytes`, so a round crossing several multiples makes one
-checkpoint. Checkpoint positions are a function of the log alone, so every replica checkpoints at the same positions. A clean shutdown syncs the log and writes no
-checkpoint; the next open replays from the last one. A checkpoint, after the boundary's rewrites and cleaner moves:
+checkpoint. Checkpoint positions are a function of the log alone, so every replica checkpoints at the same positions.
+A clean shutdown syncs the log and writes no checkpoint; the next open replays from the last one. A checkpoint, after
+the boundary's rewrites have placed their outputs:
 
+0. drains the delta: every rewrite in progress or queued completes at this boundary, whatever the units, in queue order;
+   then every tile still holding delta changes, in tile-key order, is rewritten as section 16.3 states, this boundary
+   deciding, and completes at once; each places its outputs as it completes. The delta is then empty, no rewrite is in
+   progress, the queue is empty and the units held are 0; then the cleaner runs if due. The log is trimmed through the
+   checkpoint's position, so the grid holds every change of every round up to it and recovery rebuilds nothing below it;
 1. closes every open extent;
 2. cuts the manifest (section 13.3) and places, in stream 0, the leaves to be written, then the root, then the free set;
    then encodes the free set, which marks every extent not free after these placements, the extents released since the
-   last checkpoint included;
+   last checkpoint included; then closes every extent these placements opened, and the previous checkpoint's leaves
+   this one does not keep, its root and its free set stop being live;
 3. syncs the grid after writing those tiles and every data tile placed since the last checkpoint;
 4. writes the superblock's copies 0, 1, 2 and 3 in turn, syncing after each;
 5. writes the WAL's superblock and trims the WAL through `position`;
-6. frees the extents released between the previous checkpoint and this one (section 12.4), the previous checkpoint's
-   stream 0 tiles' extents among them when no live tile remains, and punches them.
+6. frees every released extent, and every closed extent holding no live tile, the previous checkpoint's stream 0
+   extents among them once their tiles are replaced, and punches them: the checkpoint just made durable references none
+   of their tiles, and recovery from it treats them as free (section 17.2, step 4).
 
 The crash order is the steps' order (T32): a crash before step 4 leaves the previous superblock in force; during step 4
 leaves copies of two sequences, of which recovery takes the newer whose references verify; after step 4 the new
@@ -981,8 +1017,9 @@ At open, the store:
    block counts (section 12.4) and the extents' states: an extent the free set marks and holding live blocks is closed;
    one it marks and holding none is free, as it is on a replica that did not crash (section 17.1, step 6); one it does
    not mark is free; no extent is open;
-5. replays the log from `position + 1`, which rebuilds the delta and, compaction being deterministic, writes the tiles
-   the replica wrote before the crash at the addresses it wrote them.
+5. starts with an empty delta, an empty queue and no units, as every replica stands right after a checkpoint (section
+   17.1, step 0), and replays the log from `position + 1`, which rebuilds the delta and, compaction being deterministic,
+   writes the tiles the replica wrote before the crash at the addresses it wrote them.
 
 A tile failing its checks during step 4 is repaired (section 17.4) before the open continues; one that cannot be
 repaired refuses the open naming its tile key and reference.
@@ -1042,7 +1079,8 @@ records it.
 
 ### 18.5 Frontier requests
 
-A frontier request names one family, a set of row keys, an optional neighbour type range, optional inline-column
+A frontier request names one relation, kind and direction, which is one family per bucket group: it reads that family
+in each bucket group of the replica its row keys fall in. It names a set of row keys, an optional neighbour type range, optional inline-column
 filters, and an optional top-k, and answers each row's surviving entries in the family's order: a type range is a range
 of `prefix` values, a filter on an inline column skips a block whose column's values cannot pass it, and top-k reads a row
 in its order and stops at k. Its wire form is `PROTOCOL.md`'s, which section 21 asks for.
@@ -1107,13 +1145,13 @@ A decoder names the first rule a structure breaks, with the structure and the of
 | `Order` | Rows, entries, records or overlay records out of order, or two equal; `ends` that fall, or a `rows` or `ends` section a shape requires ascending that is not |
 | `Copy` | A superblock copy whose `copy` is not the number of the block it was read from; the copy is not kept |
 | `Parameter` | A FILTER's `k` or `bits` other than section 4.5's formulas |
+| `Digest` | A header's digest other than its entries' |
+| `SuperblockDiverged`, `SuperblockLost`, `DerivationMismatch`, `Identity` | Section 17.2 |
 
 Refusals of a whole structure are checked in the order section 6.5 gives for a tile and section 17.2 for a superblock;
 within a section, in the order of its encoding's checks (section 4). A write a store refuses before it is logged is not a
 refusal of bytes: `ValueTooLarge` (section 3.3), `GridFull` (section 12.4) and `Busy` (section 15.6) are refusals of a
 commit.
-| `Digest` | A header's digest other than its entries' |
-| `SuperblockDiverged`, `SuperblockLost`, `DerivationMismatch`, `Identity` | Section 17.2 |
 
 ### 19.5 The simulator
 
@@ -1144,6 +1182,7 @@ A run is a function of its seed: the simulator's clock, random source and comple
 | Values longer than a quarter of a tile | Refused in format 1 (`ValueTooLarge`, 16 KiB at the defaults) rather than kept in blob extents, so every row and slot fits a tile; blob extents join a later format if a workload asks for them |
 | A checkpoint at a clean shutdown | None: checkpoint positions are a function of the log, so every replica's grid stays identical; a restart replays at most `checkpoint_bytes` of log |
 | Joining a fence's components | Escaped (`esc`) where variable in width, so a fence compares as its components' tuple; a length prefix would not sort |
+| The delta at a checkpoint | Drained: a checkpoint completes every rewrite so the grid holds every change up to its position, since the log is trimmed through it. Persisting the delta instead would write it again every checkpoint, and replaying from an older position would need to tell, per change, whether a tile already holds it. The drain is bounded by the watermark; E10 measures the boundary it holds |
 
 ## 21. What this specification asks of the others
 
@@ -1167,7 +1206,10 @@ A run is a function of its seed: the simulator's clock, random source and comple
 `../conformance/storage` holds vectors written from this file alone by an independent generator,
 `generate_vectors.py`, never from an implementation's output. A conforming implementation encodes each vector's input
 to exactly its bytes, decodes the bytes back to its input, and refuses each refused vector with its refusal. The
-directory's `README.md` states the vectors' format and what each family of vectors covers.
+generator also holds a reference engine of sections 12 to 17: fed scripted rounds, it writes a grid whose every
+rewrite, checkpoint and final byte a conforming engine reproduces, and a replica of it that crashes, recovers from its
+grid alone and replays writes the same grid. The directory's `README.md` states the vectors' format and what each
+family of vectors covers.
 
 ## 23. Sources
 

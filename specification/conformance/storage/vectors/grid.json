@@ -5,7 +5,7 @@
     "small_grid": {
       "settings": {
         "extent_bytes": 131072,
-        "grid_extents": 16,
+        "grid_extents": 64,
         "tile_bytes_max": 65536,
         "tile_entries_max": 4096,
         "chunk_slots": 4096,
@@ -23,12 +23,12 @@
         "lane_entries_max": 65536,
         "lane_bytes_max": 262144
       },
-      "value": "feab2bb2359dc5f7"
+      "value": "903ce46c93aa5197"
     }
   },
   "allocation": {
     "extent_bytes": 131072,
-    "grid_extents": 16,
+    "grid_extents": 64,
     "cold_after_rounds": 65536,
     "placements": [
       {
@@ -97,14 +97,14 @@
       "cluster": 81985529216486895,
       "partition": 1,
       "replica": 1,
-      "deriv": 18350809151054923255,
+      "deriv": 10393433195049275799,
       "position": 1700,
       "horizon": 184549375,
       "watermark": 184549386,
       "extent_bytes": 131072,
-      "grid_extents": 16,
+      "grid_extents": 64,
       "manifest_ref": "00100400000000004801000000000000a799340502315dbc",
-      "free_ref": "0020040000000000a0000000000000002befc4e4066d7a23",
+      "free_ref": "0020040000000000a00000000000000051958ee3d90638d6",
       "mapping": 1
     },
     "copies": [
@@ -113,7 +113,7 @@
       "tiles/superblock_copy2.block",
       "tiles/superblock_copy3.block"
     ],
-    "checksum": "b9570af5c6e033eb",
-    "identity": "2833549121213d92fc3bda7b6090dfcd"
+    "checksum": "209ea750b332c2c3",
+    "identity": "449bebf365a45d7892155776e757cc7d"
   }
 }

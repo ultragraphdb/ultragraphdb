@@ -1,6 +1,6 @@
 {
   "specification": "STORAGE.md sections 6 to 13",
-  "settings": "section 3.1's defaults, extent_bytes 131072 and grid_extents 16",
+  "settings": "section 3.1's defaults, extent_bytes 131072 and grid_extents 64",
   "tiles": {
     "adjacency_forward": {
       "input": {
@@ -374,10 +374,10 @@
       "address": 270336,
       "file": "tiles/free_set.tile",
       "length": 160,
-      "checksum": "237a6d06e4c4ef2b",
+      "checksum": "d63806d9e38e9551",
       "digest": "0e4dc6ebfa3180ebf19132b3498f26c3",
       "input": {
-        "grid_extents": 16,
+        "grid_extents": 64,
         "allocated": [
           0,
           1,

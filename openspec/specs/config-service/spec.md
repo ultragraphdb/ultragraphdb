@@ -64,16 +64,17 @@ first. It SHALL check:
 | Names | an instance's name does not begin with a role's name, or an instance file has no instance of the target |
 | Roles | the target has no frontend, more than one, or no storage instance |
 | Required | a role's required setting is absent from an instance |
-| Bounds | a value is outside its domain type's bound, by that type's own constructor, or `scan_stall_ms`, `read_retain_ms` or `held_bytes` is 0, or `scan_stall_ms` is above 30,000, the floor of the client's read timeout |
+| Bounds | a value is outside its domain type's bound, by that type's own constructor, or `scan_stall_ms`, `read_retain_ms` or `held_bytes` is 0, or `scan_stall_ms` is above 30,000, the floor of the client's read timeout, or a `[tiles]` setting is outside its bound (the requirement below) |
 | Relations | `epoch_ms_min` is above `epoch_ms_max`, or `close_request_ms` is below twice `epoch_ms_max` |
 | Identity | two instances name different `cluster.id` values |
+| Tiles | two storage instances hold different values of one `[tiles]` setting, an absent one counted as its default |
 | Frontend | an instance's `cluster.frontend_address` differs from the frontend's `frontend.role_address` in its scheme, its port or a Unix path; a host may differ, since a Service's name reaches a pod that binds its own |
 | Partitions | the storage instances' partitions do not cover 1 to `partition_count` once each |
 | Addresses | two listeners hold one address, a partition's derived address included: a named host or a Unix path across the target, a wildcard host within one instance, since each pod holds its own; a role address naming a wildcard host, since others dial it |
 | Data | two instances whose addresses name one host, or Unix paths, hold one `data_dir` |
 | Security | an endpoint names neither TLS nor `plaintext = true`, both, or half a certificate pair |
 | Secrets | a path the settings name for a secret is not absolute, or `admin.key_sha256` is not 64 hexadecimal digits |
-| Fixed | against the active revision: `cluster.id`, `cluster.partition_count`, or an instance's partitions or `data_dir` differ, while the placement is fixed |
+| Fixed | against the active revision: `cluster.id`, `cluster.partition_count`, or an instance's partitions or `data_dir` differ, while the placement is fixed; or a `[tiles]` setting differs, before stage 9.5 |
 
 A secret file's contents and a path's existence SHALL be left to the role reading them, on its own host. A role's start can
 therefore still fail on what only its host knows, such as a port another process holds, and its log and exit code say so.
@@ -106,6 +107,52 @@ therefore still fail on what only its host knows, such as a port another process
 - **WHEN** a release starts over a directory whose active revision names a setting the release does not hold
 - **THEN** it exits with code 78 naming the target, the revision and the setting, and the release before it, started
   over the same directory, serves as it did
+
+### Requirement: The `[tiles]` table is the same on every storage instance
+A storage instance's settings SHALL hold the `[tiles]` table of `specification/storage/STORAGE.md` section 3.1, whose
+every setting decides a byte the tile store writes or an answer it gives. Each setting SHALL be an integer, SHALL take
+the default below when absent, and SHALL be refused outside its bound. The check SHALL refuse a target whose storage
+instances hold different values of one setting, so every storage instance of a cluster derives the same derivation
+version (`STORAGE.md` section 3.2), and SHALL refuse, against the active revision, a revision changing any of them, which
+nothing allows before stage 9.5. A setting that changes no written byte stays in `[storage]`, per node: the tile cache's
+size, the I/O depths and `power_loss_protection`.
+
+| Setting | Default | Bound |
+|---|---|---|
+| `extent_bytes` | 1,048,576 | a power of two, 131,072 to 67,108,864 |
+| `grid_extents` | 16,384 | 16 to 16,777,216 |
+| `tile_bytes_max` | 65,536 | a multiple of 4,096, 16,384 to 1,048,576, at most `extent_bytes` − 4,096 |
+| `tile_entries_max` | 4,096 | 256 to 65,536 |
+| `chunk_slots` | 4,096 | a power of two, 1,024 to 65,536 |
+| `filter_bits_per_key` | 10 | 0 to 32 |
+| `theta_percent` | 50 | 10 to 400 |
+| `delta_entries_max` | 5,242,880 | 65,536 to 268,435,456 |
+| `delta_watermark_percent` | 75 | 50 to 95 |
+| `delta_row_entries_max` | 1,024 | 64 to 65,536 |
+| `delta_age_rounds` | 4,096 | 64 to 1,048,576 |
+| `beat_factor` | 4 | 1 to 64 |
+| `cold_after_rounds` | 65,536 | 1,024 to 2^32 |
+| `cleaner_free_percent` | 15 | 5 to 50 |
+| `checkpoint_bytes` | 268,435,456 | a multiple of 4,096, 16,777,216 to 2^34 |
+| `retention_ms` | 30,000 | at least the read-write transaction bound plus the longest read deadline the cluster allows |
+| `lane_entries_max` | 65,536 | 1,024 to 1,048,576 |
+| `lane_bytes_max` | 262,144 | 16,384 to the smallest `max_frame` of the cluster minus 256 |
+
+#### Scenario: Storage instances disagreeing on a tile setting are refused
+- **WHEN** `storage_1` sets `tiles.tile_bytes_max = 65536` and `storage_2` sets `tiles.tile_bytes_max = 131072`
+- **THEN** the revision is refused naming `tiles.tile_bytes_max`, both instances and both values, and nothing is stored
+
+#### Scenario: An absent tile setting counts as its default
+- **WHEN** `storage_1` sets `tiles.extent_bytes = 1048576` and `storage_2` leaves it out
+- **THEN** both hold 1,048,576, and the check passes them
+
+#### Scenario: A tile setting out of bounds is refused
+- **WHEN** `ci_storage.toml` sets `tiles.tile_bytes_max = 131072` with `tiles.extent_bytes = 131072`
+- **THEN** the entry names `tiles.tile_bytes_max`, the value and the bound, at most `extent_bytes` − 4,096, it must meet
+
+#### Scenario: A changed tile setting is refused
+- **WHEN** the active revision's storage instances hold `tiles.checkpoint_bytes = 268435456` and a new revision sets 536870912
+- **THEN** the revision is refused naming `tiles.checkpoint_bytes`, both values and stage 9.5, and nothing is stored
 
 ### Requirement: One central file declares every settings file
 The config service's `targets_file` setting SHALL name a required TOML file, the central file, holding one table per target,

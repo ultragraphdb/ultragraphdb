@@ -58,7 +58,8 @@ A version is a body with a fixed part of 64 bytes and seven sections.
 | 40 | 2 | `prefix_next` | u16 | the tenant's next free type prefix once this version is allocated, at least 3, at most 65,535 and above every prefix a Type entry holds; prefix 65,535 is never allocated (`SCHEMA.md` section 7.1) |
 | 42 | 6 | zero | 0 | |
 | 48 | 8 | `predicate_next` | u64 | the tenant's next free predicate sequence once this version is allocated, at least 2^63 and above every sequence the predicate index holds |
-| 56 | 8 | zero | 0 | |
+| 56 | 4 | `unit_last` | u32 | the highest unit number the tenant has assigned once this version is allocated, 0 for none, at least every number a Unit entry holds (section 3.1) |
+| 60 | 4 | `quantity_last` | u32 | the highest quantity-kind number the tenant has assigned once this version is allocated, 0 for none, at least every number a Quantity entry holds |
 
 | Section | Contents |
 |---|---|
@@ -67,7 +68,7 @@ A version is a body with a fixed part of 64 bytes and seven sections.
 | 2 | the entries' names: string list `ends` |
 | 3 | the entries' names: string list `text`, each distinct name once, in the order the entry table first uses it |
 | 4 | the prefix index, 8 bytes each |
-| 5 | the kind directory, 19 u32s |
+| 5 | the kind directory, 21 u32s |
 | 6 | the predicate index, 16 bytes each |
 
 **The entry table.** One record per entry, the record of Describe's section 7 (`PROTOCOL.md` section 8.3), so
@@ -76,7 +77,7 @@ offsets:
 
 | Entry offset | Width | Field | Type |
 |---|---|---|---|
-| 0 | 1 | `kind` | u8: the entry's kind, 1 to 19 (section 5) |
+| 0 | 1 | `kind` | u8: the entry's kind, 1 to 19 or 21 (section 5) |
 | 1 | 3 | zero | 0 |
 | 4 | 4 | `name` | u32: the name the catalog orders the entry by, a string of sections 2 and 3 |
 | 8 | 4 | `offset` | u32: the entry's first byte in section 1, where the bytes of the entry before end |
@@ -94,6 +95,7 @@ Entries come by kind, then by name as UTF-8 bytes; no two entries share a kind a
 | 15 | Function | the qualified name |
 | 18 | Report | the empty string; one entry per version |
 | 19 | Source | the source's name |
+| 21 | Layout | the empty string; one entry per version holding a Schema entry, none in any other |
 
 **The prefix index.** One record per Type entry, ascending by `prefix`, so a role reaches a type from an ID's
 prefix by a search over fixed-width records:
@@ -119,12 +121,13 @@ tenant's `predicate_next`, to new predicates in the order of their Predicate ent
 held here and in no entry, because Describe carries entries to clients as they stand and a system ID never leaves the
 database.
 
-**The kind directory.** Value `k`, for `k` from 1 to 19, is the number of entries whose kind is at most `k`: the
-entries of kind `k` are those from index value `k − 1`, 0 for kind 1, up to value `k`. Value 19 is `entries`.
+**The kind directory.** Value `k`, for `k` from 1 to 21, is the number of entries whose kind is at most `k`: the
+entries of kind `k` are those from index value `k − 1`, 0 for kind 1, up to value `k`. Value 21 is `entries`. Kind 20,
+the retired-name entry of a later format (section 9), holds no entry in format 1, so values 19 and 20 are equal.
 
 ## 3. An entry and its shared structures
 
-Every entry of kinds 1 to 18 is a body. Its fixed part and its sections are its kind's (section 5), and its last two
+Every entry of kinds 1 to 18 and 21 is a body. Its fixed part and its sections are its kind's (section 5), and its last two
 sections are always its own string list, `ends` then `text`, which every string field of the entry indexes: an
 entry names nothing through another entry's strings, so Describe carries any subset of a version's entries and the
 schema id hashes each as stored. An entry of kind 19 is its source's text and nothing else.
@@ -174,10 +177,17 @@ A section of 16-byte descriptors, each the type of a value. A field holding a ty
 | 31, 32 | `Unit`, `QuantityKind` | 0 |
 | 33, 34 | `schema.EntityType<T>`, `schema.RelationType<T>` | `a` = `T`'s qualified name |
 | 35 | an instance of a type | `a` = the type's qualified name; a participant in a program, a function's parameter or result |
+| 36 | `Id128` | 0 |
 
 A field declared with a named attribute type holds that type's underlying descriptor, its annotations merged into
 the field's. A parameter a tag does not use is 0. A table holds each distinct descriptor once, in order of first use,
 an inner descriptor before the one naming it.
+
+**Unit and quantity-kind numbers.** The store holds a unit, a quantity kind and a measure's unit by number, not by
+name (`../storage/STORAGE.md` section 5.2, tags 30 to 32). A unit takes its number when it is first declared in a
+tenant, the tenant's `unit_last` plus one, from 1, and keeps it in every later version; a number is never reused, a
+unit's removal included, as type prefixes are never reused. Quantity kinds are numbered the same way, from
+`quantity_last`, in a numbering of their own. A version numbers its new units and its new quantity kinds each in the order of their entries, and the Unit and Quantity entries carry them (section 5.7).
 
 ### 3.2 Constants
 
@@ -443,8 +453,8 @@ the relation's instances; bytes 26 to 31 zero. Section 0 holds its `@maps_to` ta
 |---|---|---|
 | Enum | 16 bytes: `name`, `schema`, `doc` at 0, 4, 8; `open` u8 at 12; 3 zero bytes | 0: members, u32 strings, its own in declaration order, then each module's in the order of section 6 |
 | Record | 16 bytes: `name`, `schema`, `doc`; 4 zero bytes | 0: fields, 16 bytes each: `name` a string; `type` a descriptor; `optional` u8; 3 zero bytes; `checks_first` u16 and `checks_len` u16, into section 1. 1: value checks. 2: values. 3: the type table. 4: constants |
-| Quantity | 24 bytes: `name`, `schema`, `dimension`, `canonical` (a unit's qualified name or `ABSENT`), `doc`; `scale` u8 at 20, 1 ratio, 2 interval, 3 ordinal, 4 nominal; 3 zero bytes | 0: `@maps_to` targets |
-| Unit | 32 bytes: `name`, `schema`, `ucum`, `symbol`, `multiplier`, `offset`, `doc`, strings at 0 to 24, the multiplier and the offset rationals in section 3.2's form and `ABSENT` under `affine: false`; `affine` u8 at 28; 3 zero bytes | 0: quantities, u32 strings, qualified names. 1: `@maps_to` targets |
+| Quantity | 32 bytes: `name`, `schema`, `dimension`, `canonical` (a unit's qualified name or `ABSENT`), `doc`; `scale` u8 at 20, 1 ratio, 2 interval, 3 ordinal, 4 nominal; 3 zero bytes; `number` u32 at 24, the quantity kind's number, at least 1 (section 3.1); 4 zero bytes | 0: `@maps_to` targets |
+| Unit | 40 bytes: `name`, `schema`, `ucum`, `symbol`, `multiplier`, `offset`, `doc`, strings at 0 to 24, the multiplier and the offset rationals in section 3.2's form and `ABSENT` under `affine: false`; `affine` u8 at 28; 3 zero bytes; `number` u32 at 32, the unit's number, at least 1 (section 3.1); 4 zero bytes | 0: quantities, u32 strings, qualified names. 1: `@maps_to` targets |
 | Graph | 24 bytes: `name`; `schema`, the name of the schema it is a graph of; `iri`; `base`, its instance base; `doc`; `default` u8 at 20; 3 zero bytes | none |
 
 A record's field takes no program: its checks are of kinds 1 to 3.
@@ -544,6 +554,58 @@ of the derivation's first step.
 
 The source's text, UTF-8, byte for byte as it was installed. It is no body.
 
+### 5.11 Layout (21)
+
+The compiled layout of the tenant's data: which families of tiles the store keeps, and how (`../storage/STORAGE.md`
+sections 13.4 and 14.3, T35). The schema compiler writes it once per version holding a Schema entry, and every replica
+decodes it and never recompiles it, so a release cannot change a replica's tiles; a version holding no Schema entry has
+none, and its tenant takes the generic layout. A family here is what a tile's family key holds apart from the tenant,
+the graph and the bucket group, which the store adds per tile. Describe carries no Layout entry: it describes the
+store's bytes, not the schema.
+
+No fixed part.
+
+| Section | Contents |
+|---|---|
+| 0 | families, 24 bytes each |
+| 1 | inline columns, 12 bytes each |
+| 2 | types, 12 bytes each: each type whose instances hold column chunks, by its qualified name as UTF-8 bytes |
+| 3 | the type table (section 3.1) |
+
+| Family offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 4 | `predicate` | string: the predicate's IRI |
+| 4 | 4 | `type` | string: a column chunk's type, a qualified name; `ABSENT` for an adjacency family |
+| 8 | 1 | `shape` | u8: 1 an adjacency block, 2 a column chunk |
+| 9 | 1 | `kind` | u8: the shape's kind, 1 to 5 for an adjacency block (`../storage/STORAGE.md` section 7.1), 1 fixed width or 2 variable width for a column chunk (section 8.1 there) |
+| 10 | 1 | `direction` | u8: an adjacency family's, 1 forward or 2 reverse; 0 for a column chunk |
+| 11 | 1 | `class` | u8: 1 storage class I, 0 class M |
+| 12 | 1 | `tokenizer` | u8: an index relation's (kind 4) tokenizer identifier byte, not `0xFF`; 0 otherwise |
+| 13 | 1 | `order` | u8: an adjacency family's row order, as a tile header's (section 6.2 there): 0 by neighbour, `1 + i` ascending and `0x81 + i` descending by inline column `i`; 0 for a column chunk |
+| 14 | 1 | `inline` | u8: an adjacency family's inline columns, 0 to 8; 0 for a column chunk |
+| 15 | 1 | zero | 0 |
+| 16 | 4 | `inline_first` | u32: the index of its first inline column in section 1, where the family before's end |
+| 20 | 4 | `descriptor` | u32: the descriptor of the values the family holds by sortable encoding: a column chunk's, a kind-2 family's elements', a kind-5 family's values'; `ABSENT` for any other |
+
+| Inline column offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 4 | `attribute` | string: the predicate IRI of the attribute whose value the column holds |
+| 4 | 4 | `descriptor` | u32: its descriptor's index |
+| 8 | 1 | `width` | u8: the descriptor's sortable width, 1 to 16 (`../storage/STORAGE.md` section 5.2) |
+| 9 | 3 | zero | 0 |
+
+| Type offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 4 | `type` | string: the type's qualified name |
+| 4 | 4 | `first` | u32: the index of its first column-chunk family in section 0 |
+| 8 | 4 | `count` | u32: its column-chunk families, at least 1, contiguous from `first` |
+
+Families come by `shape`, then by `type` as UTF-8 bytes, `ABSENT` first, then by `predicate` as UTF-8 bytes, then by
+`kind`, `direction`, `class` and `tokenizer`; no two agree in all of these, so a type's column chunks are contiguous. A
+predicate a type of each storage class declares is two families (T36). Inline columns are numbered from 0 within their
+family, in section 1's order, which is the order its `order` field counts them by; a column that orders the family
+names a required attribute (`SCHEMA.md` section 5.2).
+
 ## 6. One encoding: what a decoder checks
 
 A decoder refuses a version at the first rule broken, naming the rule and the offset, in this order:
@@ -552,14 +614,14 @@ A decoder refuses a version at the first rule broken, naming the rule and the of
 |---|---|
 | 1 | The bytes hold the fixed part; `magic` and `format` are this file's |
 | 2 | `checksum` is XXH3-64, seed 0, of the bytes from offset 8 |
-| 3 | The fixed part's zero bytes are zero; `version` is at least 1; `prefix_next` is at least 3; `predicate_next` is at least 2^63 |
+| 3 | The fixed part's zero bytes are zero; `version` is at least 1; `prefix_next` is at least 3; `predicate_next` is at least 2^63; `unit_last` and `quantity_last` are at least every number a Unit or a Quantity entry holds |
 | 4 | The body layout holds for seven sections (`PROTOCOL.md` section 4.1) |
 | 5 | The names are a string list (section 4.3 there), each distinct once |
-| 6 | The entry table is a whole number of records and holds `entries` of them; each record's zero bytes are zero, its `kind` 1 to 19, its `name` in bounds, its `offset` where the entry before ends, its bytes within section 1, and it comes after the entry before by kind, then by name; section 1 ends with the last entry; the names are interned in the table's order |
+| 6 | The entry table is a whole number of records and holds `entries` of them; each record's zero bytes are zero, its `kind` 1 to 19 or 21, its `name` in bounds, its `offset` where the entry before ends, its bytes within section 1, and it comes after the entry before by kind, then by name; section 1 ends with the last entry; the names are interned in the table's order |
 | 7 | The kind directory holds, for each kind, the count of entries of that kind and below |
-| 8 | Each entry, in order: for kinds 1 to 18, its body layout with its kind's fixed part and section count; its fixed part's rules and zero bytes; each section a whole number of its records; every string, descriptor, constant and program index in bounds; its strings interned in order of first use, none unused; its descriptors, constants and programs as sections 3 and 4 state. For kind 19, its bytes UTF-8 |
-| 9 | The prefix index holds one record per Type entry, `types` of them, ascending, each naming a Type entry whose `prefix` is the record's; no two types share a prefix; every prefix is below `prefix_next`. The predicate index holds one record per Predicate entry, its zero bytes zero, strictly ascending by `sequence`, every sequence at least 2^63 and below `predicate_next`, each naming a Predicate entry, and every Predicate entry named once |
-| 10 | Every name an entry holds resolves: a qualified name to the entry of that name and kind, an attribute's predicate to its Predicate entry, a Type entry's fields and roles to Attribute and Role entries, each type to one Prefix ranges and one Classification entry; one Report entry exists |
+| 8 | Each entry, in order: for kinds 1 to 18 and 21, its body layout with its kind's fixed part and section count; its fixed part's rules and zero bytes; each section a whole number of its records; every string, descriptor, constant and program index in bounds; its strings interned in order of first use, none unused; its descriptors, constants and programs as sections 3 and 4 state. For kind 19, its bytes UTF-8. For kind 21, its families, inline columns and types as section 5.11 states: each field's value within its row's range, the families in their order and each family's inline columns where the family before's end, section 1 ending with the last family's, `order` naming one of the family's inline columns or 0, each inline column's `width` its descriptor's sortable width, and each type's families its column chunks and no other |
+| 9 | No two Unit entries hold one number, and no two Quantity entries. The prefix index holds one record per Type entry, `types` of them, ascending, each naming a Type entry whose `prefix` is the record's; no two types share a prefix; every prefix is below `prefix_next`. The predicate index holds one record per Predicate entry, its zero bytes zero, strictly ascending by `sequence`, every sequence at least 2^63 and below `predicate_next`, each naming a Predicate entry, and every Predicate entry named once |
+| 10 | Every name an entry holds resolves: a qualified name to the entry of that name and kind, an attribute's predicate to its Predicate entry, a Type entry's fields and roles to Attribute and Role entries, each type to one Prefix ranges and one Classification entry; one Report entry exists; one Layout entry exists when a Schema entry does, and none otherwise, every predicate it names resolving to a Predicate entry and every type to a Type entry |
 | 11 | Each entry's name in the table is the one its fields give: a Type's `{schema}.{name}`, an Attribute's `{type_name}.{name}`, a Predicate's `iri`, and so on by the table of section 2 |
 
 Encoding a decoded version gives the bytes decoded. What the encoding leaves to the encoder is nothing: lists
@@ -590,6 +652,10 @@ nothing, takes no lock and allocates nothing in the catalog, and it resolves no 
 dictionary. A role that cannot verify a version its log or its metadata group names stops.
 
 ## 8. Worked example
+
+The bytes below are the version as `ultragraphdb_core_catalog` writes it before the Layout entry (section 5.11) and
+the kind directory's 21 values; the change that implements them regenerates the bytes, with the version's Layout entry,
+and this section with them: this file leads the code. Its `unit_last` and `quantity_last` are 0, bytes 56 to 63.
 
 The source `demo`, 100 bytes, each line ending in one `0a`:
 

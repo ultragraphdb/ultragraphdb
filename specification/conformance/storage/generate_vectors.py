@@ -52,7 +52,7 @@ SETTINGS = [
 ]
 DEFAULTS = dict(SETTINGS)
 # The small grid every tile vector is placed on: section 3.1's defaults but two.
-SMALL = [(n, 131_072 if n == "extent_bytes" else 16 if n == "grid_extents" else v) for n, v in SETTINGS]
+SMALL = [(n, 131_072 if n == "extent_bytes" else 64 if n == "grid_extents" else v) for n, v in SETTINGS]
 
 
 # ---------------------------------------------------------------- section 1
@@ -616,13 +616,13 @@ def identity(fmt, deriv, position, horizon, watermark, manifest_checksum, free_c
 
 
 def superblock(copy, *, parent, sequence, cluster, partition, replica, deriv, position, horizon, watermark,
-               extent_bytes, grid_extents, manifest_ref, free_ref, mapping):
+               extent_bytes, grid_extents, manifest_ref, free_ref, mapping, log_bytes=0):
     ident = identity(1, deriv, position, horizon, watermark, int.from_bytes(manifest_ref[16:24], "little"),
                      int.from_bytes(free_ref[16:24], "little"))
     body = (b"UGDBGRID" + u16(1) + bytes(6) + u64(0) + u64(parent) + u64(sequence) + u64(cluster) + u32(partition)
             + u32(replica) + u64(deriv) + u64(position) + u64(horizon) + u64(watermark) + u32(extent_bytes)
-            + u32(grid_extents) + manifest_ref + free_ref + u64(mapping) + store128(ident))
-    assert len(body) == 168
+            + u32(grid_extents) + manifest_ref + free_ref + u64(mapping) + store128(ident) + u64(log_bytes))
+    assert len(body) == 176
     raw = bytearray(body + bytes(4096 - len(body)))
     checksum = xxh64(bytes(raw))
     raw[16:24] = u64(checksum)
@@ -815,7 +815,7 @@ def decision_vectors():
          {"name": "c", "reason": 2, "d": 80, "key": "03"}, {"name": "d", "reason": 3, "d": 900, "key": "00"},
          {"name": "e", "reason": 2, "d": 80, "key": "02"}, {"name": "f", "reason": 4, "d": 1, "key": "09"}]
     frames = [4096] * 10 + [12288, 4096, 40960, 4096]
-    sb = {"cluster": 1, "partition": 1, "replica": 1, "extent_bytes": 131_072, "grid_extents": 16, "mapping": 1}
+    sb = {"cluster": 1, "partition": 1, "replica": 1, "extent_bytes": 131_072, "grid_extents": 64, "mapping": 1}
     ref = bytes(24)
     old, _, _ = superblock(0, parent=0, sequence=4, deriv=1, position=10, horizon=0, watermark=0, manifest_ref=ref,
                            free_ref=ref, **sb)
@@ -852,6 +852,877 @@ def decision_vectors():
             "checkpoints": {"frame_lengths": frames, "checkpoint_bytes": 16_384,
                             "positions": checkpoint_positions(frames, 16_384)},
             "superblock_selection": selections}
+
+
+# ---------------------------------------------------------------- tile kinds beyond the fixtures (sections 7 to 9)
+
+
+def record_run(kind, recs, *, class_i, tenant=TENANT, graph=GRAPH, group=ABSENT, built=1800, horizon=bound(44),
+               versioned_recs=None):
+    """A record run of `recs` (key, value) pairs, or of `versioned_recs` (key, value, created, deleted) when given."""
+    if versioned_recs is not None:
+        rows = sorted(versioned_recs, key=lambda r: (r[0], r[2]))
+        keys, values = [r[0] for r in rows], [r[1] for r in rows]
+        sections = [(1, 4, enc_bytes(keys)), (2, 4, enc_bytes(values)), ints_section(3, [r[2] for r in rows])]
+        if not class_i:
+            sections.append(ints_section(4, [r[3] for r in rows]))
+        flags = 1 | (2 if class_i else 0)
+    else:
+        rows = sorted(recs)
+        keys, values = [r[0] for r in rows], [r[1] for r in rows]
+        sections = [(1, 4, enc_bytes(keys)), (2, 4, enc_bytes(values))]
+        flags = 2 if class_i else 0
+    sections.append((5, 6, enc_filter(keys, DEFAULTS["filter_bits_per_key"])))
+    raw = tile(3, kind, sections, flags=flags, tenant=tenant, graph=graph, group=group, built=built, horizon=horizon,
+               entries=len(rows), digest=digest_sum(be(len(k), 4) + k + v for k, v in zip(keys, values)))
+    return raw, {"records": [{"key_hex": k.hex(), "value_hex": v.hex()} for k, v in zip(keys, values)]}
+
+
+def adjacency_values(kind, rows, *, subject, direction, tokenizer=0, slot_rows=True):
+    """Adjacency kinds 2, 4 and 5: rows of (row key, [neighbour bytes or slot]), not versioned."""
+    rows = sorted(rows, key=lambda r: r[0])
+    entries = [(r, n) for r, ns in rows for n in sorted(ns)]
+    ends = [sum(len(ns) for _, ns in rows[: i + 1]) for i in range(len(rows))]
+    if slot_rows:
+        rows_sec = ints_section(1, [int.from_bytes(r, "big") for r, _ in rows])
+    else:
+        rows_sec = (1, 4, enc_bytes([r for r, _ in rows]))
+    if kind == 4:
+        nbr_sec = ints_section(6, [n for _, n in entries])
+        nbr_bytes = [be(n, 4) for _, n in entries]
+    else:
+        nbr_sec = (7, 4, enc_bytes([n for _, n in entries]))
+        nbr_bytes = [n for _, n in entries]
+    join = lambda r, nb: (r if len(r) in (4, 16) else esc(r)) + (nb if kind == 4 else esc(nb))
+    sections = [rows_sec, ints_section(2, ends), nbr_sec,
+                (11, 6, enc_filter([r + nb for (r, _), nb in zip(entries, nbr_bytes)], DEFAULTS["filter_bits_per_key"]))]
+    digest = digest_sum(r + nb + be(ABSENT, 4) for (r, _), nb in zip(entries, nbr_bytes))
+    raw = tile(1, kind, sections, tenant=TENANT, graph=GRAPH, subject=subject, direction=direction, group=GROUP,
+               built=1800, horizon=bound(44), entries=len(entries), rows=len(rows), digest=digest, tokenizer=tokenizer)
+    fence = join(rows[0][0], nbr_bytes[0])
+    return raw, fence, {"rows": [{"key_hex": r.hex(), "neighbours": [n if isinstance(n, int) else n.hex()
+                                                                      for n in sorted(ns)]} for r, ns in rows]}
+
+
+def column_variable():
+    """Column kind 2: a String attribute, not versioned, three values from base 0."""
+    folded = {0: b"Ada", 3: b"", 7: "Gréta".encode()}
+    span = DEFAULTS["chunk_slots"]
+    sections = [(1, 3, enc_bitmap([1 if i in folded else 0 for i in range(span)])),
+                (2, 4, enc_bytes([folded[i] for i in sorted(folded)]))]
+    name = system_id(1, 1005, 0xAB_0106)
+    raw = tile(2, 2, sections, tenant=TENANT, graph=GRAPH, subject=name, type_=PERSON, group=GROUP, built=1800,
+               horizon=bound(44), entries=len(folded), rows=0, span=span,
+               digest=digest_sum(be(i, 4) + folded[i] for i in sorted(folded)))
+    return raw, be(0, 4), {"attribute_type": "String", "base": 0, "span": span,
+                           "folded": {str(i): folded[i].hex() for i in sorted(folded)}}
+
+
+def column_identity():
+    """Column kind 3: the identity column of persons in the group, slots 0 to 2."""
+    ids = {0: (17, 0xAB_C001), 1: (18, 0xAB_C002), 2: (20, 0xAB_C004)}
+    span = DEFAULTS["chunk_slots"]
+    values = [be(ids[i][0], 8) + be(ids[i][1], 3) for i in sorted(ids)]
+    raw = tile(2, 3, [(1, 3, enc_bitmap([1 if i in ids else 0 for i in range(span)])), (2, 5, enc_fixed(values, 11))],
+               tenant=TENANT, type_=PERSON, group=GROUP, built=1800, horizon=bound(44), entries=3, rows=0, span=span,
+               digest=digest_sum(be(i, 4) + v for i, v in zip(sorted(ids), values)))
+    return raw, be(0, 4), {"slots": {str(i): {"sequence": s, "bucket": b} for i, (s, b) in ids.items()}}
+
+
+def more_tiles():
+    """Every kind sections 7 to 9 define that the fixtures above leave out."""
+    alice, bob = person(17, 0xAB_C001), person(18, 0xAB_C002)
+    out = {}
+    out["adjacency_forward_values"] = adjacency_values(
+        2, [(be(0, 4), [b"\x20\x03Ada", b"\x11" + (42).to_bytes(8, "big", signed=True)]), (be(2, 4), [b"\x20\x00"])],
+        subject=system_id(1, 1006, 0xAB_0107), direction=1)
+    out["adjacency_index"] = adjacency_values(
+        4, [(token(0x05, s_int(31, 8)), [0, 4]), (token(0x05, s_int(45, 8)), [1])],
+        subject=AGE, direction=0, tokenizer=5, slot_rows=False)
+    out["adjacency_version_run"] = adjacency_values(
+        5, [(be(0, 4), [be(version(40, 2), 8) + b"draft", be(version(42, 6), 8) + b"final"])],
+        subject=system_id(1, 1007, 0xAB_0108), direction=1)
+    out["column_variable"] = column_variable()
+    out["column_identity"] = column_identity()
+    dict_id_to_term = record_run(2, [(alice, name_bytes(1, "http://ex.org/alice")), (bob, name_bytes(1, "http://ex.org/bob"))],
+                                 class_i=True, group=GROUP)
+    long = "a string whose lexical form is longer than fifteen bytes"
+    runs = {
+        "record_id_to_term": dict_id_to_term,
+        "record_hash_to_text": record_run(3, [(sha16(long), long.encode())], class_i=True),
+        "record_key_claim": record_run(4, [(be(PERSON, 2) + b"\x01alice", alice)], class_i=False, group=GROUP),
+        "record_unique_claim": record_run(5, [(AGE + s_int(31, 8), alice)], class_i=False, group=ABSENT),
+        "record_mark": record_run(6, [(alice + be(GROUP, 3), be(2, 8))], class_i=False, group=GROUP),
+        "record_referrer_set": record_run(7, [(alice, be(GROUP, 3) + be(40, 8) + be(1, 8)
+                                                 + be(GROUP + 1, 3) + be(41, 8) + be(3, 8))], class_i=False, group=GROUP),
+        "record_tombstone": record_run(8, [(bob, u64(version(43, 2)))], class_i=False, group=GROUP),
+        "record_session": record_run(10, [(bytes(range(16)) + be(0, 4),
+                                           u64(5) + u64(version(44, 10)) + u64(1600) + u32(4) + u32(0) + b"\x01\x02\x03\x04")],
+                                     class_i=False, tenant=0, group=ABSENT),
+        "record_slot_map": record_run(11, [(be(17, 8), u32(0)), (be(18, 8), u32(1)), (be(20, 8), u32(2))], class_i=True,
+                                      group=GROUP),
+        "record_set_combination": record_run(12, [(be(9, 2) + alice + bob, system_id(9, 3, 0xAB_C001))], class_i=False,
+                                             group=GROUP),
+        "record_idempotency_claim": record_run(13, [(be(PERSON, 2) + be(0x0192F3A1B2C3D4E5F60718293A4B5C6D, 16), alice)],
+                                               class_i=True, group=GROUP),
+        "record_drop_marker": record_run(14, [(be(version(45, 0), 8), u16(2) + bytes(6) + system_id(2, 1, 0xAB_0109))],
+                                         class_i=False, group=ABSENT),
+        "record_build": record_run(15, [(be(1650, 8), u64(3) + AGE + be(5, 4) + alice)], class_i=False, group=ABSENT),
+        "record_statement": record_run(18, [(system_id(9, 4, 0xAB_C001),
+                                             GRAPH + alice + KNOWS + b"\x01" + bob
+                                             + enc_bytes([AGE + b"\x11" + (2019).to_bytes(8, "big", signed=True)]))],
+                                       class_i=False, group=GROUP),
+        "record_mark_versioned": record_run(6, [], class_i=False, group=GROUP, versioned_recs=[
+            (alice + be(GROUP, 3), be(1, 8), version(43, 2), version(45, 2)),
+            (alice + be(GROUP, 3), be(2, 8), version(45, 2), 0)]),
+    }
+    for name, (raw, desc) in runs.items():
+        keys = [bytes.fromhex(r["key_hex"]) for r in desc["records"]]
+        out[name] = (raw, esc(min(keys)), desc)
+    return out
+
+
+def halving_vector(settings):
+    """Section 16.3 step 4: one row of tile_entries_max entries whose encoding exceeds tile_bytes_max, cut in two at
+    entry n div 2 and again until each half fits."""
+    emax, bmax = settings["tile_entries_max"], settings["tile_bytes_max"]
+    fam = {"kind": 1, "direction": 1, "subject": KNOWS}
+    # Neighbours with scattered sequences and buckets, so packing gains little.
+    entries = sorted((be(0, 4), person((i * 2654435761) % (1 << 40) + 1, (i * 40503) % (1 << 24)), 0, 0)
+                     for i in range(emax))
+    pieces = halve(fam, entries, 1900, 0, bound(44), settings)
+    return {"settings": {"tile_entries_max": emax, "tile_bytes_max": bmax},
+            "entries": len(entries), "neighbours_hex": [e[1].hex() for e in entries],
+            "pieces": [{"entries": len(es), "length": len(raw), "checksum": f"{int.from_bytes(raw[8:16], 'little'):016x}"}
+                       for es, raw in pieces]}
+
+
+def column_fold_vector():
+    """Section 11.2: folding the column fixture's overlay at H = bound(50): the records fold into folded values."""
+    raw, _, _ = column_chunk()
+    base, span = 4096, DEFAULTS["chunk_slots"]
+    folded_in = {0: 31, 1: 45, 4: 22}
+    overlay = [(1, version(50, 2), 46), (4, version(50, 4), None)]
+    h = bound(50)
+    folded = dict(folded_in)
+    for s, v, x in overlay:
+        if v <= h:
+            if x is None:
+                folded.pop(s, None)
+            else:
+                folded[s] = x
+    ent_in = [be(base + i, 4) + s_int(folded_in[i], 8) for i in sorted(folded_in)]
+    ent_in += [be(base + s, 4) + be(v, 8) + (b"\x01" + s_int(x, 8) if x is not None else b"\x00") for s, v, x in overlay]
+    ent_out = [be(base + i, 4) + s_int(folded[i], 8) for i in sorted(folded)]
+    removed = [e for e in ent_in if e not in ent_out]
+    added = [e for e in ent_out if e not in ent_in]
+    out = tile(2, 1, [(1, 3, enc_bitmap([1 if i in folded else 0 for i in range(span)])),
+                      (2, 5, enc_fixed([s_int(folded[i], 8) for i in sorted(folded)], 8))],
+               tenant=TENANT, graph=GRAPH, subject=AGE, type_=PERSON, group=GROUP, built=1900, previous=1400,
+               horizon=h, entries=len(ent_out), rows=base, span=span, digest=digest_sum(ent_out))
+    lhs = digest_sum(ent_out)
+    rhs = (digest_sum(ent_in) + digest_sum(added) - digest_sum(removed)) & MASK128
+    assert lhs == rhs
+    return out, {"input_file": "tiles/column_chunk_overlay.tile", "horizon": h,
+                 "added_hex": [e.hex() for e in added], "removed_hex": [e.hex() for e in removed],
+                 "input_digest": raw[104:120].hex(), "output_digest": out[104:120].hex(),
+                 "conserved": lhs == rhs}
+
+
+# ---------------------------------------------------------------- the reference engine (sections 12 to 17)
+#
+# A replica holding one relation, knows, in tenant 7's default graph and one bucket group: its forward family (kind 1)
+# and its reverse family (kind 3), class M, no statements and no inline column. The rounds name subject slots
+# directly (slot maps are record runs outside this model). Everything else follows sections 12 to 17 as written: apply,
+# due rules, the queue, units, rewrites with merge, fold, cut, halving and the next-tile merge, placement and streams,
+# the cleaner, checkpoints with the drain, the manifest, the free set and the superblock, and recovery.
+
+ENGINE_SETTINGS = [
+    ("extent_bytes", 131_072), ("grid_extents", 64), ("tile_bytes_max", 16_384), ("tile_entries_max", 256),
+    ("chunk_slots", 4_096), ("filter_bits_per_key", 10), ("theta_percent", 50), ("delta_entries_max", 65_536),
+    ("delta_watermark_percent", 75), ("delta_row_entries_max", 64), ("delta_age_rounds", 64), ("beat_factor", 4),
+    ("cold_after_rounds", 1_024), ("cleaner_free_percent", 15), ("checkpoint_bytes", 16_777_216),
+    ("retention_ms", 30_000), ("lane_entries_max", 65_536), ("lane_bytes_max", 262_144),
+]
+FAMILIES = {
+    "forward": {"kind": 1, "direction": 1, "subject": KNOWS},
+    "reverse": {"kind": 3, "direction": 2, "subject": KNOWS},
+}
+REASON_RANK = {1: 0, 4: 1, 5: 2, 2: 3, 3: 4}
+
+
+def fam_key(fam):
+    return (bytes([1, fam["kind"]]) + be(TENANT, 8) + GRAPH + fam["subject"] + be(0, 2) + bytes([fam["direction"]])
+            + bytes([0, 0]) + be(GROUP, 4))
+
+
+def encode_adjacency(fam, entries, built, previous, horizon, settings):
+    """Sections 7 and 14.5: entries (row, neighbour, created, deleted), sorted, created already 0 at or below H."""
+    rows = []
+    for r, n, c, d in entries:
+        if rows and rows[-1][0] == r:
+            rows[-1][1].append((n, c, d))
+        else:
+            rows.append((r, [(n, c, d)]))
+    versioned = any(c != 0 or d != 0 for _, _, c, d in entries)
+    ends = [sum(len(es) for _, es in rows[: i + 1]) for i in range(len(rows))]
+    if fam["kind"] == 1:
+        sections = [ints_section(1, [int.from_bytes(r, "big") for r, _ in rows]), ints_section(2, ends),
+                    ints_section(3, [int.from_bytes(n[0:2], "big") for _, n, _, _ in entries]),
+                    ints_section(4, [int.from_bytes(n[2:10], "big") for _, n, _, _ in entries]),
+                    ints_section(5, [int.from_bytes(n[10:13], "big") for _, n, _, _ in entries])]
+    else:
+        sections = [(1, 4, enc_bytes([r for r, _ in rows])), ints_section(2, ends),
+                    ints_section(6, [int.from_bytes(n, "big") for _, n, _, _ in entries])]
+    if versioned:
+        sections += [ints_section(9, [c for _, _, c, _ in entries]), ints_section(10, [d for _, _, _, d in entries])]
+    if settings["filter_bits_per_key"] > 0:
+        sections.append((11, 6, enc_filter([r + n for r, n, _, _ in entries], settings["filter_bits_per_key"])))
+    digest = digest_sum(r + n + be(ABSENT, 4) for r, n, _, _ in entries)
+    return tile(1, fam["kind"], sections, flags=1 if versioned else 0, tenant=TENANT, graph=GRAPH,
+                subject=fam["subject"], direction=fam["direction"], group=GROUP, built=built, previous=previous,
+                horizon=horizon, entries=len(entries), rows=len(rows), digest=digest)
+
+
+def halve(fam, entries, built, previous, horizon, settings):
+    """Section 16.3 step 4, returning [(entries, raw)] in order."""
+    raw = encode_adjacency(fam, entries, built, previous, horizon, settings)
+    if len(raw) <= settings["tile_bytes_max"]:
+        return [(entries, raw)]
+    n = len(entries)
+    m = n // 2
+    boundaries = [i for i in range(1, n) if entries[i][0] != entries[i - 1][0]]
+    if boundaries:
+        cut_at = min(boundaries, key=lambda b: (abs(b - m), b))
+    else:
+        cut_at = m
+    return halve(fam, entries[:cut_at], built, previous, horizon, settings) + \
+        halve(fam, entries[cut_at:], built, previous, horizon, settings)
+
+
+class Tile:
+    def __init__(self, fam_name, entries, raw):
+        self.fam = fam_name
+        self.entries = entries
+        self.raw = raw
+        self.address = None
+        self.built = int.from_bytes(raw[72:80], "little")
+
+    @property
+    def fence(self):
+        return self.entries[0][0] + self.entries[0][1]
+
+    @property
+    def key(self):
+        return fam_key(FAMILIES[self.fam]) + self.fence
+
+    @property
+    def blocks(self):
+        return (len(self.raw) + BLOCK - 1) // BLOCK
+
+
+class Engine:
+    def __init__(self, settings, name):
+        self.s = dict(settings)
+        self.name = name
+        self.E = self.s["extent_bytes"]
+        self.G = self.s["grid_extents"]
+        self.grid = bytearray(self.E * self.G)
+        self.state = ["closed"] + ["free"] * (self.G - 1)      # extent 0 holds the superblock
+        self.stream_of_extent = [None] * self.G
+        self.cursor = [0] * self.G
+        self.live = [0] * self.G
+        self.open = {}
+        self.directory = {f: [] for f in FAMILIES}
+        self.delta = []                                       # dicts: fam, row, nbr, op, version, position, taken
+        self.queue = []                                       # items: (rank, -d, key, target)
+        self.in_progress = []
+        self.units = 0
+        self.position = 0
+        self.horizon = 0
+        self.watermark = 0
+        self.log_bytes = 0
+        self.next_checkpoint = self.s["checkpoint_bytes"]
+        self.sequence = 0
+        self.parent = 0
+        self.leaves = []                                      # [(records, Tile-like dict)]
+        self.root = None
+        self.free_set = None
+        self.events = []
+        self.checkpoints = []
+
+    # -- allocation (section 12.4)
+    def place(self, raw, stream):
+        b = (len(raw) + BLOCK - 1) // BLOCK
+        e = self.open.get(stream)
+        if e is None or self.cursor[e] + b > self.E // BLOCK:
+            if e is not None:
+                self.state[e] = "closed"
+            e = next(x for x in range(1, self.G) if self.state[x] == "free")
+            self.state[e], self.stream_of_extent[e], self.cursor[e] = "open", stream, 0
+            self.open[stream] = e
+        address = e * self.E + self.cursor[e] * BLOCK
+        self.cursor[e] += b
+        self.grid[address:address + len(raw)] = raw
+        self.grid[address + len(raw):address + b * BLOCK] = bytes(b * BLOCK - len(raw))
+        self.live[e] += b
+        return address
+
+    def release(self, address, raw):
+        e = address // self.E
+        self.live[e] -= (len(raw) + BLOCK - 1) // BLOCK
+        assert self.live[e] >= 0
+
+    # -- directory (section 13.2)
+    def tile_of(self, fam, row, nbr):
+        tiles = self.directory[fam]
+        if not tiles:
+            return ("new", fam)
+        k = row + nbr
+        best = tiles[0]
+        for t in tiles:
+            if t.fence <= k:
+                best = t
+        return best
+
+    # -- apply (section 15)
+    def apply(self, rnd):
+        self.position = rnd["position"]
+        self.horizon = rnd["horizon"]
+        assert self.horizon >= 0
+        changes = 0
+        for commit in rnd["commits"]:
+            v = commit["version"]
+            self.watermark = v
+            for op, items in (("insert", commit["inserts"]), ("delete", commit["deletes"])):
+                for slot, obj_hex in items:
+                    obj = bytes.fromhex(obj_hex)
+                    self.delta.append({"fam": "forward", "row": be(slot, 4), "nbr": obj, "op": op, "version": v,
+                                       "position": self.position, "taken": False})
+                    self.delta.append({"fam": "reverse", "row": obj, "nbr": be(slot, 4), "op": op, "version": v,
+                                       "position": self.position, "taken": False})
+                    changes += 2
+        self.log_bytes += rnd["frame_length"]
+        self.boundary(changes)
+
+    def groups(self):
+        groups = {}
+        for c in self.delta:
+            if c["taken"]:
+                continue
+            t = self.tile_of(c["fam"], c["row"], c["nbr"])
+            groups.setdefault(id(t) if not isinstance(t, tuple) else t, (t, []))[1].append(c)
+        return groups
+
+    def target_key(self, t):
+        return fam_key(FAMILIES[t[1]]) if isinstance(t, tuple) else t.key
+
+    def busy(self, t):
+        for rw in self.in_progress:
+            if any(x is t or x == t for x in rw["inputs"]):
+                return True
+        return any(q[3] is t or q[3] == t for q in self.queue)
+
+    # -- due rules and the queue (sections 16.1 and 16.2)
+    def evaluate(self):
+        for t, cs in self.groups().values():
+            if self.busy(t):
+                continue
+            d = len(cs)
+            b = 0 if isinstance(t, tuple) else len(t.entries)
+            per_row = {}
+            for c in cs:
+                per_row[c["row"]] = per_row.get(c["row"], 0) + 1
+            reasons = []
+            if max(per_row.values()) >= self.s["delta_row_entries_max"]:
+                reasons.append(1)
+            if d * 100 >= self.s["theta_percent"] * max(b, 1):
+                reasons.append(2)
+            if min(c["position"] for c in cs) <= self.position - self.s["delta_age_rounds"]:
+                reasons.append(3)
+            if not reasons:
+                continue
+            reason = min(reasons, key=lambda r: REASON_RANK[r])
+            self.queue.append((REASON_RANK[reason], -d, self.target_key(t), t))
+        self.queue.sort(key=lambda q: (q[0], q[1], q[2]))
+
+    # -- a rewrite (section 16.3)
+    def start(self, t):
+        fam = t[1] if isinstance(t, tuple) else t.fam
+        tiles = [] if isinstance(t, tuple) else [t]
+        famtiles = self.directory[fam]
+        if tiles:
+            i = famtiles.index(t)
+            emax = self.s["tile_entries_max"]
+            if i + 1 < len(famtiles):
+                nxt = famtiles[i + 1]
+                nxt_busy = any(any(x is nxt for x in rw["inputs"]) for rw in self.in_progress)
+                if len(t.entries) < emax // 4 and len(t.entries) + len(nxt.entries) <= emax and not nxt_busy:
+                    tiles.append(nxt)
+                    self.queue = [q for q in self.queue if q[3] is not nxt]
+        groups = self.groups()
+        taken = []
+        for key in ([id(x) for x in tiles] if tiles else [t]):
+            if key in groups:
+                taken.extend(groups[key][1])
+        taken.sort(key=lambda c: self.delta.index(c))
+        for c in taken:
+            c["taken"] = True
+        entries = [list(e) for x in tiles for e in x.entries]
+        before = [e[0] + e[1] for e in entries]
+        for c in taken:
+            if c["op"] == "insert":
+                entries.append([c["row"], c["nbr"], c["version"], 0])
+            else:
+                match = [e for e in entries if e[0] == c["row"] and e[1] == c["nbr"] and e[3] == 0]
+                assert len(match) == 1, "a delete names exactly one visible entry"
+                match[0][3] = c["version"]
+        h = self.horizon
+        kept = []
+        for e in entries:
+            if e[3] != 0 and e[3] <= h:
+                continue
+            if e[2] <= h:
+                e[2] = 0
+            kept.append(tuple(e))
+        kept.sort(key=lambda e: (e[0], e[1], e[2]))
+        after = [e[0] + e[1] for e in kept]
+        outputs = []
+        famd = FAMILIES[fam]
+        previous = tiles[0].built if tiles else 0
+        for piece in self.cut(kept):
+            for es, raw in halve(famd, piece, self.position, previous, h, self.s):
+                outputs.append(Tile(fam, es, raw))
+        # Conservation (section 11.2), entries identified by their digest bytes.
+        multiset = lambda xs: {x: xs.count(x) for x in set(xs)}
+        mb, ma = multiset(before), multiset(after)
+        added = [x for x in ma for _ in range(max(0, ma[x] - mb.get(x, 0)))]
+        removed = [x for x in mb for _ in range(max(0, mb[x] - ma.get(x, 0)))]
+        hashes = lambda xs: digest_sum(x + be(ABSENT, 4) for x in xs)
+        lhs = sum(int.from_bytes(o.raw[104:112], "little") | (int.from_bytes(o.raw[112:120], "little") << 64)
+                  for o in outputs) & MASK128
+        rhs = (sum(int.from_bytes(x.raw[104:112], "little") | (int.from_bytes(x.raw[112:120], "little") << 64)
+                   for x in tiles) + hashes(added) - hashes(removed)) & MASK128
+        assert lhs == rhs, "DigestConserved"
+        cost = sum(len(x.entries) for x in tiles) + len(taken) + sum(len(o.entries) for o in outputs)
+        return {"target": t, "inputs": tiles if tiles else [t], "tiles": tiles, "taken": taken, "outputs": outputs,
+                "remaining": cost, "decided": self.position, "fam": fam}
+
+    def cut(self, kept):
+        rows, counts = [], []
+        for e in kept:
+            if rows and rows[-1][0][0] == e[0]:
+                rows[-1].append(e)
+            else:
+                rows.append([e])
+        pieces = []
+        for out in cut([len(r) for r in rows], self.s["tile_entries_max"]):
+            pieces.append([e for (ri, first, n) in out for e in rows[ri][first:first + n]])
+        return [p for p in pieces if p]
+
+    def complete(self, rw):
+        fam = rw["fam"]
+        for x in rw["tiles"]:
+            self.directory[fam].remove(x)
+            self.release(x.address, x.raw)
+        self.delta = [c for c in self.delta if not (c["taken"] and any(c is t for t in rw["taken"]))]
+        for o in sorted(rw["outputs"], key=lambda o: o.key):
+            b, p = o.built, int.from_bytes(o.raw[80:88], "little")
+            stream = 2 if p != 0 and b - p >= self.s["cold_after_rounds"] else 1
+            o.address = self.place(o.raw, stream)
+            self.directory[fam].append(o)
+        self.directory[fam].sort(key=lambda o: o.fence)
+        self.events.append({"position": self.position, "decided": rw["decided"], "family": fam,
+                            "inputs": [x.key.hex() for x in rw["tiles"]],
+                            "outputs": [{"key": o.key.hex(), "address": o.address, "length": len(o.raw),
+                                         "checksum": f"{int.from_bytes(o.raw[8:16], 'little'):016x}"}
+                                        for o in sorted(rw["outputs"], key=lambda o: o.key)]})
+
+    # -- the beat (section 16.4)
+    def beat(self, earned, drain=False):
+        pool = self.units + earned
+        for rw in list(self.in_progress):
+            pay = rw["remaining"] if drain else min(pool, rw["remaining"])
+            rw["remaining"] -= pay
+            pool -= 0 if drain else pay
+            if rw["remaining"] == 0:
+                self.in_progress.remove(rw)
+                self.complete(rw)
+        while self.queue and (pool > 0 or drain):
+            _, _, _, t = self.queue.pop(0)
+            rw = self.start(t)
+            self.in_progress.append(rw)
+            pay = rw["remaining"] if drain else min(pool, rw["remaining"])
+            rw["remaining"] -= pay
+            pool -= 0 if drain else pay
+            if rw["remaining"] == 0:
+                self.in_progress.remove(rw)
+                self.complete(rw)
+        if not self.queue and not self.in_progress:
+            pool = 0
+        self.units = pool
+
+    # -- the cleaner (section 16.6)
+    def free_count(self):
+        return sum(1 for e in range(1, self.G)
+                   if self.state[e] == "free" or (self.state[e] == "closed" and self.live[e] == 0))
+
+    def clean(self):
+        if self.free_count() * 100 >= self.s["cleaner_free_percent"] * self.G:
+            return
+        busy = {x.address // self.E for rw in self.in_progress for x in rw["tiles"]}
+        cands = [e for e in range(1, self.G) if self.state[e] == "closed" and self.live[e] > 0
+                 and self.stream_of_extent[e] != 0 and e not in busy]
+        if not cands:
+            return
+        e = min(cands, key=lambda x: (self.live[x], x))
+        moving = sorted((t for f in self.directory for t in self.directory[f] if t.address // self.E == e),
+                        key=lambda t: t.address)
+        for t in moving:
+            self.release(t.address, t.raw)
+            t.address = self.place(t.raw, 2)
+        self.events.append({"position": self.position, "cleaner": e, "moved": len(moving)})
+
+    # -- a round boundary
+    def boundary(self, changes):
+        self.evaluate()
+        self.beat(self.s["beat_factor"] * changes)
+        self.clean()
+        if self.log_bytes >= self.next_checkpoint:
+            self.checkpoint()
+            self.next_checkpoint = (self.log_bytes // self.s["checkpoint_bytes"] + 1) * self.s["checkpoint_bytes"]
+        self.check_relation_digests()
+
+    def check_relation_digests(self):
+        def live(fam):
+            state = {}
+            for t in self.directory[fam]:
+                for r, n, c, d in t.entries:
+                    if d == 0:
+                        state[(r, n)] = state.get((r, n), 0) + 1
+            for c in self.delta:
+                if c["fam"] == fam:
+                    k = (c["row"], c["nbr"])
+                    state[k] = state.get(k, 0) + (1 if c["op"] == "insert" else -1)
+            return {k for k, v in state.items() if v > 0}
+        fwd = {(r, n) for r, n in live("forward")}
+        rev = {(n, r) for r, n in live("reverse")}
+        assert fwd == rev, "RelationDigests"
+
+    # -- checkpoints (section 17.1)
+    def checkpoint(self):
+        # Step 0: the drain.
+        self.beat(0, drain=True)
+        while any(not c["taken"] for c in self.delta):
+            groups = sorted(self.groups().values(), key=lambda g: self.target_key(g[0]))
+            rw = self.start(groups[0][0])
+            self.complete(rw)
+        assert not self.delta and not self.queue and not self.in_progress
+        self.units = 0
+        self.clean()
+        # Step 1.
+        for s, e in list(self.open.items()):
+            self.state[e] = "closed"
+        self.open = {}
+        # Step 2: the manifest.
+        records = sorted((t.key, reference(t.address, t.raw) + t.raw[96:100] + u32(0))
+                         for f in self.directory for t in self.directory[f])
+        leaves = []
+        current = []
+        for rec in records:
+            trial = current + [rec]
+            raw = self.leaf_raw(trial, 0, 0)
+            if current and (len(trial) > self.s["tile_entries_max"] or len(raw) > self.s["tile_bytes_max"]):
+                leaves.append(current)
+                current = [rec]
+            else:
+                current = trial
+        if current:
+            leaves.append(current)
+        new_leaves = []
+        for i, recs in enumerate(leaves):
+            prev = self.leaves[i] if i < len(self.leaves) else None
+            if prev is not None and prev["records"] == recs:
+                new_leaves.append(prev)
+                continue
+            raw = self.leaf_raw(recs, self.position, prev["built"] if prev else 0)
+            new_leaves.append({"records": recs, "raw": raw, "built": self.position, "address": None})
+        for lf in new_leaves:
+            if lf["address"] is None:
+                lf["address"] = self.place(lf["raw"], 0)
+        root_recs = [(lf["records"][0][0], reference(lf["address"], lf["raw"])) for lf in new_leaves]
+        root_raw = self.run_raw(17, root_recs, self.position, self.root["built"] if self.root else 0)
+        root_at = self.place(root_raw, 0)
+        fs_probe = free_set_tile(self.G, set(), self.position, 0, self.horizon)
+        fs_at = self.place(fs_probe, 0)
+        marked = {0} | {e for e in range(1, self.G) if self.state[e] != "free"}
+        fs_raw = free_set_tile(self.G, marked, self.position, self.free_set["built"] if self.free_set else 0,
+                               self.horizon)
+        self.grid[fs_at:fs_at + len(fs_raw)] = fs_raw
+        # The previous checkpoint's stream 0 tiles stop being live.
+        kept_leaves = {id(lf) for lf in new_leaves}
+        for lf in self.leaves:
+            if id(lf) not in kept_leaves:
+                self.release(lf["address"], lf["raw"])
+        for old in (self.root, self.free_set):
+            if old is not None:
+                self.release(old["address"], old["raw"])
+        self.leaves = new_leaves
+        self.root = {"raw": root_raw, "address": root_at, "built": self.position}
+        self.free_set = {"raw": fs_raw, "address": fs_at, "built": self.position}
+        for e in list(self.open.values()):
+            self.state[e] = "closed"
+        self.open = {}
+        # Step 4: the superblock.
+        self.sequence += 1
+        watermark = self.watermark
+        copies = []
+        for c in range(4):
+            raw, checksum, ident = superblock(
+                c, parent=self.parent, sequence=self.sequence, cluster=0x0123_4567_89AB_CDEF, partition=1, replica=1,
+                deriv=derivation(ENGINE_SETTINGS), position=self.position, horizon=self.horizon, watermark=watermark,
+                extent_bytes=self.E, grid_extents=self.G, manifest_ref=reference(root_at, root_raw),
+                free_ref=reference(fs_at, fs_raw), mapping=1, log_bytes=self.log_bytes)
+            self.grid[c * BLOCK:(c + 1) * BLOCK] = raw
+            copies.append(raw)
+        self.parent = checksum
+        # Step 6: free and punch.
+        for e in range(1, self.G):
+            if self.state[e] == "closed" and self.live[e] == 0:
+                self.state[e] = "free"
+                self.stream_of_extent[e] = None
+                self.grid[e * self.E:(e + 1) * self.E] = bytes(self.E)
+        self.checkpoints.append({"position": self.position, "log_bytes": self.log_bytes, "sequence": self.sequence,
+                                 "superblock_checksum": f"{checksum:016x}", "identity": store128(ident).hex(),
+                                 "tiles": sum(len(v) for v in self.directory.values()), "leaves": len(new_leaves),
+                                 "extents_allocated": sorted(marked),
+                                 "grid_xxh3_64": f"{xxh64(bytes(self.grid)):016x}"})
+
+    def run_raw(self, kind, recs, built, previous):
+        keys, values = [k for k, _ in recs], [v for _, v in recs]
+        return tile(3, kind, [(1, 4, enc_bytes(keys)), (2, 4, enc_bytes(values)),
+                              (5, 6, enc_filter(keys, self.s["filter_bits_per_key"]))],
+                    flags=2, group=ABSENT, built=built, previous=previous, horizon=self.horizon, entries=len(recs),
+                    digest=digest_sum(be(len(k), 4) + k + v for k, v in recs))
+
+    def leaf_raw(self, recs, built, previous):
+        return self.run_raw(16, recs, built, previous)
+
+    # -- recovery (section 17.2)
+    def recover(self, grid):
+        self.__init__(ENGINE_SETTINGS, self.name)
+        self.grid = bytearray(grid)
+        sel = select_superblock([bytes(grid[c * BLOCK:(c + 1) * BLOCK]) for c in range(4)])
+        assert sel["result"].startswith("sequence"), sel
+        sb = bytes(grid[sel["kept"][0] * BLOCK:(sel["kept"][0] + 1) * BLOCK])
+        f = lambda a, b: int.from_bytes(sb[a:b], "little")
+        self.sequence, self.position, self.horizon, self.watermark = f(32, 40), f(64, 72), f(72, 80), f(80, 88)
+        self.log_bytes = f(168, 176)
+        self.next_checkpoint = (self.log_bytes // self.s["checkpoint_bytes"] + 1) * self.s["checkpoint_bytes"]
+        self.parent = f(16, 24)
+        read = lambda ref: bytes(grid[int.from_bytes(ref[0:8], "little"):
+                                      int.from_bytes(ref[0:8], "little") + int.from_bytes(ref[8:12], "little")])
+        root_ref, fs_ref = sb[96:120], sb[120:144]
+        root_raw, fs_raw = read(root_ref), read(fs_ref)
+        for raw, ref in ((root_raw, root_ref), (fs_raw, fs_ref)):
+            assert raw[8:16] == ref[16:24], "Misdirected"
+        self.root = {"raw": root_raw, "address": int.from_bytes(root_ref[0:8], "little"),
+                     "built": int.from_bytes(root_raw[72:80], "little")}
+        self.free_set = {"raw": fs_raw, "address": int.from_bytes(fs_ref[0:8], "little"),
+                         "built": int.from_bytes(fs_raw[72:80], "little")}
+        marked = decode_bitmap(section_of(fs_raw, 1))
+        self.leaves = []
+        for lkey, lref in run_records(root_raw):
+            leaf_raw = read(lref)
+            assert leaf_raw[8:16] == lref[16:24], "Misdirected"
+            recs = run_records(leaf_raw)
+            self.leaves.append({"records": recs, "raw": leaf_raw, "built": int.from_bytes(leaf_raw[72:80], "little"),
+                                "address": int.from_bytes(lref[0:8], "little")})
+            for tkey, val in recs:
+                ref = val[:24]
+                raw = read(ref)
+                assert raw[8:16] == ref[16:24], "Misdirected"
+                fam = "forward" if raw[7] == 1 else "reverse"
+                t = Tile(fam, decode_adjacency(raw), raw)
+                t.address = int.from_bytes(ref[0:8], "little")
+                self.directory[fam].append(t)
+        for fam in self.directory:
+            self.directory[fam].sort(key=lambda o: o.fence)
+        for t in [t for f in self.directory for t in self.directory[f]]:
+            self.live[t.address // self.E] += t.blocks
+        for x in self.leaves + [self.root, self.free_set]:
+            self.live[x["address"] // self.E] += (len(x["raw"]) + BLOCK - 1) // BLOCK
+            self.stream_of_extent[x["address"] // self.E] = 0
+        for e in range(1, self.G):
+            self.state[e] = "closed" if marked[e] and self.live[e] > 0 else "free"
+            if self.state[e] == "free":
+                self.stream_of_extent[e] = None
+
+
+def section_of(raw, sid):
+    n = int.from_bytes(raw[20:22], "little")
+    for i in range(n):
+        d = raw[128 + 16 * i:144 + 16 * i]
+        if int.from_bytes(d[0:2], "little") == sid:
+            off, ln = int.from_bytes(d[8:12], "little"), int.from_bytes(d[12:16], "little")
+            return raw[off:off + ln]
+    return None
+
+
+def decode_bitmap(data):
+    n = int.from_bytes(data[0:4], "little")
+    return [(data[8 + i // 8] >> (i % 8)) & 1 for i in range(n)]
+
+
+def decode_bytes(data):
+    n = int.from_bytes(data[0:4], "little")
+    ends = [int.from_bytes(data[8 + 4 * i:12 + 4 * i], "little") for i in range(n)]
+    base = 8 + 4 * n
+    out, start = [], 0
+    for e in ends:
+        out.append(data[base + start:base + e])
+        start = e
+    return out
+
+
+def unpack(data, offset, n, width):
+    acc = int.from_bytes(data[offset:], "little")
+    mask = (1 << width) - 1
+    return [(acc >> (i * width)) & mask for i in range(n)]
+
+
+def decode_vector(raw, sid):
+    """A FOR or DELTA section's values; the directory names which (section 6.3)."""
+    n_sec = int.from_bytes(raw[20:22], "little")
+    for i in range(n_sec):
+        d = raw[128 + 16 * i:144 + 16 * i]
+        if int.from_bytes(d[0:2], "little") != sid:
+            continue
+        code = int.from_bytes(d[2:4], "little")
+        off, ln = int.from_bytes(d[8:12], "little"), int.from_bytes(d[12:16], "little")
+        data = raw[off:off + ln]
+        n, width = int.from_bytes(data[0:4], "little"), data[4]
+        if code == 1:
+            base = int.from_bytes(data[8:16], "little")
+            return [base + x for x in unpack(data, 16, n, width)] if n else []
+        first, dbase = int.from_bytes(data[8:16], "little"), int.from_bytes(data[16:24], "little")
+        vals = [first]
+        for x in unpack(data, 24, n - 1, width):
+            vals.append(vals[-1] + dbase + x)
+        return vals
+    return None
+
+
+def decode_adjacency(raw):
+    kind = raw[7]
+    ends = decode_vector(raw, 2)
+    if kind == 1:
+        rows = [be(x, 4) for x in decode_vector(raw, 1)]
+        pre, seq, buk = decode_vector(raw, 3), decode_vector(raw, 4), decode_vector(raw, 5)
+        nbrs = [system_id(p, s, b) for p, s, b in zip(pre, seq, buk)]
+    else:
+        rows = decode_bytes(section_of(raw, 1))
+        nbrs = [be(x, 4) for x in decode_vector(raw, 6)]
+    created = decode_vector(raw, 9) or [0] * len(nbrs)
+    deleted = decode_vector(raw, 10) or [0] * len(nbrs)
+    out, start = [], 0
+    for r, end in zip(rows, ends):
+        for i in range(start, end):
+            out.append((r, nbrs[i], created[i], deleted[i]))
+        start = end
+    return out
+
+
+def run_records(raw):
+    return list(zip(decode_bytes(section_of(raw, 1)), decode_bytes(section_of(raw, 2))))
+
+
+class Lcg:
+    """A 64-bit linear congruential generator; the rounds it draws are written into the vector, so no implementation
+    needs to reproduce it."""
+
+    def __init__(self, seed):
+        self.x = seed
+
+    def next(self, n):
+        self.x = (self.x * 6364136223846793005 + 1442695040888963407) & MASK64
+        return (self.x >> 33) % n
+
+
+def engine_rounds(count=220):
+    rng = Lcg(2026_11_10)
+    objects = [person(seq, 0xAB_C000 + (seq % 64)) for seq in range(1, 401)]
+    linked = set()
+    rounds = []
+    for r in range(count):
+        position, epoch = r + 1, 100 + r
+        commits = []
+        for k in range(1 + rng.next(3)):
+            inserts, deletes = [], []
+            for _ in range(6 + rng.next(9)):
+                slot = 0 if rng.next(4) == 0 else 1 + rng.next(39)
+                obj = objects[rng.next(len(objects))]
+                if (slot, obj) not in linked and (slot, obj.hex()) not in [(s, o) for s, o in inserts]:
+                    inserts.append((slot, obj.hex()))
+            for _ in range(rng.next(4)):
+                if linked:
+                    pick = sorted(linked)[rng.next(len(linked))]
+                    if (pick[0], pick[1].hex()) not in deletes:
+                        deletes.append((pick[0], pick[1].hex()))
+            for s, o in deletes:
+                linked.discard((s, bytes.fromhex(o)))
+            for s, o in inserts:
+                linked.add((s, bytes.fromhex(o)))
+            commits.append({"version": version(epoch, 2 * k), "inserts": inserts, "deletes": deletes})
+        ops = sum(len(c["inserts"]) + len(c["deletes"]) for c in commits)
+        rounds.append({"position": position, "horizon": bound(epoch - 5) if r >= 5 else 0,
+                       "frame_length": 1_048_576 + 4096 * ops, "commits": commits})
+    return rounds
+
+
+def engine_vector(vec):
+    rounds = engine_rounds()
+    a = Engine(ENGINE_SETTINGS, "a")
+    for rnd in rounds:
+        a.apply(rnd)
+    # A second replica crashes between its second and third checkpoints, recovers from the grid alone and replays.
+    second = a.checkpoints[1]["position"]
+    crash_at = second + 5
+    b = Engine(ENGINE_SETTINGS, "b")
+    for rnd in rounds[:crash_at]:
+        b.apply(rnd)
+    survived = bytes(b.grid)
+    b.recover(survived)
+    assert b.position == second
+    for rnd in rounds[second:]:
+        b.apply(rnd)
+    same_checkpoints = [x for x in a.checkpoints if x["position"] > second] == \
+        [x for x in b.checkpoints if x["position"] > second]
+    same_grid = bytes(a.grid) == bytes(b.grid)
+    assert same_checkpoints and same_grid, "replay after recovery differs"
+    blocks = bytearray()
+    for i in range(len(a.grid) // BLOCK):
+        blk = a.grid[i * BLOCK:(i + 1) * BLOCK]
+        if any(blk):
+            blocks += u32(i) + blk
+    (vec / "tiles" / "engine_grid.blocks").write_bytes(bytes(blocks))
+    return {
+        "specification": "STORAGE.md sections 12 to 17, over one relation's forward and reverse families",
+        "settings": dict(ENGINE_SETTINGS), "derivation": f"{derivation(ENGINE_SETTINGS):016x}",
+        "families": {n: {"kind": f["kind"], "direction": f["direction"], "subject": f["subject"].hex(),
+                         "tenant": TENANT, "graph": GRAPH.hex(), "group": GROUP, "family_key": fam_key(f).hex()}
+                     for n, f in FAMILIES.items()},
+        "superblock_fields": {"cluster": 0x0123_4567_89AB_CDEF, "partition": 1, "replica": 1, "mapping": 1,
+                              "watermark": "the last commit version applied"},
+        "rounds": rounds,
+        "events": a.events,
+        "checkpoints": a.checkpoints,
+        "final": {"position": a.position, "grid_xxh3_64": f"{xxh64(bytes(a.grid)):016x}",
+                  "grid_blocks_file": "tiles/engine_grid.blocks",
+                  "grid_blocks_format": "per nonzero block: its index as a u32 then its 4,096 bytes, ascending"},
+        "crash": {"after_position": crash_at, "recovered_to": second,
+                  "replayed_checkpoints_equal": same_checkpoints, "final_grid_equal": same_grid},
+    }
 
 
 def main(out):
@@ -914,7 +1785,7 @@ def main(out):
         raw = {**{n: d[0] for n, d in data.items()}, "manifest_leaf": leaf, "manifest_root": root, "free_set": fs}[name]
         (vec / "tiles" / f"{name}.tile").write_bytes(raw)
     write_json("tiles.json", {"specification": "STORAGE.md sections 6 to 13",
-                              "settings": "section 3.1's defaults, extent_bytes 131072 and grid_extents 16",
+                              "settings": "section 3.1's defaults, extent_bytes 131072 and grid_extents 64",
                               "tiles": tiles})
 
     deriv_small = derivation(SMALL)
@@ -928,7 +1799,7 @@ def main(out):
         (vec / "tiles" / f"superblock_copy{c}.block").write_bytes(raw)
         copies.append(f"tiles/superblock_copy{c}.block")
 
-    alloc2 = Allocator(131_072, 16)
+    alloc2 = Allocator(131_072, 64)
     script = [(20_000, 1200, 900), (60_000, 1201, 0), (50_000, 1202, 1100), (65_536, 70_000, 1), (8, 70_001, 0),
               (65_536, 70_002, 70_000), (12_288, 70_003, 0)]
     placements = []
@@ -940,7 +1811,7 @@ def main(out):
         "specification": "STORAGE.md sections 3.2, 6.4, 11.3, 12 and 13",
         "derivation": {"defaults": f"{derivation(SETTINGS):016x}",
                        "small_grid": {"settings": dict(SMALL), "value": f"{deriv_small:016x}"}},
-        "allocation": {"extent_bytes": 131_072, "grid_extents": 16, "cold_after_rounds": 65_536,
+        "allocation": {"extent_bytes": 131_072, "grid_extents": 64, "cold_after_rounds": 65_536,
                        "placements": placements},
         "checkpoint": {"note": "the tiles of tiles.json placed in built order, then the leaf, the root and the free set",
                        "extents_allocated": sorted(alloc.used)},
@@ -1022,6 +1893,24 @@ def main(out):
     refusals.append({"name": "superblock copy field other than its block", "structure": "superblock in block 1",
                      "hex": bytes(raw1).hex(), "refusal": "Copy"})
     write_json("refusals.json", {"specification": "STORAGE.md sections 4 and 19.4", "cases": refusals})
+
+    kinds = {}
+    for name, (raw, fence, desc) in more_tiles().items():
+        (vec / "tiles" / f"{name}.tile").write_bytes(raw)
+        kinds[name] = {"input": desc, "header": header_fields(raw), "fence_hex": fence.hex(),
+                       "tile_key_hex": tile_key(raw, fence).hex(), "file": f"tiles/{name}.tile", "length": len(raw),
+                       "checksum": f"{int.from_bytes(raw[8:16], 'little'):016x}", "digest": raw[104:120].hex()}
+    write_json("kinds.json", {"specification": "STORAGE.md sections 7 to 9: every kind tiles.json leaves out",
+                              "settings": "defaults of section 3.1", "tiles": kinds})
+
+    folded_raw, fold = column_fold_vector()
+    (vec / "tiles" / "column_chunk_folded.tile").write_bytes(folded_raw)
+    fold.update({"output_file": "tiles/column_chunk_folded.tile", "header": header_fields(folded_raw)})
+    halving_settings = {**DEFAULTS, "tile_bytes_max": 16_384, "tile_entries_max": 4_096}
+    write_json("compaction.json", {"specification": "STORAGE.md sections 11.2 and 16.3",
+                                   "halving": halving_vector(halving_settings), "column_fold": fold})
+
+    write_json("engine.json", engine_vector(vec))
 
 
 def header_fields(raw):
