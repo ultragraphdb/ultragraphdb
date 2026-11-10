@@ -1,0 +1,30 @@
+"openspec/notes/UltraGraphDB Scalable Tile Store.md"
+  s_6eb57b3c609e2f::t_79dbf66be25966 3
+  s_6eb57b3c609e2f::t_478e95e53fa65e 816-826
+  s_6eb57b3c609e2f::t_a31607aac98838 534-538,540
+  s_6eb57b3c609e2f::t_f8f0abcce2aa06 703
+  s_6eb57b3c609e2f::t_08c741ccd6ec1a 911
+  s_6eb57b3c609e2f::t_c24f1aa2d32f33 850-851,853-874,876-910,912-921
+  s_6eb57b3c609e2f::t_2c2e20f77884c4 846-849
+  s_6eb57b3c609e2f::t_b79b744ab51c09 436-437
+  s_6eb57b3c609e2f::t_d803996574d142 384
+  s_6eb57b3c609e2f::t_c489016668d1c5 563-566
+  s_6eb57b3c609e2f::t_c1cbe255724b0a 875
+  s_6eb57b3c609e2f::t_059ba1b1f399e4 953-954
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "eb15d766796a8f0e7c1f8a93b89924cbffbbdb50",
+  "prompts": {},
+  "sessions": {
+    "s_6eb57b3c609e2f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cc067d49-3ba9-4433-9576-7836ad1ea881",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
