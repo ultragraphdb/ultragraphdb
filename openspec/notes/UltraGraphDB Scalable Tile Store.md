@@ -1,6 +1,6 @@
 # UltraGraphDB Scalable Graph Storage Engine
 
-Nov 10, 2026 · first design draft; decisions T1–T27 adopted 2026-11-10
+Nov 10, 2026 · first design draft; decisions T1–T29 adopted 2026-11-10
 
 The storage engine of roadmap stage 6.5: a graph-native tile store that replaces the fjall KV store whole, writes
 included. A partition keeps its graph as tiles, bounded and checksummed blocks of three shapes: adjacency blocks of a
@@ -381,7 +381,7 @@ allow for the request's relations is refused.
 
 | Lane | Taken by | What the engine does | What it skips |
 |---|---|---|---|
-| **L — latest** | Monotonic-fast reads; reads of one partition's latest state | Answers within one turn from base and delta as applied, dropping deleted entries, on any replica that has applied the session's position | Pins, epoch waits, comparing entries against a pinned version |
+| **L — latest** | Monotonic-fast reads; session reads of one partition's latest state; linearizable latest-state reads once past the read barrier (T28) | Answers within one turn from base and delta as applied, dropping deleted entries: monotonic-fast and session reads on any replica that has applied the session's position, linearizable ones on the primary once its next round commits by a quorum in its view | Pins, epoch waits, comparing entries against a pinned version |
 | **S — snapshot** | Snapshot reads at a closed epoch `e`, as-of reads | Pins `e`, filters versions at `e`, may span turns, on any replica that has closed `e` | Read-set recording |
 | **X — serializable** | Reads of an open read-write transaction | As S at the transaction's version, recording what it read | Recording stable reads |
 | **A — append** | Writes whose every predicate the catalog marks blind (`SCHEMA.md` section 9.6: coordination-free, no key or `@unique` claim, no check reading beyond the instance), the writes a DirectWrite may carry | Joins the round without validation, its conflict keys still entered | Validation, the read phase |
@@ -433,7 +433,8 @@ on the commit path.
 counters of bytes and rounds, fences and a deterministic allocator, never the clock, reads, the cache's state or another
 replica's load. A rewrite is decided, and its address allocated, at a round boundary; reading an uncached base tile may
 delay when its bytes are written, never what they are or where. Replicas applying the same rounds therefore write the
-same tiles at the same addresses, and each spends the same compaction CPU (*Open questions*).
+same tiles at the same addresses. Every replica compacts for itself on the commit path, spending the same compaction
+CPU, and the checkpoint identity of *Safety* checks that they agree (T29).
 
 **Verified.** Compaction builds the new tile in a buffer from the pool, decodes it once and checks its order, counts and
 digest against the merge of its inputs before it is written (*Safety*).
@@ -530,8 +531,13 @@ superblock's copies are chained by their parents' checksums; the WAL's rounds ar
 (T6), or rebuilt by replaying the WAL when the WAL still covers it. A replica that cannot repair stops serving and says
 which tile failed; it never answers from a damaged tile. A failed sync stops the node, as today.
 
+**Checkpoint identity.** Each checkpoint's identity is the XXH3-128 of its superblock's checkpoint state, which commits
+to the manifest and its digests. It rides on `Prepare`, `PrepareOk` and the commit heartbeat; a replica receiving
+another identity for a checkpoint it holds stops with an invariant error naming both (T29). Replicas compute their
+checkpoints independently, so a fault in one replica's memory or disk shows as a mismatch instead of spreading.
+
 **Scrubbing.** A paced background pass reads every tile of the grid once per cycle and verifies its checksums and
-digest; replicas compare their checkpoints' manifest digests, which must be equal.
+digest.
 
 **Limits.** Every pool, directory, cache, queue and batch has a capacity fixed at startup, from the node's memory budget;
 every loop over tiles, rows or I/O counts against a named bound.
@@ -554,8 +560,10 @@ compacts the group's deltas into tiles, deterministically, and ships them with t
 installs them at a position of its own log, copying the bytes unchanged into its grid, since no header names a
 partition. Nothing is re-cut or renumbered. A tenant with little data pays with small tiles, which pack into 4 KiB slots.
 
-**Replicas catch up by tiles.** A follower behind the primary's trimmed WAL copies the tiles of the primary's last
-checkpoint, identical to what it would have built, then replays the WAL above it.
+**Replicas catch up by tiles.** A follower within one checkpoint of the primary repairs its WAL and compacts as usual. One
+more than a checkpoint behind state-syncs lazily, as TigerBeetle's replicas do: it takes the primary's latest superblock
+first, fetches the tiles it references on demand by address and checksum, identical to what it would have built, then
+replays the WAL above it (T29).
 
 **Analytics read projections.** Whole-graph algorithms want the two-dimensional partitioning the earlier tile note
 proposed, with about √p peers a step. Compute builds it as an immutable projection at a closed epoch, assembled from tiles
@@ -692,7 +700,7 @@ removed, as the earlier tile note proposed.
 ## 6. Decisions
 
 Each states the trade-off or the principle, and the choice. All were adopted on 2026-11-10: T1–T14 as the draft
-recommended them, T15–T27 as the answers to its open questions, each argued from TigerStyle's principles.
+recommended them, T15–T29 as the answers to its open questions, each argued from TigerStyle's principles.
 
 **T1. The engine is graph-native and whole.** *Trade-off:* keeping fjall as a write layer under read tiles (the
 discarded hybrid) keeps the 9.1 records and the LSM's rewrites a relation pays; a graph engine over a KV interface keeps
@@ -805,6 +813,17 @@ sized to the receiver's buffers (Guideline 4); VSR's acknowledgements apart from
 TCP. A prototype follows in stage 10 only if E13 measures networking above 30% of CPU, over AF_XDP, for compute–storage
 frontier traffic first.
 
+**T28. Latest-state reads rest on quorums, never on clocks.** *Principle:* safety never depends on time; batch the
+control plane. *Choice:* session reads on any replica that has applied the session's token; linearizable latest-state
+reads behind a read barrier batched per turn, answered once the primary's next round commits by a quorum in its view; an
+empty round on an idle partition; no leases (section 8).
+
+**T29. Every replica compacts for itself, and checkpoints carry an identity.** *Principle:* the scarcer resource pays
+least, and independent computation detects faults. *Choice:* followers compact on the commit path as the leader does;
+tiles move between replicas only for repair and for a replica more than one checkpoint behind, which state-syncs lazily;
+the XXH3-128 of each checkpoint's state rides on `Prepare`, `PrepareOk` and the commit heartbeat, and a mismatch stops
+the replica with an invariant error (section 8).
+
 ## 7. Experiments
 
 | # | Question | How | What it decides |
@@ -824,15 +843,82 @@ frontier traffic first.
 | E12 | What does Ingest save? | The LDBC update stream as DirectWrites and as Ingest frames of 1, 64 and 1,024 rows: log bytes, CPU per relation from receive to apply, copies counted | Ingest's block layout |
 | E13 | How much CPU does networking take? | Cycles per Prepare and per frontier message on compio TCP with real batching, at the cluster's rates, on physical Linux | Whether a bi-channel prototype is built (gate: above 30% of CPU) |
 
-## 8. Open questions
+## 8. Reads after a view change, and compaction on followers
 
-- How does a lane L read of one partition's latest state avoid a deposed primary in stage 8? The distribution protocol
-  leaves the same question open for every latest-state read: a leader lease depends on bounded clock drift, and a round
-  of messages per read spends what lane L saves. Monotonic-fast reads are unaffected: any replica's applied state was
-  committed.
-- Do followers compact for themselves, spending the leader's compaction CPU twice more, or install the leader's tiles,
-  identical by T6, spending network and a checksum comparison instead? Determinism makes both correct; E1 and E13's
-  figures decide the cost.
+The draft's last two questions, investigated against TigerBeetle's internals (`docs/internals/vsr.md`, `lsm.md`,
+`sync.md`, read 2026-11-10) and TigerStyle; T28 and T29 adopt the answers.
+
+**How does a lane L read of one partition's latest state avoid a deposed primary in stage 8?**
+
+*The problem.* A primary a view change has replaced does not know it until a message tells it. If it answers a
+latest-state read from its own applied state, a client can read state older than a commit another client has already
+been acknowledged by the new primary: a stale read, which strict serializability forbids. The distribution protocol leaves
+this open for every latest-state read.
+
+*What TigerBeetle does.* Its VSR document converts every client request into a prepare that is given an op and
+replicated ("The primary converts the command=request to a command=prepare"), and it does not set reads apart. It
+attributes ordering to consensus alone ("Viewstamped Replication to guarantee strict serializability for all
+operations"). Its cluster clock serves timestamps and timeouts, and no page mentions leader leases. Its sessions
+guarantee that a client "reads its own writes" and "observes writes in the order that they occur on the cluster", and
+that replies to different sessions may arrive out of order. The documents read do not state outright whether lookups are
+ordered through the log; that they are is inferred from the generic request path.
+
+*The options.*
+
+| Option | Safety rests on | Cost |
+|---|---|---|
+| Leader lease | Bounded clock drift between replicas | No messages; a wrong clock serves stale reads silently |
+| One confirmation round per read | Quorum intersection | A quorum round trip per read, which spends what lane L saves |
+| A read barrier batched per turn | Quorum intersection | One quorum round trip of latency per turn's reads, usually zero added messages |
+| Session reads only | The session token | None, but no guarantee across sessions |
+
+*Decision (T28).* Two read levels, neither depending on a clock:
+
+- **Session reads**, the common case. A read naming its session's token is answered by any replica that has applied the
+  token's position, with no confirmation: it sees its own writes and never goes back in time, which is TigerBeetle's
+  session guarantee. Monotonic-fast reads stay as they are.
+- **Linearizable latest-state reads** pass a read barrier. The primary holds every such read that arrives during a turn
+  behind the next round it prepares, and answers them, in one later turn, once that round is committed by a quorum in the
+  primary's view, at the state applied through it. A quorum's `PrepareOk` in the current view proves the primary was
+  primary when the round committed, by the intersection of quorums, so a deposed primary cannot gather it and redirects
+  the reads instead. Under write load the round is in flight anyway and the barrier adds no message; on an idle partition
+  the primary prepares an empty round, one header and no entries, which the existing protocol and its Lean model (X3)
+  already cover, so no new message type is needed.
+
+*Why, by TigerBeetle's principles.* Safety never rests on a clock: leases are rejected for the reason the distribution
+architecture rejected hybrid logical clocks. The barrier reuses the replication path instead of adding a protocol, which
+keeps the interface small. Batching per turn turns a round per read into a round per turn, the control plane amortised
+over the data plane. The price is explicit: a linearizable latest-state read waits about one commit's latency, so lane
+L's "no wait" holds for session reads and monotonic-fast reads, not for this level.
+
+**Do followers compact for themselves, or install the leader's tiles?**
+
+*What TigerBeetle does.* Compaction runs on the replicated commit path: "A compaction tick executes asynchronously
+immediately after every commit, with beat = commit.op % lsm_compaction_ops", so every replica compacts, paced by op
+number. Determinism is checked rather than assumed: a checkpoint id is "a hash over the entire state", carried on
+`commit`, `ping`, `prepare` and `prepare_ok`, and "If non-determinism is detected (via checkpoint id mismatches) the
+replica which detects the mismatch will panic." Blocks travel between replicas only to repair a corrupt or missing
+block, by address and checksum (grid repair), or when a replica is more than one checkpoint behind: then it state-syncs
+lazily, taking the superblock first and the blocks on demand (`sync.md`). The documents give no rationale for this choice.
+
+*The envelope.* Compaction is estimated at 0.2–0.6 µs of CPU a relation per replica (*Targets and the envelope*), so a
+follower compacting for itself spends about one core-second for every 2–5 million relations. Installing the leader's
+tiles instead sends a follower the tiles' bytes, about 50 B a relation by the same estimate, a third more than the
+150 B of WAL it already receives, over the network, which the write-path note's tables show binding before the cores
+from 48 cores a node. It would also need a second normal-path protocol, tiles ordered against rounds, and a rule for
+when a follower drops the deltas a tile covers.
+
+*Decision (T29).* Followers compact for themselves, as TigerBeetle's replicas do. Tiles move between replicas only for
+repair and for a replica more than one checkpoint behind, which state-syncs lazily as TigerBeetle does. Each checkpoint
+gets an identity, the XXH3-128 of its superblock's checkpoint state, which commits to the manifest and its digests; it
+rides on `Prepare`, `PrepareOk` and the commit heartbeat, and a replica receiving a different identity for the same
+checkpoint stops with an invariant error naming both, Ultra Style rule 5's fail-stop.
+
+*Why, by TigerBeetle's principles.* The scarcer resource pays least: CPU per relation is small and stays on the core that
+owns the data, while the network carries only the log. Independent computation is what makes the comparison a fault
+detector: a bit flipped in one replica's memory produces a different checkpoint identity, where installing the leader's
+tiles would copy the flip to every follower. One path, the commit path, builds every replica's state, so the simulator
+checks one mechanism. If E1 measures compaction far above its estimate, the choice is revisited with the figure.
 
 ## Later
 
@@ -864,6 +950,8 @@ Read for this draft:
   2606.19969v1 (`papers/The Bi-Channel Networking Paradigm-2606.19969v1.pdf`).
 - TigerBeetle, *Data Modeling*, "TigerBeetle Time-Based Identifiers",
   docs.tigerbeetle.com/coding/data-modeling/#tigerbeetle-time-based-identifiers-recommended.
+- TigerBeetle internals, `docs/internals/vsr.md`, `lsm.md` and `sync.md` in github.com/tigerbeetle/tigerbeetle (main,
+  read 2026-11-10); docs.tigerbeetle.com/coding/time/ and /reference/sessions/.
 - compio-driver 0.12.5 and compio-runtime 0.12.6 as `Cargo.lock` pins them: `ProactorBuilder` (`single_issuer`,
   `defer_taskrun`), `RuntimeBuilder::with_proactor`, the `unsafe trait OpCode`.
 - `specification/binary_protocol/PROTOCOL.md` sections 4.4, 4.6, 6.6, 11.12, 12.1 and 12.2.
