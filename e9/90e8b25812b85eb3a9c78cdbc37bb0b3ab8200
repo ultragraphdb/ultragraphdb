@@ -1,0 +1,27 @@
+openspec/changes/stage-6-5-tile-store/specs/tokenizers/spec.md
+  s_6eb57b3c609e2f::t_bc5e477f72af9f 42-50,69-86
+specification/conformance/storage/README.md
+  s_6eb57b3c609e2f::t_4aac18adc797e5 91-96
+specification/conformance/storage/generate_vectors.py
+  s_6eb57b3c609e2f::t_a785f0bf614fc6 481,488,491-492,510-515,524,527-528,535,552-553,555-556,560,590,602-605
+specification/conformance/storage/vectors/sortable.json
+  s_6eb57b3c609e2f::t_6c68e714759289 640-641,646,651-652,657,662-663,668,673-674,679,684-685,690,695-696,701,706-707,712,717-718,723,728-729,734,739-740,745,750-751,757,761-762,768,772-773,779,783-784,789,794-795,800,805-806,811,816-817,822,827-828,833,838-839,844,849-850,855,860-861,866,871-872,877,882-883,888,893-894,899,904-905,910,915-916,921-943,948,959,970,981,992,1003,1014,1025,1035-1047,1049-1059,1064,1069-1070,1075,1080-1081,1086,1091-1092,1097,1102-1103,1108,1113-1114,1119,1124-1125,1130,1135-1136,1141,1146-1147,1152,1157-1158,1163,1168-1169,1174,1179-1180,1185,1190-1191,1196,1201-1202,1207-1215,1250-1257,1323,1328,1346-1349
+specification/storage/STORAGE.md
+  s_6eb57b3c609e2f::t_83f388f5da08d1 326-336
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e990e8b25812b85eb3a9c78cdbc37bb0b3ab8200",
+  "prompts": {},
+  "sessions": {
+    "s_6eb57b3c609e2f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cc067d49-3ba9-4433-9576-7836ad1ea881",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
