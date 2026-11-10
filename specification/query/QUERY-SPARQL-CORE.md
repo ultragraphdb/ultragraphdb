@@ -284,17 +284,20 @@ the client as section 11 states.
 Ground triples, in the default graph or a `GRAPH` block, each a declared predicate on a declared type:
 
 - A subject's `rdf:type` triple to a concrete type creates an instance of it (`UGS1002` for none, `UGS1003` for an
-  abstract type, `UGS1004` for two concrete types); the key attributes must be present (`UGS1006`); the subject's
-  IRI must be the one the schema mints for the key (`SPQ0601` otherwise, naming the expected IRI), or a blank node,
-  which the engine replaces by the minted IRI, a handle for a keyless type.
+  abstract type, `UGS1004` for two concrete types); the key attributes must be present (`UGS1006`); a keyed
+  instance's subject IRI must be the one the schema mints for the key (`SPQ0601` otherwise, naming the expected IRI),
+  and a keyless instance's a blank node, which the engine replaces by a handle; a keyed instance under a blank node is
+  refused (`UGS1038`, `../schema/SCHEMA.md` section 7.3).
 - An attribute triple writes the attribute; a `Set` attribute one member per triple; an interval's two bounds; a
   literal of the wrong datatype is refused (`UGS1011`); a second value for a single-valued attribute that holds one
   is refused (`UGS1036`), never a replacement, which `DELETE … INSERT … WHERE` is (section 8.3).
-- `?a db:nav ?b` with a declared navigation name of an edge-encoded relation creates its instance, written under
-  either navigation name, the inverse normalised to the anchor's triple; attributes of it go on its reifier,
-  `_:r rdf:reifies <<( a db:nav b )>>` and `_:r db:attr v`, which the engine binds to the reifier it allocates; on a
-  `@multi` relation every navigation triple written creates one instance, the reifier the only name telling the
-  instances of one triple apart; a navigation property of a node-encoded relation is refused (`SPQ0602`).
+- `?a db:nav ?b` with the anchor's navigation name of an edge-encoded relation creates its instance; the inverse
+  navigation name's triple is derived and refused (`UGS1029`). Attributes of it go on its reifier, which carries the
+  relation's concrete type, `_:r a db:Rel ; rdf:reifies <<( a db:nav b )>> ; db:attr v`, and which the engine binds
+  to the reifier it allocates; an instance of a `@bitemporal` or `@multi` relation is written with its reifier and
+  the reifier's type, one reifier per instance on a `@multi` relation, the only name telling the instances of one
+  triple apart, and its triple alone is an incomplete instance (`UGS1034`); a navigation property of a node-encoded
+  relation is refused (`SPQ0602`).
 - A node-encoded relation instance is a blank node or handle IRI typed with the relation's class, with one role
   triple per role and its attributes; validated whole at commit (`UGS1015` for a missing required role).
 - A `@set` relation's existing combination resolves to the existing instance.
@@ -555,7 +558,7 @@ shapes `../schema/SCHEMA.md` section 11.2 publishes are what a SPARQL client rea
 | SPARQL 1.2 | Not followed. The core is SPARQL 1.1, a Recommendation since 2013. SPARQL 1.2 Query and Update are Working Drafts, revised monthly through October 2026, with the Working Group chartered to April 2027 and no implementation report; building on a draft binds the core to text that moves. Decided 2026-11-05: reviewed again in mid or late 2027, against the Recommendation if one exists by then |
 | Navigation properties | Derived one-step properties for node-encoded relations, so a property path walks a relation node as it walks an edge; read-only |
 | Property paths | Alternatives, sequences, inverse, `+`, `*` and `?` with set semantics by frontier expansion; nothing else until full conformance. SPARQL 1.1 has no bounded `{m,n}` path, so a bounded GQL quantifier has no counterpart here |
-| Writes to `@multi` relations | Decided 2026-11-05: every navigation triple inserted creates one instance; a bare navigation triple under `DELETE DATA` names no one instance and is refused, the reifier's type triple deleting one |
+| Writes to `@multi` relations | Decided 2026-11-05: every navigation triple inserted creates one instance; a bare navigation triple under `DELETE DATA` names no one instance and is refused, the reifier's type triple deleting one. Decided 2026-11-10: an instance is inserted as its triple with its reifier and the reifier's concrete type, and the triple alone is an incomplete instance (`UGS1034`), as for a `@bitemporal` relation (`../schema/SCHEMA.md` section 8.1) |
 | `NOT EXISTS` | One triple pattern with a bound subject: the absence read, recorded in the read set |
 | Retrieval | Property functions `ugdb:nearest` and `ugdb:search`, first in their group |
 | Insert-where-absent | `INSERT … WHERE { FILTER NOT EXISTS { … } }`, one request, the absence validated at commit |

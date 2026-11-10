@@ -1,0 +1,7 @@
+// expect: compiles
+schema uniques version 1
+prefix uq = "https://example.org/uniques#"
+
+entity Account {
+  email: String @unique
+}

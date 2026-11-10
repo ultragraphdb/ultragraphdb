@@ -1,0 +1,25 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1023",
+  "name": "a Supply of 1,000,000.00 bringing the buyer's sum to exactly 50,000,000 commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }",
+        "insert Company { name: \"Beta\" }",
+        "insert Avionics { serial: \"AV-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }",
+        "insert Supply { supplier: Company(name = \"Alpha\"), buyer: Company(name = \"Beta\"), item: Avionics(serial = \"AV-0001\"), signed: 2026-10-30, value: 49_000_000.00 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "supply.nq",
+      "uql": [
+        "insert Supply { supplier: Company(name = \"Alpha\"), buyer: Company(name = \"Beta\"), item: Avionics(serial = \"AV-0001\"), signed: 2026-10-30, value: 1_000_000.00 }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

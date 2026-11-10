@@ -1,0 +1,9 @@
+// expect: compiles
+schema intervals version 1
+prefix iv = "https://example.org/intervals#"
+
+entity Event {
+  window: Interval<DateTime>
+  days:   Interval<Date> Optional
+  span:   Interval<Int64> Optional
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1027",
+  "name": "an Event's altitude, a Measure<Altitude>, written in kn, a unit of Speed, is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Event { id: \"EVENT:launch\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "altitude.nq",
+      "expect": {
+        "refused": "UGS1027"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

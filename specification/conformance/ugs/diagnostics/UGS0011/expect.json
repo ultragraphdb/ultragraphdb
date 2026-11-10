@@ -1,0 +1,75 @@
+{
+  "code": "UGS0011",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "`@immutable`, an attribute's annotation, on a type",
+      "sources": [
+        "reject_immutable_on_type.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0011",
+          "kind": "error",
+          "file": "reject_immutable_on_type.ugs",
+          "line": 5,
+          "column": 14,
+          "length": 10,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_immutable_on_type.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "`@multi`, a relation's annotation, on an entity",
+      "sources": [
+        "reject_multi_on_entity.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0011",
+          "kind": "error",
+          "file": "reject_multi_on_entity.ugs",
+          "line": 5,
+          "column": 14,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_multi_on_entity.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "`@index` on a record field, which takes the value checks alone",
+      "sources": [
+        "reject_index_on_record_field.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0011",
+          "kind": "error",
+          "file": "reject_index_on_record_field.ugs",
+          "line": 6,
+          "column": 19,
+          "length": 13,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_index_on_record_field.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

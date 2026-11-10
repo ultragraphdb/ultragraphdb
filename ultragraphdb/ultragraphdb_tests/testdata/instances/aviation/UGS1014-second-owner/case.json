@@ -1,0 +1,27 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1014",
+  "name": "a second Owns for one aircraft past owner?, the anchor role's bound",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Leonardo\" }",
+        "insert Company { name: \"Airbus\" }",
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }",
+        "insert Owns { owner: Company(name = \"Leonardo\"), asset: Aircraft(serial = \"AC-0001\"), since: 2022-02-07 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert Owns { owner: Company(name = \"Airbus\"), asset: Aircraft(serial = \"AC-0001\"), since: 2023-01-01 }"
+      ],
+      "expect": {
+        "refused": "UGS1014"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

@@ -1,0 +1,16 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1010",
+  "name": "an engine whose serial breaks Serial's @pattern(\"[A-Z0-9-]{6,20}\")",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Engine { serial: \"en-1\", commissioned: 2022-01-08, status: active, tags: [\"engine\"], thrust_kn: 120.5 }"
+      ],
+      "expect": {
+        "refused": "UGS1010"
+      }
+    }
+  ]
+}

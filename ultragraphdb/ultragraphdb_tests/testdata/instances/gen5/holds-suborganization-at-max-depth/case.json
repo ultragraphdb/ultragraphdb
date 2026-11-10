@@ -1,0 +1,96 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1022",
+  "name": "a chain of 32 SubOrganizationOf instances, and a second unit at depth 32, stay within max_depth 32",
+  "steps": [
+    {
+      "insert": "root.nq",
+      "uql": [
+        "insert Organization { id: \"ORG:d0\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "generate": {
+        "from": 1,
+        "to": 32,
+        "insert": "chain-line.nq"
+      },
+      "uql": [
+        "insert Organization { id: \"ORG:d1\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d1\"), parent: Organization(id = \"ORG:d0\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d2\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d2\"), parent: Organization(id = \"ORG:d1\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d3\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d3\"), parent: Organization(id = \"ORG:d2\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d4\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d4\"), parent: Organization(id = \"ORG:d3\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d5\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d5\"), parent: Organization(id = \"ORG:d4\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d6\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d6\"), parent: Organization(id = \"ORG:d5\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d7\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d7\"), parent: Organization(id = \"ORG:d6\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d8\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d8\"), parent: Organization(id = \"ORG:d7\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d9\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d9\"), parent: Organization(id = \"ORG:d8\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d10\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d10\"), parent: Organization(id = \"ORG:d9\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d11\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d11\"), parent: Organization(id = \"ORG:d10\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d12\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d12\"), parent: Organization(id = \"ORG:d11\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d13\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d13\"), parent: Organization(id = \"ORG:d12\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d14\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d14\"), parent: Organization(id = \"ORG:d13\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d15\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d15\"), parent: Organization(id = \"ORG:d14\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d16\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d16\"), parent: Organization(id = \"ORG:d15\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d17\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d17\"), parent: Organization(id = \"ORG:d16\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d18\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d18\"), parent: Organization(id = \"ORG:d17\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d19\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d19\"), parent: Organization(id = \"ORG:d18\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d20\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d20\"), parent: Organization(id = \"ORG:d19\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d21\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d21\"), parent: Organization(id = \"ORG:d20\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d22\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d22\"), parent: Organization(id = \"ORG:d21\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d23\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d23\"), parent: Organization(id = \"ORG:d22\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d24\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d24\"), parent: Organization(id = \"ORG:d23\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d25\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d25\"), parent: Organization(id = \"ORG:d24\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d26\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d26\"), parent: Organization(id = \"ORG:d25\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d27\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d27\"), parent: Organization(id = \"ORG:d26\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d28\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d28\"), parent: Organization(id = \"ORG:d27\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d29\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d29\"), parent: Organization(id = \"ORG:d28\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d30\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d30\"), parent: Organization(id = \"ORG:d29\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d31\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d31\"), parent: Organization(id = \"ORG:d30\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:d32\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:d32\"), parent: Organization(id = \"ORG:d31\"), valid: 2026-01-01T00:00:00Z .. }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "sibling.nq",
+      "uql": [
+        "insert Organization { id: \"ORG:e32\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:e32\"), parent: Organization(id = \"ORG:d31\"), valid: 2026-01-01T00:00:00Z .. }"
+      ],
+      "expect": "commit"
+    }
+  ]
+}

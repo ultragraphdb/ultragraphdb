@@ -1,0 +1,11 @@
+// expect: compiles
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Asset
+entity Site
+relation Located @colocate(site) {
+  asset: Asset -> locations*
+  site:  Site  -> assets*
+  since: Date
+}

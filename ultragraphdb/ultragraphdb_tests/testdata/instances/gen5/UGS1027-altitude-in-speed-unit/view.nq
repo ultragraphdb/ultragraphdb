@@ -1,0 +1,8 @@
+<https://example.org/deep_brain#Node/EVENT%3Alaunch> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Event> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Alaunch> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Perdurant> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Alaunch> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Node> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Alaunch> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Asserted> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Alaunch> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Statement> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Alaunch> <https://example.org/deep_brain#id> "EVENT:launch" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Alaunch> <https://example.org/deep_brain#inferred> "false"^^<http://www.w3.org/2001/XMLSchema#boolean> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Alaunch> <https://example.org/deep_brain#rank> "normal" <https://example.org/deep_brain#ontology> .

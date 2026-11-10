@@ -1,0 +1,9 @@
+// expect: UGS0228 at 9:28
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Batch {
+  factor: Float64
+}
+
+derive Batch.large: Bool = factor / 0.0 > 1

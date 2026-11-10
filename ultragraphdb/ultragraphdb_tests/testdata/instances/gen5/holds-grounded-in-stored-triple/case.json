@@ -1,0 +1,23 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1029",
+  "name": "GroundedIn written as its stored triple, from the statement role's navigation db:grounded_in, commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Concept { id: \"CON:c1\" }",
+        "insert Concept { id: \"CON:c2\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "grounded-in.nq",
+      "uql": [
+        "insert GroundedIn { statement: Concept(id = \"CON:c1\"), ground: Concept(id = \"CON:c2\") }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

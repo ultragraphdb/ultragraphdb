@@ -1,0 +1,85 @@
+{
+  "code": "UGS0901",
+  "kind": "note",
+  "cases": [
+    {
+      "name": "a keyed entity: its create segmented and local by `@key`, its update and delete coordination-free; the range index writes entries, the key's implicit index none",
+      "sources": [
+        "keyed_entity.ugs"
+      ],
+      "diagnostics": [],
+      "report": [
+        "UGS0901 depot.Part.create path=segmented local=true by=@key indexes=1",
+        "UGS0901 depot.Part.update.name path=coordination-free local=true by=none indexes=2",
+        "UGS0901 depot.Part.delete path=coordination-free local=true by=none indexes=1",
+        "UGS0906 depot.Part.create indexes=1 rank=2",
+        "UGS0906 depot.Part.delete indexes=1 rank=3",
+        "UGS0906 depot.Part.update.name indexes=2 rank=1"
+      ]
+    },
+    {
+      "name": "a `@unique` attribute: create and its update segmented and not local, the claim being at the value's owner; its implicit index writes no entry, so no operation is a heaviest writer",
+      "sources": [
+        "unique_attribute.ugs"
+      ],
+      "diagnostics": [],
+      "report": [
+        "UGS0901 depot.Account.create path=segmented local=false by=@unique indexes=0",
+        "UGS0901 depot.Account.update.email path=segmented local=false by=@unique indexes=0",
+        "UGS0901 depot.Account.update.nickname path=coordination-free local=true by=none indexes=0",
+        "UGS0901 depot.Account.delete path=coordination-free local=true by=none indexes=0"
+      ]
+    },
+    {
+      "name": "a relation anchored on its first role: insert segmented and local by the anchor's cardinality, which writes its count index; the anchor participant's delete segmented and local by `restrict`, the other's coordinated by `cascade`",
+      "sources": [
+        "relation.ugs"
+      ],
+      "diagnostics": [],
+      "report": [
+        "UGS0901 depot.Asset.create path=coordination-free local=true by=none indexes=0",
+        "UGS0901 depot.Asset.delete path=segmented local=true by=restrict indexes=0",
+        "UGS0901 depot.Located.insert path=segmented local=true by=cardinality indexes=1",
+        "UGS0901 depot.Located.update.since path=coordination-free local=true by=none indexes=0",
+        "UGS0901 depot.Located.delete path=coordination-free local=true by=none indexes=1",
+        "UGS0901 depot.Site.create path=coordination-free local=true by=none indexes=0",
+        "UGS0901 depot.Site.delete path=coordinated local=false by=cascade indexes=0",
+        "UGS0905 depot.Site.assets relation=depot.Located role=site",
+        "UGS0906 depot.Located.delete indexes=1 rank=2",
+        "UGS0906 depot.Located.insert indexes=1 rank=1"
+      ]
+    },
+    {
+      "name": "a role change of an optional role; an `@append_only` type lists its create alone, an abstract type nothing",
+      "sources": [
+        "role_change.ugs"
+      ],
+      "diagnostics": [],
+      "report": [
+        "UGS0901 depot.Entry.create path=coordination-free local=true by=none indexes=1",
+        "UGS0901 depot.Person.create path=coordination-free local=true by=none indexes=0",
+        "UGS0901 depot.Person.delete path=coordinated local=false by=cascade indexes=0",
+        "UGS0901 depot.Review.insert path=coordination-free local=true by=none indexes=0",
+        "UGS0901 depot.Review.role.reviewer path=coordination-free local=true by=none indexes=0",
+        "UGS0901 depot.Review.delete path=coordination-free local=true by=none indexes=0",
+        "UGS0905 depot.Person.reviewed relation=depot.Review role=reviewer",
+        "UGS0906 depot.Entry.create indexes=1 rank=1"
+      ]
+    },
+    {
+      "name": "a `@bitemporal` type lists retract in place of delete; an interval index writes two entries, an update twice the attribute's",
+      "sources": [
+        "bitemporal.ugs"
+      ],
+      "diagnostics": [],
+      "report": [
+        "UGS0901 depot.Claim.create path=coordination-free local=true by=none indexes=2",
+        "UGS0901 depot.Claim.update.text path=coordination-free local=true by=none indexes=0",
+        "UGS0901 depot.Claim.update.valid path=coordination-free local=true by=none indexes=4",
+        "UGS0901 depot.Claim.retract path=coordination-free local=true by=none indexes=0",
+        "UGS0906 depot.Claim.create indexes=2 rank=2",
+        "UGS0906 depot.Claim.update.valid indexes=4 rank=1"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+// expect: compiles with UGS0902 at 6:38
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Doc {
+  embedding: Vector<F32, 4> Optional @index(ann, metric: cosine)
+}

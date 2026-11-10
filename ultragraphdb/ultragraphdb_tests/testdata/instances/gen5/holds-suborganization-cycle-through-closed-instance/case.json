@@ -1,0 +1,27 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1021",
+  "name": "@acyclic(open) counts open instances only: closing b unit of a lets a become a unit of c in the same transaction",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Organization { id: \"ORG:a\" }",
+        "insert Organization { id: \"ORG:b\" }",
+        "insert Organization { id: \"ORG:c\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:b\"), parent: Organization(id = \"ORG:a\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:c\"), parent: Organization(id = \"ORG:b\"), valid: 2026-01-01T00:00:00Z .. }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "close-and-reverse.nq",
+      "uql": [
+        "update SubOrganizationOf(unit: Organization(id = \"ORG:b\"), parent: Organization(id = \"ORG:a\")) { valid: 2026-01-01T00:00:00Z .. 2026-06-01T00:00:00Z }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:a\"), parent: Organization(id = \"ORG:c\"), valid: 2026-06-01T00:00:00Z .. }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

@@ -1,0 +1,25 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1010",
+  "name": "a Precedes from an Event to a TimeNode, which @check(earlier.type = later.type) refuses",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Event { id: \"EVENT:e1\" }",
+        "insert TimeNode { id: \"TIME:t1\", temporal: instant }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert Precedes { earlier: Event(id = \"EVENT:e1\"), later: TimeNode(id = \"TIME:t1\") }"
+      ],
+      "expect": {
+        "refused": "UGS1010"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

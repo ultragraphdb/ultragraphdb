@@ -1,0 +1,22 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1038",
+  "name": "an Engine created under av:Asset/EN-4471-B, the IRI its key mints, commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Engine { serial: \"EN-4471-B\", commissioned: 2026-10-30, status: active, tags: [\"engine\"], thrust_kn: 310 }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

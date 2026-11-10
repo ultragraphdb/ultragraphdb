@@ -1,0 +1,4 @@
+<https://example.org/deep_brain#Node/ORG%3Ahub> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Ahub> <https://example.org/deep_brain#id> "ORG:hub" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Atop> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Atop> <https://example.org/deep_brain#id> "ORG:top" <https://example.org/deep_brain#ontology> .

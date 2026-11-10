@@ -1,0 +1,36 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1019",
+  "name": "a Supersedes, @retracts(old), whose old statement is already retracted",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "uql": [
+        "insert Claim { id: \"CLM:old\", statement: \"the router is up\" }",
+        "insert Claim { id: \"CLM:new\", statement: \"the router is down\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "operations": [
+        {
+          "kind": "retract",
+          "iri": "https://example.org/deep_brain#Node/CLM%3Aold"
+        }
+      ],
+      "uql": [
+        "retract Claim(id = \"CLM:old\")"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert Supersedes { new: Claim(id = \"CLM:new\"), old: Claim(id = \"CLM:old\") }"
+      ],
+      "expect": {
+        "refused": "UGS1019"
+      }
+    }
+  ]
+}

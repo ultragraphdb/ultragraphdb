@@ -1,0 +1,11 @@
+// expect: UGS0302 at 9:23
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+abstract entity Asset @key(serial) {
+  serial: String
+}
+
+entity Engine : Asset @key(engine_no) {
+  engine_no: String
+}

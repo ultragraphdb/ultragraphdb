@@ -1,0 +1,2 @@
+<https://example.org/deep_brain#Node/ORG%3Ad0> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Ad0> <https://example.org/deep_brain#id> "ORG:d0" <https://example.org/deep_brain#ontology> .

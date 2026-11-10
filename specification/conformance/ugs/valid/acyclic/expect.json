@@ -1,0 +1,24 @@
+{
+  "name": "acyclic",
+  "sources": [
+    "acyclic.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "acyclic.OrgUnit": 3,
+    "acyclic.ReportsTo": 4
+  },
+  "report": [
+    "UGS0901 acyclic.OrgUnit.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 acyclic.OrgUnit.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 acyclic.ReportsTo.insert path=coordinated local=false by=@acyclic indexes=1",
+    "UGS0901 acyclic.ReportsTo.delete path=coordination-free local=true by=none indexes=1",
+    "UGS0905 acyclic.OrgUnit.subordinates relation=acyclic.ReportsTo role=parent",
+    "UGS0906 acyclic.ReportsTo.delete indexes=1 rank=2",
+    "UGS0906 acyclic.ReportsTo.insert indexes=1 rank=1"
+  ]
+}

@@ -1,0 +1,9 @@
+// expect: UGS0101 at 9:33
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Reading {
+  level: Int32
+}
+
+derive Reading.positive: Bool = levle > 0

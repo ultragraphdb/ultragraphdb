@@ -1,0 +1,24 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1009",
+  "name": "a second aircraft created with the tail_number a live aircraft holds",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert Aircraft { serial: \"AC-0002\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }"
+      ],
+      "expect": {
+        "refused": "UGS1009"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

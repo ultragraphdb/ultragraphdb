@@ -1,0 +1,22 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1003",
+  "name": "a relation node created under the abstract relation type Agreement",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Leonardo\" }",
+        "insert Company { name: \"Airbus\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "expect": {
+        "refused": "UGS1003"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

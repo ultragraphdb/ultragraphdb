@@ -1,0 +1,7 @@
+// expect: UGS0120 at 6:32
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Gauge {
+  level: Int32 @check(level >= )
+}

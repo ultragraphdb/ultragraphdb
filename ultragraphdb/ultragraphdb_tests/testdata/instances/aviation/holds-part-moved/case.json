@@ -1,0 +1,27 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1014",
+  "name": "an engine's PartOf deleted and another inserted in one transaction, so assembly? holds at commit",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "uql": [
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }",
+        "insert Aircraft { serial: \"AC-0002\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAB\" }",
+        "insert Engine { serial: \"EN-0001\", commissioned: 2022-01-08, status: active, tags: [\"engine\"], thrust_kn: 120.5 }",
+        "insert PartOf { part: Asset(serial = \"EN-0001\"), whole: Asset(serial = \"AC-0001\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "step2.nq",
+      "delete": "step2-delete.nq",
+      "uql": [
+        "delete PartOf(part: Asset(serial = \"EN-0001\"))",
+        "insert PartOf { part: Asset(serial = \"EN-0001\"), whole: Asset(serial = \"AC-0002\") }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

@@ -1,0 +1,1 @@
+_:m1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#ParticipatesIn> <https://example.org/deep_brain#ontology> .

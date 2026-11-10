@@ -1,0 +1,5 @@
+// expect: UGS0101 at 2:33
+module hangar version 1 extends cor >= 1
+prefix hg = "https://example.org/hangar#"
+
+enum DoorKind { sliding, folding }

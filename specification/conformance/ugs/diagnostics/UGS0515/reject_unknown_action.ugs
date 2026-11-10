@@ -1,0 +1,11 @@
+// expect: UGS0515 at 11:19
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Person { name: String }
+entity Car    { plate: String }
+
+relation Owns {
+  car:   Car    -> owners*
+  owner: Person -> cars*
+} @on_delete(car: nullify)

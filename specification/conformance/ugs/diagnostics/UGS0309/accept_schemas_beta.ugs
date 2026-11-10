@@ -1,0 +1,7 @@
+// expect: compiles
+schema beta version 1
+prefix be = "https://example.org/beta#"
+
+entity Part {
+  label: String
+}

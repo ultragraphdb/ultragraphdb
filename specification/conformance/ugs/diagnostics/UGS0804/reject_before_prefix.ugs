@@ -1,0 +1,6 @@
+// expect: compiles with UGS0804 at 3:1
+schema depot version 1
+/// The vocabulary base.
+prefix dp = "https://example.org/depot#"
+
+entity Part

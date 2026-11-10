@@ -1,0 +1,8 @@
+// expect: UGS0011 at 6:19
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+record Address {
+  city:    String @index(range)
+  country: String
+}

@@ -1,0 +1,8 @@
+// expect: compiles
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Claim @bitemporal(valid: valid) {
+  valid: Interval<Date> Optional @index(interval)
+  text:  String
+}

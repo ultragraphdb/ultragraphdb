@@ -1,0 +1,116 @@
+{
+  "code": "UGS0214",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a subtype making a required attribute Optional",
+      "sources": [
+        "reject_optional.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0214",
+          "kind": "error",
+          "file": "reject_optional.ugs",
+          "line": 10,
+          "column": 16,
+          "length": 8,
+          "fix": [
+            {
+              "file": "reject_optional.ugs",
+              "line": 10,
+              "column": 15,
+              "length": 9,
+              "replacement": ""
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_optional.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a subtype widening an inherited @range",
+      "sources": [
+        "reject_range.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0214",
+          "kind": "error",
+          "file": "reject_range.ugs",
+          "line": 10,
+          "column": 25,
+          "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_range.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a field widening its named attribute type's @range",
+      "sources": [
+        "reject_named.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0214",
+          "kind": "error",
+          "file": "reject_named.ugs",
+          "line": 8,
+          "column": 30,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_named.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a module's subtype making a required attribute Optional",
+      "sources": [
+        "module_core.ugs",
+        "reject_module.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0214",
+          "kind": "error",
+          "file": "reject_module.ugs",
+          "line": 6,
+          "column": 16,
+          "length": 8,
+          "fix": [
+            {
+              "file": "reject_module.ugs",
+              "line": 6,
+              "column": 15,
+              "length": 9,
+              "replacement": ""
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "module_core.ugs",
+          "accept_module.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

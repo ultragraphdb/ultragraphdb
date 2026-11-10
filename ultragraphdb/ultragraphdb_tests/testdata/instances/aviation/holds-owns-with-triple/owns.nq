@@ -1,0 +1,4 @@
+<https://example.org/aviation#Asset/AC-0001> <https://example.org/aviation#owner> <https://example.org/aviation#Organization/Alpha> <https://example.org/aviation#production> .
+_:o <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Owns> <https://example.org/aviation#production> .
+_:o <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/aviation#Asset/AC-0001> <https://example.org/aviation#owner> <https://example.org/aviation#Organization/Alpha> )>> <https://example.org/aviation#production> .
+_:o <https://example.org/aviation#since> "2026-11-01"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .

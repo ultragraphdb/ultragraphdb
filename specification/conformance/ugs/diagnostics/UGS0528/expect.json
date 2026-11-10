@@ -1,0 +1,30 @@
+{
+  "code": "UGS0528",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "an integer among a String field's @values",
+      "sources": ["reject_string_field.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0528", "kind": "error",
+          "file": "reject_string_field.ugs", "line": 6, "column": 29, "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_string_field.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a string among an Int32 field's @values",
+      "sources": ["reject_integer_field.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0528", "kind": "error",
+          "file": "reject_integer_field.ugs", "line": 6, "column": 27, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_integer_field.ugs"], "warnings": [] }
+    }
+  ]
+}

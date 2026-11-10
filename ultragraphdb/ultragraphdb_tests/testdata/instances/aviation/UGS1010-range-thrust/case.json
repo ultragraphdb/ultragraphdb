@@ -1,0 +1,16 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1010",
+  "name": "an engine whose thrust_kn is above @range(0, 2000)",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Engine { serial: \"EN-0001\", commissioned: 2022-01-08, status: active, tags: [\"engine\"], thrust_kn: 2000.5 }"
+      ],
+      "expect": {
+        "refused": "UGS1010"
+      }
+    }
+  ]
+}

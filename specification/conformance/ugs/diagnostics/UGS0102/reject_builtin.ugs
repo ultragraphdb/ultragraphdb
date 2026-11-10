@@ -1,0 +1,8 @@
+// expect: UGS0102 at 5:8
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+record Geo {
+  lat: Float64
+  lon: Float64
+}

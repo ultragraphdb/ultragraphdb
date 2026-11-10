@@ -1,0 +1,30 @@
+{
+  "code": "UGS0403",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a navigation name without its marker, another role following",
+      "sources": ["reject_before_role.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0403", "kind": "error",
+          "file": "reject_before_role.ugs", "line": 8, "column": 21, "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_before_role.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a navigation name without its marker, the body's brace following",
+      "sources": ["reject_before_brace.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0403", "kind": "error",
+          "file": "reject_before_brace.ugs", "line": 9, "column": 21, "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_before_brace.ugs"], "warnings": [] }
+    }
+  ]
+}

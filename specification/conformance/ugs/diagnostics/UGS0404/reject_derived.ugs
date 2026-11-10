@@ -1,0 +1,10 @@
+// expect: UGS0404 at 10:13
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Part {
+  weight: Int32
+  heavy:  Bool
+}
+
+derive Part.heavy: Bool = weight > 100

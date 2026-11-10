@@ -1,0 +1,87 @@
+{
+  "code": "UGS0101",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a module extending a schema no source declares",
+      "sources": [
+        "core.ugs",
+        "reject_extends.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0101",
+          "kind": "error",
+          "file": "reject_extends.ugs",
+          "line": 2,
+          "column": 33,
+          "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "core.ugs",
+          "accept_extends.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a computed derivation naming a field the type lacks",
+      "sources": [
+        "reject_computed_field.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0101",
+          "kind": "error",
+          "file": "reject_computed_field.ugs",
+          "line": 9,
+          "column": 33,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_computed_field.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a path derivation naming a navigation the type lacks",
+      "sources": [
+        "reject_path_step.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0101",
+          "kind": "error",
+          "file": "reject_path_step.ugs",
+          "line": 14,
+          "column": 25,
+          "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_path_step.ugs"
+        ],
+        "warnings": [
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_path_step.ugs",
+            "line": 14,
+            "column": 13,
+            "length": 9,
+            "fix": null
+          }
+        ]
+      }
+    }
+  ]
+}

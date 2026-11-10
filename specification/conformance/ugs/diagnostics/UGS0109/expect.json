@@ -1,0 +1,56 @@
+{
+  "code": "UGS0109",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a module extending a schema at a version above the one the tenant holds",
+      "sources": [
+        "core.ugs",
+        "reject_module.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0109",
+          "kind": "error",
+          "file": "reject_module.ugs",
+          "line": 2,
+          "column": 41,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "core.ugs",
+          "accept_module.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "`import schema` with a version bound above the one the tenant holds",
+      "sources": [
+        "calendar.ugs",
+        "reject_import.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0109",
+          "kind": "error",
+          "file": "reject_import.ugs",
+          "line": 4,
+          "column": 27,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "calendar.ugs",
+          "accept_import.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

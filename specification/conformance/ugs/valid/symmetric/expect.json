@@ -1,0 +1,22 @@
+{
+  "name": "symmetric",
+  "sources": [
+    "symmetric.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "symmetric.Person": 3,
+    "symmetric.Friend": 4
+  },
+  "report": [
+    "UGS0901 symmetric.Friend.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 symmetric.Friend.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 symmetric.Person.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 symmetric.Person.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0905 symmetric.Person.friends relation=symmetric.Friend role=b"
+  ]
+}

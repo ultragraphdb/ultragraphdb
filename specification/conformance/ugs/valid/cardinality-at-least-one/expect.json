@@ -1,0 +1,27 @@
+{
+  "name": "cardinality-at-least-one",
+  "sources": [
+    "cardinality_at_least_one.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "cardinality_at_least_one.Team": 3,
+    "cardinality_at_least_one.Player": 4,
+    "cardinality_at_least_one.Roster": 5
+  },
+  "report": [
+    "UGS0901 cardinality_at_least_one.Player.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 cardinality_at_least_one.Player.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 cardinality_at_least_one.Roster.insert path=segmented local=true by=@set indexes=1",
+    "UGS0901 cardinality_at_least_one.Roster.delete path=segmented local=true by=cardinality indexes=1",
+    "UGS0901 cardinality_at_least_one.Team.create path=segmented local=true by=cardinality indexes=0",
+    "UGS0901 cardinality_at_least_one.Team.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0905 cardinality_at_least_one.Player.teams relation=cardinality_at_least_one.Roster role=player",
+    "UGS0906 cardinality_at_least_one.Roster.delete indexes=1 rank=2",
+    "UGS0906 cardinality_at_least_one.Roster.insert indexes=1 rank=1"
+  ]
+}

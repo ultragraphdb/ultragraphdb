@@ -1,0 +1,27 @@
+<https://example.org/deep_brain#Node/ACT%3Aa1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Activity> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ACT%3Aa1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Event> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ACT%3Aa1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Perdurant> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ACT%3Aa1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Node> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ACT%3Aa1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Asserted> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ACT%3Aa1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Statement> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ACT%3Aa1> <https://example.org/deep_brain#id> "ACT:a1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ACT%3Aa1> <https://example.org/deep_brain#inferred> "false"^^<http://www.w3.org/2001/XMLSchema#boolean> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ACT%3Aa1> <https://example.org/deep_brain#rank> "normal" <https://example.org/deep_brain#ontology> .
+_:r1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Reading> <https://example.org/deep_brain#ontology> .
+_:r1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Statement> <https://example.org/deep_brain#ontology> .
+_:r1 <https://example.org/deep_brain#valid_start> "2024-01-01T00:00:00Z"^^<http://www.w3.org/2001/XMLSchema#dateTimeStamp> <https://example.org/deep_brain#ontology> .
+_:r1 <https://example.org/deep_brain#valid_end> "2024-01-01T00:00:01Z"^^<http://www.w3.org/2001/XMLSchema#dateTimeStamp> <https://example.org/deep_brain#ontology> .
+_:r1 <https://example.org/deep_brain#value> "21.5 Cel"^^<https://w3id.org/ultragraphdb/ns/measure> <https://example.org/deep_brain#ontology> .
+_:r1 <https://example.org/deep_brain#generated_by> <https://example.org/deep_brain#Node/ACT%3Aa1> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Verdict> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Purpose> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Content> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Information> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Node> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Asserted> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Statement> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <https://example.org/deep_brain#id> "VER:v1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <https://example.org/deep_brain#outcome> "allow" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <https://example.org/deep_brain#status> "fired" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <https://example.org/deep_brain#inferred> "false"^^<http://www.w3.org/2001/XMLSchema#boolean> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <https://example.org/deep_brain#rank> "normal" <https://example.org/deep_brain#ontology> .

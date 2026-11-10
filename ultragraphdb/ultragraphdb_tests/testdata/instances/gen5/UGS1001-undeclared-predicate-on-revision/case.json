@@ -1,0 +1,21 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1001",
+  "name": "rdfs:label, a predicate the catalog does not declare, written on an existing Object",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Object { id: \"OBJ:o1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "expect": {
+        "refused": "UGS1001"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

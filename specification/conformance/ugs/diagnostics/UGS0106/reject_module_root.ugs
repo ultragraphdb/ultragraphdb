@@ -1,0 +1,7 @@
+// expect: UGS0106 at 5:8
+module hangar version 1 extends core >= 1
+prefix hg = "https://example.org/hangar#"
+
+entity Hangar {
+  doors: Int32
+}

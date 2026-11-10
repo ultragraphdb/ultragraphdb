@@ -1,0 +1,29 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1023",
+  "name": "an IsAbout inserted with rank preferred for a Document that has a preferred IsAbout breaks one preferred instance per subject and type",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Document { id: \"DOC:d1\" }",
+        "insert Concept { id: \"CON:c1\" }",
+        "insert Concept { id: \"CON:c2\" }",
+        "insert IsAbout { information: Document(id = \"DOC:d1\"), topic: Concept(id = \"CON:c1\"), rank: preferred }",
+        "insert IsAbout { information: Document(id = \"DOC:d1\"), topic: Concept(id = \"CON:c2\"), rank: normal }",
+        "insert Concept { id: \"CON:c3\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "isabout.nq",
+      "uql": [
+        "insert IsAbout { information: Document(id = \"DOC:d1\"), topic: Concept(id = \"CON:c3\"), rank: preferred }"
+      ],
+      "expect": {
+        "refused": "UGS1023"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

@@ -1,0 +1,9 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+import "https://schema.org/" as sdo
+import "http://www.w3.org/ns/prov#" as prov
+
+entity Pilot {
+  name: String
+}

@@ -1,0 +1,15 @@
+// expect: UGS0302 at 13:27
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+abstract statement Entry @key(id) {
+  id: String
+}
+
+abstract entity Document : Entry {
+  title: String
+}
+
+entity Invoice : Document @key(number) {
+  number: String
+}

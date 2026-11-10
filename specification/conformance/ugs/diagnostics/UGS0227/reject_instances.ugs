@@ -1,0 +1,10 @@
+// expect: UGS0227 at 10:34
+schema library version 1
+prefix ex = "https://example.org/library#"
+
+entity Book {
+  title:  String
+  copies: Int32
+}
+
+derive Book.common: Bool = count(Book) > 100

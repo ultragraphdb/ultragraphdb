@@ -1,0 +1,29 @@
+{
+  "code": "UGS0218",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a fixed-unit Measure whose unit is another kind's",
+      "sources": [
+        "reject.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0218",
+          "kind": "error",
+          "file": "reject.ugs",
+          "line": 12,
+          "column": 27,
+          "length": 2,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

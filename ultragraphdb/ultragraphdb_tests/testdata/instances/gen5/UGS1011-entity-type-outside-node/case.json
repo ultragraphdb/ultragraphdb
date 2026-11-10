@@ -1,0 +1,13 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1011",
+  "name": "a ProposedKind whose supertype, a schema.EntityType<Node>, is Reading, which is not below Node",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1011"
+      }
+    }
+  ]
+}

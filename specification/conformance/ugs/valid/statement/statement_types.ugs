@@ -1,0 +1,16 @@
+// expect: compiles
+schema statement_types version 1
+prefix sm = "https://example.org/statement_types#"
+
+abstract statement Claim {
+  note: String Optional
+}
+
+entity Fact : Claim {
+  label: String
+}
+
+relation Supports : Claim {
+  evidence: Fact  -> grounds*
+  claim:    Claim -> grounded_by*
+}

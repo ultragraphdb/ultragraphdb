@@ -1,0 +1,10 @@
+// expect: UGS0117 at 10:36
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Account {
+  balance: Int64
+}
+
+fn Account.doubled() -> Int64 = balance * 2
+fn Account.quadrupled() -> Int64 = doubeld() * 2

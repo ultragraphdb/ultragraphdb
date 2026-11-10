@@ -1,0 +1,11 @@
+// expect: UGS0113 at 10:19
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+quantity Length { dimension: "L", scale: ratio, canonical: m }
+
+unit m    { quantities: [Length], ucum: "m", symbol: "m" }
+
+entity Runway {
+  length: Measure<Lenght>
+}

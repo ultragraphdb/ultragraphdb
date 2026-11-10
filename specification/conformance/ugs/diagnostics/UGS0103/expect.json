@@ -1,0 +1,30 @@
+{
+  "code": "UGS0103",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "`import schema` naming a schema the tenant does not hold",
+      "sources": [
+        "reject.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0103",
+          "kind": "error",
+          "file": "reject.ugs",
+          "line": 4,
+          "column": 15,
+          "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "calendar.ugs",
+          "accept.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+// expect: UGS0211 at 6:15
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+record Window {
+  opens: Date @pattern("2026-.*")
+}

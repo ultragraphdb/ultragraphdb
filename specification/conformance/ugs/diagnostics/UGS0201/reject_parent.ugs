@@ -1,0 +1,7 @@
+// expect: UGS0201 at 5:17
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Engine : Asset {
+  thrust: Float64
+}

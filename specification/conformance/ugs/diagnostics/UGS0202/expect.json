@@ -1,0 +1,106 @@
+{
+  "code": "UGS0202",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a type argument past the type's count",
+      "sources": [
+        "reject_extra.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0202",
+          "kind": "error",
+          "file": "reject_extra.ugs",
+          "line": 6,
+          "column": 21,
+          "length": 5,
+          "fix": [
+            {
+              "file": "reject_extra.ugs",
+              "line": 6,
+              "column": 19,
+              "length": 7,
+              "replacement": ""
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_extra.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a type missing an argument",
+      "sources": [
+        "reject_missing.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0202",
+          "kind": "error",
+          "file": "reject_missing.ugs",
+          "line": 6,
+          "column": 14,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_missing.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an integer where a type argument is expected",
+      "sources": [
+        "reject_kind.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0202",
+          "kind": "error",
+          "file": "reject_kind.ugs",
+          "line": 6,
+          "column": 15,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_kind.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a Decimal without its scale",
+      "sources": [
+        "reject_precision.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0202",
+          "kind": "error",
+          "file": "reject_precision.ugs",
+          "line": 6,
+          "column": 10,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_precision.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

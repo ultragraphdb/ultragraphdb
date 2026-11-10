@@ -1,0 +1,13 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1002",
+  "name": "a blank node with a Reading's text and no rdf:type creates an instance naming no concrete type",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1002"
+      }
+    }
+  ]
+}

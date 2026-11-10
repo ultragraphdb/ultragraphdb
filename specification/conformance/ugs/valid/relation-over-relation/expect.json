@@ -1,0 +1,29 @@
+{
+  "name": "relation-over-relation",
+  "sources": [
+    "relation_over_relation.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "relation_over_relation.Org": 3,
+    "relation_over_relation.Person": 4,
+    "relation_over_relation.Employs": 5,
+    "relation_over_relation.Verifies": 6
+  },
+  "report": [
+    "UGS0901 relation_over_relation.Employs.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 relation_over_relation.Employs.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_over_relation.Org.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_over_relation.Org.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_over_relation.Person.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_over_relation.Person.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 relation_over_relation.Verifies.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 relation_over_relation.Verifies.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0905 relation_over_relation.Person.employers relation=relation_over_relation.Employs role=employee",
+    "UGS0905 relation_over_relation.Person.verified relation=relation_over_relation.Verifies role=verifier"
+  ]
+}

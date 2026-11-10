@@ -1,0 +1,11 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+quantity Length { dimension: "L", scale: ratio, canonical: m }
+
+unit m { quantities: [Length], ucum: "m", symbol: "m" }
+
+entity Tower {
+  height: Measure<Length, m> @unique
+}

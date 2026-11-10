@@ -1,0 +1,20 @@
+{
+  "name": "vector",
+  "sources": [
+    "vectors.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "vectors.Doc": 3
+  },
+  "report": [
+    "UGS0901 vectors.Doc.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 vectors.Doc.update.compact path=coordination-free local=true by=none indexes=0",
+    "UGS0901 vectors.Doc.update.embedding path=coordination-free local=true by=none indexes=0",
+    "UGS0901 vectors.Doc.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

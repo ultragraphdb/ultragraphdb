@@ -1,0 +1,7 @@
+// expect: UGS0214 at 6:16
+module tools version 1 extends core >= 1
+prefix tl = "https://example.org/tools#"
+
+entity Tool : core.Asset {
+  code: String Optional @pattern("[A-Z]+")
+}

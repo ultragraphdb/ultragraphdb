@@ -1,0 +1,8 @@
+// expect: compiles
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Account {
+  email:    String @unique
+  nickname: String Optional
+}

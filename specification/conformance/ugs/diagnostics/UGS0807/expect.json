@@ -1,0 +1,37 @@
+{
+  "code": "UGS0807",
+  "kind": "warning",
+  "cases": [
+    {
+      "name": "a type's `@check` comparing an optional field with no test of its presence; the fix guards it with `is none or`",
+      "sources": [
+        "reject.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0807",
+          "kind": "warning",
+          "file": "reject.ugs",
+          "line": 5,
+          "column": 20,
+          "length": 9,
+          "fix": [
+            {
+              "file": "reject.ugs",
+              "line": 5,
+              "column": 20,
+              "length": 0,
+              "replacement": "price is none or "
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

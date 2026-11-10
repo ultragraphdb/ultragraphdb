@@ -118,6 +118,9 @@ assign    = ident ":" ( value | selector | "[" selector { "," selector } "]" ) ;
 - A mutation answers one Result of no columns and no rows, flagged `LAST`. The subset has no `returning`: a keyless
   instance's handle is minted by its partition at creation, and a relation instance is found again by its role
   bindings.
+- With no `let` and no `returning`, the subset cannot create a keyless entity whose lower bound needs a relation in
+  the same transaction, a Gen5 `Reading` with its `GeneratedBy`: no later statement can name the new entity. Quads
+  carry such a step, a blank node naming the entity within its Write, and its instance case has no `uql`.
 - Several statements are made atomic by the protocol's interactive transaction: Begin, several Query frames, Commit.
 - The RDF view's writes through quads stay in scope (`SCHEMA.md` section 11.4): the oracle's instance sets are written
   as quads, and a blank node names a keyless instance whose handle the partition mints.
@@ -200,9 +203,12 @@ query core's crates and their folder are stage 7's to place.
   `specification/schema/BUILD.bazel`: one copy of the file the success criterion names. This replaces the
   preparation's D4.
 - The conformance corpus (`UltraGraphDB Schema Feedback.md` section E; preparation task 0.4) lives in
-  `ultragraphdb_schema/ultragraphdb_schema_compile/testdata/ugs/`, with the instance sets under
-  `ultragraphdb/ultragraphdb_tests/testdata/`. Its modules are minimal sources of its own. Its evolution pairs are
-  written at stage 9.5.
+  `specification/conformance/ugs/`, the filegroup `//specification/conformance/ugs:corpus`, with the instance sets under
+  `ultragraphdb/ultragraphdb_tests/testdata/instances/`. The corpus is the specification's, independent of any
+  crate: the syntax, compile and catalog crates each read it, and a second implementation is held to it. It cannot sit
+  in a crate's folder before the crate exists, since a workspace glob matching a folder without `Cargo.toml` fails
+  Cargo and with it Bazel's crate resolution (checked 2026-11-10). Its modules are minimal sources of its own. Its
+  evolution pairs are written at stage 9.5.
 
 ### 8. `@index(ann)` is declared and unenforced (G2, decided 2026-11-08)
 
@@ -341,4 +347,10 @@ before the next wave starts.
 
 ## Open Questions
 
-- None at present.
+- **Materialized path derivations.** `SCHEMA.md` section 14 enforces materialized derivations from stage 6, while a
+  path derivation's body stays text until stage 7 gives it a compiled form (`SCHEMA.md` 10.2 rule 5, `CATALOG.md`
+  section 4). A partition maintaining one at commit needs a path evaluator. Does stage 6 enforce materialized path
+  derivations, building that evaluator in group 8, or record them with `UGS0902` until stage 7, as virtual ones are?
+- **A range index on `Decimal`.** `SCHEMA.md` 6.10's `@index(range)` row names no tokenizer for `Decimal`, an ordered
+  scalar. Does `Decimal` take a sortable tokenizer of its own, ordering by its exact value, or is a range index on it
+  refused until one exists?

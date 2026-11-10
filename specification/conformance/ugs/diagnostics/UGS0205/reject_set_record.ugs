@@ -1,0 +1,12 @@
+// expect: UGS0205 at 11:15
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+record Point {
+  x: Float64
+  y: Float64
+}
+
+entity Route {
+  points: Set<Point>
+}

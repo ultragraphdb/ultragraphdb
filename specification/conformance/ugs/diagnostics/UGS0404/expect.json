@@ -1,0 +1,99 @@
+{
+  "code": "UGS0404",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a navigation name clashing with an attribute of the participant type",
+      "sources": ["reject_attribute.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0404", "kind": "error",
+          "file": "reject_attribute.ugs", "line": 11, "column": 21, "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_attribute.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a navigation name clashing with an attribute the participant type inherits",
+      "sources": ["reject_inherited_attribute.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0404", "kind": "error",
+          "file": "reject_inherited_attribute.ugs", "line": 10, "column": 21, "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_inherited_attribute.ugs"], "warnings": [] }
+    },
+    {
+      "name": "two relations giving one participant type one navigation name",
+      "sources": ["reject_navigation.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0404", "kind": "error",
+          "file": "reject_navigation.ugs", "line": 15, "column": 21, "length": 11,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_navigation.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a navigation name clashing with the built-in field type",
+      "sources": ["reject_builtin.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0404", "kind": "error",
+          "file": "reject_builtin.ugs", "line": 10, "column": 21, "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_builtin.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a derived name clashing with an attribute",
+      "sources": ["reject_derived.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0404", "kind": "error",
+          "file": "reject_derived.ugs", "line": 10, "column": 13, "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_derived.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a method function clashing with an attribute",
+      "sources": ["reject_function.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0404", "kind": "error",
+          "file": "reject_function.ugs", "line": 10, "column": 9, "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": ["accept_function.ugs"],
+        "warnings": [
+          {
+            "code": "UGS0902", "kind": "warning",
+            "file": "accept_function.ugs", "line": 10, "column": 9, "length": 10,
+            "fix": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "two roles of one relation that is not symmetric giving one participant type one navigation name",
+      "sources": ["reject_same_relation.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0404", "kind": "error",
+          "file": "reject_same_relation.ugs", "line": 9, "column": 21, "length": 13,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_same_relation.ugs"], "warnings": [] }
+    }
+  ]
+}

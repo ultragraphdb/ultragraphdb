@@ -1,0 +1,20 @@
+{
+  "name": "deprecated",
+  "sources": [
+    "deprecations.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "deprecations.Thing": 3
+  },
+  "report": [
+    "UGS0901 deprecations.Thing.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 deprecations.Thing.update.label path=coordination-free local=true by=none indexes=0",
+    "UGS0901 deprecations.Thing.update.old_label path=coordination-free local=true by=none indexes=0",
+    "UGS0901 deprecations.Thing.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

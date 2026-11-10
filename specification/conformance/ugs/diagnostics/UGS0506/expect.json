@@ -1,0 +1,42 @@
+{
+  "code": "UGS0506",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a count bound written as a string",
+      "sources": ["reject_count_string.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0506", "kind": "error",
+          "file": "reject_count_string.ugs", "line": 11, "column": 21, "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_count_string.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a count bound written as a decimal",
+      "sources": ["reject_count_decimal.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0506", "kind": "error",
+          "file": "reject_count_decimal.ugs", "line": 11, "column": 21, "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_count_decimal.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a bound on the sum of an integer attribute written as a decimal",
+      "sources": ["reject_sum_decimal.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0506", "kind": "error",
+          "file": "reject_sum_decimal.ugs", "line": 12, "column": 25, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_sum_decimal.ugs"], "warnings": [] }
+    }
+  ]
+}

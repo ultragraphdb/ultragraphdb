@@ -1,0 +1,52 @@
+{
+  "code": "UGS0307",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a key naming an undeclared attribute",
+      "sources": [
+        "reject_undeclared.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0307",
+          "kind": "error",
+          "file": "reject_undeclared.ugs",
+          "line": 5,
+          "column": 20,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_undeclared.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a relation's key naming a role",
+      "sources": [
+        "reject_role.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0307",
+          "kind": "error",
+          "file": "reject_role.ugs",
+          "line": 13,
+          "column": 20,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_role.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

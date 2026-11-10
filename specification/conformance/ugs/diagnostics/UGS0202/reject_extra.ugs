@@ -1,0 +1,7 @@
+// expect: UGS0202 at 6:21
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Item {
+  tags: Set<String, Int32>
+}

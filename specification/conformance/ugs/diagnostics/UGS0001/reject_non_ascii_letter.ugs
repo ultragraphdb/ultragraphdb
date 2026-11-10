@@ -1,0 +1,7 @@
+// expect: UGS0001 at 5:9
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Aéroport {
+  code: String
+}

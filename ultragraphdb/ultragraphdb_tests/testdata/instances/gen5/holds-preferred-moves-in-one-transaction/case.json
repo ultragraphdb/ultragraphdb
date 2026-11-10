@@ -1,0 +1,28 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1023",
+  "name": "one transaction revising the preferred IsAbout to normal and another to preferred leaves one preferred instance",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Document { id: \"DOC:d1\" }",
+        "insert Concept { id: \"CON:c1\" }",
+        "insert Concept { id: \"CON:c2\" }",
+        "insert IsAbout { information: Document(id = \"DOC:d1\"), topic: Concept(id = \"CON:c1\"), rank: preferred }",
+        "insert IsAbout { information: Document(id = \"DOC:d1\"), topic: Concept(id = \"CON:c2\"), rank: normal }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "revise.nq",
+      "delete": "revise-old.nq",
+      "uql": [
+        "update IsAbout(information: Document(id = \"DOC:d1\"), topic: Concept(id = \"CON:c1\")) { rank: normal }",
+        "update IsAbout(information: Document(id = \"DOC:d1\"), topic: Concept(id = \"CON:c2\")) { rank: preferred }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

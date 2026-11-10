@@ -1,0 +1,8 @@
+// expect: compiles
+schema keys version 1
+prefix ky = "https://example.org/keys#"
+
+entity Person @key(id) {
+  id:   String
+  name: String
+}

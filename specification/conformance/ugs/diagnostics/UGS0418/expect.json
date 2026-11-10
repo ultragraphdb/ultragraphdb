@@ -1,0 +1,30 @@
+{
+  "code": "UGS0418",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "an edge-encoded relation whose first role, the anchor, declares `-> _`",
+      "sources": ["reject_first_role.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0418", "kind": "error",
+          "file": "reject_first_role.ugs", "line": 9, "column": 17, "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_first_role.ugs"], "warnings": [] }
+    },
+    {
+      "name": "an edge-encoded relation whose @colocate names a role declaring `-> _`",
+      "sources": ["reject_colocate.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0418", "kind": "error",
+          "file": "reject_colocate.ugs", "line": 8, "column": 27, "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_colocate.ugs"], "warnings": [] }
+    }
+  ]
+}

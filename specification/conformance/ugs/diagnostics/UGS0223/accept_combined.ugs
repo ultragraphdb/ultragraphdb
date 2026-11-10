@@ -1,0 +1,8 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Flight @check(departed - scheduled <= PT6H) {
+  scheduled: DateTime
+  departed:  DateTime
+}

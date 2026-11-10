@@ -1,0 +1,21 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1038",
+  "name": "a Company, a keyed type, created under a blank node is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { id: \"ORG:acme\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1038"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

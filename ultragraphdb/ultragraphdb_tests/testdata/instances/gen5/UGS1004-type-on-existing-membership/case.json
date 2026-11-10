@@ -1,0 +1,23 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1004",
+  "name": "rdf:type ParticipatesIn written on an existing MemberOf, a keyless instance named by its handle",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Organization { id: \"AGENT:acme\" }",
+        "insert Person { id: \"AGENT:p0\" }",
+        "insert MemberOf { member: Person(id = \"AGENT:p0\"), collection: Organization(id = \"AGENT:acme\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "expect": {
+        "refused": "UGS1004"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

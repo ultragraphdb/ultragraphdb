@@ -1,0 +1,17 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1016",
+  "name": "a revision adding one member of an Alternatives and removing another, so members stays non-empty",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "expect": "commit"
+    },
+    {
+      "insert": "step2.nq",
+      "delete": "step2-delete.nq",
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

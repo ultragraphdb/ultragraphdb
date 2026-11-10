@@ -1,0 +1,10 @@
+// expect: compiles
+schema library version 1
+prefix ex = "https://example.org/library#"
+
+entity Book {
+  title:  String
+  copies: Int32
+}
+
+derive Book.common: Bool = copies > 100

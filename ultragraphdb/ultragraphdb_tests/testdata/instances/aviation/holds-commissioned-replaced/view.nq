@@ -1,0 +1,10 @@
+<https://example.org/aviation#Organization/Alpha> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Company> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Alpha> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Organization> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Alpha> <https://example.org/aviation#name> "Alpha" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/EN-4471-B> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Engine> <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/EN-4471-B> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Asset> <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/EN-4471-B> <https://example.org/aviation#serial> "EN-4471-B" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/EN-4471-B> <https://example.org/aviation#status> "active" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/EN-4471-B> <https://example.org/aviation#tags> "engine" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/EN-4471-B> <https://example.org/aviation#thrust_kn> "310"^^<http://www.w3.org/2001/XMLSchema#double> <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/EN-4471-B> <https://example.org/aviation#commissioned> "2026-11-01"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .

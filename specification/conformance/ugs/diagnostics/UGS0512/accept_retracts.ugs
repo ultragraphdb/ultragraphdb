@@ -1,0 +1,18 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Claim @bitemporal(valid: valid) {
+  valid: Interval<DateTime> Optional
+  text:  String
+}
+
+entity Note @append_only {
+  text: String
+}
+
+relation Corrects @bitemporal(valid: valid) {
+  old:   Claim -> corrected_by*
+  fix:   Claim -> corrects*
+  valid: Interval<DateTime> Optional
+} @retracts(old)

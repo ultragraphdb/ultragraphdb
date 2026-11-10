@@ -1,0 +1,19 @@
+// expect: compiles
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Sighting @append_only {
+  seen:  DateTime @index(range)
+  notes: Text @index(fulltext)
+  spot:  Geo @index(geo)
+}
+entity Note @append_only {
+  written: DateTime @index(range)
+  body:    Text @index(fulltext)
+}
+entity Tally @append_only {
+  total: Int64 @index(range)
+}
+entity Ping @append_only {
+  sent: DateTime
+}

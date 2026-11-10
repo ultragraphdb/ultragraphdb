@@ -1,0 +1,11 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Document {
+  title: String
+}
+
+abstract statement Claim {
+  text: String
+}

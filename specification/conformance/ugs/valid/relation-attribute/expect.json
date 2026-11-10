@@ -1,0 +1,26 @@
+{
+  "name": "relation-attribute",
+  "sources": [
+    "relation_attribute.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "relation_attribute.Author": 3,
+    "relation_attribute.Book": 4,
+    "relation_attribute.Wrote": 5
+  },
+  "report": [
+    "UGS0901 relation_attribute.Author.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_attribute.Author.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_attribute.Book.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_attribute.Book.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 relation_attribute.Wrote.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 relation_attribute.Wrote.update.year path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_attribute.Wrote.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0905 relation_attribute.Book.authors relation=relation_attribute.Wrote role=book"
+  ]
+}

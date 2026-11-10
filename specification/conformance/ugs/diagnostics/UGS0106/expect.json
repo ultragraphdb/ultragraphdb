@@ -1,0 +1,100 @@
+{
+  "code": "UGS0106",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "an entity extending a relation",
+      "sources": [
+        "reject_entity_of_relation.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0106",
+          "kind": "error",
+          "file": "reject_entity_of_relation.ugs",
+          "line": 17,
+          "column": 18,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_entity_of_relation.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a relation extending an entity",
+      "sources": [
+        "reject_relation_of_entity.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0106",
+          "kind": "error",
+          "file": "reject_relation_of_entity.ugs",
+          "line": 12,
+          "column": 18,
+          "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_relation_of_entity.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a statement extending an entity",
+      "sources": [
+        "reject_statement_of_entity.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0106",
+          "kind": "error",
+          "file": "reject_statement_of_entity.ugs",
+          "line": 9,
+          "column": 28,
+          "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_statement_of_entity.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a module declaring a root type",
+      "sources": [
+        "core.ugs",
+        "reject_module_root.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0106",
+          "kind": "error",
+          "file": "reject_module_root.ugs",
+          "line": 5,
+          "column": 8,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "core.ugs",
+          "accept_module_root.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

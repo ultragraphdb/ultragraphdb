@@ -1,0 +1,24 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1017",
+  "name": "an Owns naming an organization that does not exist",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert Owns { owner: Company(name = \"Boeing\"), asset: Aircraft(serial = \"AC-0001\"), since: 2022-02-07 }"
+      ],
+      "expect": {
+        "refused": "UGS1017"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

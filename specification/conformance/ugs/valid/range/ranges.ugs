@@ -1,0 +1,8 @@
+// expect: compiles
+schema ranges version 1
+prefix rg = "https://example.org/ranges#"
+
+entity Sensor {
+  reading: Float64 @range(0, 2000)
+  level:   Int32 @range(1, open)
+}

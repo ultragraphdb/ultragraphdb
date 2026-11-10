@@ -55,7 +55,7 @@ A version is a body with a fixed part of 64 bytes and seven sections.
 | 24 | 8 | `version` | u64 | the catalog version's number, at least 1 |
 | 32 | 4 | `entries` | u32 | the entry count |
 | 36 | 4 | `types` | u32 | the count of Type entries |
-| 40 | 2 | `prefix_next` | u16 | the tenant's next free type prefix once this version is allocated, at least 3 and above every prefix a Type entry holds |
+| 40 | 2 | `prefix_next` | u16 | the tenant's next free type prefix once this version is allocated, at least 3, at most 65,535 and above every prefix a Type entry holds; prefix 65,535 is never allocated (`SCHEMA.md` section 7.1) |
 | 42 | 6 | zero | 0 | |
 | 48 | 8 | `predicate_next` | u64 | the tenant's next free predicate sequence once this version is allocated, at least 2^63 and above every sequence the predicate index holds |
 | 56 | 8 | zero | 0 | |
@@ -488,8 +488,30 @@ Classification, fixed part 8 bytes: `type` at 0, a string, the type's qualified 
 | 8 | 4 | `by` | string: the deciding constraint, as its annotation is written, `@key` or `@limit`; `ABSENT` for none |
 | 12 | 4 | `indexes` | u32: the index entries the operation writes |
 
-These are `SCHEMA.md` section 9.5's `UGS0901` records. Only the operations the version permits are listed: no
-update of a key attribute, none of an `@append_only` type.
+These are `SCHEMA.md` section 9.5's `UGS0901` records. Only the operations the version permits are listed, by these
+rules, from the declarations alone:
+
+- **Operations.** An entity type lists create, an update per attribute, and delete; a relation type insert, an update
+  per attribute, a role change per role that is `Optional` or set-valued, and delete. A key attribute and a derived
+  name take no update. A `@bitemporal` type lists retract in place of delete, its updates being revisions; an
+  `@append_only` type lists its create or insert alone. An abstract type lists nothing.
+- **`path` and `by`.** The operation's path is the most demanding of the rows of `SCHEMA.md` section 9.3 its
+  constraints fall under, coordinated over segmented over coordination-free and, at one path, state another
+  partition owns over the transaction's own; `by` names the constraint of that row, the first in this order on a
+  tie: `@key`,
+  `@unique`, `cardinality`, `@set`, `@acyclic`, `@limit`, `@no_overlap`, `restrict`, `restrict-open`, `cascade`,
+  `@retracts` or `@ends`, written without arguments. A coordination-free operation has `by` `ABSENT`, rendered `none`,
+  and `local` 1.
+- **`local`.** 1 when the row's state is the transaction's partition's by placement, as section 9.3's "local" says; 0
+  for every coordinated operation and a segmented one whose owner is elsewhere, as `@unique`'s claim is.
+- **`indexes`.** The index entries one instance's operation puts or deletes, counted per declared index whatever the
+  instance's values: an attribute's `@index(range)`, `@index(fulltext)` and `@index(geo)` one each, its
+  `@index(interval)` two, an `@index(ann)` none while it is unbuilt, and a role whose navigation name has a bounded
+  cardinality one, its count index. A `@key` or `@unique` attribute's implicit index is its claim and the store's
+  reverse list, and writes no index entry; a materialized derivation's index entries are not counted. A create,
+  insert or delete counts every index of the type's attributes and roles; an update of an attribute twice that
+  attribute's, the old entries deleted and the new put; a role change twice that role's count index; a retraction its roles' count
+  indexes, which count live instances.
 
 Report has no fixed part. Section 0 holds the other records of section 9.5 there, 16 bytes each, by `code`, then by
 `subject` as UTF-8 bytes:
@@ -499,11 +521,12 @@ Report has no fixed part. Section 0 holds the other records of section 9.5 there
 | 0 | 2 | `code` | u16: 902 to 906 |
 | 2 | 2 | zero | 0 |
 | 4 | 4 | `subject` | string: the record's subject, a qualified name |
-| 8 | 4 | `a` | 902: the construct, a string; 903: the role to colocate, a string; 904: the constraint kept local, a string; 905: the relation, a string; 906: the index entries, a u32 |
-| 12 | 4 | `b` | 902: the stage, a string, `8` or `9.5`; 904: the constraint routed through coordination, a string; 905: the role, a string; 906: the rank, 1 to 10; 0 for 903 |
+| 8 | 4 | `a` | 902: the construct, a string: the annotation as written without arguments, `@index(ann)`, or the keyword, `fn` or `derive`; 903: the role to colocate, a string; 904: the constraint kept local, a string in `by`'s words; 905: the relation's qualified name, a string; 906: the index entries, a u32 |
+| 12 | 4 | `b` | 902: the stage, a string, as `SCHEMA.md` section 14 numbers it, `7`, `8` or `9.5`; 904: the constraint routed through coordination, a string in `by`'s words; 905: the role, a string; 906: the rank, 1 to 10; 0 for 903 |
 
 A `UGS0906` record is written for each of the ten operations writing most index entries, those writing none left
-out.
+out, ties ranked in the Classification entries' order. A `UGS0905` record of a derivation names the relation and role
+of the derivation's first step.
 
 ### 5.10 Source (19)
 

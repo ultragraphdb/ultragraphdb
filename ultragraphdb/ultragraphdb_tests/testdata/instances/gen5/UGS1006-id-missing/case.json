@@ -1,0 +1,13 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1006",
+  "name": "an Object created under its key's IRI without the key attribute id",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1006"
+      }
+    }
+  ]
+}

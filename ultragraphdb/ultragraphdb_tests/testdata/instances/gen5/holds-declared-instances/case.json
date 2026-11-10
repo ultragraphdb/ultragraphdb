@@ -1,0 +1,27 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1001",
+  "name": "instances of concrete types, each typed once under its minted IRI with its key and required attributes, every predicate declared on its type, a Post and a Data each created with the relation its {1,1} bound needs",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Organization { id: \"AGENT:acme\", identifiers: [\"lei:5299001\"] }",
+        "insert Person { id: \"AGENT:p0\", personal_name: \"Ada\" }",
+        "insert Post { id: \"AGENT:post1\" }",
+        "insert PostIn { post: Post(id = \"AGENT:post1\"), organisation: Organization(id = \"AGENT:acme\") }",
+        "insert Object { id: \"OBJ:o1\", label: \"router\", level: 3, confidence: 0.75, rank: preferred }",
+        "insert Concept { id: \"CON:c1\" }",
+        "insert Scheme { id: \"SCH:s1\" }",
+        "insert InScheme { concept: Concept(id = \"CON:c1\"), scheme: Scheme(id = \"SCH:s1\") }",
+        "insert Claim { id: \"CLM:c1\", statement: \"the router is up\" }",
+        "insert Source { id: \"SRC:s1\", source_type: system }",
+        "insert Data { id: \"DATA:d1\", record_key: \"r-1\" }",
+        "insert RecordSource { data: Data(id = \"DATA:d1\"), source: Source(id = \"SRC:s1\") }",
+        "insert Context { id: \"CTX:a\", context_id: 7 }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

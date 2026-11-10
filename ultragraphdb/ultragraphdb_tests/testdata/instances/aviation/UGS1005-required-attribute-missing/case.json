@@ -1,0 +1,16 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1005",
+  "name": "an engine created without thrust_kn, a required attribute",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Engine { serial: \"EN-0001\", commissioned: 2022-01-08, status: active, tags: [\"engine\"] }"
+      ],
+      "expect": {
+        "refused": "UGS1005"
+      }
+    }
+  ]
+}

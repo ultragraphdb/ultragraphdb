@@ -1,0 +1,20 @@
+{
+  "name": "record",
+  "sources": [
+    "records.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "records.Site": 3
+  },
+  "report": [
+    "UGS0901 records.Site.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 records.Site.update.address path=coordination-free local=true by=none indexes=0",
+    "UGS0901 records.Site.update.previous path=coordination-free local=true by=none indexes=0",
+    "UGS0901 records.Site.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

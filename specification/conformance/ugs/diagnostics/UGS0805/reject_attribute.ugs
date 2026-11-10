@@ -1,0 +1,7 @@
+// expect: compiles with UGS0805 at 6:3
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Part {
+  serialNumber: String
+}

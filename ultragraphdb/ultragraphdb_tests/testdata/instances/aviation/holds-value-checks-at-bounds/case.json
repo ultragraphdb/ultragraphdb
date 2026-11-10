@@ -1,0 +1,22 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1010",
+  "name": "values at the edges of every value check: a listed jurisdiction, thrust_kn at both @range bounds, serials of 6 and 20 characters, a supply value just above zero",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Company { name: \"Leonardo\" }",
+        "insert Company { name: \"Airbus\" }",
+        "insert Authority { name: \"CAA\", jurisdiction: \"UK\" }",
+        "insert Engine { serial: \"EN-0001\", commissioned: 2022-01-08, status: active, tags: [\"engine\"], thrust_kn: 0.0 }",
+        "insert Engine { serial: \"EN-0002\", commissioned: 2022-01-08, status: active, tags: [\"engine\"], thrust_kn: 2000.0 }",
+        "insert Avionics { serial: \"AV-001\", commissioned: 2022-01-08, status: active, tags: [\"cockpit\"] }",
+        "insert Avionics { serial: \"AV-00000000000000001\", commissioned: 2022-01-08, status: active, tags: [\"cockpit\"] }",
+        "insert Supply { supplier: Company(name = \"Leonardo\"), buyer: Company(name = \"Airbus\"), item: Engine(serial = \"EN-0001\"), signed: 2022-01-09, value: 0.01 }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

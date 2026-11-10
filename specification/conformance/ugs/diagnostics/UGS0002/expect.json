@@ -1,0 +1,98 @@
+{
+  "code": "UGS0002",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a string literal unterminated at the end of its line",
+      "sources": [
+        "reject_string.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0002",
+          "kind": "error",
+          "file": "reject_string.ugs",
+          "line": 6,
+          "column": 25,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_string.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a block comment never closed",
+      "sources": [
+        "reject_comment.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0002",
+          "kind": "error",
+          "file": "reject_comment.ugs",
+          "line": 5,
+          "column": 1,
+          "length": 2,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_comment.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a nested block comment closing only the inner comment, so the outer one stays open",
+      "sources": [
+        "reject_nested_comment.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0002",
+          "kind": "error",
+          "file": "reject_nested_comment.ugs",
+          "line": 5,
+          "column": 1,
+          "length": 2,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_nested_comment.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an IRI literal without its closing `>`",
+      "sources": [
+        "reject_iri.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0002",
+          "kind": "error",
+          "file": "reject_iri.ugs",
+          "line": 6,
+          "column": 25,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_iri.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

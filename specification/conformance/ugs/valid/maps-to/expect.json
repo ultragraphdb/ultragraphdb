@@ -1,0 +1,20 @@
+{
+  "name": "maps-to",
+  "sources": [
+    "maps_to.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "maps_to.Person": 3
+  },
+  "report": [
+    "UGS0901 maps_to.Person.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 maps_to.Person.update.name path=coordination-free local=true by=none indexes=0",
+    "UGS0901 maps_to.Person.update.page path=coordination-free local=true by=none indexes=0",
+    "UGS0901 maps_to.Person.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

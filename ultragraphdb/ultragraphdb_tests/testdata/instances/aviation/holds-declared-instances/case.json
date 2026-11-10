@@ -1,0 +1,20 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1001",
+  "name": "one instance of every concrete entity type, each typed once under its minted IRI, with every required attribute, a Set's members and an optional attribute, all declared on its type",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Company { name: \"Leonardo\" }",
+        "insert Company { name: \"Airbus\" }",
+        "insert Authority { name: \"EASA\", jurisdiction: \"EU\" }",
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\", \"wing-1\"], tail_number: \"D-AAAA\", notes: \"overhauled\" }",
+        "insert Engine { serial: \"EN-0001\", commissioned: 2022-01-08, status: active, tags: [\"engine\"], thrust_kn: 120.5 }",
+        "insert Avionics { serial: \"AV-0001\", commissioned: 2022-01-08, status: active, tags: [\"cockpit\"], firmware: \"4.2\" }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

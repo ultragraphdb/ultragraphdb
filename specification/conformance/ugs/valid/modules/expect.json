@@ -1,0 +1,59 @@
+{
+  "name": "modules",
+  "sources": [
+    "arrears.ugs",
+    "audio.ugs",
+    "library.ugs",
+    "loans.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "library.Item": 3,
+    "library.Book": 4,
+    "library.Member": 5,
+    "library.Holds": 6,
+    "audio.Recording": 7,
+    "loans.Loan": 8,
+    "loans.Reservation": 9,
+    "arrears.Overdue": 10
+  },
+  "report": [
+    "UGS0901 arrears.Overdue.insert path=segmented local=true by=cardinality indexes=2",
+    "UGS0901 arrears.Overdue.update.due path=coordination-free local=true by=none indexes=2",
+    "UGS0901 arrears.Overdue.update.notified path=coordination-free local=true by=none indexes=0",
+    "UGS0901 arrears.Overdue.delete path=coordination-free local=true by=none indexes=2",
+    "UGS0901 audio.Recording.create path=segmented local=true by=@key indexes=1",
+    "UGS0901 audio.Recording.update.format path=coordination-free local=true by=none indexes=0",
+    "UGS0901 audio.Recording.update.minutes path=coordination-free local=true by=none indexes=0",
+    "UGS0901 audio.Recording.update.title path=coordination-free local=true by=none indexes=2",
+    "UGS0901 audio.Recording.delete path=segmented local=true by=restrict indexes=1",
+    "UGS0901 library.Book.create path=segmented local=true by=@key indexes=1",
+    "UGS0901 library.Book.update.format path=coordination-free local=true by=none indexes=0",
+    "UGS0901 library.Book.update.title path=coordination-free local=true by=none indexes=2",
+    "UGS0901 library.Book.delete path=segmented local=true by=restrict indexes=1",
+    "UGS0901 library.Member.create path=segmented local=true by=@key indexes=1",
+    "UGS0901 library.Member.update.name path=coordination-free local=true by=none indexes=2",
+    "UGS0901 library.Member.delete path=coordinated local=false by=cascade indexes=1",
+    "UGS0901 loans.Loan.insert path=segmented local=true by=cardinality indexes=2",
+    "UGS0901 loans.Loan.update.due path=coordination-free local=true by=none indexes=2",
+    "UGS0901 loans.Loan.delete path=coordination-free local=true by=none indexes=2",
+    "UGS0901 loans.Reservation.insert path=segmented local=true by=cardinality indexes=1",
+    "UGS0901 loans.Reservation.update.placed path=coordination-free local=true by=none indexes=0",
+    "UGS0901 loans.Reservation.delete path=coordination-free local=true by=none indexes=1",
+    "UGS0905 library.Member.holdings relation=library.Holds role=holder",
+    "UGS0906 arrears.Overdue.delete indexes=2 rank=3",
+    "UGS0906 arrears.Overdue.insert indexes=2 rank=1",
+    "UGS0906 arrears.Overdue.update.due indexes=2 rank=2",
+    "UGS0906 audio.Recording.create indexes=1 rank=10",
+    "UGS0906 audio.Recording.update.title indexes=2 rank=4",
+    "UGS0906 library.Book.update.title indexes=2 rank=5",
+    "UGS0906 library.Member.update.name indexes=2 rank=6",
+    "UGS0906 loans.Loan.delete indexes=2 rank=9",
+    "UGS0906 loans.Loan.insert indexes=2 rank=7",
+    "UGS0906 loans.Loan.update.due indexes=2 rank=8"
+  ]
+}

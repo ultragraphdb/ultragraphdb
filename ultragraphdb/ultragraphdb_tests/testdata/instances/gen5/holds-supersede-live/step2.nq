@@ -1,0 +1,6 @@
+<https://example.org/deep_brain#Node/CLM%3Anew> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Claim> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CLM%3Anew> <https://example.org/deep_brain#id> "CLM:new" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CLM%3Anew> <https://example.org/deep_brain#statement> "the router is down" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CLM%3Anew> <https://example.org/deep_brain#supersedes> <https://example.org/deep_brain#Node/CLM%3Aold> <https://example.org/deep_brain#ontology> .
+_:su1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/CLM%3Anew> <https://example.org/deep_brain#supersedes> <https://example.org/deep_brain#Node/CLM%3Aold> )>> <https://example.org/deep_brain#ontology> .
+_:su1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Supersedes> <https://example.org/deep_brain#ontology> .

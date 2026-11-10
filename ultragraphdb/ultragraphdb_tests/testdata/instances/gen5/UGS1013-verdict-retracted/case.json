@@ -1,0 +1,29 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1013",
+  "name": "a retraction of a Verdict, @append_only below the @bitemporal Statement",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Verdict { id: \"VER:v1\", outcome: \"allow\", status: fired }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "operations": [
+        {
+          "kind": "retract",
+          "iri": "https://example.org/deep_brain#Node/VER%3Av1"
+        }
+      ],
+      "uql": [
+        "retract Verdict(id = \"VER:v1\")"
+      ],
+      "expect": {
+        "refused": "UGS1013"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

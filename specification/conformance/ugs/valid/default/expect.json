@@ -1,0 +1,21 @@
+{
+  "name": "default",
+  "sources": [
+    "defaults.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "defaults.Counter": 3
+  },
+  "report": [
+    "UGS0901 defaults.Counter.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 defaults.Counter.update.active path=coordination-free local=true by=none indexes=0",
+    "UGS0901 defaults.Counter.update.size path=coordination-free local=true by=none indexes=0",
+    "UGS0901 defaults.Counter.update.title path=coordination-free local=true by=none indexes=0",
+    "UGS0901 defaults.Counter.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

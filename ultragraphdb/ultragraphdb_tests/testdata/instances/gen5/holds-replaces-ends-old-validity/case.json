@@ -1,0 +1,20 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1035",
+  "name": "a Replaces with a valid start at the day 2026-07-01 closes the old statement's open valid interval there, at day precision",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Concept { id: \"CON:old\", valid: 2025-03-01T00:00:00Z .. }",
+        "insert Concept { id: \"CON:new\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "replaces.nq",
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

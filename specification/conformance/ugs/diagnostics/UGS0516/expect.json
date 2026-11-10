@@ -1,0 +1,30 @@
+{
+  "code": "UGS0516",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@on_delete restrict on a role declaring `-> _`",
+      "sources": ["reject_on_delete.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0516", "kind": "error",
+          "file": "reject_on_delete.ugs", "line": 11, "column": 19, "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_on_delete.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@on_retract restrict open on a role declaring `-> _`",
+      "sources": ["reject_on_retract.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0516", "kind": "error",
+          "file": "reject_on_retract.ugs", "line": 19, "column": 23, "length": 13,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_on_retract.ugs"], "warnings": [] }
+    }
+  ]
+}

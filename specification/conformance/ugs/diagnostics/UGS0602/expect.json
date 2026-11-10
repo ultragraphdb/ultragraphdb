@@ -1,0 +1,42 @@
+{
+  "code": "UGS0602",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a mutable entity type as a participant",
+      "sources": ["reject_mutable_entity.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0602", "kind": "error",
+          "file": "reject_mutable_entity.ugs", "line": 14, "column": 11, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_mutable_entity.ugs"], "warnings": [] }
+    },
+    {
+      "name": "an @append_only relation type as a participant",
+      "sources": ["reject_append_only_relation.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0602", "kind": "error",
+          "file": "reject_append_only_relation.ugs", "line": 19, "column": 13, "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_append_only_relation.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a union role with one mutable member",
+      "sources": ["reject_union_member.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0602", "kind": "error",
+          "file": "reject_union_member.ugs", "line": 15, "column": 21, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_union_member.ugs"], "warnings": [] }
+    }
+  ]
+}

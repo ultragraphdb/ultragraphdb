@@ -1,0 +1,11 @@
+// expect: UGS0106 at 9:28
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Document {
+  title: String
+}
+
+abstract statement Claim : Document {
+  text: String
+}

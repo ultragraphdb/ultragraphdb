@@ -1,0 +1,15 @@
+// expect: UGS0013 at 5:51
+schema batches version 1
+prefix bt = "https://example.org/batches#"
+
+entity Batch @key(k1, k2, k3, k4, k5, k6, k7, k8, k9) {
+  k1: String
+  k2: String
+  k3: String
+  k4: String
+  k5: String
+  k6: String
+  k7: String
+  k8: String
+  k9: String
+}

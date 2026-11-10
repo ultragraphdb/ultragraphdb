@@ -1,0 +1,7 @@
+// expect: UGS0007 at 6:3
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Dataset {
+  graph: Iri
+}

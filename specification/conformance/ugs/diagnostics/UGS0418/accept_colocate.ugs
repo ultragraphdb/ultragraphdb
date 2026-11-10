@@ -1,0 +1,11 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Item { name: String }
+entity Tag  { label: String }
+
+relation Tagged @colocate(item) {
+  item: Item -> tags*
+  tag:  Tag  -> _
+}

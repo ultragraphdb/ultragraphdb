@@ -93,7 +93,8 @@ section 8.2 have PG-Keys' semantics.
 ### 3.1 Source
 
 A source is UTF-8 text, at most 16 MiB, with lines of at most 64 KiB, a line's break not counted; a larger source is
-refused (`UGS0013`), and a byte sequence that is not UTF-8 at its first invalid byte (`UGS0001`). Line
+refused (`UGS0013`), and a byte sequence that is not UTF-8 at its first invalid byte, one column of length 1
+(`UGS0001`). Line
 breaks are `\n` or `\r\n`. Whitespace separates tokens and carries no meaning. A compiler reads a source in one pass with
 nesting bounded at 64 levels of braces, brackets and parentheses together (`UGS0013`).
 
@@ -143,15 +144,17 @@ by case alone is a name like any other, as the type `Statement` is. Where the gr
 identifier differing from it by case alone, `optional` after a field's type, the refusal names the keyword as its fix
 (`UGS0006`).
 
-The scalar type names of section 5.1 and `schema` as a qualifier are not reserved words, but a type, enum, record or
-named attribute type declared under one of them is refused as a clash with a built-in (`UGS0102`). Quantity kinds and
+The scalar type names of section 5.1 are not reserved words, but a type, enum, record or named attribute type declared
+under one of them is refused as a clash with a built-in (`UGS0102`). `schema` is reserved, and its one use as a
+qualifier is the catalog's, `schema.EntityType<T>` and the like; `import … as schema` and `prefix schema` are refused
+with `UGS0110`, the code naming them. Quantity kinds and
 units have name spaces of their own (section 5.8), so a quantity may be named `Time` beside the scalar type.
 
 ### 3.5 Literals
 
 | Literal | Form | Examples |
 |---|---|---|
-| Integer | Decimal digits with optional `_` separators between digits; a leading `-` is the unary operator | `42`, `50_000_000` |
+| Integer | Decimal digits with optional `_` separators between digits; a leading `-` is the unary operator in an expression | `42`, `50_000_000` |
 | Decimal | Digits, `.`, digits; `_` as above | `1_250_000.00` |
 | Float | A decimal or integer followed by `e` or `E`, an optional sign and digits; there is no literal for a non-finite number: `inf` and `nan` are identifiers, refused where a number is expected as any identifier naming no value of the type is (`UGS0207`) | `2.5e-7` |
 | Rational | Two integer literals around `/`, the second nonzero, exact; accepted as a unit's `multiplier` or `offset`, as a `Decimal` value and in `@range` of a `Decimal` or a `Measure` | `1200 / 3937` |
@@ -166,8 +169,11 @@ units have name spaces of their own (section 5.8), so a quantity may be named `T
 | Interval | `a .. b`, `a ..`, `.. b` or `..` with `a`, `b` temporal literals or integers; the whitespace around `..` is optional | `2026-09-14 .. 2027` |
 | IRI | `<` … `>`, an absolute IRI as RDF 1.2 writes it, with no whitespace, `<`, `>`, `"`, `{`, `}`, `\|`, `^` or backtick inside | `<https://schema.org/name>` |
 
-An integer literal must fit the type it is read into; one that does not is refused where the type is known
-(`UGS0207`). A temporal literal that names no calendar instant (`2026-02-30`, `25:00:00`) is refused (`UGS0005`).
+A number token is the longest run, from a digit, of digits and `_`, with at most one `.` that a digit follows and an
+exponent, `e` or `E` with its optional sign and digits; a run that takes none of the number forms above is refused
+whole (`UGS0004`). A number literal in an annotation argument or a default may carry a leading `-`, which is part of
+the literal: `@range(-40, 85)`, `= -1`. An integer literal must fit the type it is read into; one that does not is refused where the type
+is known (`UGS0207`). A temporal literal that names no calendar instant (`2026-02-30`, `25:00:00`) is refused (`UGS0005`).
 
 ### 3.6 Annotations
 
@@ -186,12 +192,12 @@ on a field, which may appear once per index kind, `@check`, which may repeat, ea
 |---|---|---|
 | A source | 16 MiB; a line 64 KiB; nesting 64 | `UGS0013` |
 | An identifier | 128 bytes | `UGS0013` |
-| A string literal, an `@iri` template, a `@pattern` | 4 KiB | `UGS0013` |
+| A string literal, its text between the quotes as written; an `@iri` template, a `@pattern` | 4 KiB | `UGS0013` |
 | Fields of one type, own and inherited | 4,096 | `UGS0013` |
 | Roles of one relation, own and inherited | 64 | `UGS0013` |
 | Members of a union, of an enum, components of a key | 32, 4,096, 8 | `UGS0013` |
 | Steps of a derivation path, parameters of a function | 32, 32 | `UGS0013` |
-| Declared types in a tenant | 65,533 | `UGS2005` |
+| Declared types in a tenant | 65,532, the prefixes 3 to 65,534 | `UGS2005` |
 | Sources in a catalog version, schemas and modules together | 1,024 | `UGS0013` |
 
 ## 4. Grammar
@@ -203,8 +209,8 @@ and an identifier anywhere else.
 
 ```
 source      = schema | module ;
-schema      = "schema" ident "version" int { annot } { header } { decl } ;
-module      = "module" ident "version" int "extends" ident ">=" int { annot } { header } { decl } ;
+schema      = "schema" ident "version" int { annot } { header } prefix { header } { decl } ;
+module      = "module" ident "version" int "extends" ident ">=" int { annot } { header } prefix { header } { decl } ;
 header      = import | prefix | reserve ;
 import      = "import" ( string "as" ident | "schema" ident [ ">=" int ] ) ;
 prefix      = "prefix" ident "=" string ;
@@ -213,13 +219,13 @@ decl        = attribute | enum | record | statement | entity | relation | derive
             | function | quantity | unit | graph ;
 
 attribute   = "attribute" ident "=" type { annot } ;
-enum        = "enum" ident { annot } "{" member { "," member } [ "," ] "}" ;
+enum        = "enum" qident { annot } "{" member { "," member } [ "," ] "}" ;   (* qualified in a module alone, section 6.12 *)
 member      = ident ;
 record      = "record" ident "{" { field } "}" ;
 statement   = "abstract" "statement" ident [ ":" qident ] { annot } "{" { field } "}" { annot } ;
 entity      = [ "abstract" ] "entity" ident [ ":" qident ] { annot } [ "{" { field } "}" { annot } ] ;
 relation    = [ "abstract" ] "relation" ident [ ":" qident ] { annot } "{" { role | field } "}" { annot } ;
-field       = ident ":" type [ "Optional" ] [ "=" literal ] { annot } ;
+field       = ident ":" type [ "Optional" ] [ "=" [ "-" ] literal ] { annot } ;
 role        = ident ":" participant [ "as" ident ] "->" ( ident card | "_" ) { annot } ;
 participant = union [ "Optional" ] | "[" union "]" ;
 union       = ptype { "|" ptype } ;
@@ -247,11 +253,11 @@ targ        = type | int | ident ;
 qident      = ident { "." ident } ;
 annot       = "@" ident [ "(" [ arg { "," arg } ] ")" ] ;
 arg         = ident ":" argval | argval | limit_arg | role_action ;
-argval      = literal | qident | curie | "[" [ argval { "," argval } ] "]" | expr ;
+argval      = [ "-" ] literal | qident | curie | "[" [ argval { "," argval } ] "]" | expr ;
 role_action = ident ":" action ;
 action      = "cascade" | "restrict" [ "open" ] | "orphan" ;
 curie       = ident ":" pn_local ;                   (* pn_local as SPARQL 1.1's PN_LOCAL *)
-limit_arg   = ( "count" "(" ")" | "sum" "(" ident ")" ) cmp_op literal
+limit_arg   = aggregate "(" [ ident { "," ident } ] ")" cmp_op literal          (* count() or sum(attr), section 6.7 *)
               "per" ( ident | "(" ident { "," ident } ")" ) [ "where" expr ] ;
 literal     = int | rational | decimal | float | string | "true" | "false" | date | datetime | time
             | duration | interval | iri | ident ;                      (* ident: an enum member *)
@@ -297,7 +303,8 @@ before the step's bound: `grounds(with retracted){1,32}`. `some`, `no` and `all`
 least one, none, every element matches, `all` vacuously true over no element; inside the filter, a name resolves against
 the element first and the enclosing instance second. A filter item `is T` narrows the element to `T` for the filter
 items after it, so a subtype's field may follow it; without it, a field a supertype path does not declare is refused
-(`UGS0119`). The UQL specification extends this grammar for queries; a schema
+(`UGS0119`). A bare identifier where an enum value is expected, an operand compared with an enum-typed field among
+them, is a member of that enum. The UQL specification extends this grammar for queries; a schema
 accepts exactly what is written here, and an expression beyond it is refused (`UGS0120`).
 
 **Evaluation.** The grammar has one evaluation, in a schema and in a query alike:
@@ -328,7 +335,7 @@ datatypes' codes) and its GQL type.
 | `Int128` | Signed 128-bit integer | `xsd:integer`, range-checked at write | `INT128` |
 | `UInt8`, `UInt16`, `UInt32`, `UInt64` | Unsigned integers of that width; wider unsigned integers are `Int128` | `xsd:unsignedByte`, `xsd:unsignedShort`, `xsd:unsignedInt`, `xsd:unsignedLong` | `UINT8`, `UINT16`, `UINT32`, `UINT64` |
 | `Float32`, `Float64` | IEEE 754 binary32, binary64; `NaN` and the infinities are refused at write (`UGS1011`) | `xsd:float`, `xsd:double` | `FLOAT32`, `FLOAT64` |
-| `Decimal(p, s)` | Exact decimal with `p` digits, `s` of them fraction; `1 ≤ p ≤ 38`, `0 ≤ s ≤ 18`, `p − s ≤ 20`, the bounds of the store's i128 × 10¹⁸ encoding (`UGS0203`) | `xsd:decimal` | `DECIMAL(p, s)` |
+| `Decimal(p, s)` | Exact decimal with `p` digits, `s` of them fraction; `1 ≤ p ≤ 38`, `0 ≤ s ≤ p`, `s ≤ 18`, `p − s ≤ 20`, the bounds of the store's i128 × 10¹⁸ encoding (`UGS0203`) | `xsd:decimal` | `DECIMAL(p, s)` |
 | `String` | UTF-8 text, compared by code point | `xsd:string` | `STRING` |
 | `Text` | Natural-language text with an optional BCP 47 language tag; the one type `@index(fulltext)` takes, so a field wanting both `range` and `fulltext` is `Text` | `rdf:langString` with a tag, `xsd:string` without | `STRING` |
 | `Bytes` | Binary data | `xsd:base64Binary` | `BYTES` |
@@ -376,7 +383,7 @@ shape exports its list as `sh:in`.
 ### 5.4 Records, lists and sets
 
 A `record` declares named fields, each `ident: type [Optional]`, with unique names (`UGS0222`); a record field takes
-the value checks `@pattern`, `@range` and `@values`, checked whenever an instance holding the record commits, and no
+the value checks `@pattern`, `@range`, `@values` and `@check`, checked whenever an instance holding the record commits, and no
 other annotation and no default. A record's fields are scalars, enums, `Iri`, `Unit`, `QuantityKind`, `Measure`,
 `Interval` or other records, with no cycle through required fields (`UGS0205`). A `List` keeps order and duplicates; a `Set` keeps neither, and a write
 holding a duplicate member is accepted as the set of its distinct members. A `Set` of records is refused (`UGS0205`):
@@ -386,8 +393,9 @@ set membership compares scalars.
 
 Temporal values compare only within one type; a comparison or arithmetic between `Date` and `DateTime`, or between
 `LocalDateTime` and `DateTime`, is refused at compile time (`UGS0224`, `UGS0223`). The conversions `date(t)`,
-`start_of_day(d, zone)` and `datetime(d, time, zone)` are the core functions crossing them. `Duration` arithmetic adds
-the calendar part first, then the exact part. `today()` and `now()` are refused in `@check`, `@limit` and `derive`
+`start_of_day(d, zone)` and `datetime(d, time, zone)` are the core functions crossing them. `DateTime − DateTime`,
+`Date − Date` and `LocalDateTime − LocalDateTime` give a `Duration`. `Duration` arithmetic adds the calendar part
+first, then the exact part. `today()` and `now()` are refused in `@check`, `@limit` and `derive`
 (`UGS0225`): they read the epoch's clock and are not deterministic across epochs.
 
 An `Interval<T>` is closed-open, `[start, end)`; `start ≤ end` or the write is refused (`UGS1011`). Either bound may
@@ -515,7 +523,9 @@ reserve Measurement, Reading
   any predicate, each recorded as a default entry (`../binary_protocol/PROTOCOL.md` section 11.13). A `///` run before the header
   documents the schema.
 - `prefix ident = string`: the namespace's vocabulary base, an absolute IRI ending in `#` or `/` (`UGS0009`), and the
-  prefix SPARQL clients are given for it; exactly one per schema (`UGS0102`). Every term of the schema is minted under
+  prefix SPARQL clients are given for it; exactly one per schema, and one per module for its own base (section 6.12),
+  which the grammar requires, so a source without one is refused (`UGS0006`) and a second (`UGS0102`); the prefix is
+  never `schema` (`UGS0110`). Every term of the schema is minted under
   the base (section 7.4). Two namespaces in one tenant with one base are refused (`UGS0309`).
 - `import string as ident`: an external vocabulary, usable in `@maps_to`; the prefix is unique in the source
   (`UGS0102`) and is never `schema` (`UGS0110`).
@@ -569,11 +579,14 @@ entity Aircraft : Asset { tail_number: String @unique }
 
 - **Inheritance** is single: `: Parent` names an entity or statement type (`UGS0106`), with no cycle (`UGS0105`). A
   subtype inherits every attribute, navigation name and constraint of its supertype. It may redeclare an inherited
-  attribute only to tighten it: make an optional attribute required, add a value check, add an index, add
-  `@immutable`; a redeclaration changing the type or loosening a constraint is refused (`UGS0213`, `UGS0214`).
+  attribute only to tighten its requiredness and value checks: make an optional attribute required, add a value
+  check; an identical redeclaration is allowed and changes nothing. Attribute identity (section 10.2) holds across
+  the tree: a redeclaration adding an `@index` or `@immutable` is refused (`UGS0215`), and one leaving out an
+  inherited `@immutable` removes it (`UGS0518`); one changing the type or loosening a constraint is refused
+  (`UGS0213`, `UGS0214`).
 - **`abstract`** types have no direct instances; a write naming one as a concrete type is refused (`UGS1003`).
 - **`@key(attr)` or `@key(a, b, …)`** declares the business identity: every named attribute is required, immutable and
-  of a keyable type, `Bool`, an integer type, `Decimal`, `String`, `Date`, `DateTime`, `Iri`, an enum or `Unit`
+  of a keyable type, `Bool`, an integer type, `Decimal(p, s)`, `String`, `Date`, `DateTime`, `Iri`, an enum or `Unit`
   (`UGS0306`, `UGS0301`); a key is unique across the declaring type's tree and per graph; a subtype of a keyed
   type declares no key (`UGS0302`). Entities without a key are allowed and named as section 7.3 states.
 - **`@unique`** on an attribute of a scalar, enum or `Iri` type (`UGS0308`) makes its value unique across the declaring
@@ -581,8 +594,9 @@ entity Aircraft : Asset { tail_number: String @unique }
 - **`@open`** admits undeclared attributes on the type's instances, each recorded as a default entry; those attributes
   take no part in classification.
 - **`@iri(template)`**: section 7.3.
-- **Types are fixed for life.** An instance's concrete type is its ID's prefix; a write giving an existing instance
-  another type is refused (`UGS1004`). A change of type is a delete and a create.
+- **Types are fixed for life.** An instance's concrete type is its ID's prefix; a write giving an existing keyless
+  instance another type is refused (`UGS1004`), and one writing a type on the IRI a keyed type mints is a creation, a
+  duplicate of the instance holding the key (`UGS1008`, section 8.1). A change of type is a delete and a create.
 
 ### 6.4 Relations
 
@@ -609,7 +623,8 @@ and either a navigation name with a cardinality or `_`.
 | `RelationType` | A relation instance, which fills the role through its node's IRI or, edge-encoded, through its reifier's (section 11.1) |
 | `schema.EntityType<T>`, `schema.RelationType<T>` | A catalog type as participant (section 5.10); the role declares `-> _`, since no instance type could gain a navigation name (`UGS0413`) |
 
-A participant type is a declared entity, relation or statement type of this schema or an imported one (`UGS0402`); its
+A participant type is a declared entity, relation or statement type of this schema or an imported one: a name declared
+nowhere is an unknown type name (`UGS0201`), and a declaration of another kind is refused (`UGS0402`). Its
 participants live in any graph of that type's schema (section 6.11).
 
 **Navigation names and cardinality.** `-> nav card` gives every participant type of the role the field `nav`, unique
@@ -625,7 +640,7 @@ an n-ary relation, the relation instances, whose other roles are fields.
 **`@set` and `@multi`.** `@set`, the default, admits at most one live instance per combination of participants:
 inserting an existing combination returns the existing instance, so inserts are idempotent and the instance's
 attributes may be updated. `@multi` creates a new instance on every insert. The choice is fixed at the root of a
-relation tree (`UGS0409`).
+relation tree (`UGS0409`); a subtype may restate the root's choice, which changes nothing.
 
 **`@symmetric`** applies to a binary relation whose two roles, own or specialized, have one participant type and one
 navigation name (`UGS0408`): `(a, b)` and `(b, a)` are one instance. The instance is stored in ID order, the
@@ -642,7 +657,7 @@ identity (section 7.3).
 |---|---|
 | Inheritance | Single; `: Parent` names a relation or statement type (`UGS0106`); `abstract` relations have no direct instances |
 | Inherited roles | A subrelation has every role of its supertype, as declared or specialized once with `as` (`UGS0406`) |
-| Specialization | `name: SubType as superrole -> nav card` renames the role, narrows its participant to the super role's type or a subtype of it (`UGS0407`; each member of a union likewise, `UGS0410`), keeps the super role's optionality and set-valuedness, and adds a navigation name on the narrowed type; the super role's navigation name still reaches the instance |
+| Specialization | `name: SubType as superrole -> nav card` renames the role, narrows its participant to the super role's type or a subtype of it (`UGS0407`; each member of a union likewise, `UGS0410`), keeps the super role's optionality and set-valuedness (`UGS0407`), and adds a navigation name on the narrowed type; the super role's navigation name still reaches the instance |
 | Added roles | A subrelation may add roles; queries over the supertype ignore them |
 | Attributes | Inherited; a subtype may tighten, never loosen (`UGS0214`) |
 | Navigation names | A supertype's name yields instances of every subtype; a subtype's own names yield its own |
@@ -651,7 +666,7 @@ identity (section 7.3).
 | Mutability | A subtype may add `@append_only` or `@immutable`, never remove them (`UGS0518`) |
 | Deletes | A subtype may tighten `cascade` to `restrict`, never the reverse (`UGS0519`) |
 | `@acyclic` | Declared on a supertype, it applies across all subtypes together |
-| Placement | A subrelation may declare its own `@colocate`, over an own or an inherited role; without one it takes the nearest supertype's, and the first role when none declares one. A constraint inherited from a supertype whose state lives at another role is, for that kind, classified as section 9.3 classifies a non-anchor constraint, and the report lists the choice (`UGS0904`) |
+| Placement | A subrelation may declare its own `@colocate`, over an own or an inherited role; without one it takes the nearest supertype's, and the first role when none declares one. A constraint inherited from a supertype whose state lives at another role is, for that kind, classified as section 9.3 classifies a non-anchor constraint, and the report lists the choice as section 9.4 states (`UGS0904`) |
 | Identity | Each relation type has its own prefix; a supertype covers its descendants' ranges |
 
 ### 6.5 Union-typed roles
@@ -659,7 +674,7 @@ identity (section 7.3).
 `governor: Rule | Teloid | Mandate as subject -> governs*`: each member type gains the navigation name; navigating to the
 role yields a tagged union; a type test against the union is a check against the members' prefix ranges. In a
 specialized role, each member must be the super role's type or a subtype of it (`UGS0410`). A union with a repeated or
-nested member is refused (`UGS0402`).
+nested member, one that is a subtype of another member, is refused (`UGS0402`).
 
 ### 6.6 Field annotations
 
@@ -676,7 +691,7 @@ nested member is refused (`UGS0402`).
 | `@iri(string)` | An attribute | An absolute IRI | The attribute's own predicate IRI in place of `{base}{attribute}` (section 10.2) |
 
 An index kind that does not fit the field's type is refused: `range` needs an ordered scalar, `Date`, `Time`,
-`DateTime`, `LocalDateTime`, `Duration`, an enum or `Measure` (`UGS0526`); `fulltext` needs `Text` (`UGS0525`);
+`DateTime`, `LocalDateTime`, an enum or `Measure` (`UGS0526`); `fulltext` needs `Text` (`UGS0525`);
 `interval` needs `Interval` (`UGS0522`); `geo` needs `Geo` (`UGS0523`); `ann` needs `Vector` (`UGS0524`). An index on a
 `Set<T>` indexes each member, one entry per member as the RDF view holds one triple per member, and fits the field when
 it fits `T`.
@@ -695,13 +710,13 @@ it fits `T`.
 | `@immutable` | — | — | On attributes only (`UGS0011`) |
 | `@bitemporal(valid: attr)` | Entity, relation, statement | An `Interval<DateTime>` or `Interval<Date>` attribute, which may be `Optional` (`UGS0509`) | Section 8.4; implies `@valid(attr)`, and declaring both is refused (`UGS0510`) |
 | `@valid(attr)` | Entity, relation, statement | An `Interval` attribute (`UGS0509`) | Names the valid-time interval `valid at` and `valid during` read |
-| `@on_delete(role: action, …)` | Relation that is not `@bitemporal` (`UGS0514`) | Each role of the relation at most once (`UGS0515`); action `cascade`, `restrict` or `orphan` | Section 8.5; `orphan` needs an `Optional` role (`UGS0501`); `restrict` on a `_` side is refused (`UGS0516`) |
+| `@on_delete(role: action, …)` | Relation that is not `@bitemporal` (`UGS0514`) | Each role of the relation at most once (`UGS0515`); action `cascade`, `restrict` or `orphan` | Section 8.5; `orphan` needs an `Optional` single-valued role (`UGS0501`) and no `@append_only` relation (`UGS0601`); `restrict` on a `_` side is refused (`UGS0516`) |
 | `@on_retract(role: action, …)` | `@bitemporal` relation (`UGS0513`) | `restrict`, `restrict open` or `cascade` | Section 8.4 |
 | `@retracts(role)` | `@bitemporal` relation | A role whose every participant type is `@bitemporal` (`UGS0512`) | Inserting an instance retracts its participant in that role in the same commit |
 | `@ends(role)` | Relation with a valid interval | A role whose every participant type has a valid interval (`UGS0512`) | Inserting an instance closes its participant's valid interval at the instance's own valid start, in the same commit; section 8.4 |
-| `@acyclic` | Binary relation, or an abstract relation whose subtypes are binary, whose two roles' participant types share a common supertype (`UGS0503`) | Optional `open` and `max_depth: n`, `1 ≤ n ≤ 4096` (`UGS0504`) | No cycle through the relation's two roles, across the type tree; `max_depth` bounds every path, and a check reads at most `rule_read_max` instances whether or not it is given (section 8.2); `open` counts only live instances whose valid interval is open (needs `@valid`, `UGS0508`) |
+| `@acyclic` | Binary relation, or an abstract relation whose subtypes are binary, whose two roles' participant types share a common supertype (`UGS0503`) | Optional `open` and `max_depth: n`, `1 ≤ n ≤ 4096` (`UGS0504`) | No cycle through the relation's two roles, across the type tree; `max_depth` bounds every path's length, counted in relation instances, and a check visits at most `rule_read_max` relation instances whether or not it is given (section 8.2); `open` counts only live instances whose valid interval is open (needs `@valid`, `UGS0508`) |
 | `@colocate(role)` | Relation without `@key` (`UGS0702`) | A role of the relation, own or inherited (`UGS0701`) | Section 9.1 |
-| `@limit(agg op n per (roles [, type]) [where cond])` | Relation | `agg` is `count()` or `sum(attr)` over a numeric attribute (`UGS0505`); `op` is `<=`, `>=` or `=`; `n` a literal; `per` names one or more roles, optionally the word `type`, and one role alone under a lower bound (`UGS0529`); `cond` a deterministic expression over the instance's own values, its participants' types and `open` (`UGS0507`); a top-level conjunct over the `per` participants' types selects the groups | Section 8.6 |
+| `@limit(agg op n per (roles [, type]) [where cond])` | Relation | `agg` is `count()` or `sum(attr)` over a numeric attribute, any other aggregate the grammar admits refused at phase 5 (`UGS0505`); `op` is `<=`, `>=` or `=`; `n` a literal; `per` names one or more roles, optionally the word `type`, and one role alone under a lower bound (`UGS0529`); `cond` a deterministic expression over the instance's own values, its participants' types and `open` (`UGS0507`); a top-level conjunct over the `per` participants' types selects the groups | Section 8.6 |
 | `@no_overlap(per: [roles])`, `@no_overlap(per: [roles], strict)` | Relation or entity with `@valid` or `@bitemporal` (`UGS0508`) | Roles of the relation | The valid intervals of live instances sharing those participants never certainly overlap, or with `strict` never possibly overlap (`UGS1024`) |
 | `@access` | Relation | none | An access-control relation: a query filtering through it runs at snapshot level, never monotonic-fast |
 | `@iri(template)` | Keyed entity or relation | A string template (section 7.3) | Overrides the instance IRI pattern |
@@ -778,7 +793,7 @@ standard views do not expose them.
 | `@index(interval)` | `Interval` | Range indexes on the outer extent's two bounds (section 5.5) |
 | `@index(geo)` | `Geo` | The `geo` tokenizer |
 | `@index(ann, metric: m, quantization: q)` | `Vector` | The `hnsw` factory with `metric` `cosine`, `dotproduct` or `euclidean` for `cosine`, `dot`, `l2`; `quantization: int8` quantizes the index and rescores the top candidates in the stored precision **[stage 8]**. The factory's build parameters take the store's defaults; a schema naming a search-time parameter such as `ef_search` is refused (`UGS0524`), since it belongs to the query |
-| implicit | Every `@key` and `@unique` attribute | The predicate's `unique` flag; lookup by value through the reverse list |
+| implicit | Every `@unique` attribute and every single-attribute `@key` | The predicate's `unique` flag; lookup by value through the reverse list. A composite key's claim is on the key as a whole, and its components' predicates carry no `unique` flag |
 | implicit | Every navigation name with a bounded cardinality, `?`, `+`, `{m, n}` | A count index on the role's predicate |
 
 Indexes are derived data written in the instance's partition in the same local commit as the write (`../binary_protocol/PROTOCOL.md`
@@ -815,10 +830,11 @@ prefix sr = "https://example.org/sr#"
 
 A module extends a schema, or another module, at least at the named version, and implicitly imports it, so the
 extended schema's types are named qualified or bare. It may declare: entity and relation types
-beneath any type of what it extends (`: deep_brain.Node`, qualified or bare when unambiguous), relation types, named
+beneath any type of what it extends (`: deep_brain.Node`, qualified or bare when unambiguous), named
 attribute types, enums, records, `quantity` and `unit` declarations, members of enums the core declares `@open`
 (`enum Rank { ... }` in the module adding members to `deep_brain.Rank` is written `enum deep_brain.Rank { new_member }`),
-derivations and functions on its own types, and graphs over itself. It declares no key on a keyed type's subtype, no
+derivations and functions on its own types, and graphs over itself. An enum's qualified name is a module's extension
+of an enum of what it extends; in a schema, which extends nothing, a qualified enum name is refused (`UGS0006`). It declares no key on a keyed type's subtype, no
 new root type (`UGS0106`: a module's entity or relation type names a parent), and tightens inherited constraints only
 (`UGS0214`). Two modules may not declare one name, and a module may not declare a name the core reserves (`UGS0110`,
 `UGS0111`). A module's terms are minted under its own vocabulary base. A module's installation is an additive change
@@ -838,7 +854,8 @@ bucket and 24 reserved zero bits, compared as big-endian. No ID leaves the datab
   **declaration order**: the first catalog version holding a type assigns the next free prefix to each new type in the order of the types' declarations in the installed sources, an order the sources alone decide: schemas by
   name as UTF-8 bytes, then modules, each after what it extends and ties by name, each source in text order; a later version assigns the next free prefixes to the types it adds. A prefix is never reassigned,
   renumbered or reused, even after its type is dropped. A tenant whose free prefixes run out refuses the version
-  (`UGS2005`): 65,533 declared types.
+  (`UGS2005`): 65,532 declared types, the prefixes 3 to 65,534. Prefix 65,535 is never allocated, so the next free
+  prefix and a prefix range's end fit 16 bits (`CATALOG.md` sections 2 and 5.3).
 - A type's **prefix set** is its own prefix and its descendants'. The catalog computes it per version as sorted
   half-open ranges, one when the tree was declared together, more once later versions or modules added subtypes. A
   type test is a check against those ranges; a supertype scan is one range scan per range. Abstract types hold a prefix,
@@ -942,6 +959,9 @@ Two terms minting one IRI are refused (`UGS0801`), as are two terms differing on
 apart (`UGS0802`: a label and a relation node type of one name). Names are compared byte for byte, the GQL core's identifiers
 being case-sensitive, so `precedes` and `Precedes` are two names.
 
+A derived name's and a navigation name's IRI is a declared predicate, so a client's write of one the view derives is
+refused as a derived triple (`UGS1029`), never as an undeclared predicate (`UGS1001`).
+
 ## 8. Constraints and their enforcement at commit
 
 ### 8.1 Instance assembly and whole-instance validation
@@ -962,16 +982,21 @@ instance of the tree already holds is a duplicate (`UGS1008`), whatever concrete
 write to that instance: instances are not merged. Two concrete types in one creation, and a type written on an
 existing keyless instance, are `UGS1004`.
 
-A commit reports one refusal: the first rule broken in the order of section 8.2's table, a value's type before any
-check that reads it, for the first instance in the order its changes arrived.
+A commit reports one refusal: the first rule broken in the order of section 8.2's table, which takes a value's type
+before any check that reads it and the more specific of two rules first, for the first instance in the order its
+changes arrived.
 
 A created entity must carry its concrete type: an `rdf:type` triple to one concrete declared type of its graph's schema,
 or the type the UQL or GQL statement names (`UGS1002` for none or an unknown one, `UGS1003` for an abstract one,
-`UGS1004` for two), under the subject its type mints (section 7.3; `UGS1038`). A created relation instance must carry every required role with a participant of the role's type
-(`UGS1015`, `UGS1018`), a participant being an entity, a node-encoded instance or an edge-encoded instance named by its
-reifier, and its required attributes (`UGS1005`). A reifier written without its triple, a role triple
-without its instance's type, or a triple of a node-encoded relation outside its instance, is an incomplete instance
-(`UGS1034`).
+`UGS1004` for two), under the subject its type mints (section 7.3; `UGS1038`); a blank node given attributes and no
+`rdf:type` creates an instance naming none (`UGS1002`). A created relation instance must carry every required,
+single-valued role filled (`UGS1015`) and every set-valued role non-empty (`UGS1016`), each participant of the role's
+type (`UGS1018`), a participant being an entity, a node-encoded instance or an edge-encoded instance named by its
+reifier, and its required attributes (`UGS1005`). A reifier a client writes carries its relation's concrete type, an
+`rdf:type` triple, and an edge-encoded instance of a `@bitemporal` or `@multi` relation is written as its triple with
+its reifier. A reifier written without its triple or its type, such an instance's triple written without its reifier,
+a role triple without its instance's type, or a triple of a node-encoded relation outside its instance, is an
+incomplete instance (`UGS1034`).
 
 ### 8.2 The constraints
 
@@ -979,29 +1004,34 @@ What each counts: live instances, unless the row says otherwise. Where it is che
 
 | Constraint | Checked | Refusal |
 |---|---|---|
+| Instance complete: a reifier with its triple and its type, a `@bitemporal` or `@multi` edge-encoded instance's triple with its reifier, a role triple with its instance's type, a node-encoded relation's triple inside its instance (section 8.1) | At every write | `UGS1034` |
 | Concrete type declared, in its graph's schema | At creation | `UGS1002`, `UGS1003`, `UGS1031` |
-| Subject the IRI its type mints: by key or template for a keyed type, a blank node for a keyless one (section 7.3) | At creation | `UGS1038` |
-| Type fixed for life | At every write of `rdf:type` or a type change | `UGS1004` |
+| Type fixed for life: one concrete type in a creation, none written on an existing keyless instance (section 8.1) | At every write of `rdf:type` | `UGS1004` |
+| A retraction names an instance of a `@bitemporal` type | At a retraction | `UGS1026` |
 | Declared predicate, or `@open` | At every write | `UGS1001` |
+| Derived name, or a triple the view derives (an inverse navigation, a node-encoded relation's navigation property, a super role's triple), written or deleted by a client | At every write | `UGS1029` |
+| One value of a single-valued attribute | At every write of the attribute | `UGS1036` |
+| Key present | At creation | `UGS1006` |
 | Required attribute present; default applied | At creation and at a removal of a value | `UGS1005` |
-| Key present, immutable, unique across the tree per graph, retracted instances of history-keeping types included (section 7.2) | At creation; at any write of a key attribute; uniqueness decided at the value's claim | `UGS1006`, `UGS1007`, `UGS1008` |
-| `@unique`, retracted instances of history-keeping types included | At a write of the attribute; decided at the value's claim | `UGS1009` |
 | Datatype, enum member, range of the integer type, vector dimension, unit declared and of the kind, interval ordered and bounded | At every write of the value | `UGS1011`, `UGS1030`, `UGS1028`, `UGS1027`, `UGS1011` |
+| Subject the IRI its type mints: by key or template for a keyed type, a blank node for a keyless one (section 7.3) | At creation | `UGS1038` |
+| Minted IRI no instance's birth IRI (section 7.3) | At creation | `UGS1037` |
+| Key immutable, unique across the tree per graph, retracted instances of history-keeping types included (section 7.2) | At any write of a key attribute; at creation, uniqueness decided at the value's claim | `UGS1007`, `UGS1008` |
+| `@unique`, retracted instances of history-keeping types included | At a write of the attribute; decided at the value's claim | `UGS1009` |
 | `@pattern`, `@range`, `@values`, `@check` | At every commit of an instance whose checked values changed | `UGS1010` |
 | `@immutable` | At a write replacing a present value | `UGS1012` |
 | Participant exists, is live, is of the role's type | At creation of the instance and at a change of its participants, which only an `Optional` or set-valued role admits | `UGS1017`, `UGS1019`, `UGS1018` |
-| Role present: a required role filled, a set-valued role non-empty | At creation and at a removal of a participant | `UGS1015`, `UGS1016` |
+| Role present: a required, single-valued role filled; a set-valued role non-empty | At creation and after a removal of a participant | `UGS1015`, `UGS1016` |
 | A required, single-valued role's participant fixed for the instance's life | At a write replacing the participant | `UGS1025` |
 | Participation cardinality `?`, `+`, `{m, n}` | At an insert, delete or retraction changing the participant's count through the role; a lower bound is checked at the commit that creates the participant or removes an instance, so a participant and its first instance are created in one transaction | `UGS1014` |
 | `@set` | At insert: the combination resolves to the existing instance | none; the insert is idempotent |
-| `@acyclic`, `max_depth` | At an insert or a participant change of the relation | `UGS1021`, `UGS1022`, `UGS1040` |
+| `@acyclic`, `max_depth` | At an insert or a participant change of the relation; under `open`, at an update of the valid interval | `UGS1021`, `UGS1022`, `UGS1040` |
 | `@limit` | At an insert; at an update of the aggregated attribute or of an attribute its condition reads; at a delete or retraction; and for a lower bound at the creation of the grouped participant | `UGS1023` |
 | `@no_overlap` | At an insert or an update of the valid interval or of a `per` participant | `UGS1024`, `UGS1040` |
 | `@append_only` | At an update or delete of the instance | `UGS1013` |
 | `@bitemporal` revision: an update opens a new version; participants retracted | At an update; at an insert naming a retracted participant | `UGS1019` |
 | `@ends(role)` | At the insert | `UGS1035` |
 | `@on_delete(restrict)`, `@on_retract(restrict)`, `@on_retract(restrict open)` | At the participant's delete or retraction | `UGS1020` |
-| Derived name, or a triple the view derives (an inverse navigation, a node-encoded relation's navigation property, a super role's triple), written or deleted by a client | At every write | `UGS1029` |
 | Every expression of the schema evaluates for the instance | At every commit evaluating it | `UGS1039` |
 | `Set` duplicates | At write: collapsed | none |
 
@@ -1014,10 +1044,12 @@ UGS's own.
 
 **What a rule reads beyond the instance is bounded.** Cardinality reads its count index and `@limit` its group's
 aggregate (section 8.6): one read each, whatever the group's size. `@acyclic` walks the relation's paths from the
-instance and `@no_overlap` reads the live instances sharing its participants; each check reads at most
-`rule_read_max` instances, 4,096, a bound of this specification. A check that would read more is refused with
+instance and `@no_overlap` reads the live instances sharing its participants; each check visits at most
+`rule_read_max` relation instances, 4,096, a bound of this specification, counting each it visits once: the walk's for
+`@acyclic`, the group's live instances for `@no_overlap`. A check that would visit more is refused before it does, with
 `UGS1040`, naming the rule and the bound, and is never decided past it, so a commit's latency is the schema's to bound
-and never the data's.
+and never the data's. `max_depth` counts the relation instances along a path, so a fan-out it does not bound is
+bounded by `rule_read_max` alone.
 
 ### 8.3 Mutability classes
 
@@ -1031,7 +1063,7 @@ and never the data's.
 type, `@append_only` also refuses retraction (`UGS1013`), so its instances never leave the live slice and its reads are
 monotonic. An `@append_only` relation may not
 lose instances through a participant's deletion: each participant type must be `@append_only` or `@bitemporal`, or the
-relation must declare `restrict` on that role (`UGS0601`). A retraction of a participant never writes it: the
+relation must declare `restrict` on that role, since `cascade` deletes the instance and `orphan` writes it (`UGS0601`). A retraction of a participant never writes it: the
 instance of a relation that is not `@bitemporal` is live while every participant of it is live (section 8.4, rule 6),
 so it leaves the default read with the retracted participant and stays as written.
 
@@ -1109,12 +1141,14 @@ An entity delete removes the entity and applies each relation's `@on_delete` act
 |---|---|---|
 | `cascade`, the default | The instance is deleted, and so are instances of relations over it, recursively, in one commit | Always |
 | `restrict` | The delete is refused while instances name the participant in that role, live or not, since one that is not live still reads under `with retracted` (`UGS1020`) | Always, except on a `_` side |
-| `orphan` | The instance stays with the role empty | Only on an `Optional` role |
+| `orphan` | The instance stays with the role empty | Only on an `Optional` single-valued role of a relation that is not `@append_only` |
 
 A deleted entity's IRI may be created again, since a delete releases its key's and its values' claims; the new instance
 is a new ID, whose record names the ID it replaced, while the tombstone holds the version of the delete: a read naming
 the IRI at a version below that delete resolves the instance that held it then, never an absence. A delete writes a tombstone at the entity's
-home, so a later write naming the deleted entity is refused (`../binary_protocol/PROTOCOL.md`, `EntityDeleted`). A relation instance delete
+home, so a later write naming the deleted entity as its subject is refused (`../binary_protocol/PROTOCOL.md` code 30,
+`EntityDeleted`), and one naming it as a participant with `UGS1019`, the participant check answering it deleted
+(section 12.3). A relation instance delete
 removes the instance and cascades to relations over it; an edge-encoded instance that holds no reifier is deleted by
 the delete of its quad. Deleting a `@bitemporal` instance is a retraction (section 8.4).
 No delete reaches a participant of a `@bitemporal` relation, whose participant types are all `@bitemporal` or
@@ -1168,14 +1202,14 @@ refusal number and the instance. The refusals:
 | `UGS1012` | Immutable | replaces an `@immutable` value |
 | `UGS1013` | AppendOnly | updates, revises or deletes an `@append_only` instance, or retracts one whose type is below a `@bitemporal` type (section 8.3) |
 | `UGS1014` | Cardinality | takes a participant past a navigation name's bound, or below its lower bound |
-| `UGS1015` | RoleMissing | creates a relation instance without a required role |
-| `UGS1016` | RoleEmpty | empties a set-valued role |
+| `UGS1015` | RoleMissing | creates a relation instance without a participant in a required, single-valued role |
+| `UGS1016` | RoleEmpty | creates a relation instance with a set-valued role empty, or empties one by a removal |
 | `UGS1017` | ParticipantMissing | names a participant that does not exist |
 | `UGS1018` | ParticipantType | names a participant outside the role's types |
 | `UGS1019` | ParticipantRetracted | names a retracted or deleted participant, or retracts through `@retracts` a participant that is not live |
 | `UGS1020` | Restrict | deletes or retracts a participant while instances restrict it; the message names the relation and role |
 | `UGS1021` | Cycle | would close a cycle through an `@acyclic` relation tree |
-| `UGS1022` | Depth | would create a path longer than `max_depth` |
+| `UGS1022` | Depth | would create a path of more relation instances than `max_depth` |
 | `UGS1023` | Limit | breaks a `@limit` bound; the message names the bound and the participant |
 | `UGS1024` | Overlap | breaks `@no_overlap` |
 | `UGS1025` | RoleFixed | replaces the participant of a required, single-valued role, on a relation of any mutability class |
@@ -1185,13 +1219,13 @@ refusal number and the instance. The refusals:
 | `UGS1029` | DerivedWrite | writes a derived name, or inserts or deletes a triple the RDF view derives from stored ones (section 11.4); the message names the stored triple to write |
 | `UGS1030` | EnumMember | writes a member the enum does not declare |
 | `UGS1031` | Graph | writes to an undeclared graph, to the default graph of a tenant without one, or creates an entity in a graph that is not of its type's schema |
-| `UGS1034` | IncompleteInstance | leaves an instance assembled from triples incomplete: a reifier without its triple, a role triple without its instance's type, a triple of a node-encoded relation outside its instance; a missing required role is `UGS1015` |
+| `UGS1034` | IncompleteInstance | leaves an instance assembled from triples incomplete: a reifier without its triple or its relation's concrete type, a `@bitemporal` or `@multi` edge-encoded instance's triple without its reifier, a role triple without its instance's type, a triple of a node-encoded relation outside its instance; a missing required role is `UGS1015` |
 | `UGS1035` | Succession | inserts an `@ends` instance without a valid start, or whose participant in that role is not live, has no valid interval, or has one that begins after the instance's valid start or ends before it |
 | `UGS1036` | AttributeCardinality | writes a second value to a single-valued attribute of one instance |
 | `UGS1037` | RetiredIri | mints an IRI equal to the birth IRI an instance holds (section 7.3) |
 | `UGS1038` | IriNotMinted | creates an instance under a subject IRI its type does not mint for it: a keyed type's instance under another IRI than its key mints, or a keyless type's instance under an IRI in place of a blank node (section 7.3) |
 | `UGS1039` | EvaluationFailed | commits an instance for which an expression of the schema cannot be evaluated: an overflow or a division by zero in a `@check`, a `@limit` condition or a computed derivation (section 4) |
-| `UGS1040` | ReadBound | would need a check of `@acyclic` or `@no_overlap` to read more than `rule_read_max` instances (section 8.2); the message names the rule and the bound |
+| `UGS1040` | ReadBound | would need a check of `@acyclic` or `@no_overlap` to visit more than `rule_read_max` relation instances (section 8.2); the message names the rule and the bound |
 
 ### 8.8 Legal purge
 
@@ -1222,7 +1256,8 @@ the tenant's run the command executes locally.
 An instance's attributes, its forward entries, its local reverse entries, its indexes and its statistics are written
 in its partition in one local commit (`../binary_protocol/PROTOCOL.md` section 11.11, P24). A navigation from a participant that is not
 the anchor is a reverse read: the participant's home reads its referrer set and fans out. The coordination report lists
-each such navigation as a scatter read (`UGS0905`). Before an instance's partition first commits a reference to a
+each such navigation as a scatter read (`UGS0905`); a `@symmetric` relation's navigation name, declared on both roles,
+is one scatter read, recorded at the second role. Before an instance's partition first commits a reference to a
 participant it does not own, it registers at the participant's home, which adds the partition's bucket group to the
 participant's referrer set, unless the role declares `-> _`. A `@key`'s claim lives in the entity's own bucket (section 7.2), so creation and the key check meet in one
 partition; a `@unique` index is partitioned by the value's hash (`Bucket::of_value`), so each value has one owning
@@ -1245,7 +1280,7 @@ partition.
 | `@key` | The key's claim | The entity's own bucket, hashed from the declaring prefix and the canonical key (section 7.2) | Segmented, local: the creating partition owns it |
 | `@unique` | The value's claim | The partition owning `Bucket::of_value(tenant, predicate, value)` | Segmented |
 | Cardinality on the anchor role's navigation | The participant's count through the role | The anchor's partition, which holds every instance of that participant | Segmented, local |
-| Cardinality on another role's navigation | The participant's instances, anchored elsewhere | Spread | Coordinated; `UGS0903` suggests `@colocate` |
+| Cardinality on another role's navigation | The participant's instances, anchored elsewhere | Spread | Coordinated |
 | `@set` | The combination's existing instance | The anchor's partition | Segmented, local |
 | `@acyclic`, `max_depth` | The relation's paths through the inserted instance | The partitions holding the instances along them | Coordinated |
 | `@limit` per the anchor role | The aggregate | The anchor's partition | Segmented, local |
@@ -1253,6 +1288,7 @@ partition.
 | `@no_overlap(per: roles)` with the anchor role among them | The combination's intervals | The anchor's partition | Segmented, local |
 | `@no_overlap` without the anchor role | Spread | Spread | Coordinated |
 | `restrict` or `restrict open` on a role whose relations are all anchored on it | The instances naming the participant, and under `restrict open` the retraction of the live ones no longer open | The participant's home | Segmented, local |
+| `cascade` on a role whose relations are all anchored on it | The instances naming the participant | The participant's home | Coordination-free: the deletes are writes in that partition |
 | `restrict`, `restrict open`, `cascade` otherwise | Instances in referrers' partitions | The referrer set's members | Coordinated; stage 8 sends sequenced shares |
 | `orphan` | The instance | Its partition | Coordination-free |
 | `@retracts(role)` | The participant's `asserted` | The participant's home | Segmented, local when colocated with the role; coordinated otherwise |
@@ -1263,16 +1299,19 @@ partition.
 
 1. Enumerate every write operation the catalog version permits: per entity type, create, update of each attribute,
    delete; per relation type, insert, update of each attribute, change of each optional or set-valued role, delete, and
-   for `@bitemporal` types retract in place of update and delete.
+   for `@bitemporal` types retract in place of delete, their updates being revisions, which are listed.
 2. For each constraint, list the operations that could violate it: those writing what it reads, an update of an
    attribute its condition reads among them, as a `@limit`'s `where` reads `rank`. Two operations **conflict** on a
    constraint when concurrent executions of them in different partitions could both pass their local checks and
    together violate it.
 3. Build the conflict graph: operations as nodes, an edge per conflict, labelled with the constraint and the partition
    that owns its state.
-4. Choose placement: for every constraint whose owner is not fixed by an annotation, choose the anchor role that makes
-   its check local; when two constraints of one relation demand different anchors, keep the first declared local, route
-   the other through coordination, and warn (`UGS0904`). A subtype's own `@colocate` decides for that
+4. Take each relation's anchor as section 9.1 states: the role its `@colocate` names, own or inherited, else its first
+   role; the compiler chooses no anchor of its own. A constraint the anchor does not make local is routed through
+   coordination. When the anchor keeps another anchor-dependent constraint of the relation local, `UGS0904` names the
+   pair, as section 16's `Supply` keeps its `restrict` on `supplier` local and coordinates its `@limit` per `buyer`; a
+   lone constraint only another anchor would make local, with none competing, is coordinated with no `UGS0904`, and a
+   `restrict` that `@colocate` would make local is reported as `UGS0903`. A subtype's own `@colocate` decides for that
    subtype whatever its supertypes' constraints demand, and the report says what the kind gave up.
 5. Assign each operation the most demanding path among its constraints' rows in section 9.3, emit the report, and
    store the table in the catalog version.
@@ -1280,8 +1319,8 @@ partition.
 ### 9.5 The coordination report
 
 Every successful compilation emits a report, `UGS0901`, listing: each write operation with its path and the constraint
-deciding it; each scatter read (`UGS0905`); each placement conflict and its resolution (`UGS0904`); each `restrict` that
-coordination avoids with `@colocate` (`UGS0903`); each declared construct this deployment does not enforce
+deciding it; each scatter read (`UGS0905`); each placement conflict and its resolution (`UGS0904`); each `restrict`, and no other
+constraint, whose coordination `@colocate` on its role would avoid (`UGS0903`); each declared construct this deployment does not enforce
 (`UGS0902`); and, per write operation, the index entries it writes, value, interval at two per attribute, count,
 fulltext and vector, with the ten operations writing most under `UGS0906`. A version installed over a previous one also
 lists which operations changed path. The report is returned
@@ -1295,11 +1334,11 @@ in the order the table lists them, a value in its canonical lexical form. Equal 
 
 | Record | Code | Subject | Fields |
 |---|---|---|---|
-| A write operation | `UGS0901` | The type and the operation: `Engine.create`, `Asset.update.status`, `Owns.insert`, `Owns.role.asset`, `Asset.delete`, `MemberOf.retract` | `path`: `coordination-free`, `segmented` or `coordinated`; `local`: whether the state its deciding constraint reads is the transaction's partition's by placement; `by`: the deciding constraint, or `none`; `indexes`: the index entries it writes |
+| A write operation | `UGS0901` | The type and the operation: `Engine.create`, `Engine.update.status`, `Owns.insert`, a role change as `{type}.role.{role}`, `Engine.delete`, `MemberOf.retract` | `path`: `coordination-free`, `segmented` or `coordinated`; `local`: whether the state its deciding constraint reads is the transaction's partition's by placement; `by`: the deciding constraint, or `none`; `indexes`: the index entries it writes |
 | An unenforced construct | `UGS0902` | The item declaring it | `construct`; `stage`, the stage that enforces or executes it |
 | A `restrict` colocation would make local | `UGS0903` | The relation and the role | `colocate`, the role to name |
 | A placement conflict | `UGS0904` | The relation | `local`, the constraint kept local; `coordinated`, the constraint routed through coordination |
-| A scatter read | `UGS0905` | The type and the navigation name | `relation`; `role` |
+| A scatter read | `UGS0905` | The type and the navigation name | `relation`, its qualified name; `role` |
 | A heaviest writer | `UGS0906` | The type and the operation | `indexes`; `rank`, 1 to 10 |
 
 ### 9.6 What the schema gives request typing and query classification
@@ -1415,7 +1454,8 @@ rules:
 | Migration | Each migration a version was installed by: its source, the source and target versions, the cutover epoch and the run's state, read for the target's history before the cutover (`SCHEMA-EVOLUTION.md` section 7) |
 
 **Attribute identity.** An attribute name is one predicate per vocabulary base: `Organization.name` and `Person.name`
-share the predicate `{base}name`. Every type declaring the name must declare it with the same type and the same
+share the predicate `{base}name`. Every type declaring the name, a subtype redeclaring an inherited one among them
+(section 6.3), must declare it with the same type and the same
 `@index`, `@immutable` and `@maps_to` (`UGS0215`), unless `@iri` on one gives it a predicate of its own, after which
 the agreement rule applies per predicate; requiredness, defaults and value checks are per declaring
 type. A predicate carrying `@key` or `@unique` is declared by one type tree only (`UGS0216`), so the predicate's
@@ -1443,15 +1483,25 @@ and where one exists a concrete fix, in the style of Rust's compiler:
 
 ```
 error[UGS0601]: append-only relation `Supply` would lose instances on delete
-  --> aviation.ugs:44:3
+  --> aviation.ugs:51:13
    |
-44 |   item:     Asset   -> contracts*
+51 |   item:     Asset                   -> contracts*
    |             ^^^^^ `Asset` is deletable and `item` defaults to `cascade`
    |
 help: keep `Supply` append-only by restricting deletes of its participants
    |
-49 |   @on_delete(supplier: restrict, buyer: restrict, item: restrict)
+54 |   @on_delete(supplier: restrict, buyer: restrict, item: restrict)
 ```
+
+A location names the source's file, the line and column of its first character, and its length. Lines and columns
+count from 1: a column is one more than the Unicode scalar values before the location on its line, and a length is
+the scalar values the location spans; a line ends at its `\n`, and the `\r` of a `\r\n` belongs to no column. A
+diagnostic's location is the smallest span naming what breaks the rule: the token, name, annotation or argument at
+fault, and for a rule over a declaration as a whole, the declaration's name. A cycle, of inheritance (`UGS0105`) or
+of calls (`UGS0118`), is one diagnostic, at the name of the first of its declarations in source order. A source that
+is not UTF-8 is located at its first invalid byte, one column of length 1; an unterminated string, comment or IRI at
+its opening delimiter; an over-long line at the whole line. A fix is one or more edits, each a location and the text
+replacing it, an insertion having length 0, so a tool applies it as given.
 
 A schema with any error is refused. Warnings and notes accompany a successful install in the report. One condition
 takes one code: the most specific code naming a condition is raised, and a general one, `UGS0101` first, only where no
@@ -1489,12 +1539,12 @@ other names it. The codes:
 | `UGS0118` | error | A cycle in the function call graph |
 | `UGS0119` | error | A function body naming an unknown parameter or field |
 | `UGS0120` | error | In an expression position, a token the expression grammar does not expect; or an operation version 1 leaves out, measure arithmetic beyond section 5.8's among them |
-| `UGS0201` | error | An unknown type name |
+| `UGS0201` | error | An unknown type name, a parent's or a participant's among them |
 | `UGS0202` | error | Type arguments of the wrong count or kind |
-| `UGS0203` | error | `Decimal(p, s)` outside `1 ≤ p ≤ 38`, `0 ≤ s ≤ 18`, `p − s ≤ 20` |
+| `UGS0203` | error | `Decimal(p, s)` outside `1 ≤ p ≤ 38`, `0 ≤ s ≤ p`, `s ≤ 18`, `p − s ≤ 20` |
 | `UGS0204` | error | A vector dimension outside 1 to 65,535 |
 | `UGS0205` | error | A collection or record element the type does not allow |
-| `UGS0206` | error | An `Interval` over a type that is not temporal, integer or decimal |
+| `UGS0206` | error | An `Interval` over a type that is not `Date`, `DateTime`, `LocalDateTime`, an integer type or a `Decimal` |
 | `UGS0207` | error | A literal, default, derivation or body whose type does not match |
 | `UGS0209` | error | A default on an `Optional` field |
 | `UGS0211` | error | `@pattern` on a type that is not text or `Iri` |
@@ -1521,12 +1571,12 @@ other names it. The codes:
 | `UGS0308` | error | `@unique` on a collection, record, vector, geometry or measure with a unit on the value |
 | `UGS0309` | error | Two schemas or two graphs with one base |
 | `UGS0401` | error | A relation with fewer than two roles |
-| `UGS0402` | error | A participant type that is not a declared entity, relation or statement type, or a union with a repeated member |
+| `UGS0402` | error | A participant naming a declared type that is not an entity, relation or statement type; a union with a repeated member, or with a nested one, a subtype of another member; an undeclared name is `UGS0201` |
 | `UGS0403` | error | A role without a cardinality marker, which the parser reports under this code rather than `UGS0006` |
 | `UGS0404` | error | A navigation name, derived name or method function clashing with another field of a participant type, inherited ones and the built-in fields of section 5.11 included |
 | `UGS0405` | error | `as` naming a role the supertype lacks |
 | `UGS0406` | error | A super role specialized twice in one subtype |
-| `UGS0407` | error | A specialized participant that is not the super role's type or a subtype |
+| `UGS0407` | error | A specialized participant that is not the super role's type or a subtype, or a specialized role changing the super role's optionality or set-valuedness |
 | `UGS0408` | error | `@symmetric` on a relation that is not binary with one participant type and one navigation name |
 | `UGS0409` | error | `@set` or `@multi` changed below the root of a relation tree |
 | `UGS0410` | error | A union member that is not the super role's type or a subtype |
@@ -1535,7 +1585,7 @@ other names it. The codes:
 | `UGS0413` | error | A navigation name on a role naming a catalog type |
 | `UGS0417` | error | A role named as another role or attribute of the relation, or as a built-in field of section 5.11 |
 | `UGS0418` | error | An edge-encoded relation whose anchor role declares `-> _` |
-| `UGS0501` | error | `orphan` on a required role |
+| `UGS0501` | error | `orphan` on a role that is not `Optional` and single-valued: a required or a set-valued role |
 | `UGS0502` | error | A cardinality `{m, n}` with `m > n` or `n = 0` |
 | `UGS0503` | error | `@acyclic` on a relation that is not binary, or whose roles' types share no supertype |
 | `UGS0504` | error | `max_depth` outside 1 to 4,096 |
@@ -1559,7 +1609,7 @@ other names it. The codes:
 | `UGS0526` | error | `@index(range)` on an unordered type |
 | `UGS0528` | error | A `@values` literal of the wrong type |
 | `UGS0529` | error | A `@limit` lower bound, `>=` or `=` with a bound of at least one, whose `per` names more than one role or `type` |
-| `UGS0601` | error | An `@append_only` relation whose participants may be deleted with `cascade` |
+| `UGS0601` | error | An `@append_only` relation whose participants may be deleted with `cascade`, or that declares `orphan` on a role |
 | `UGS0602` | error | A `@bitemporal` relation with a participant type that is neither `@bitemporal` nor an `@append_only` entity type |
 | `UGS0701` | error | `@colocate` naming a role the relation neither declares nor inherits |
 | `UGS0702` | error | `@colocate` on a relation with `@key` |
@@ -1574,9 +1624,9 @@ other names it. The codes:
 | `UGS0807` | warning | A `@check` on a type comparing an optional field with no test of its presence, which refuses every instance without the value |
 | `UGS0901` | note | The coordination report |
 | `UGS0902` | warning | A declared construct this deployment does not enforce or execute yet, with the stage that will: the construct is compiled, checked by every static rule and recorded in the catalog version, and is enforced, built or run from that stage with no schema change |
-| `UGS0903` | warning | `restrict` forcing coordination that `@colocate` on the role would avoid |
-| `UGS0904` | warning | Two constraints demanding different anchors; which stayed local |
-| `UGS0905` | note | A navigation read by scatter |
+| `UGS0903` | warning | `restrict` forcing coordination that `@colocate` on the role would avoid, and no other constraint; the fix inserts ` @colocate(role)` after the relation's name and parent |
+| `UGS0904` | warning | Two constraints demanding different anchors; which stayed local. One record per relation, located at the coordinated constraint where the relation declares it, else at the relation's name; no fix |
+| `UGS0905` | note | A navigation read by scatter; a `@symmetric` relation's navigation name, declared on both roles, is one, at the second role |
 | `UGS0906` | note | The write operations writing the most index entries |
 
 ## 11. Standard views: RDF, SHACL and GQL
@@ -1649,6 +1699,11 @@ enum member as a string of its name; a `Bool` as `true` or `false`; and every ot
 lexical form (`../binary_protocol/PROTOCOL.md` section 10.5), so no integer, decimal or float loses
 precision.
 
+The view holds a materialized derivation's triples, under the derived name's predicate (section 12.4). `R` of
+`SCHEMA-APG.md` definition 17.1 leaves derived names out, so the oracle's comparison of the view with `R(G)` and the
+instance corpus's comparison of it leave out the derived names' triples, as the corpus leaves out the built-in
+`asserted` and `live`.
+
 The view is published as a vocabulary document per schema and as SHACL shapes: one `sh:NodeShape` per concrete type
 with `sh:targetClass`, a `sh:property` per attribute with `sh:datatype` or `sh:class`, `sh:minCount 1` when required,
 `sh:maxCount 1` when single-valued, `sh:in`, `sh:pattern`, `sh:minInclusive` and `sh:maxInclusive` from the value
@@ -1702,7 +1757,8 @@ An entity is its system ID; the dictionary maps its IRI to the ID at its home. I
 `rdf:type` quad is stored for a declared type, and `rdf:type` reads are answered from the prefix ranges. Each attribute
 value is a quad `(graph, entity, predicate, literal)` in the forward keyspace, single-valued attributes with store
 cardinality `Single`, `Set` attributes `Multi`; every literal takes the reverse entry the quad layout gives it. A
-`@key` attribute's predicate carries the `unique` flag, and its claim lives in the entity's own bucket (section 7.2); a
+single-attribute `@key`'s predicate carries the `unique` flag, a composite key's claim being on the key as a whole, and
+a key's claim lives in the entity's own bucket (section 7.2); a
 `@unique` attribute's claim lives at `Bucket::of_value`.
 
 ### 12.2 Interval attributes
@@ -1735,7 +1791,8 @@ is a statement record at the entity's home. A materialized derivation stores its
 name's predicate, written in the same commit as the write that changes it, within the anchor partition. Count indexes
 serve cardinality checks, and a `@limit`'s aggregates, one record per group in the marks keyspace, serve its checks
 (section 8.6). `@acyclic` is checked by walking the relation's paths from the inserted instance, bounded by
-`max_depth` and by `rule_read_max`, and `@no_overlap` by reading the group's live instances within `rule_read_max`
+`max_depth` and by `rule_read_max`, and `@no_overlap` by reading the group's live instances within `rule_read_max`,
+each relation instance a check visits counted once and a check that would visit more refused before it does
 (section 8.2).
 
 ## 13. Schema evolution
@@ -1811,13 +1868,14 @@ virtual derivation; what a stage refuses at run time, a rule across partitions, 
 | Lexical structure, grammar, every static rule of sections 5 to 7, prefixes, keys, IRIs, the RDF view, Describe | Stage 6 | |
 | Required, optional, defaults, value checks, datatype, enum, `@immutable`, type fixed, closed by default, `@open` | Stage 6 | |
 | `@key`, `@unique` local to the transaction's partition | Stage 6 | A claim at another partition: stage 8 |
-| Relations: roles, set-valued and optional roles, unions, `@set`, `@multi`, `@symmetric`, inheritance, cardinality on the anchor role, `@on_delete` local, `@acyclic` within a partition, `@no_overlap` and `@limit` per the anchor role, `@retracts` and `@ends` local | Stage 6 | Every cross-partition case: stage 8 |
+| Relations: roles, set-valued and optional roles, unions, `@set`, `@multi`, `@symmetric`, inheritance, cardinality on the anchor role and on another role where the participant's instances are in the transaction's partition, `@on_delete` local, `@acyclic` within a partition, `@no_overlap` and `@limit` per the anchor role, `@limit` per another role where the group's instances are in the transaction's partition, `@retracts` and `@ends` local | Stage 6 | Every cross-partition case, refused with code 23 until then: stage 8 |
 | `@append_only`, `@bitemporal`, `asserted`, `retract`, `@on_retract` local | Stage 6 | |
 | Entity delete with its tombstone | Stage 6 | Shares at referrers: stage 8 |
 | Indexes `range`, `interval`, `geo`, `fulltext` | Stage 6 | |
 | `@index(ann)` with its `metric` and `quantization`; `Vector<BF16>` storage | Stage 8 | Until then an Install accepts the declaration, records it in the catalog version and reports it (`UGS0902`), and no index is built; stage 8 builds the index from the recorded declaration with no schema change. A write of a `Vector<BF16>` value is refused naming the stage, so such an attribute stays absent; a `Vector<F32>` value is stored as a value. The write path's declaration of a vector index, in a tenant with no schema, stays refused (`../binary_protocol/PROTOCOL.md` section 11.13) |
 | `Measure`, `quantity`, `unit`, `Geo` operators | Stage 6 | |
 | Materialized derivations within the anchor partition, computed derivations among them | Stage 6 | Materialization across partitions: the tile stage |
+| `@access` | Stage 6: recorded in the catalog version and read by stage 7's query classifier (section 9.6), with no `UGS0902` | |
 | Functions and virtual derivations, executed | With the query core, stage 7 | From stage 6 each is compiled, type-checked and recorded, and reported (`UGS0902`) |
 | The GQL view and SHACL export | Stage 7 | |
 | Write classification's coordinated and segmented paths across partitions, the fast path's use of the request-typing facts | Stage 8 | |
@@ -2031,7 +2089,7 @@ that begin with one, `Asset.all_parts` and `Company.suppliers`.
 | Keyless names | A handle, the bucket and 104 random bits, minted into the type's IRI space, held in the dictionary both ways as a reifier's skolem IRI already is, and presented as an IRI. Chosen over D6's keyed encryption, which puts a key service on the read path of every keyless IRI and ties each such IRI to key retention, at the price of two dictionary entries the design already pays per reifier; revisited only if stage 7's dictionary-growth measurement shows those entries dominating |
 | Graphs and bases | One base per graph, defaulting to the schema's; two graphs of one schema take two bases, so IRIs stay unique in a tenant |
 | Cardinality markers | Always written; a relation cardinality is a check that refuses, never a replacing store cardinality |
-| Decimal bounds | `p ≤ 38`, `s ≤ 18`, `p − s ≤ 20`, from the store's i128 × 10¹⁸ encoding |
+| Decimal bounds | `p ≤ 38`, `s ≤ p`, `s ≤ 18`, `p − s ≤ 20`, from the store's i128 × 10¹⁸ encoding |
 | Cross-partition paths | Specified here, enforced from stage 8 |
 | Version 1 aggregates in `@limit` | `count` and `sum` |
 | `Measure` representation | `xsd:double` only; money is a `Decimal` attribute beside a currency enum, outside `quantity`, since currencies convert by rates that vary in time |
@@ -2089,6 +2147,7 @@ that begin with one, `Asset.all_parts` and `Company.suppliers`.
 | What a rule reads at commit | Decided 2026-11-10: an update of an attribute a rule's condition reads is checked as an update of what it aggregates; a `@limit` keeps its aggregate per group, one read and one write whatever the group's size; `@acyclic` and `@no_overlap` read within `rule_read_max` and refuse past it (`UGS1040`); `@acyclic` without `max_depth` stays legal under the same bound (sections 8.2, 8.6, 9.4) |
 | Declared predicates' IDs | Decided 2026-11-10: allocated by the metadata group with the version, the `Resource` prefix with sequences from 2^63, held in the version's predicate index and never in an entry, since Describe carries entries and a system ID never leaves the database; a governed tenant resolves no declared predicate through the dictionary (section 7.1, `CATALOG.md` section 2) |
 | Where an install compiles | Decided 2026-11-10: beside the metadata group, from the base version and the next free prefix and predicate sequence, so the group's thread only commits bytes; the version is decoded and encoded back before it is committed, and a failure is the compiler's, refused with code 7 (section 10.1) |
+| Corpus readings | Decided 2026-11-10: where the conformance corpus, written from this file alone, found it silent, ambiguous or contradicting itself, the reading decided is written in. A relation's anchor is section 9.1's, never the compiler's choice, and `UGS0904` names a pair of competing constraints; `UGS0903` is `restrict`'s alone; a commit reports the first rule broken in an order that takes a value's type before a check reading it and the more specific rule first, with rows for `UGS1026`, `UGS1034`, `UGS1036` and `UGS1037`; a tombstoned subject is code 30 and a tombstoned participant `UGS1019`; 65,532 declared types, so a prefix and a range's end fit 16 bits; `max_depth` and `rule_read_max` count relation instances; locations, number tokens, negative literals in arguments and defaults, a required `prefix`, `schema` reserved, qualified enum extensions in modules, attribute identity across inheritance, and the codes of undeclared participants, nested union members, set-valued and append-only `orphan` and a specialized role's shape (sections 3.1, 3.4, 3.5, 3.7, 4, 5.1, 5.4, 5.5, 6.1, 6.3 to 6.7, 6.10, 6.12, 7.1, 7.4, 8.1 to 8.3, 8.5, 8.7, 9.1, 9.3 to 9.5, 10.2, 10.4, 11.2, 12.1, 12.4, 14) |
 
 ## 18. Sources
 

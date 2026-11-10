@@ -1,0 +1,8 @@
+// expect: compiles
+schema core version 1
+prefix core = "https://example.org/core#"
+reserve Measurement
+
+abstract entity Observation {
+  taken: DateTime
+}

@@ -1,0 +1,7 @@
+// expect: compiles
+schema index_interval version 1
+prefix iiv = "https://example.org/index_interval#"
+
+entity Booking {
+  period: Interval<DateTime> @index(interval)
+}

@@ -1,0 +1,54 @@
+{
+  "code": "UGS0515",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@on_delete naming one role twice",
+      "sources": ["reject_role_twice.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0515", "kind": "error",
+          "file": "reject_role_twice.ugs", "line": 11, "column": 29, "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_role_twice.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@on_delete with an action that does not exist",
+      "sources": ["reject_unknown_action.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0515", "kind": "error",
+          "file": "reject_unknown_action.ugs", "line": 11, "column": 19, "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_unknown_action.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@on_delete with restrict open, an action of @on_retract alone",
+      "sources": ["reject_delete_restrict_open.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0515", "kind": "error",
+          "file": "reject_delete_restrict_open.ugs", "line": 11, "column": 19, "length": 13,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_delete_restrict_open.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@on_retract with orphan, an action of @on_delete alone",
+      "sources": ["reject_retract_orphan.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0515", "kind": "error",
+          "file": "reject_retract_orphan.ugs", "line": 14, "column": 23, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_retract_orphan.ugs"], "warnings": [] }
+    }
+  ]
+}

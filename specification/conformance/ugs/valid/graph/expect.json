@@ -1,0 +1,19 @@
+{
+  "name": "graph",
+  "sources": [
+    "graphs.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "graphs.Thing": 3
+  },
+  "report": [
+    "UGS0901 graphs.Thing.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 graphs.Thing.update.label path=coordination-free local=true by=none indexes=0",
+    "UGS0901 graphs.Thing.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

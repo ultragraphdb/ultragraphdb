@@ -1,0 +1,10 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Ticket {
+  opened: Date
+  due:    Date
+}
+
+derive Ticket.overdue: Bool = due < opened

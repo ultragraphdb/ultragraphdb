@@ -1,0 +1,7 @@
+// expect: UGS0001 at 6:30
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Airport {
+  city: String @values("Bogotá", "Cali")
+}

@@ -1,0 +1,16 @@
+// expect: UGS0514 at 16:27
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Claim @bitemporal(valid: valid) {
+  valid: Interval<DateTime> Optional
+  text:  String
+}
+
+abstract relation Link @bitemporal(valid: valid) {
+  source: Claim -> links_out*
+  target: Claim -> links_in*
+  valid:  Interval<DateTime> Optional
+}
+
+relation Cites : Link { } @on_delete(source: restrict)

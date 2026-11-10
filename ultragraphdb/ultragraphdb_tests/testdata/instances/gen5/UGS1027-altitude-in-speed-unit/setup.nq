@@ -1,0 +1,2 @@
+<https://example.org/deep_brain#Node/EVENT%3Alaunch> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Event> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Alaunch> <https://example.org/deep_brain#id> "EVENT:launch" <https://example.org/deep_brain#ontology> .

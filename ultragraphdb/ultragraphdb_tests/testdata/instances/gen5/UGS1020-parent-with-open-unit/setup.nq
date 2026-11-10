@@ -1,0 +1,7 @@
+<https://example.org/deep_brain#Node/AGENT%3Aco1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Company> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Aco1> <https://example.org/deep_brain#id> "AGENT:co1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Ateam1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Team> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Ateam1> <https://example.org/deep_brain#id> "AGENT:team1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Ateam1> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/AGENT%3Aco1> <https://example.org/deep_brain#ontology> .
+_:so1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/AGENT%3Ateam1> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/AGENT%3Aco1> )>> <https://example.org/deep_brain#ontology> .
+_:so1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#SubOrganizationOf> <https://example.org/deep_brain#ontology> .

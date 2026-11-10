@@ -1,0 +1,19 @@
+{
+  "name": "valid",
+  "sources": [
+    "valid_time.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "valid_time.Lease": 3
+  },
+  "report": [
+    "UGS0901 valid_time.Lease.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 valid_time.Lease.update.term path=coordination-free local=true by=none indexes=0",
+    "UGS0901 valid_time.Lease.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

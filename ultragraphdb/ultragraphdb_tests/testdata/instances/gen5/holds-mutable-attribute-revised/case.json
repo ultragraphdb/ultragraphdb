@@ -1,0 +1,17 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1012",
+  "name": "a revision of a ProposedKind's type_name, which is not @immutable, leaving supertype as it is",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "expect": "commit"
+    },
+    {
+      "insert": "step2.nq",
+      "delete": "step2-delete.nq",
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

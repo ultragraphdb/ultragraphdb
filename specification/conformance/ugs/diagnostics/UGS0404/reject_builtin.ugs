@@ -1,0 +1,11 @@
+// expect: UGS0404 at 10:21
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Person { name: String }
+entity Kind   { label: String }
+
+relation Classifies {
+  kind:   Kind   -> instances*
+  person: Person -> type*
+}

@@ -1,0 +1,17 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Person { name: String }
+entity Team   { name: String }
+entity Club   { name: String }
+
+relation MemberOfTeam {
+  member: Person -> memberships*
+  team:   Team   -> members*
+}
+
+relation MemberOfClub {
+  member: Person -> club_memberships*
+  club:   Club   -> members*
+}

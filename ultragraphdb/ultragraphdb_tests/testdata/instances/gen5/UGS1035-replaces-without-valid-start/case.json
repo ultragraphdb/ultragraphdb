@@ -1,0 +1,25 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1035",
+  "name": "a Replaces, which @ends(old), inserted without a valid start is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Concept { id: \"CON:old\", valid: 2025-03-01T00:00:00Z .. }",
+        "insert Concept { id: \"CON:new\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "replaces.nq",
+      "uql": [
+        "insert Replaces { new: Concept(id = \"CON:new\"), old: Concept(id = \"CON:old\") }"
+      ],
+      "expect": {
+        "refused": "UGS1035"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

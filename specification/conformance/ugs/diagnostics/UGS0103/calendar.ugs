@@ -1,0 +1,7 @@
+// expect: compiles
+schema calendar version 1
+prefix cal = "https://example.org/calendar#"
+
+entity Day {
+  date: Date
+}

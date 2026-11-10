@@ -1,0 +1,14 @@
+// expect: UGS0218 at 12:27
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+quantity Length { dimension: "L", scale: ratio, canonical: m }
+quantity Mass   { dimension: "M", scale: ratio, canonical: kg }
+
+unit m  { quantities: [Length], ucum: "m",  symbol: "m" }
+unit kg { quantities: [Mass],   ucum: "kg", symbol: "kg" }
+
+entity Parcel {
+  size:   Measure<Length, kg>
+  weight: Measure<Mass, kg>
+}

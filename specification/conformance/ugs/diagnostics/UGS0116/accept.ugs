@@ -1,0 +1,9 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Aircraft {
+  serial: String
+}
+
+graph production : fleet @default

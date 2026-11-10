@@ -1,0 +1,4 @@
+<https://example.org/deep_brain#Node/AGENT%3Ap0> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Person> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Ap0> <https://example.org/deep_brain#id> "AGENT:p0" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Event> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae1> <https://example.org/deep_brain#id> "EVENT:e1" <https://example.org/deep_brain#ontology> .

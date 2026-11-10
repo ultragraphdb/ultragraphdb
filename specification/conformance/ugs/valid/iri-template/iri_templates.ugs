@@ -1,0 +1,7 @@
+// expect: compiles
+schema iri_templates version 1
+prefix it = "https://example.org/iri_templates#"
+
+entity Country @key(code) @iri("https://example.org/country/{code}") {
+  code: String
+}

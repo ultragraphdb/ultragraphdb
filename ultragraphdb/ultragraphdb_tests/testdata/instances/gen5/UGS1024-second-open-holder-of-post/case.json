@@ -1,0 +1,29 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1024",
+  "name": "a second Holds of one post whose open valid interval certainly overlaps the first's breaks @no_overlap(per: [post])",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Organization { id: \"ORG:acme\" }",
+        "insert Post { id: \"AGENT:post1\" }",
+        "insert PostIn { post: Post(id = \"AGENT:post1\"), organisation: Organization(id = \"ORG:acme\") }",
+        "insert Person { id: \"AGENT:p1\" }",
+        "insert Person { id: \"AGENT:p2\" }",
+        "insert Holds { holder: Person(id = \"AGENT:p1\"), post: Post(id = \"AGENT:post1\"), valid: 2026-01-01T00:00:00Z .. }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "second-holder.nq",
+      "uql": [
+        "insert Holds { holder: Person(id = \"AGENT:p2\"), post: Post(id = \"AGENT:post1\"), valid: 2026-06-01T00:00:00Z .. }"
+      ],
+      "expect": {
+        "refused": "UGS1024"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

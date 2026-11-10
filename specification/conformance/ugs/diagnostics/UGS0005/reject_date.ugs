@@ -1,0 +1,7 @@
+// expect: UGS0005 at 6:18
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Airport {
+  opened: Date = 2026-02-30
+}

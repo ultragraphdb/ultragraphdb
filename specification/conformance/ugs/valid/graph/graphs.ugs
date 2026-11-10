@@ -1,0 +1,10 @@
+// expect: compiles
+schema graphs version 1
+prefix gr = "https://example.org/graphs#"
+
+entity Thing {
+  label: String
+}
+
+graph main : graphs @default
+graph archive : graphs @base("https://example.org/archive/")

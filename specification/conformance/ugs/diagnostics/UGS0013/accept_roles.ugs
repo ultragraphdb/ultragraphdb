@@ -1,0 +1,74 @@
+// expect: compiles
+schema hyper version 1
+prefix hy = "https://example.org/hyper#"
+
+entity Node {
+  name: String
+}
+
+relation Hyper {
+  r01: Node -> via_r01*
+  r02: Node -> via_r02*
+  r03: Node -> via_r03*
+  r04: Node -> via_r04*
+  r05: Node -> via_r05*
+  r06: Node -> via_r06*
+  r07: Node -> via_r07*
+  r08: Node -> via_r08*
+  r09: Node -> via_r09*
+  r10: Node -> via_r10*
+  r11: Node -> via_r11*
+  r12: Node -> via_r12*
+  r13: Node -> via_r13*
+  r14: Node -> via_r14*
+  r15: Node -> via_r15*
+  r16: Node -> via_r16*
+  r17: Node -> via_r17*
+  r18: Node -> via_r18*
+  r19: Node -> via_r19*
+  r20: Node -> via_r20*
+  r21: Node -> via_r21*
+  r22: Node -> via_r22*
+  r23: Node -> via_r23*
+  r24: Node -> via_r24*
+  r25: Node -> via_r25*
+  r26: Node -> via_r26*
+  r27: Node -> via_r27*
+  r28: Node -> via_r28*
+  r29: Node -> via_r29*
+  r30: Node -> via_r30*
+  r31: Node -> via_r31*
+  r32: Node -> via_r32*
+  r33: Node -> via_r33*
+  r34: Node -> via_r34*
+  r35: Node -> via_r35*
+  r36: Node -> via_r36*
+  r37: Node -> via_r37*
+  r38: Node -> via_r38*
+  r39: Node -> via_r39*
+  r40: Node -> via_r40*
+  r41: Node -> via_r41*
+  r42: Node -> via_r42*
+  r43: Node -> via_r43*
+  r44: Node -> via_r44*
+  r45: Node -> via_r45*
+  r46: Node -> via_r46*
+  r47: Node -> via_r47*
+  r48: Node -> via_r48*
+  r49: Node -> via_r49*
+  r50: Node -> via_r50*
+  r51: Node -> via_r51*
+  r52: Node -> via_r52*
+  r53: Node -> via_r53*
+  r54: Node -> via_r54*
+  r55: Node -> via_r55*
+  r56: Node -> via_r56*
+  r57: Node -> via_r57*
+  r58: Node -> via_r58*
+  r59: Node -> via_r59*
+  r60: Node -> via_r60*
+  r61: Node -> via_r61*
+  r62: Node -> via_r62*
+  r63: Node -> via_r63*
+  r64: Node -> via_r64*
+}

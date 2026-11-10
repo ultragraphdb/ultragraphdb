@@ -1,0 +1,4 @@
+_:supply1 <https://example.org/aviation#certification> <https://example.org/aviation#Organization/Leonardo> <https://example.org/aviation#production> .
+_:cert1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( _:supply1 <https://example.org/aviation#certification> <https://example.org/aviation#Organization/Leonardo> )>> <https://example.org/aviation#production> .
+_:cert1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Certifies> <https://example.org/aviation#production> .
+_:cert1 <https://example.org/aviation#valid_start> "2022-01-11"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .

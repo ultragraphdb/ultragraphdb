@@ -1,0 +1,22 @@
+{
+  "name": "index-geo",
+  "sources": [
+    "index_geo.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "index_geo.Site": 3
+  },
+  "report": [
+    "UGS0901 index_geo.Site.create path=coordination-free local=true by=none indexes=1",
+    "UGS0901 index_geo.Site.update.location path=coordination-free local=true by=none indexes=2",
+    "UGS0901 index_geo.Site.delete path=coordination-free local=true by=none indexes=1",
+    "UGS0906 index_geo.Site.create indexes=1 rank=2",
+    "UGS0906 index_geo.Site.delete indexes=1 rank=3",
+    "UGS0906 index_geo.Site.update.location indexes=2 rank=1"
+  ]
+}

@@ -1,0 +1,7 @@
+// expect: UGS0525 at 6:24
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Doc {
+  title: String @index(fulltext)
+}

@@ -1,0 +1,17 @@
+<https://example.org/aviation#Organization/Leonardo> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Company> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Leonardo> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Organization> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Leonardo> <https://example.org/aviation#name> "Leonardo" <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Airbus> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Company> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Airbus> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Organization> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Airbus> <https://example.org/aviation#name> "Airbus" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/AC-0001> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Aircraft> <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/AC-0001> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Asset> <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/AC-0001> <https://example.org/aviation#serial> "AC-0001" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/AC-0001> <https://example.org/aviation#commissioned> "2022-01-08"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/AC-0001> <https://example.org/aviation#status> "active" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/AC-0001> <https://example.org/aviation#tags> "fleet" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/AC-0001> <https://example.org/aviation#tail_number> "D-AAAA" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/AC-0001> <https://example.org/aviation#owner> <https://example.org/aviation#Organization/Airbus> <https://example.org/aviation#production> .
+_:owns1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/aviation#Asset/AC-0001> <https://example.org/aviation#owner> <https://example.org/aviation#Organization/Airbus> )>> <https://example.org/aviation#production> .
+_:owns1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Owns> <https://example.org/aviation#production> .
+_:owns1 <https://example.org/aviation#since> "2022-02-07"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .

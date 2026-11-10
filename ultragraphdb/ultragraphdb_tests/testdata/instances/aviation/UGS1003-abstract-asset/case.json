@@ -1,0 +1,13 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1003",
+  "name": "an instance created under the abstract entity type Asset",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1003"
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+// expect: compiles
+schema library version 1
+prefix ex = "https://example.org/library#"
+
+entity Person {
+  name: String
+}
+
+entity Book {
+  title: String
+}
+
+relation Loan {
+  holder: Person -> loans*
+  book:   Book   -> borrowers*
+  due:    DateTime
+} @limit(count() <= 3 per holder where due > 2026-01-01T00:00:00Z)

@@ -1,0 +1,23 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1029",
+  "name": "a revision of rank, the stored attribute db:closed is computed from, commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { id: \"ORG:acme\", rank: normal }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "rank.nq",
+      "delete": "rank-old.nq",
+      "uql": [
+        "update Company(id = \"ORG:acme\") { rank: deprecated }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

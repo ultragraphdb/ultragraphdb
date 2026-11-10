@@ -1,0 +1,20 @@
+{
+  "name": "derive-computed",
+  "sources": [
+    "derive_computed.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "derive_computed.Task": 3
+  },
+  "report": [
+    "UGS0901 derive_computed.Task.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 derive_computed.Task.update.blocked path=coordination-free local=true by=none indexes=0",
+    "UGS0901 derive_computed.Task.update.done path=coordination-free local=true by=none indexes=0",
+    "UGS0901 derive_computed.Task.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

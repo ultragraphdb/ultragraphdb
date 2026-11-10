@@ -1,0 +1,21 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1038",
+  "name": "a Reading, a keyless type, created with its GeneratedBy under an IRI in place of a blank node is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Activity { id: \"ACT:a1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "reading.nq",
+      "expect": {
+        "refused": "UGS1038"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

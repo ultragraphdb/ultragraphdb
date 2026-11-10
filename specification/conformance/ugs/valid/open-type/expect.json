@@ -1,0 +1,19 @@
+{
+  "name": "open-type",
+  "sources": [
+    "open_type.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "open_type.Note": 3
+  },
+  "report": [
+    "UGS0901 open_type.Note.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 open_type.Note.update.body path=coordination-free local=true by=none indexes=0",
+    "UGS0901 open_type.Note.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

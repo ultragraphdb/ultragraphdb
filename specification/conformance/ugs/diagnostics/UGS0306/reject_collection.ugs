@@ -1,0 +1,7 @@
+// expect: UGS0306 at 6:10
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Batch @key(codes) {
+  codes: List<String>
+}

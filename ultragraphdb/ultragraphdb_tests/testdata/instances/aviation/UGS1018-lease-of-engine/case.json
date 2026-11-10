@@ -1,0 +1,26 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1018",
+  "name": "a lease whose asset is an Engine, outside the role's type Aircraft",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Leonardo\" }",
+        "insert Company { name: \"Airbus\" }",
+        "insert Engine { serial: \"EN-0001\", commissioned: 2022-01-08, status: active, tags: [\"engine\"], thrust_kn: 120.5 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert Lease { lessor: Company(name = \"Leonardo\"), lessee: Company(name = \"Airbus\"), asset: Asset(serial = \"EN-0001\"), signed: 2022-01-10, term: 2022-01-10 .. 2030-01-01 }"
+      ],
+      "expect": {
+        "refused": "UGS1018"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

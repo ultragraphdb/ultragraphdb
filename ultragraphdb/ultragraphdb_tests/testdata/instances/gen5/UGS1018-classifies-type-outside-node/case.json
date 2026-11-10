@@ -1,0 +1,21 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1018",
+  "name": "a Classifies whose entity_type, a schema.EntityType<Node> participant, is Reading, which is not below Node",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert RoleKind { id: \"KIND:engineer\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "expect": {
+        "refused": "UGS1018"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

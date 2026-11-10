@@ -1,0 +1,58 @@
+{
+  "code": "UGS0407",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a specialized participant outside the super role's type tree",
+      "sources": ["reject_unrelated.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0407", "kind": "error",
+          "file": "reject_unrelated.ugs", "line": 15, "column": 11, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_unrelated.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a specialized participant that is a supertype of the super role's type",
+      "sources": ["reject_wider.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0407", "kind": "error",
+          "file": "reject_wider.ugs", "line": 15, "column": 11, "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_wider.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a specialized role dropping its super role's `Optional`: a role keeps its optionality, required or not",
+      "sources": ["reject_optionality.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0407", "kind": "error",
+          "file": "reject_optionality.ugs", "line": 14, "column": 11, "length": 5,
+          "fix": [
+            { "file": "reject_optionality.ugs", "line": 14, "column": 16, "length": 0, "replacement": " Optional" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_optionality.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a specialized role made set-valued over a single-valued super role",
+      "sources": ["reject_set_valued.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0407", "kind": "error",
+          "file": "reject_set_valued.ugs", "line": 14, "column": 11, "length": 7,
+          "fix": [
+            { "file": "reject_set_valued.ugs", "line": 14, "column": 11, "length": 7, "replacement": "Paper" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_set_valued.ugs"], "warnings": [] }
+    }
+  ]
+}

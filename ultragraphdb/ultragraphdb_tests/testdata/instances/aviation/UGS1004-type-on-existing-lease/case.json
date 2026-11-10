@@ -1,0 +1,24 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1004",
+  "name": "rdf:type Supply written on an existing Lease, a keyless instance named by its handle",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Leonardo\" }",
+        "insert Company { name: \"Airbus\" }",
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }",
+        "insert Lease { lessor: Company(name = \"Leonardo\"), lessee: Company(name = \"Airbus\"), asset: Aircraft(serial = \"AC-0001\"), signed: 2022-01-10, term: 2022-01-10 .. 2030-01-01 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "expect": {
+        "refused": "UGS1004"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

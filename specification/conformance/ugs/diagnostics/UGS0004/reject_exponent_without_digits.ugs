@@ -1,0 +1,7 @@
+// expect: UGS0004 at 6:25
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Aircraft {
+  fuel_ratio: Float64 = 2.5e
+}

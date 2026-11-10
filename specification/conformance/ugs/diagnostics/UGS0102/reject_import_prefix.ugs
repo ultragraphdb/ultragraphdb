@@ -1,0 +1,9 @@
+// expect: UGS0102 at 5:40
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+import "https://schema.org/" as sdo
+import "http://www.w3.org/ns/prov#" as sdo
+
+entity Pilot {
+  name: String
+}

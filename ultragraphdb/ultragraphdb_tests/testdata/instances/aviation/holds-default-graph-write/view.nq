@@ -1,0 +1,6 @@
+<https://example.org/aviation#Organization/Alpha> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Company> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Alpha> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Organization> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Alpha> <https://example.org/aviation#name> "Alpha" <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Beta> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Company> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Beta> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Organization> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Beta> <https://example.org/aviation#name> "Beta" <https://example.org/aviation#production> .

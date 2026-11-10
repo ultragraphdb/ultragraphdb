@@ -1,0 +1,7 @@
+// expect: compiles
+schema index_fulltext version 1
+prefix ift = "https://example.org/index_fulltext#"
+
+entity Article {
+  body: Text @index(fulltext)
+}

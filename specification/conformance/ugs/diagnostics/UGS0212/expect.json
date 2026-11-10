@@ -1,0 +1,75 @@
+{
+  "code": "UGS0212",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@range on a geometry",
+      "sources": [
+        "reject_unordered.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0212",
+          "kind": "error",
+          "file": "reject_unordered.ugs",
+          "line": 6,
+          "column": 13,
+          "length": 18,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_unordered.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "@range over integers with min > max",
+      "sources": [
+        "reject_integer.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0212",
+          "kind": "error",
+          "file": "reject_integer.ugs",
+          "line": 6,
+          "column": 23,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_integer.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "@range over dates with min > max",
+      "sources": [
+        "reject_date.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0212",
+          "kind": "error",
+          "file": "reject_date.ugs",
+          "line": 6,
+          "column": 21,
+          "length": 22,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_date.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

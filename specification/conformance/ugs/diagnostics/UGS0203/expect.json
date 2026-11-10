@@ -1,0 +1,98 @@
+{
+  "code": "UGS0203",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "more than 20 integer digits, p - s > 20",
+      "sources": [
+        "reject_integer_digits.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0203",
+          "kind": "error",
+          "file": "reject_integer_digits.ugs",
+          "line": 6,
+          "column": 18,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_integer_digits.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a scale past 18",
+      "sources": [
+        "reject_scale.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0203",
+          "kind": "error",
+          "file": "reject_scale.ugs",
+          "line": 6,
+          "column": 18,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_scale.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a precision below 1",
+      "sources": [
+        "reject_precision_low.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0203",
+          "kind": "error",
+          "file": "reject_precision_low.ugs",
+          "line": 6,
+          "column": 18,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_precision_low.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a precision past 38",
+      "sources": [
+        "reject_precision_high.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0203",
+          "kind": "error",
+          "file": "reject_precision_high.ugs",
+          "line": 6,
+          "column": 18,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_precision_high.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

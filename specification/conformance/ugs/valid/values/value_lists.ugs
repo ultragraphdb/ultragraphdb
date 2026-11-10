@@ -1,0 +1,7 @@
+// expect: compiles
+schema value_lists version 1
+prefix vl = "https://example.org/value_lists#"
+
+entity Region {
+  code: String @values("EU", "US", "UK")
+}

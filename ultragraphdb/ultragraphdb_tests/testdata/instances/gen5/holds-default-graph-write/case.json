@@ -1,0 +1,22 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1031",
+  "name": "a Company written as triples in the default graph lands in db:ontology, the @default graph",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { id: \"ORG:acme\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Company { id: \"ORG:beta\" }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

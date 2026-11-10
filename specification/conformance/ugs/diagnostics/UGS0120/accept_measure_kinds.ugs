@@ -1,0 +1,14 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+quantity Length { dimension: "L", scale: ratio, canonical: m }
+quantity Mass   { dimension: "M", scale: ratio, canonical: kg }
+
+unit m  { quantities: [Length], ucum: "m",  symbol: "m" }
+unit kg { quantities: [Mass],   ucum: "kg", symbol: "kg" }
+
+entity Parcel {
+  girth:  Measure<Length, m>
+  weight: Measure<Mass, kg>
+} @check(girth <= 3 and weight <= 30)

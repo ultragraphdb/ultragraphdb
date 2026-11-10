@@ -1,0 +1,10 @@
+// expect: UGS0309 at 10:28
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Item {
+  name: String
+}
+
+graph main : shop @default @base("https://example.org/data/")
+graph archive : shop @base("https://example.org/data/")

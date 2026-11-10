@@ -1,0 +1,21 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1030",
+  "name": "a Company created with rank \"best\", which Rank does not declare, is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { id: \"ORG:acme\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1030"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

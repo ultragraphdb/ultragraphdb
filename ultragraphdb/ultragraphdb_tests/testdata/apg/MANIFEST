@@ -1,9 +1,20 @@
-lean-commit d1aad3034ee8e7ca78528b62c1471b6ca4fb9c23
+lean-commit d8d7e2f0a91358f7af83071c47cbb5239780dfa2-dirty
 aviation/0.nq
+aviation/0.write.nq
 aviation/1.nq
+aviation/1.write.nq
 aviation/2.nq
+aviation/2.write.nq
 aviation/3.nq
+aviation/3.write.nq
 gen5/0.nq
+gen5/0.write.nq
 gen5/1.nq
+gen5/1.write.nq
+gen5/1.retract
 gen5/2.nq
+gen5/2.write.nq
+gen5/2.retract
 gen5/3.nq
+gen5/3.write.nq
+gen5/3.retract

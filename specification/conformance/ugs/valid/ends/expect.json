@@ -1,0 +1,24 @@
+{
+  "name": "ends",
+  "sources": [
+    "ends.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "ends.Position": 3,
+    "ends.Succeeds": 4
+  },
+  "report": [
+    "UGS0901 ends.Position.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 ends.Position.update.term path=coordination-free local=true by=none indexes=0",
+    "UGS0901 ends.Position.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 ends.Succeeds.insert path=segmented local=true by=@ends indexes=0",
+    "UGS0901 ends.Succeeds.update.term path=coordination-free local=true by=none indexes=0",
+    "UGS0901 ends.Succeeds.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0905 ends.Position.predecessors relation=ends.Succeeds role=next"
+  ]
+}

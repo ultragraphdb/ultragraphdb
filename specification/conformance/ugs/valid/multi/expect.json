@@ -1,0 +1,25 @@
+{
+  "name": "multi",
+  "sources": [
+    "multi_semantics.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "multi_semantics.Sensor": 3,
+    "multi_semantics.Station": 4,
+    "multi_semantics.Reading": 5
+  },
+  "report": [
+    "UGS0901 multi_semantics.Reading.insert path=coordination-free local=true by=none indexes=0",
+    "UGS0901 multi_semantics.Reading.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 multi_semantics.Sensor.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 multi_semantics.Sensor.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 multi_semantics.Station.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 multi_semantics.Station.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0905 multi_semantics.Station.station_readings relation=multi_semantics.Reading role=station"
+  ]
+}

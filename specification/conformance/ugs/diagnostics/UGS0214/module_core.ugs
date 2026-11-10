@@ -1,0 +1,7 @@
+// expect: compiles
+schema core version 1
+prefix co = "https://example.org/core#"
+
+abstract entity Asset {
+  code: String
+}

@@ -1,0 +1,54 @@
+{
+  "code": "UGS0505",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@limit over avg, an aggregate version 1 does not support",
+      "sources": ["reject_aggregate.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0505", "kind": "error",
+          "file": "reject_aggregate.ugs", "line": 12, "column": 10, "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_aggregate.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@limit summing an attribute that is not numeric",
+      "sources": ["reject_not_numeric.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0505", "kind": "error",
+          "file": "reject_not_numeric.ugs", "line": 12, "column": 14, "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_not_numeric.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@limit summing a numeric attribute no @range or @check bounds at or above zero",
+      "sources": ["reject_unbounded.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0505", "kind": "error",
+          "file": "reject_unbounded.ugs", "line": 12, "column": 14, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_unbounded.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@limit summing an attribute whose @range leaves its minimum open",
+      "sources": ["reject_open_range.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0505", "kind": "error",
+          "file": "reject_open_range.ugs", "line": 12, "column": 14, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_open_range.ugs"], "warnings": [] }
+    }
+  ]
+}

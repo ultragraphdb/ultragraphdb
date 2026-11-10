@@ -1,0 +1,88 @@
+{
+  "code": "UGS2005",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "the next free prefix is the last, 65,534, since 65,535 is never allocated: the first type takes it, the second finds none",
+      "sources": [
+        "reject_two_types.ugs"
+      ],
+      "inputs": {
+        "prefix_next": 65534,
+        "predicate_next": "9223372036854775808"
+      },
+      "diagnostics": [
+        {
+          "code": "UGS2005",
+          "kind": "error",
+          "file": "reject_two_types.ugs",
+          "line": 6,
+          "column": 8,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_two_types.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an abstract type takes a prefix as a concrete one does: the abstract type takes 65,534, its subtype finds none",
+      "sources": [
+        "reject_abstract.ugs"
+      ],
+      "inputs": {
+        "prefix_next": 65534,
+        "predicate_next": "9223372036854775808"
+      },
+      "diagnostics": [
+        {
+          "code": "UGS2005",
+          "kind": "error",
+          "file": "reject_abstract.ugs",
+          "line": 6,
+          "column": 8,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_abstract.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a schema's types are allocated before its modules': the schema's type takes 65,534, the module's finds none",
+      "sources": [
+        "core.ugs",
+        "reject_module.ugs"
+      ],
+      "inputs": {
+        "prefix_next": 65534,
+        "predicate_next": "9223372036854775808"
+      },
+      "diagnostics": [
+        {
+          "code": "UGS2005",
+          "kind": "error",
+          "file": "reject_module.ugs",
+          "line": 5,
+          "column": 8,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "core.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

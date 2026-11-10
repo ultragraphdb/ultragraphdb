@@ -1,0 +1,26 @@
+{
+  "name": "no-overlap",
+  "sources": [
+    "no_overlap.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "no_overlap.Room": 3,
+    "no_overlap.Guest": 4,
+    "no_overlap.Stay": 5
+  },
+  "report": [
+    "UGS0901 no_overlap.Guest.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 no_overlap.Guest.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 no_overlap.Room.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 no_overlap.Room.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 no_overlap.Stay.insert path=segmented local=true by=@no_overlap indexes=0",
+    "UGS0901 no_overlap.Stay.update.period path=segmented local=true by=@no_overlap indexes=0",
+    "UGS0901 no_overlap.Stay.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0905 no_overlap.Guest.visits relation=no_overlap.Stay role=guest"
+  ]
+}

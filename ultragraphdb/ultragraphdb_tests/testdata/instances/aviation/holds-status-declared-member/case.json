@@ -1,0 +1,24 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1030",
+  "name": "an Engine's status replaced by stored, a declared member, commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }",
+        "insert Engine { serial: \"EN-4471-B\", commissioned: 2026-10-30, status: active, tags: [\"engine\"], thrust_kn: 310 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "status.nq",
+      "delete": "status-old.nq",
+      "uql": [
+        "update Engine(serial = \"EN-4471-B\") { status: stored }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

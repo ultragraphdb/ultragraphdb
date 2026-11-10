@@ -1,0 +1,28 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1025",
+  "name": "a revision replacing the participant of MemberOf's Optional role commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Organization { id: \"ORG:acme\" }",
+        "insert Person { id: \"AGENT:p1\" }",
+        "insert Person { id: \"AGENT:p2\" }",
+        "insert RoleKind { id: \"KIND:engineer\" }",
+        "insert RoleKind { id: \"KIND:lead\" }",
+        "insert MemberOf { member: Person(id = \"AGENT:p1\"), collection: Organization(id = \"ORG:acme\"), role: RoleKind(id = \"KIND:engineer\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "replace-role.nq",
+      "delete": "replace-role-old.nq",
+      "uql": [
+        "update MemberOf(member: Person(id = \"AGENT:p1\"), collection: Organization(id = \"ORG:acme\")) { role: RoleKind(id = \"KIND:lead\") }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

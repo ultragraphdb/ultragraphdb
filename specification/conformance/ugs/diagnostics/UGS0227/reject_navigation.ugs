@@ -1,0 +1,19 @@
+// expect: UGS0227 at 19:34
+schema library version 1
+prefix ex = "https://example.org/library#"
+
+entity Person {
+  name:       String
+  loan_count: Int32
+}
+
+entity Book {
+  title: String
+}
+
+relation Loan {
+  holder: Person -> loans*
+  book:   Book   -> borrowers*
+}
+
+derive Person.busy: Bool = count(loans) > 0

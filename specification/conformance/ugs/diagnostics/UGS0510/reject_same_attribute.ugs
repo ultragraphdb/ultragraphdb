@@ -1,0 +1,7 @@
+// expect: UGS0510 at 5:39
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Fact @bitemporal(valid: valid) @valid(valid) {
+  valid: Interval<DateTime> Optional
+}

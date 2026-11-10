@@ -1,0 +1,22 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1030",
+  "name": "a Company created with rank deprecated, a declared member, commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { id: \"ORG:acme\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Company { id: \"ORG:beta\", rank: deprecated }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

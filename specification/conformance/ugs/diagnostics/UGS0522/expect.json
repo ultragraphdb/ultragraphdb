@@ -1,0 +1,18 @@
+{
+  "code": "UGS0522",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@index(interval) on a Date",
+      "sources": ["reject.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0522", "kind": "error",
+          "file": "reject.ugs", "line": 6, "column": 21, "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept.ugs"], "warnings": [] }
+    }
+  ]
+}

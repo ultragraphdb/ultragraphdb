@@ -52,7 +52,7 @@ code naming a condition SHALL be raised, `UGS0101` only where no other names it,
 ### Requirement: Types and values are checked
 Every type SHALL be one of `SCHEMA.md` section 5's, with its arguments in range: `Decimal(p, s)` within its bounds
 (`UGS0203`), a vector dimension of 1 to 65,535 (`UGS0204`), a collection or record element the type allows
-(`UGS0205`), an `Interval` over a temporal, integer or decimal type (`UGS0206`), a `Measure` whose unit is of its kind
+(`UGS0205`), an `Interval` over `Date`, `DateTime`, `LocalDateTime`, an integer type or a `Decimal` (`UGS0206`), a `Measure` whose unit is of its kind
 (`UGS0218`), a type name that is declared or built in (`UGS0201`), and type arguments of the right count and kind
 (`UGS0202`). A literal, default, derivation
 or function body SHALL have the type its position expects (`UGS0207`); a default on an `Optional` field SHALL be
@@ -230,7 +230,7 @@ records.
 
 #### Scenario: A record renders to one line
 - **WHEN** the aviation schema is compiled
-- **THEN** the report's text holds the line `UGS0905 Organization.assets relation=Owns role=owner`, and the catalog
+- **THEN** the report's text holds the line `UGS0905 aviation.Organization.assets relation=aviation.Owns role=owner`, and the catalog
   version's Report entry holds the record it renders
 
 ### Requirement: A construct of a later stage is compiled, recorded and reported

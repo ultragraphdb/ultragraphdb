@@ -1,0 +1,15 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Pilot {
+  name: String
+}
+entity Aircraft {
+  serial: String
+}
+
+relation Flies {
+  pilot:    Pilot    -> flown*
+  aircraft: Aircraft -> pilots*
+}

@@ -1,0 +1,7 @@
+// expect: UGS0003 at 6:21
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Flight {
+  marker: String = "\u{}"
+}

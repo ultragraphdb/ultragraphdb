@@ -1,0 +1,19 @@
+{
+  "name": "geo",
+  "sources": [
+    "geometry.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "geometry.Site": 3
+  },
+  "report": [
+    "UGS0901 geometry.Site.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 geometry.Site.update.location path=coordination-free local=true by=none indexes=0",
+    "UGS0901 geometry.Site.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

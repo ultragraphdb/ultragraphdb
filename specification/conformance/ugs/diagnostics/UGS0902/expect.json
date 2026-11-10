@@ -1,0 +1,75 @@
+{
+  "code": "UGS0902",
+  "kind": "warning",
+  "cases": [
+    {
+      "name": "`@index(ann)`, built from stage 8",
+      "sources": [
+        "reject_ann_index.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0902",
+          "kind": "warning",
+          "file": "reject_ann_index.ugs",
+          "line": 6,
+          "column": 38,
+          "length": 27,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_ann_index.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a function, executed from stage 7",
+      "sources": [
+        "reject_function.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0902",
+          "kind": "warning",
+          "file": "reject_function.ugs",
+          "line": 9,
+          "column": 8,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_function.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a path derivation, virtual by default and executed from stage 7; the twin materializes it, which its anchor-forward step allows",
+      "sources": [
+        "reject_virtual_derivation.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0902",
+          "kind": "warning",
+          "file": "reject_virtual_derivation.ugs",
+          "line": 12,
+          "column": 14,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_virtual_derivation.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Aircraft {
+  tail: String @unique
+}
+
+entity Boat {
+  tail: String @unique @iri("https://example.org/shop#boat_tail")
+}

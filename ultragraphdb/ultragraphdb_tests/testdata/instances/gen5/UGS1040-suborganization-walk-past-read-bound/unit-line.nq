@@ -1,0 +1,6 @@
+<https://example.org/deep_brain#Node/ORG%3Au{i}> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au{i}> <https://example.org/deep_brain#id> "ORG:u{i}" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au{i}> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Ahub> <https://example.org/deep_brain#ontology> .
+_:s{i} <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#SubOrganizationOf> <https://example.org/deep_brain#ontology> .
+_:s{i} <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/ORG%3Au{i}> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Ahub> )>> <https://example.org/deep_brain#ontology> .
+_:s{i} <https://example.org/deep_brain#valid_start> "2026-01-01T00:00:00Z"^^<http://www.w3.org/2001/XMLSchema#dateTimeStamp> <https://example.org/deep_brain#ontology> .

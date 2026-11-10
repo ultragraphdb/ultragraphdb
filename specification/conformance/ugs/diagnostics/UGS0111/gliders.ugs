@@ -1,0 +1,7 @@
+// expect: compiles
+module gliders version 1 extends core >= 1
+prefix gl = "https://example.org/gliders#"
+
+entity Glider : Aircraft {
+  span_m: Float64
+}

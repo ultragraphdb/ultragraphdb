@@ -1,0 +1,21 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1005",
+  "name": "a revision removing a Source's required source_type",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Source { id: \"SRC:s1\", source_type: document }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "delete": "break-delete.nq",
+      "expect": {
+        "refused": "UGS1005"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

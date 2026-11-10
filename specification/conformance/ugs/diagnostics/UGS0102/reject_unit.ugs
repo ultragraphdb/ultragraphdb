@@ -1,0 +1,8 @@
+// expect: UGS0102 at 8:6
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+quantity Length { dimension: "L", scale: ratio, canonical: m }
+
+unit m    { quantities: [Length], ucum: "m", symbol: "m" }
+unit m    { quantities: [Length], ucum: "[ft_i]", symbol: "ft", multiplier: 0.3048 }

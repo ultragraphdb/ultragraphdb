@@ -1,0 +1,7 @@
+<https://example.org/deep_brain#Node/ORG%3Aacme> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Aacme> <https://example.org/deep_brain#id> "ORG:acme" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Apost1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Post> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Apost1> <https://example.org/deep_brain#id> "AGENT:post1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Apost1> <https://example.org/deep_brain#organisation> <https://example.org/deep_brain#Node/ORG%3Aacme> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Ap1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Person> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Ap1> <https://example.org/deep_brain#id> "AGENT:p1" <https://example.org/deep_brain#ontology> .

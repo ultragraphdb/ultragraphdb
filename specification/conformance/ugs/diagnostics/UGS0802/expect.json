@@ -1,0 +1,31 @@
+{
+  "code": "UGS0802",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a type named as a type of an imported schema that one of its relations reaches: two node types labelled `Thing` in one GQL graph type, whose vocabulary IRIs differ by base",
+      "sources": [
+        "shared.ugs",
+        "reject.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0802",
+          "kind": "error",
+          "file": "reject.ugs",
+          "line": 6,
+          "column": 8,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "shared.ugs",
+          "accept.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

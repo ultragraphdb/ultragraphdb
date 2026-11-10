@@ -1,0 +1,46 @@
+{
+  "code": "UGS0905",
+  "kind": "note",
+  "cases": [
+    {
+      "name": "the navigation of a role that is not its relation's anchor is a scatter read; the anchor's is not",
+      "sources": [
+        "navigation.ugs"
+      ],
+      "diagnostics": [],
+      "report": [
+        "UGS0901 depot.Cites.insert path=segmented local=true by=@set indexes=0",
+        "UGS0901 depot.Cites.delete path=coordination-free local=true by=none indexes=0",
+        "UGS0901 depot.Paper.create path=coordination-free local=true by=none indexes=0",
+        "UGS0901 depot.Paper.delete path=coordinated local=false by=cascade indexes=0",
+        "UGS0905 depot.Paper.cited_by relation=depot.Cites role=cited"
+      ]
+    },
+    {
+      "name": "a derivation beginning with a scatter read is one itself; being a path, it is virtual and waits for stage 7",
+      "sources": [
+        "derivation.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0902",
+          "kind": "warning",
+          "file": "derivation.ugs",
+          "line": 11,
+          "column": 14,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "report": [
+        "UGS0901 depot.Cites.insert path=segmented local=true by=@set indexes=0",
+        "UGS0901 depot.Cites.delete path=coordination-free local=true by=none indexes=0",
+        "UGS0901 depot.Paper.create path=coordination-free local=true by=none indexes=0",
+        "UGS0901 depot.Paper.delete path=coordinated local=false by=cascade indexes=0",
+        "UGS0902 depot.Paper.citers construct=derive stage=7",
+        "UGS0905 depot.Paper.cited_by relation=depot.Cites role=cited",
+        "UGS0905 depot.Paper.citers relation=depot.Cites role=cited"
+      ]
+    }
+  ]
+}

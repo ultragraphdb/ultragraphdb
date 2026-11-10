@@ -1,0 +1,21 @@
+// expect: UGS0227 at 21:32
+schema library version 1
+prefix ex = "https://example.org/library#"
+
+entity Person {
+  name:       String
+  loan_count: Int32
+}
+
+entity Book {
+  title: String
+}
+
+relation Loan {
+  holder: Person -> loans*
+  book:   Book   -> borrowers*
+}
+
+fn Person.has_loans() -> Bool = exists loans
+
+derive Person.idle: Bool = not has_loans()

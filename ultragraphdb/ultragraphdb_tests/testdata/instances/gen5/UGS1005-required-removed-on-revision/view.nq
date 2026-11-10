@@ -1,0 +1,8 @@
+<https://example.org/deep_brain#Node/SRC%3As1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Source> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/SRC%3As1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Node> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/SRC%3As1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Asserted> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/SRC%3As1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Statement> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/SRC%3As1> <https://example.org/deep_brain#id> "SRC:s1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/SRC%3As1> <https://example.org/deep_brain#source_type> "document" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/SRC%3As1> <https://example.org/deep_brain#inferred> "false"^^<http://www.w3.org/2001/XMLSchema#boolean> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/SRC%3As1> <https://example.org/deep_brain#rank> "normal" <https://example.org/deep_brain#ontology> .

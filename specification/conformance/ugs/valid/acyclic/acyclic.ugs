@@ -1,0 +1,10 @@
+// expect: compiles
+schema acyclic version 1
+prefix ac = "https://example.org/acyclic#"
+
+entity OrgUnit
+
+relation ReportsTo @acyclic(max_depth: 16) {
+  child:  OrgUnit -> superior?
+  parent: OrgUnit -> subordinates*
+}

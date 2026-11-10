@@ -1,0 +1,52 @@
+{
+  "code": "UGS0112",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a default naming a member the enum does not declare",
+      "sources": [
+        "reject_default.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0112",
+          "kind": "error",
+          "file": "reject_default.ugs",
+          "line": 8,
+          "column": 20,
+          "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_default.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a member literal in a `@check` comparison that the enum does not declare",
+      "sources": [
+        "reject_check_literal.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0112",
+          "kind": "error",
+          "file": "reject_check_literal.ugs",
+          "line": 9,
+          "column": 20,
+          "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_check_literal.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

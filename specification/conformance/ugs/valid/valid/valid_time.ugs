@@ -1,0 +1,7 @@
+// expect: compiles
+schema valid_time version 1
+prefix vt = "https://example.org/valid_time#"
+
+entity Lease @valid(term) {
+  term: Interval<Date>
+}

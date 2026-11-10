@@ -1,0 +1,25 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1018",
+  "name": "an InScheme whose scheme is a Concept, outside the role's type Scheme",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Concept { id: \"CON:c1\" }",
+        "insert Concept { id: \"CON:c2\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert InScheme { concept: Concept(id = \"CON:c1\"), scheme: Node(id = \"CON:c2\") }"
+      ],
+      "expect": {
+        "refused": "UGS1018"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

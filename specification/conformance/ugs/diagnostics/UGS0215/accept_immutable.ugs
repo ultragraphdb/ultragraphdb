@@ -1,0 +1,11 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Member {
+  since: Date @immutable
+}
+
+entity Branch {
+  since: Date @immutable
+}

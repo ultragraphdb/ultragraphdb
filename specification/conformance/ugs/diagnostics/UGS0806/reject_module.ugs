@@ -1,0 +1,5 @@
+// expect: compiles with UGS0806 at 5:17
+module gadgets version 1 extends depot >= 1
+prefix gd = "https://example.org/gadgets#"
+
+entity Gadget : Widget

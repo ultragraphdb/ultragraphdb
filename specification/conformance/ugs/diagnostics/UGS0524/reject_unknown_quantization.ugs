@@ -1,0 +1,7 @@
+// expect: UGS0524 at 6:71
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Doc {
+  embedding: Vector<F32, 3> @index(ann, metric: cosine, quantization: int4)
+}

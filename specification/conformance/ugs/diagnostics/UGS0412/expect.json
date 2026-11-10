@@ -1,0 +1,46 @@
+{
+  "code": "UGS0412",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "schema.EntityType<T> in a role, with T a relation type",
+      "sources": ["reject_relation_as_entity.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0412", "kind": "error",
+          "file": "reject_relation_as_entity.ugs", "line": 14, "column": 29, "length": 4,
+          "fix": [
+            { "file": "reject_relation_as_entity.ugs", "line": 14, "column": 18, "length": 10, "replacement": "RelationType" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_relation_as_entity.ugs"], "warnings": [] }
+    },
+    {
+      "name": "schema.RelationType<T> as a field's type, with T an entity type",
+      "sources": ["reject_entity_as_relation.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0412", "kind": "error",
+          "file": "reject_entity_as_relation.ugs", "line": 9, "column": 32, "length": 6,
+          "fix": [
+            { "file": "reject_entity_as_relation.ugs", "line": 9, "column": 19, "length": 12, "replacement": "EntityType" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_entity_as_relation.ugs"], "warnings": [] }
+    },
+    {
+      "name": "schema.EntityType<T> with T an enum",
+      "sources": ["reject_enum.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0412", "kind": "error",
+          "file": "reject_enum.ugs", "line": 11, "column": 29, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_enum.ugs"], "warnings": [] }
+    }
+  ]
+}

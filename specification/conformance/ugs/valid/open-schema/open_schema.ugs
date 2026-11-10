@@ -1,0 +1,7 @@
+// expect: compiles
+schema open_schema version 1 @open
+prefix os = "https://example.org/open_schema#"
+
+entity Thing {
+  label: String
+}

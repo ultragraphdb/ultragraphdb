@@ -1,0 +1,98 @@
+{
+  "code": "UGS0001",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a Latin-1 byte inside a string literal: the source is not UTF-8 at that byte",
+      "sources": [
+        "reject_latin1_string.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0001",
+          "kind": "error",
+          "file": "reject_latin1_string.ugs",
+          "line": 6,
+          "column": 30,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_latin1_string.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a byte that never occurs in UTF-8, inside a comment: the whole source must be UTF-8",
+      "sources": [
+        "reject_byte_in_comment.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0001",
+          "kind": "error",
+          "file": "reject_byte_in_comment.ugs",
+          "line": 5,
+          "column": 38,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_byte_in_comment.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a letter outside ASCII inside an identifier",
+      "sources": [
+        "reject_non_ascii_letter.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0001",
+          "kind": "error",
+          "file": "reject_non_ascii_letter.ugs",
+          "line": 5,
+          "column": 9,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_non_ascii_letter.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a statement terminator, which no token of the lexical structure takes",
+      "sources": [
+        "reject_semicolon.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0001",
+          "kind": "error",
+          "file": "reject_semicolon.ugs",
+          "line": 6,
+          "column": 15,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_semicolon.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

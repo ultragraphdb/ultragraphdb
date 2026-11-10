@@ -1,0 +1,34 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1009",
+  "name": "a deleted aircraft releases its tail_number, which another aircraft then takes",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "uql": [
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "operations": [
+        {
+          "kind": "delete",
+          "iri": "https://example.org/aviation#Asset/AC-0001"
+        }
+      ],
+      "uql": [
+        "delete Asset(serial = \"AC-0001\")"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "step3.nq",
+      "uql": [
+        "insert Aircraft { serial: \"AC-0002\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

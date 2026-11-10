@@ -1,0 +1,11 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+abstract entity Fact @bitemporal(valid: valid) {
+  valid: Interval<DateTime> Optional
+}
+
+entity Observation : Fact {
+  value: Float64
+}

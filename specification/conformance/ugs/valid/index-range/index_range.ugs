@@ -1,0 +1,8 @@
+// expect: compiles
+schema index_range version 1
+prefix ir = "https://example.org/index_range#"
+
+entity Product {
+  sku:  String @index(range)
+  tags: Set<String> @index(range)
+}

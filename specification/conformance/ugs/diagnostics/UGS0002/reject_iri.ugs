@@ -1,0 +1,7 @@
+// expect: UGS0002 at 6:25
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Airport {
+  code: String @maps_to(<https://schema.org/iataCode)
+}

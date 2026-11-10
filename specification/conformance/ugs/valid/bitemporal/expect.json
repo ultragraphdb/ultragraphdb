@@ -1,0 +1,20 @@
+{
+  "name": "bitemporal",
+  "sources": [
+    "bitemporal.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "bitemporal.Belief": 3
+  },
+  "report": [
+    "UGS0901 bitemporal.Belief.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 bitemporal.Belief.update.label path=coordination-free local=true by=none indexes=0",
+    "UGS0901 bitemporal.Belief.update.valid path=coordination-free local=true by=none indexes=0",
+    "UGS0901 bitemporal.Belief.retract path=coordination-free local=true by=none indexes=0"
+  ]
+}

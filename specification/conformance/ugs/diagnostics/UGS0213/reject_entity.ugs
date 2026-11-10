@@ -1,0 +1,11 @@
+// expect: UGS0213 at 10:9
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+abstract entity Asset {
+  code: String Optional
+}
+
+entity Engine : Asset {
+  code: Int32
+}

@@ -1,0 +1,9 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+attribute Count = Int32 @range(0, 1000)
+
+entity Item {
+  stock: Count
+}

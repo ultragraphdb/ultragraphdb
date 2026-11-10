@@ -1,0 +1,9 @@
+// expect: compiles
+schema defaults version 1
+prefix df = "https://example.org/defaults#"
+
+entity Counter {
+  size:   Int32 = 0
+  title:  String = "untitled"
+  active: Bool = true
+}

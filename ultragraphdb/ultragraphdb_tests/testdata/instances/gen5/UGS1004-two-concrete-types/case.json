@@ -1,0 +1,13 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1004",
+  "name": "one creation naming the concrete types Object and Concept",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1004"
+      }
+    }
+  ]
+}

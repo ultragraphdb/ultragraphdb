@@ -1,0 +1,52 @@
+{
+  "code": "UGS0105",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a type naming itself as its parent",
+      "sources": [
+        "reject_self.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0105",
+          "kind": "error",
+          "file": "reject_self.ugs",
+          "line": 5,
+          "column": 8,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_self.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "two types each naming the other as its parent, the first declaration of the cycle",
+      "sources": [
+        "reject_pair.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0105",
+          "kind": "error",
+          "file": "reject_pair.ugs",
+          "line": 5,
+          "column": 8,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_pair.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

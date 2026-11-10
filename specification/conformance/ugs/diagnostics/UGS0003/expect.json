@@ -1,0 +1,121 @@
+{
+  "code": "UGS0003",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "an escape the string grammar does not list: a regex class written with one backslash",
+      "sources": [
+        "reject_unknown_escape.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0003",
+          "kind": "error",
+          "file": "reject_unknown_escape.ugs",
+          "line": 6,
+          "column": 36,
+          "length": 2,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_unknown_escape.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a `\\u{…}` escape naming a surrogate, which is no scalar value",
+      "sources": [
+        "reject_surrogate.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0003",
+          "kind": "error",
+          "file": "reject_surrogate.ugs",
+          "line": 6,
+          "column": 21,
+          "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_surrogate.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a `\\u{…}` escape past U+10FFFF",
+      "sources": [
+        "reject_beyond_max.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0003",
+          "kind": "error",
+          "file": "reject_beyond_max.ugs",
+          "line": 6,
+          "column": 21,
+          "length": 10,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_beyond_max.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a `\\u{…}` escape of seven hex digits",
+      "sources": [
+        "reject_seven_digits.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0003",
+          "kind": "error",
+          "file": "reject_seven_digits.ugs",
+          "line": 6,
+          "column": 21,
+          "length": 11,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_seven_digits.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a `\\u{…}` escape of no hex digit",
+      "sources": [
+        "reject_no_digits.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0003",
+          "kind": "error",
+          "file": "reject_no_digits.ugs",
+          "line": 6,
+          "column": 21,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_no_digits.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

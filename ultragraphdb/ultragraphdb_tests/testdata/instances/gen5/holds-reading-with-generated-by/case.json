@@ -1,0 +1,19 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1023",
+  "name": "a Reading created with its GeneratedBy in the same transaction meets the lower bound",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Activity { id: \"ACT:a1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "reading.nq",
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

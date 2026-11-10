@@ -1,0 +1,37 @@
+{
+  "code": "UGS0221",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "an enum member declared twice",
+      "sources": [
+        "reject.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0221",
+          "kind": "error",
+          "file": "reject.ugs",
+          "line": 5,
+          "column": 31,
+          "length": 6,
+          "fix": [
+            {
+              "file": "reject.ugs",
+              "line": 5,
+              "column": 29,
+              "length": 8,
+              "replacement": ""
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

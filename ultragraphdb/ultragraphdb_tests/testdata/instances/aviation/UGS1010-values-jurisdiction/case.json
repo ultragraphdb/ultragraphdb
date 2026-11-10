@@ -1,0 +1,16 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1010",
+  "name": "an authority whose jurisdiction is outside @values(\"EU\", \"US\", \"UK\")",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Authority { name: \"DGAC\", jurisdiction: \"FR\" }"
+      ],
+      "expect": {
+        "refused": "UGS1010"
+      }
+    }
+  ]
+}

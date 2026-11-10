@@ -1,0 +1,7 @@
+// expect: compiles
+module lab version 1 extends core >= 1
+prefix lab = "https://example.org/lab#"
+
+entity LabMeasurement : Observation {
+  level: Float64
+}

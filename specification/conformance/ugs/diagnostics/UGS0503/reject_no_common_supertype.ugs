@@ -1,0 +1,12 @@
+// expect: UGS0503 at 9:16
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+abstract entity Thing { label: String }
+entity Person : Thing
+entity Doc { title: String }
+
+relation Wrote @acyclic {
+  author: Person -> wrote*
+  work:   Doc    -> authors*
+}

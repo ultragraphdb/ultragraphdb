@@ -1,0 +1,4 @@
+<https://example.org/deep_brain#Node/VER%3Av1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Verdict> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <https://example.org/deep_brain#id> "VER:v1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <https://example.org/deep_brain#outcome> "allow" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/VER%3Av1> <https://example.org/deep_brain#status> "fired" <https://example.org/deep_brain#ontology> .

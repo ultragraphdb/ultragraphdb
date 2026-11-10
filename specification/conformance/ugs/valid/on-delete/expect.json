@@ -1,0 +1,26 @@
+{
+  "name": "on-delete",
+  "sources": [
+    "on_delete.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "on_delete.Folder": 3,
+    "on_delete.File": 4,
+    "on_delete.Filing": 5
+  },
+  "report": [
+    "UGS0901 on_delete.File.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 on_delete.File.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 on_delete.Filing.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 on_delete.Filing.role.file path=coordination-free local=true by=none indexes=0",
+    "UGS0901 on_delete.Filing.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 on_delete.Folder.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 on_delete.Folder.delete path=segmented local=true by=restrict indexes=0",
+    "UGS0905 on_delete.File.folders relation=on_delete.Filing role=file"
+  ]
+}

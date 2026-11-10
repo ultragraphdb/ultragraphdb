@@ -1,0 +1,11 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Person { name: String }
+entity Venue  { name: String }
+
+relation Meets @symmetric {
+  a:     Person -> meets*
+  b:     Person -> meets*
+}

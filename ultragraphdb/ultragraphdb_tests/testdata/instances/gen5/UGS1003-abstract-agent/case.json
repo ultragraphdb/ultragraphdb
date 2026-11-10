@@ -1,0 +1,13 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1003",
+  "name": "an instance created under the abstract entity type Agent",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1003"
+      }
+    }
+  ]
+}

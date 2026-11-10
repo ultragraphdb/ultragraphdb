@@ -1,0 +1,11 @@
+// expect: UGS0215 at 10:15
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Member {
+  since: Date
+}
+
+entity Branch {
+  since: Date @immutable
+}

@@ -1,0 +1,48 @@
+{
+  "code": "UGS0117",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a function body calling a function no source declares",
+      "sources": [
+        "reject.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0117",
+          "kind": "error",
+          "file": "reject.ugs",
+          "line": 10,
+          "column": 36,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept.ugs"
+        ],
+        "warnings": [
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept.ugs",
+            "line": 9,
+            "column": 12,
+            "length": 7,
+            "fix": null
+          },
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept.ugs",
+            "line": 10,
+            "column": 12,
+            "length": 10,
+            "fix": null
+          }
+        ]
+      }
+    }
+  ]
+}

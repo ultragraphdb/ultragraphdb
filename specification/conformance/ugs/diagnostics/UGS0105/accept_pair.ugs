@@ -1,0 +1,9 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Glider {
+  span_m: Float64
+}
+entity Sailplane : Glider {
+}

@@ -1,0 +1,8 @@
+// expect: compiles
+schema collections version 1
+prefix co = "https://example.org/collections#"
+
+entity Basket {
+  items:  List<String>
+  labels: Set<String> Optional
+}

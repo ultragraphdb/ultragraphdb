@@ -1,0 +1,15 @@
+// expect: UGS0114 at 15:14
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Person {
+  name: String
+}
+entity Item {
+  serial: String
+}
+
+relation Holds {
+  holder: Person -> holdings*
+  item:   Item   -> holders*
+} @on_delete(itme: cascade)

@@ -1,0 +1,12 @@
+// expect: UGS0215 at 11:16
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+import "https://schema.org/" as sdo
+
+entity Person {
+  name: String
+}
+
+entity Place {
+  name: String @maps_to(sdo:name)
+}

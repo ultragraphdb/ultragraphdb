@@ -1,0 +1,31 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1020",
+  "name": "an aircraft deleted while a PartOf names it as whole, which @on_delete(whole: restrict) restricts",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }",
+        "insert Engine { serial: \"EN-0001\", commissioned: 2022-01-08, status: active, tags: [\"engine\"], thrust_kn: 120.5 }",
+        "insert PartOf { part: Asset(serial = \"EN-0001\"), whole: Asset(serial = \"AC-0001\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "operations": [
+        {
+          "kind": "delete",
+          "iri": "https://example.org/aviation#Asset/AC-0001"
+        }
+      ],
+      "uql": [
+        "delete Asset(serial = \"AC-0001\")"
+      ],
+      "expect": {
+        "refused": "UGS1020"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

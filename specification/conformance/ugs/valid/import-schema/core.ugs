@@ -1,0 +1,7 @@
+// expect: compiles
+schema core version 1
+prefix cr = "https://example.org/core#"
+
+entity Person {
+  name: String
+}

@@ -1,0 +1,13 @@
+// expect: compiles
+schema relation_nary version 1
+prefix rn = "https://example.org/relation_nary#"
+
+entity Seller
+entity Buyer
+entity Item
+
+relation Sale {
+  seller: Seller -> sales*
+  buyer:  Buyer  -> purchases*
+  item:   Item   -> sold_in*
+}

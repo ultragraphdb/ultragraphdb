@@ -1,0 +1,21 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1031",
+  "name": "a Company created in db:archive, which the schema declares no graph for, is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { id: \"ORG:acme\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1031"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

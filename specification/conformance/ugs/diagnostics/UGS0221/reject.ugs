@@ -1,0 +1,9 @@
+// expect: UGS0221 at 5:31
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+enum Status { active, stored, active }
+
+entity Item {
+  status: Status
+}

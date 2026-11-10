@@ -1,0 +1,24 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1008",
+  "name": "a Concept created with the id a live Object holds: one key space across Node's tree",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Object { id: \"OBJ:o1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert Concept { id: \"OBJ:o1\" }"
+      ],
+      "expect": {
+        "refused": "UGS1008"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

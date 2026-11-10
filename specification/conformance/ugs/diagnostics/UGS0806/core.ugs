@@ -1,0 +1,6 @@
+// expect: compiles
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+abstract entity Widget @deprecated(use: Device)
+abstract entity Device

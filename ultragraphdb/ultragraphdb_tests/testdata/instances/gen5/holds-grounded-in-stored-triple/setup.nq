@@ -1,0 +1,4 @@
+<https://example.org/deep_brain#Node/CON%3Ac1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Concept> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac1> <https://example.org/deep_brain#id> "CON:c1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Concept> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac2> <https://example.org/deep_brain#id> "CON:c2" <https://example.org/deep_brain#ontology> .

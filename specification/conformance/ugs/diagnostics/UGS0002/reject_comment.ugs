@@ -1,0 +1,8 @@
+// expect: UGS0002 at 5:1
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+/* Airports are keyed by their IATA code.
+entity Airport @key(code) {
+  code: String
+}

@@ -1,0 +1,30 @@
+{
+  "code": "UGS0501",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "orphan on a required single-valued role",
+      "sources": ["reject_required.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0501", "kind": "error",
+          "file": "reject_required.ugs", "line": 11, "column": 21, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_required.ugs"], "warnings": [] }
+    },
+    {
+      "name": "orphan on a set-valued role, which is never Optional",
+      "sources": ["reject_set_valued.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0501", "kind": "error",
+          "file": "reject_set_valued.ugs", "line": 11, "column": 23, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_set_valued.ugs"], "warnings": [] }
+    }
+  ]
+}

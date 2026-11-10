@@ -1,0 +1,9 @@
+// expect: compiles
+schema maps_to version 1
+prefix mt = "https://example.org/maps_to#"
+import "https://schema.org/" as sdo
+
+entity Person @maps_to(sdo:Person) {
+  name: String @maps_to(sdo:name)
+  page: Iri Optional @maps_to(<http://xmlns.com/foaf/0.1/homepage>)
+}

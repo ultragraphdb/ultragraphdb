@@ -1,0 +1,37 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1019",
+  "name": "an organization deleted and created again under its IRI, then named by an Owns",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "uql": [
+        "insert Company { name: \"Leonardo\" }",
+        "insert Company { name: \"Airbus\" }",
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "operations": [
+        {
+          "kind": "delete",
+          "iri": "https://example.org/aviation#Organization/Airbus"
+        }
+      ],
+      "uql": [
+        "delete Organization(name = \"Airbus\")"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "step3.nq",
+      "uql": [
+        "insert Company { name: \"Airbus\" }",
+        "insert Owns { owner: Company(name = \"Airbus\"), asset: Aircraft(serial = \"AC-0001\"), since: 2022-02-07 }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

@@ -7,7 +7,10 @@ an entity's IRI, a node-encoded relation instance's IRI, or an edge-encoded inst
 instance a transaction creates or changes SHALL be validated whole against the catalog version in effect at the
 commit's epoch, whatever the order and the number of frames its changes arrived in. A violation SHALL refuse the
 whole transaction with code 7 (Refused), `detail` the `UGS1xxx` number of `SCHEMA.md` section 8.7, the message naming
-the instance by its IRI and the rule, and nothing of the transaction SHALL be held. A reifier written without its triple, a role triple without its instance's type and a triple of a node-encoded
+the instance by its IRI and the rule, and nothing of the transaction SHALL be held. A reifier a client writes SHALL
+carry its relation's concrete type, and an edge-encoded instance of a `@bitemporal` or `@multi` relation SHALL be
+written as its triple with its reifier. A reifier written without its triple or its type, such an instance's triple
+without its reifier, a role triple without its instance's type and a triple of a node-encoded
 relation outside its instance SHALL be refused as an incomplete instance (`UGS1034`). A transaction SHALL create an
 instance when it writes `rdf:type` on a blank node or on the IRI a keyed type mints; an instance created under a blank
 node SHALL be created whole in one Write. A commit SHALL report one refusal: the first rule broken in the order of
@@ -299,8 +302,8 @@ first, reached from either participant.
   from `b`
 
 ### Requirement: Acyclic relations, limits and no-overlap
-`@acyclic` SHALL refuse an insert or participant change closing a cycle through the relation tree's two roles
-(`UGS1021`), and `max_depth` one creating a longer path (`UGS1022`), walking the relation's paths from the inserted
+`@acyclic` SHALL refuse an insert or participant change closing a cycle through the relation tree's two roles, and
+under `open` an update of the valid interval reopening an instance that closes one (`UGS1021`), and `max_depth` one creating a longer path (`UGS1022`), walking the relation's paths from the inserted
 instance within the partition, and under `open` counting only live instances whose valid interval is open. `@limit`
 SHALL hold per combination of the `per` participants, and per concrete subtype under `type`, over the live instances
 satisfying its condition, a top-level conjunct over the `per` participants' types selecting the groups; a write
@@ -310,8 +313,9 @@ aggregates. Each group's aggregate SHALL be a record in the marks keyspace of th
 in the commit that moves it, and a check SHALL read that record and no instance of the group.
 `@no_overlap` SHALL refuse an insert or update after which two live instances sharing the `per` participants have
 valid intervals that certainly overlap, or with `strict` possibly overlap (`UGS1024`). A check of `@acyclic`, with or
-without `max_depth`, or of `@no_overlap` SHALL read at most `rule_read_max` instances, 4,096, and one that would read
-more SHALL be refused with `UGS1040`, naming the rule and the bound. A check whose instances or paths lie in another
+without `max_depth`, or of `@no_overlap` SHALL visit at most `rule_read_max` relation instances, 4,096, each counted
+once, and one that would visit more SHALL be refused with `UGS1040` before it does, naming the rule and the bound;
+`max_depth` SHALL count the relation instances along a path. A check whose instances or paths lie in another
 partition SHALL refuse the transaction with code 23.
 
 #### Scenario: A cycle is refused
@@ -339,9 +343,10 @@ partition SHALL refuse the transaction with code 23.
   then counts one
 
 #### Scenario: A walk past its bound is refused
-- **WHEN** a relation of the corpus declared `@acyclic` without `max_depth` holds a chain of 4,096 instances in one
-  partition, and an instance extending the chain is inserted
-- **THEN** the commit is refused with `UGS1040` naming `@acyclic` and 4,096, and nothing of it is written
+- **WHEN** an aviation asset is the `whole` of 4,097 `PartOf` instances in one partition, and a `PartOf` making it a
+  part of another asset is inserted
+- **THEN** the commit is refused with `UGS1040` naming `@acyclic` and 4,096, `max_depth` 16 bounding no fan-out, and
+  nothing of it is written
 
 #### Scenario: A lower bound selected by type
 - **WHEN** a transaction creates a `Reading` with `valid` and a `value` and no `GeneratedBy`, and another creates a
@@ -460,8 +465,9 @@ A delete of an entity of a mutable type SHALL remove the entity and apply each r
 instances naming it: `cascade`, the default, deletes them and the relation instances over them in the same commit;
 `restrict` refuses the delete while instances name the participant in that role (`UGS1020`); `orphan` leaves the
 instance with its optional role empty. The delete SHALL write a tombstone at the entity's home, write-set operation
-8: a later commit referencing the deleted entity's ID SHALL abort with code 30 (EntityDeleted), a reference in
-get-only mode SHALL answer deleted, and a write creating its IRI again SHALL allocate a new ID. A delete of a relation instance SHALL remove the instance and cascade to the relation instances over it; an
+8: a later commit writing to the deleted entity as its subject SHALL abort with code 30 (EntityDeleted), a reference
+in get-only mode SHALL answer deleted, a write naming it as a participant SHALL be refused with `UGS1019`, and a write
+creating its IRI again SHALL allocate a new ID. A delete of a relation instance SHALL remove the instance and cascade to the relation instances over it; an
 edge-encoded instance that holds no reifier SHALL be deleted by the delete of its quad. A delete and a re-creation
 SHALL leave the new instance's record naming the ID it replaced, so a read naming the IRI at a version below the
 delete resolves the instance that held it then. A delete whose
@@ -476,8 +482,10 @@ entity's referrer set names a bucket group another partition holds SHALL be refu
 - **THEN** the commit is refused with `UGS1020` naming `PartOf` and `whole`
 
 #### Scenario: A tombstone fences the deleted ID
-- **WHEN** an `Aircraft` is deleted, and a transaction that resolved its ID before the delete commits a reference to it
-- **THEN** that commit aborts with code 30, the message naming the aircraft's IRI
+- **WHEN** an `Aircraft` is deleted, and a transaction that resolved its ID before the delete commits a write of its
+  `status`
+- **THEN** that commit aborts with code 30, the message naming the aircraft's IRI; and a transaction inserting an
+  `Owns` naming it as `asset` is refused with `UGS1019`
 
 #### Scenario: A read of the past finds a recreated entity's predecessor
 - **WHEN** an aviation `Engine` `EN-4471-B` with `thrust_kn` 310 is deleted at epoch 20 and created again with
@@ -493,7 +501,7 @@ entity's referrer set names a bucket group another partition holds SHALL be refu
 partition in the same local commit as the write, with the tokenizers `SCHEMA.md` section 6.10 names: an interval index
 as two range entries over the outer extent, an index on a `Set` one entry per member, a measure of a kind by its value
 in the canonical unit. A count index SHALL serve every navigation name with a bounded cardinality, and the unique flag
-every `@key` and `@unique` predicate. `@index(ann)` SHALL be recorded and no index built.
+every `@unique` predicate and a single-attribute `@key`'s, a composite key's claim being on the key as a whole. `@index(ann)` SHALL be recorded and no index built.
 
 #### Scenario: A range index over a measure orders by the canonical unit
 - **WHEN** two Gen5 `Event`s hold `altitude` `"1000 m"` and `"2000 [ft_i]"`

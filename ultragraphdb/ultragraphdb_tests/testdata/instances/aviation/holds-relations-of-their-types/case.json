@@ -1,0 +1,12 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1018",
+  "name": "an instance of every concrete relation type, each role filled by a live participant of its type",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

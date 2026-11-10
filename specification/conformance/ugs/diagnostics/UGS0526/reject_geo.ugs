@@ -1,0 +1,7 @@
+// expect: UGS0526 at 6:20
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Site {
+  area: Geo @index(range)
+}

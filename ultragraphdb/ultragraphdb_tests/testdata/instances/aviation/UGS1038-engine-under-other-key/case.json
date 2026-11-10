@@ -1,0 +1,21 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1038",
+  "name": "an Engine with serial EN-4471-B created under av:Asset/OTHER, which its key does not mint, is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1038"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

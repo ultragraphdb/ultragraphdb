@@ -1,0 +1,21 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1038",
+  "name": "an Engine created under av:Engine/EN-4471-B, where its key mints av:Asset/EN-4471-B, is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1038"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

@@ -1,0 +1,28 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1021",
+  "name": "AV-0001 made a part of AV-0003, two levels below it, closes a cycle through PartOf",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Avionics { serial: \"AV-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }",
+        "insert Avionics { serial: \"AV-0002\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }",
+        "insert Avionics { serial: \"AV-0003\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }",
+        "insert PartOf { part: Avionics(serial = \"AV-0002\"), whole: Avionics(serial = \"AV-0001\") }",
+        "insert PartOf { part: Avionics(serial = \"AV-0003\"), whole: Avionics(serial = \"AV-0002\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "close-cycle.nq",
+      "uql": [
+        "insert PartOf { part: Avionics(serial = \"AV-0001\"), whole: Avionics(serial = \"AV-0003\") }"
+      ],
+      "expect": {
+        "refused": "UGS1021"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

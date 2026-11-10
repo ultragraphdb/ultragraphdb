@@ -1,0 +1,5 @@
+<https://example.org/deep_brain#Node/CON%3Anew> <https://example.org/deep_brain#replaces> <https://example.org/deep_brain#Node/CON%3Aold> <https://example.org/deep_brain#ontology> .
+_:r <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Replaces> <https://example.org/deep_brain#ontology> .
+_:r <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/CON%3Anew> <https://example.org/deep_brain#replaces> <https://example.org/deep_brain#Node/CON%3Aold> )>> <https://example.org/deep_brain#ontology> .
+_:r <https://example.org/deep_brain#valid_start> "2026-07-01T00:00:00Z"^^<http://www.w3.org/2001/XMLSchema#dateTimeStamp> <https://example.org/deep_brain#ontology> .
+_:r <https://example.org/deep_brain#valid_start_precision> "day"^^<https://w3id.org/ultragraphdb/ns/precision> <https://example.org/deep_brain#ontology> .

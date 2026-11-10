@@ -1,0 +1,20 @@
+{
+  "code": "UGS0518",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a subtype redeclaring an @immutable attribute without @immutable",
+      "sources": ["reject.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0518", "kind": "error",
+          "file": "reject.ugs", "line": 10, "column": 3, "length": 4,
+          "fix": [
+            { "file": "reject.ugs", "line": 10, "column": 15, "length": 0, "replacement": " @immutable" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept.ugs"], "warnings": [] }
+    }
+  ]
+}

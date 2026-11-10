@@ -1,0 +1,108 @@
+{
+  "code": "UGS0225",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "today() in a @check",
+      "sources": [
+        "reject_check.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0225",
+          "kind": "error",
+          "file": "reject_check.ugs",
+          "line": 5,
+          "column": 29,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_check.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "now() in a @limit condition",
+      "sources": [
+        "reject_limit.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0225",
+          "kind": "error",
+          "file": "reject_limit.ugs",
+          "line": 17,
+          "column": 46,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_limit.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "today() in a computed derivation",
+      "sources": [
+        "reject_derivation.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0225",
+          "kind": "error",
+          "file": "reject_derivation.ugs",
+          "line": 10,
+          "column": 37,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_derivation.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "today() in a function body",
+      "sources": [
+        "reject_function.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0225",
+          "kind": "error",
+          "file": "reject_function.ugs",
+          "line": 9,
+          "column": 37,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_function.ugs"
+        ],
+        "warnings": [
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_function.ugs",
+            "line": 9,
+            "column": 11,
+            "length": 7,
+            "fix": null
+          }
+        ]
+      }
+    }
+  ]
+}

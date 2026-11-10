@@ -1,0 +1,16 @@
+// expect: compiles
+schema relation_over_relation version 1
+prefix ror = "https://example.org/relation_over_relation#"
+
+entity Org
+entity Person
+
+relation Employs {
+  employer: Org    -> staff*
+  employee: Person -> employers*
+}
+
+relation Verifies {
+  employment: Employs -> verifications*
+  verifier:   Person  -> verified*
+}

@@ -1,0 +1,18 @@
+{
+  "name": "composite-key",
+  "sources": [
+    "composite_keys.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "composite_keys.Flight": 3
+  },
+  "report": [
+    "UGS0901 composite_keys.Flight.create path=segmented local=true by=@key indexes=0",
+    "UGS0901 composite_keys.Flight.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1040",
+  "name": "98 Holds added to a post holding 4,000 live Holds need the @no_overlap check to read past rule_read_max",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Organization { id: \"ORG:acme\" }",
+        "insert Post { id: \"AGENT:post1\" }",
+        "insert PostIn { post: Post(id = \"AGENT:post1\"), organisation: Organization(id = \"ORG:acme\") }",
+        "insert Person { id: \"AGENT:p1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "generate": {
+        "from": 1000,
+        "to": 4999,
+        "insert": "holds-line.nq"
+      },
+      "expect": "commit"
+    },
+    {
+      "generate": {
+        "from": 5000,
+        "to": 5097,
+        "insert": "holds-line.nq"
+      },
+      "expect": {
+        "refused": "UGS1040"
+      }
+    }
+  ]
+}

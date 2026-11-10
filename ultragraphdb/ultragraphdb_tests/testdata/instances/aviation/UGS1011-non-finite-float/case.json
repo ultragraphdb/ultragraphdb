@@ -1,0 +1,13 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1011",
+  "name": "an engine whose thrust_kn is INF: refused as a datatype before @range reads it",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1011"
+      }
+    }
+  ]
+}

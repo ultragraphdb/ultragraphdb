@@ -1,0 +1,11 @@
+// expect: compiles
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Asset
+entity Site
+relation Located @key(code) {
+  asset: Asset -> locations*
+  site:  Site  -> assets*
+  code:  String
+}

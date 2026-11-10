@@ -1,0 +1,26 @@
+{
+  "name": "limit",
+  "sources": [
+    "limits.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "limits.Account": 3,
+    "limits.Merchant": 4,
+    "limits.Charge": 5
+  },
+  "report": [
+    "UGS0901 limits.Account.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 limits.Account.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 limits.Charge.insert path=segmented local=true by=@limit indexes=0",
+    "UGS0901 limits.Charge.update.amount path=segmented local=true by=@limit indexes=0",
+    "UGS0901 limits.Charge.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 limits.Merchant.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 limits.Merchant.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0905 limits.Merchant.sales relation=limits.Charge role=merchant"
+  ]
+}

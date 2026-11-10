@@ -1,0 +1,28 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1021",
+  "name": "removing AV-0002's PartOf to AV-0001 and adding AV-0001's to AV-0003 in one transaction leaves no cycle",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Avionics { serial: \"AV-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }",
+        "insert Avionics { serial: \"AV-0002\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }",
+        "insert Avionics { serial: \"AV-0003\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }",
+        "insert PartOf { part: Avionics(serial = \"AV-0002\"), whole: Avionics(serial = \"AV-0001\") }",
+        "insert PartOf { part: Avionics(serial = \"AV-0003\"), whole: Avionics(serial = \"AV-0002\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "reverse.nq",
+      "delete": "reverse-old.nq",
+      "uql": [
+        "delete PartOf(part: Avionics(serial = \"AV-0002\"), whole: Avionics(serial = \"AV-0001\"))",
+        "insert PartOf { part: Avionics(serial = \"AV-0001\"), whole: Avionics(serial = \"AV-0003\") }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

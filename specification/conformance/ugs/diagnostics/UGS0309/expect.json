@@ -1,0 +1,77 @@
+{
+  "code": "UGS0309",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "two schemas with one vocabulary base",
+      "sources": [
+        "schemas_alpha.ugs",
+        "reject_schemas_beta.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0309",
+          "kind": "error",
+          "file": "reject_schemas_beta.ugs",
+          "line": 3,
+          "column": 13,
+          "length": 29,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "schemas_alpha.ugs",
+          "accept_schemas_beta.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "two graphs of one schema taking its base",
+      "sources": [
+        "reject_graphs.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0309",
+          "kind": "error",
+          "file": "reject_graphs.ugs",
+          "line": 10,
+          "column": 7,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_graphs.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "two graphs with one declared base",
+      "sources": [
+        "reject_graph_bases.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0309",
+          "kind": "error",
+          "file": "reject_graph_bases.ugs",
+          "line": 10,
+          "column": 28,
+          "length": 27,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_graph_bases.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

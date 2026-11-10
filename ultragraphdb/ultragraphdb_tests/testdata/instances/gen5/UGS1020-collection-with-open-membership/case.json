@@ -1,0 +1,31 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1020",
+  "name": "an organization retracted while an open MemberOf names it, which @on_retract(collection: restrict open) restricts",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Organization { id: \"AGENT:acme\" }",
+        "insert Person { id: \"AGENT:p0\" }",
+        "insert MemberOf { member: Person(id = \"AGENT:p0\"), collection: Organization(id = \"AGENT:acme\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "operations": [
+        {
+          "kind": "retract",
+          "iri": "https://example.org/deep_brain#Node/AGENT%3Aacme"
+        }
+      ],
+      "uql": [
+        "retract Organization(id = \"AGENT:acme\")"
+      ],
+      "expect": {
+        "refused": "UGS1020"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

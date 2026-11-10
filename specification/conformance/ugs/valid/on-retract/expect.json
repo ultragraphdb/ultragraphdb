@@ -1,0 +1,28 @@
+{
+  "name": "on-retract",
+  "sources": [
+    "on_retract.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "on_retract.Fact": 3,
+    "on_retract.Source": 4,
+    "on_retract.Cites": 5
+  },
+  "report": [
+    "UGS0901 on_retract.Cites.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 on_retract.Cites.update.valid path=coordination-free local=true by=none indexes=0",
+    "UGS0901 on_retract.Cites.retract path=coordination-free local=true by=none indexes=0",
+    "UGS0901 on_retract.Fact.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 on_retract.Fact.update.valid path=coordination-free local=true by=none indexes=0",
+    "UGS0901 on_retract.Fact.retract path=segmented local=true by=restrict-open indexes=0",
+    "UGS0901 on_retract.Source.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 on_retract.Source.update.valid path=coordination-free local=true by=none indexes=0",
+    "UGS0901 on_retract.Source.retract path=coordinated local=false by=cascade indexes=0",
+    "UGS0905 on_retract.Source.cited_by relation=on_retract.Cites role=source"
+  ]
+}

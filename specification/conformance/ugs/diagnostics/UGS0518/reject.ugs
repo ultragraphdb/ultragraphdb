@@ -1,0 +1,11 @@
+// expect: UGS0518 at 10:3
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+abstract entity Asset {
+  code: String Optional @immutable
+}
+
+entity Engine : Asset {
+  code: String
+}

@@ -1,0 +1,75 @@
+{
+  "code": "UGS0211",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@pattern on an integer attribute",
+      "sources": [
+        "reject_attribute.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0211",
+          "kind": "error",
+          "file": "reject_attribute.ugs",
+          "line": 6,
+          "column": 16,
+          "length": 18,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_attribute.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "@pattern on a Date record field",
+      "sources": [
+        "reject_record_field.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0211",
+          "kind": "error",
+          "file": "reject_record_field.ugs",
+          "line": 6,
+          "column": 15,
+          "length": 19,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_record_field.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "@pattern on a named attribute type over an integer",
+      "sources": [
+        "reject_named.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0211",
+          "kind": "error",
+          "file": "reject_named.ugs",
+          "line": 5,
+          "column": 25,
+          "length": 18,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_named.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

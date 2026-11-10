@@ -1,0 +1,7 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Aircraft {
+  callsign: String @index(range)
+}

@@ -1,0 +1,13 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1011",
+  "name": "an Object whose level, a UInt8, is 256",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1011"
+      }
+    }
+  ]
+}

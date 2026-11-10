@@ -1,0 +1,20 @@
+{
+  "code": "UGS0413",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a navigation name on a role naming a catalog type",
+      "sources": ["reject.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0413", "kind": "error",
+          "file": "reject.ugs", "line": 9, "column": 40, "length": 5,
+          "fix": [
+            { "file": "reject.ugs", "line": 9, "column": 40, "length": 6, "replacement": "_" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept.ugs"], "warnings": [] }
+    }
+  ]
+}

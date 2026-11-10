@@ -1,0 +1,37 @@
+{
+  "code": "UGS0702",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "`@colocate` on a keyed relation, whose instances take the bucket their key derives",
+      "sources": [
+        "reject.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0702",
+          "kind": "error",
+          "file": "reject.ugs",
+          "line": 7,
+          "column": 29,
+          "length": 16,
+          "fix": [
+            {
+              "file": "reject.ugs",
+              "line": 7,
+              "column": 28,
+              "length": 17,
+              "replacement": ""
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

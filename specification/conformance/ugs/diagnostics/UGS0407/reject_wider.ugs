@@ -1,0 +1,17 @@
+// expect: UGS0407 at 15:11
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+abstract entity Item { name: String }
+entity Doc : Item
+entity Paper : Doc
+
+abstract relation Link {
+  source: Doc -> links_out*
+  target: Doc -> links_in*
+}
+
+relation Cites : Link {
+  citing: Item as source -> cites*
+  cited:  Paper as target -> cited_by*
+}

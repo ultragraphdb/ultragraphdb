@@ -1,0 +1,52 @@
+{
+  "code": "UGS0204",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a dimension of zero",
+      "sources": [
+        "reject_zero.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0204",
+          "kind": "error",
+          "file": "reject_zero.ugs",
+          "line": 6,
+          "column": 26,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_zero.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a dimension past 65,535",
+      "sources": [
+        "reject_large.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0204",
+          "kind": "error",
+          "file": "reject_large.ugs",
+          "line": 6,
+          "column": 26,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_large.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

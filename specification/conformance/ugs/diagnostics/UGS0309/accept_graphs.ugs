@@ -1,0 +1,10 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Item {
+  name: String
+}
+
+graph main : shop @default
+graph archive : shop @base("https://example.org/archive/")

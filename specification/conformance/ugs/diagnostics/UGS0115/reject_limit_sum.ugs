@@ -1,0 +1,16 @@
+// expect: UGS0115 at 16:14
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Account {
+  owner: String
+}
+entity Asset {
+  serial: String
+}
+
+relation Holds {
+  account: Account -> holdings*
+  asset:   Asset   -> holders*
+  amount:  Int64 @range(0, 1_000_000)
+} @limit(sum(amout) <= 5_000_000 per account)

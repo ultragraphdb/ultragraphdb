@@ -1,0 +1,12 @@
+// expect: UGS0801 at 11:19
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Asset {
+  holder: String
+}
+entity Site
+relation Located {
+  asset: Asset -> locations*
+  site:  Site  -> holder*
+}

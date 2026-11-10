@@ -1,0 +1,11 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Buyer  { name: String }
+entity Seller { name: String }
+
+relation Sale @multi {
+  buyer:  Buyer  -> purchases*
+  seller: Seller -> sales*
+} @limit(count() <= 2 per buyer)

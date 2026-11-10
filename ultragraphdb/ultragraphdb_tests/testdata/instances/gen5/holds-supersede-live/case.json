@@ -1,0 +1,22 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1019",
+  "name": "a Supersedes whose old statement is live, which the insert retracts in the same commit",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "uql": [
+        "insert Claim { id: \"CLM:old\", statement: \"the router is up\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "step2.nq",
+      "uql": [
+        "insert Claim { id: \"CLM:new\", statement: \"the router is down\" }",
+        "insert Supersedes { new: Claim(id = \"CLM:new\"), old: Claim(id = \"CLM:old\") }"
+      ],
+      "expect": "commit"
+    }
+  ]
+}

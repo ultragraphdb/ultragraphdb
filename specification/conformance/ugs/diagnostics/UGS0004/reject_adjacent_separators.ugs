@@ -1,0 +1,7 @@
+// expect: UGS0004 at 6:27
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Aircraft {
+  max_takeoff_kg: Int32 = 79__000
+}

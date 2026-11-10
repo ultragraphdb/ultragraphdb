@@ -1,0 +1,16 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Doc { title: String }
+entity Paper : Doc
+
+abstract relation Link {
+  source: Doc Optional -> links_out*
+  target: Doc          -> links_in*
+}
+
+relation Cites : Link {
+  citing: Paper Optional as source -> cites*
+  cited:  Paper as target -> cited_by*
+}

@@ -1,0 +1,26 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1013",
+  "name": "an @append_only AssertedBy deleted by the delete of its quad",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Object { id: \"OBJ:o1\" }",
+        "insert Person { id: \"AGENT:p0\" }",
+        "insert AssertedBy { statement: Object(id = \"OBJ:o1\"), asserter: Person(id = \"AGENT:p0\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "delete": "break-delete.nq",
+      "uql": [
+        "delete AssertedBy(statement: Object(id = \"OBJ:o1\"))"
+      ],
+      "expect": {
+        "refused": "UGS1013"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

@@ -1,0 +1,9 @@
+// expect: compiles
+schema checks version 1
+prefix ck = "https://example.org/checks#"
+
+entity Booking {
+  nights: Int32 @check(nights > 0)
+  start:  Date
+  finish: Date
+} @check(start <= finish)

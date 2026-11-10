@@ -1,0 +1,52 @@
+{
+  "code": "UGS0305",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a template whose text is a prefix of another's",
+      "sources": [
+        "reject_prefix.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0305",
+          "kind": "error",
+          "file": "reject_prefix.ugs",
+          "line": 12,
+          "column": 8,
+          "length": 30,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_prefix.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "two templates with equal text",
+      "sources": [
+        "reject_equal.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0305",
+          "kind": "error",
+          "file": "reject_equal.ugs",
+          "line": 11,
+          "column": 8,
+          "length": 35,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_equal.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+// expect: compiles
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Doc {
+  title: String
+}

@@ -1,0 +1,13 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1010",
+  "name": "a Quantity in metres whose quantity_kind Time is not among its unit's quantities",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1010"
+      }
+    }
+  ]
+}

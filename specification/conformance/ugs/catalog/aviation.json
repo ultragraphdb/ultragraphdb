@@ -1,0 +1,3946 @@
+{
+  "name": "aviation",
+  "sources": [
+    "../valid/aviation/aviation.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "conventions": "The catalog version of the aviation schema (SCHEMA.md section 16) installed into tenant 0 as catalog version 1, as CATALOG.md lays it out, read through its decoder. \"fixed\" is the version's fixed part without checksum and magic; \"entries\" is the entry table in order, each entry its kind, its name, its fixed part (\"fixed\") and its sections (\"sections\") under CATALOG.md section 5's field names, the two string sections left out since every string is given as its text. A string is its text and ABSENT is null, for a u32 field as for a string; a u8 boolean is true or false; a u8 code or flag set is its number; a u64 past 2^53 is a decimal string. A type descriptor is its tag with the arguments the tag uses, a descriptor index among them given as that descriptor and a qualified name as its text; a constant is its type and its text; a program is its record with its instructions, which tile the instructions section in program order, each its op's name with its x and arg where the op has them, a string arg as its text and a constant arg as the constant. A type table, constants and programs section lists its records in their order, in these forms. The Source entry's text is the bytes of the file it names. Entry offsets, lengths and the checksum are pinned once a decode of the compiled version matches this file (SCHEMA.md section 10.2, rule 6).",
+  "fixed": {
+    "format": 1,
+    "tenant": 0,
+    "version": 1,
+    "entries": 128,
+    "types": 13,
+    "prefix_next": 16,
+    "predicate_next": "9223372036854775841"
+  },
+  "prefix_index": [
+    {
+      "prefix": 3,
+      "entry": 3
+    },
+    {
+      "prefix": 4,
+      "entry": 2
+    },
+    {
+      "prefix": 5,
+      "entry": 8
+    },
+    {
+      "prefix": 6,
+      "entry": 5
+    },
+    {
+      "prefix": 7,
+      "entry": 10
+    },
+    {
+      "prefix": 8,
+      "entry": 7
+    },
+    {
+      "prefix": 9,
+      "entry": 4
+    },
+    {
+      "prefix": 10,
+      "entry": 11
+    },
+    {
+      "prefix": 11,
+      "entry": 12
+    },
+    {
+      "prefix": 12,
+      "entry": 1
+    },
+    {
+      "prefix": 13,
+      "entry": 13
+    },
+    {
+      "prefix": 14,
+      "entry": 9
+    },
+    {
+      "prefix": 15,
+      "entry": 6
+    }
+  ],
+  "kind_directory": [
+    1,
+    1,
+    14,
+    27,
+    43,
+    76,
+    90,
+    104,
+    105,
+    105,
+    108,
+    108,
+    108,
+    110,
+    112,
+    113,
+    126,
+    127,
+    128
+  ],
+  "predicate_index": [
+    {
+      "sequence": "9223372036854775808",
+      "entry": 43
+    },
+    {
+      "sequence": "9223372036854775809",
+      "entry": 44
+    },
+    {
+      "sequence": "9223372036854775810",
+      "entry": 45
+    },
+    {
+      "sequence": "9223372036854775811",
+      "entry": 46
+    },
+    {
+      "sequence": "9223372036854775812",
+      "entry": 47
+    },
+    {
+      "sequence": "9223372036854775813",
+      "entry": 48
+    },
+    {
+      "sequence": "9223372036854775814",
+      "entry": 49
+    },
+    {
+      "sequence": "9223372036854775815",
+      "entry": 50
+    },
+    {
+      "sequence": "9223372036854775816",
+      "entry": 51
+    },
+    {
+      "sequence": "9223372036854775817",
+      "entry": 52
+    },
+    {
+      "sequence": "9223372036854775818",
+      "entry": 53
+    },
+    {
+      "sequence": "9223372036854775819",
+      "entry": 54
+    },
+    {
+      "sequence": "9223372036854775820",
+      "entry": 55
+    },
+    {
+      "sequence": "9223372036854775821",
+      "entry": 56
+    },
+    {
+      "sequence": "9223372036854775822",
+      "entry": 57
+    },
+    {
+      "sequence": "9223372036854775823",
+      "entry": 58
+    },
+    {
+      "sequence": "9223372036854775824",
+      "entry": 59
+    },
+    {
+      "sequence": "9223372036854775825",
+      "entry": 60
+    },
+    {
+      "sequence": "9223372036854775826",
+      "entry": 61
+    },
+    {
+      "sequence": "9223372036854775827",
+      "entry": 62
+    },
+    {
+      "sequence": "9223372036854775828",
+      "entry": 63
+    },
+    {
+      "sequence": "9223372036854775829",
+      "entry": 64
+    },
+    {
+      "sequence": "9223372036854775830",
+      "entry": 65
+    },
+    {
+      "sequence": "9223372036854775831",
+      "entry": 66
+    },
+    {
+      "sequence": "9223372036854775832",
+      "entry": 67
+    },
+    {
+      "sequence": "9223372036854775833",
+      "entry": 68
+    },
+    {
+      "sequence": "9223372036854775834",
+      "entry": 69
+    },
+    {
+      "sequence": "9223372036854775835",
+      "entry": 70
+    },
+    {
+      "sequence": "9223372036854775836",
+      "entry": 71
+    },
+    {
+      "sequence": "9223372036854775837",
+      "entry": 72
+    },
+    {
+      "sequence": "9223372036854775838",
+      "entry": 73
+    },
+    {
+      "sequence": "9223372036854775839",
+      "entry": 74
+    },
+    {
+      "sequence": "9223372036854775840",
+      "entry": 75
+    }
+  ],
+  "entries": [
+    {
+      "kind": 1,
+      "name": "aviation",
+      "fixed": {
+        "version": 1,
+        "name": "aviation",
+        "base": "https://example.org/aviation#",
+        "prefix": "av",
+        "doc": null,
+        "open": false
+      },
+      "sections": {
+        "imports": [
+          {
+            "kind": 1,
+            "name": "sdo",
+            "target": "https://schema.org/",
+            "min_version": 0
+          }
+        ],
+        "reserved_names": []
+      }
+    },
+    {
+      "kind": 3,
+      "name": "aviation.Agreement",
+      "fixed": {
+        "prefix": 12,
+        "kind": 3,
+        "flags": 9,
+        "mutability": 1,
+        "encoding": 2,
+        "acyclic": 0,
+        "name": "Agreement",
+        "schema": "aviation",
+        "parent": null,
+        "key_space": null,
+        "iri_template": null,
+        "anchor": "party",
+        "valid": null,
+        "retracts": null,
+        "ends": null,
+        "max_depth": 0,
+        "doc": null,
+        "key_space_prefix": 0
+      },
+      "sections": {
+        "key_attributes": [],
+        "fields": [
+          "aviation.Agreement.signed"
+        ],
+        "roles": [
+          "aviation.Agreement.party",
+          "aviation.Agreement.counterparty"
+        ],
+        "actions": [],
+        "limits": [],
+        "per_roles": [],
+        "no_overlap": [],
+        "instance_checks": [],
+        "maps_to": [],
+        "type_table": [],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 3,
+      "name": "aviation.Aircraft",
+      "fixed": {
+        "prefix": 4,
+        "kind": 2,
+        "flags": 64,
+        "mutability": 1,
+        "encoding": 0,
+        "acyclic": 0,
+        "name": "Aircraft",
+        "schema": "aviation",
+        "parent": "aviation.Asset",
+        "key_space": "aviation.Asset",
+        "iri_template": null,
+        "anchor": null,
+        "valid": null,
+        "retracts": null,
+        "ends": null,
+        "max_depth": 0,
+        "doc": null,
+        "key_space_prefix": 3
+      },
+      "sections": {
+        "key_attributes": [
+          "serial"
+        ],
+        "fields": [
+          "aviation.Asset.serial",
+          "aviation.Asset.commissioned",
+          "aviation.Asset.status",
+          "aviation.Asset.tags",
+          "aviation.Asset.notes",
+          "aviation.Asset.embedding",
+          "aviation.Aircraft.tail_number"
+        ],
+        "roles": [],
+        "actions": [],
+        "limits": [],
+        "per_roles": [],
+        "no_overlap": [],
+        "instance_checks": [],
+        "maps_to": [],
+        "type_table": [],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 3,
+      "name": "aviation.Asset",
+      "fixed": {
+        "prefix": 3,
+        "kind": 2,
+        "flags": 65,
+        "mutability": 1,
+        "encoding": 0,
+        "acyclic": 0,
+        "name": "Asset",
+        "schema": "aviation",
+        "parent": null,
+        "key_space": "aviation.Asset",
+        "iri_template": null,
+        "anchor": null,
+        "valid": null,
+        "retracts": null,
+        "ends": null,
+        "max_depth": 0,
+        "doc": "Anything that can be owned, assembled and supplied.",
+        "key_space_prefix": 3
+      },
+      "sections": {
+        "key_attributes": [
+          "serial"
+        ],
+        "fields": [
+          "aviation.Asset.serial",
+          "aviation.Asset.commissioned",
+          "aviation.Asset.status",
+          "aviation.Asset.tags",
+          "aviation.Asset.notes",
+          "aviation.Asset.embedding"
+        ],
+        "roles": [],
+        "actions": [],
+        "limits": [],
+        "per_roles": [],
+        "no_overlap": [],
+        "instance_checks": [],
+        "maps_to": [],
+        "type_table": [],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 3,
+      "name": "aviation.Authority",
+      "fixed": {
+        "prefix": 9,
+        "kind": 2,
+        "flags": 64,
+        "mutability": 1,
+        "encoding": 0,
+        "acyclic": 0,
+        "name": "Authority",
+        "schema": "aviation",
+        "parent": "aviation.Organization",
+        "key_space": "aviation.Organization",
+        "iri_template": null,
+        "anchor": null,
+        "valid": null,
+        "retracts": null,
+        "ends": null,
+        "max_depth": 0,
+        "doc": null,
+        "key_space_prefix": 7
+      },
+      "sections": {
+        "key_attributes": [
+          "name"
+        ],
+        "fields": [
+          "aviation.Organization.name",
+          "aviation.Authority.jurisdiction"
+        ],
+        "roles": [],
+        "actions": [],
+        "limits": [],
+        "per_roles": [],
+        "no_overlap": [],
+        "instance_checks": [],
+        "maps_to": [],
+        "type_table": [],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 3,
+      "name": "aviation.Avionics",
+      "fixed": {
+        "prefix": 6,
+        "kind": 2,
+        "flags": 64,
+        "mutability": 1,
+        "encoding": 0,
+        "acyclic": 0,
+        "name": "Avionics",
+        "schema": "aviation",
+        "parent": "aviation.Asset",
+        "key_space": "aviation.Asset",
+        "iri_template": null,
+        "anchor": null,
+        "valid": null,
+        "retracts": null,
+        "ends": null,
+        "max_depth": 0,
+        "doc": null,
+        "key_space_prefix": 3
+      },
+      "sections": {
+        "key_attributes": [
+          "serial"
+        ],
+        "fields": [
+          "aviation.Asset.serial",
+          "aviation.Asset.commissioned",
+          "aviation.Asset.status",
+          "aviation.Asset.tags",
+          "aviation.Asset.notes",
+          "aviation.Asset.embedding",
+          "aviation.Avionics.firmware"
+        ],
+        "roles": [],
+        "actions": [],
+        "limits": [],
+        "per_roles": [],
+        "no_overlap": [],
+        "instance_checks": [],
+        "maps_to": [],
+        "type_table": [],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 3,
+      "name": "aviation.Certifies",
+      "fixed": {
+        "prefix": 15,
+        "kind": 3,
+        "flags": 0,
+        "mutability": 1,
+        "encoding": 1,
+        "acyclic": 0,
+        "name": "Certifies",
+        "schema": "aviation",
+        "parent": null,
+        "key_space": null,
+        "iri_template": null,
+        "anchor": "contract",
+        "valid": null,
+        "retracts": null,
+        "ends": null,
+        "max_depth": 0,
+        "doc": null,
+        "key_space_prefix": 0
+      },
+      "sections": {
+        "key_attributes": [],
+        "fields": [
+          "aviation.Certifies.valid"
+        ],
+        "roles": [
+          "aviation.Certifies.authority",
+          "aviation.Certifies.contract"
+        ],
+        "actions": [],
+        "limits": [],
+        "per_roles": [],
+        "no_overlap": [],
+        "instance_checks": [],
+        "maps_to": [],
+        "type_table": [],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 3,
+      "name": "aviation.Company",
+      "fixed": {
+        "prefix": 8,
+        "kind": 2,
+        "flags": 64,
+        "mutability": 1,
+        "encoding": 0,
+        "acyclic": 0,
+        "name": "Company",
+        "schema": "aviation",
+        "parent": "aviation.Organization",
+        "key_space": "aviation.Organization",
+        "iri_template": null,
+        "anchor": null,
+        "valid": null,
+        "retracts": null,
+        "ends": null,
+        "max_depth": 0,
+        "doc": null,
+        "key_space_prefix": 7
+      },
+      "sections": {
+        "key_attributes": [
+          "name"
+        ],
+        "fields": [
+          "aviation.Organization.name"
+        ],
+        "roles": [],
+        "actions": [],
+        "limits": [],
+        "per_roles": [],
+        "no_overlap": [],
+        "instance_checks": [],
+        "maps_to": [],
+        "type_table": [],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 3,
+      "name": "aviation.Engine",
+      "fixed": {
+        "prefix": 5,
+        "kind": 2,
+        "flags": 64,
+        "mutability": 1,
+        "encoding": 0,
+        "acyclic": 0,
+        "name": "Engine",
+        "schema": "aviation",
+        "parent": "aviation.Asset",
+        "key_space": "aviation.Asset",
+        "iri_template": null,
+        "anchor": null,
+        "valid": null,
+        "retracts": null,
+        "ends": null,
+        "max_depth": 0,
+        "doc": null,
+        "key_space_prefix": 3
+      },
+      "sections": {
+        "key_attributes": [
+          "serial"
+        ],
+        "fields": [
+          "aviation.Asset.serial",
+          "aviation.Asset.commissioned",
+          "aviation.Asset.status",
+          "aviation.Asset.tags",
+          "aviation.Asset.notes",
+          "aviation.Asset.embedding",
+          "aviation.Engine.thrust_kn"
+        ],
+        "roles": [],
+        "actions": [],
+        "limits": [],
+        "per_roles": [],
+        "no_overlap": [],
+        "instance_checks": [],
+        "maps_to": [],
+        "type_table": [],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 3,
+      "name": "aviation.Lease",
+      "fixed": {
+        "prefix": 14,
+        "kind": 3,
+        "flags": 8,
+        "mutability": 1,
+        "encoding": 2,
+        "acyclic": 0,
+        "name": "Lease",
+        "schema": "aviation",
+        "parent": "aviation.Agreement",
+        "key_space": null,
+        "iri_template": null,
+        "anchor": "lessor",
+        "valid": null,
+        "retracts": null,
+        "ends": null,
+        "max_depth": 0,
+        "doc": null,
+        "key_space_prefix": 0
+      },
+      "sections": {
+        "key_attributes": [],
+        "fields": [
+          "aviation.Agreement.signed",
+          "aviation.Lease.term"
+        ],
+        "roles": [
+          "aviation.Lease.lessor",
+          "aviation.Lease.lessee",
+          "aviation.Lease.asset"
+        ],
+        "actions": [],
+        "limits": [],
+        "per_roles": [],
+        "no_overlap": [],
+        "instance_checks": [],
+        "maps_to": [],
+        "type_table": [],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 3,
+      "name": "aviation.Organization",
+      "fixed": {
+        "prefix": 7,
+        "kind": 2,
+        "flags": 65,
+        "mutability": 1,
+        "encoding": 0,
+        "acyclic": 0,
+        "name": "Organization",
+        "schema": "aviation",
+        "parent": null,
+        "key_space": "aviation.Organization",
+        "iri_template": null,
+        "anchor": null,
+        "valid": null,
+        "retracts": null,
+        "ends": null,
+        "max_depth": 0,
+        "doc": null,
+        "key_space_prefix": 7
+      },
+      "sections": {
+        "key_attributes": [
+          "name"
+        ],
+        "fields": [
+          "aviation.Organization.name"
+        ],
+        "roles": [],
+        "actions": [],
+        "limits": [],
+        "per_roles": [],
+        "no_overlap": [],
+        "instance_checks": [],
+        "maps_to": [],
+        "type_table": [],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 3,
+      "name": "aviation.Owns",
+      "fixed": {
+        "prefix": 10,
+        "kind": 3,
+        "flags": 0,
+        "mutability": 1,
+        "encoding": 1,
+        "acyclic": 0,
+        "name": "Owns",
+        "schema": "aviation",
+        "parent": null,
+        "key_space": null,
+        "iri_template": null,
+        "anchor": "asset",
+        "valid": null,
+        "retracts": null,
+        "ends": null,
+        "max_depth": 0,
+        "doc": null,
+        "key_space_prefix": 0
+      },
+      "sections": {
+        "key_attributes": [],
+        "fields": [
+          "aviation.Owns.since"
+        ],
+        "roles": [
+          "aviation.Owns.owner",
+          "aviation.Owns.asset"
+        ],
+        "actions": [],
+        "limits": [],
+        "per_roles": [],
+        "no_overlap": [],
+        "instance_checks": [],
+        "maps_to": [],
+        "type_table": [],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 3,
+      "name": "aviation.PartOf",
+      "fixed": {
+        "prefix": 11,
+        "kind": 3,
+        "flags": 0,
+        "mutability": 1,
+        "encoding": 1,
+        "acyclic": 1,
+        "name": "PartOf",
+        "schema": "aviation",
+        "parent": null,
+        "key_space": null,
+        "iri_template": null,
+        "anchor": "part",
+        "valid": null,
+        "retracts": null,
+        "ends": null,
+        "max_depth": 16,
+        "doc": null,
+        "key_space_prefix": 0
+      },
+      "sections": {
+        "key_attributes": [],
+        "fields": [],
+        "roles": [
+          "aviation.PartOf.part",
+          "aviation.PartOf.whole"
+        ],
+        "actions": [
+          {
+            "role": "whole",
+            "on_delete": 2,
+            "on_retract": 0
+          }
+        ],
+        "limits": [],
+        "per_roles": [],
+        "no_overlap": [],
+        "instance_checks": [],
+        "maps_to": [],
+        "type_table": [],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 3,
+      "name": "aviation.Supply",
+      "fixed": {
+        "prefix": 13,
+        "kind": 3,
+        "flags": 8,
+        "mutability": 3,
+        "encoding": 2,
+        "acyclic": 0,
+        "name": "Supply",
+        "schema": "aviation",
+        "parent": "aviation.Agreement",
+        "key_space": null,
+        "iri_template": null,
+        "anchor": "supplier",
+        "valid": null,
+        "retracts": null,
+        "ends": null,
+        "max_depth": 0,
+        "doc": null,
+        "key_space_prefix": 0
+      },
+      "sections": {
+        "key_attributes": [],
+        "fields": [
+          "aviation.Agreement.signed",
+          "aviation.Supply.value"
+        ],
+        "roles": [
+          "aviation.Supply.supplier",
+          "aviation.Supply.buyer",
+          "aviation.Supply.item"
+        ],
+        "actions": [
+          {
+            "role": "supplier",
+            "on_delete": 2,
+            "on_retract": 0
+          },
+          {
+            "role": "buyer",
+            "on_delete": 2,
+            "on_retract": 0
+          },
+          {
+            "role": "item",
+            "on_delete": 2,
+            "on_retract": 0
+          }
+        ],
+        "limits": [
+          {
+            "aggregate": 2,
+            "op": 1,
+            "per_type": false,
+            "attribute": "value",
+            "bound": {
+              "type": {
+                "tag": 13,
+                "a": 18,
+                "b": 2
+              },
+              "text": "50000000"
+            },
+            "condition": null,
+            "select": null,
+            "per_first": 0,
+            "per_len": 1
+          }
+        ],
+        "per_roles": [
+          "buyer"
+        ],
+        "no_overlap": [],
+        "instance_checks": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 13,
+            "a": 18,
+            "b": 2
+          }
+        ],
+        "constants": [
+          {
+            "type": {
+              "tag": 13,
+              "a": 18,
+              "b": 2
+            },
+            "text": "50000000"
+          }
+        ],
+        "programs": []
+      }
+    },
+    {
+      "kind": 4,
+      "name": "aviation.Agreement",
+      "fixed": {
+        "prefix": 12
+      },
+      "sections": {
+        "ranges": [
+          {
+            "first": 12,
+            "past": 15
+          }
+        ]
+      }
+    },
+    {
+      "kind": 4,
+      "name": "aviation.Aircraft",
+      "fixed": {
+        "prefix": 4
+      },
+      "sections": {
+        "ranges": [
+          {
+            "first": 4,
+            "past": 5
+          }
+        ]
+      }
+    },
+    {
+      "kind": 4,
+      "name": "aviation.Asset",
+      "fixed": {
+        "prefix": 3
+      },
+      "sections": {
+        "ranges": [
+          {
+            "first": 3,
+            "past": 7
+          }
+        ]
+      }
+    },
+    {
+      "kind": 4,
+      "name": "aviation.Authority",
+      "fixed": {
+        "prefix": 9
+      },
+      "sections": {
+        "ranges": [
+          {
+            "first": 9,
+            "past": 10
+          }
+        ]
+      }
+    },
+    {
+      "kind": 4,
+      "name": "aviation.Avionics",
+      "fixed": {
+        "prefix": 6
+      },
+      "sections": {
+        "ranges": [
+          {
+            "first": 6,
+            "past": 7
+          }
+        ]
+      }
+    },
+    {
+      "kind": 4,
+      "name": "aviation.Certifies",
+      "fixed": {
+        "prefix": 15
+      },
+      "sections": {
+        "ranges": [
+          {
+            "first": 15,
+            "past": 16
+          }
+        ]
+      }
+    },
+    {
+      "kind": 4,
+      "name": "aviation.Company",
+      "fixed": {
+        "prefix": 8
+      },
+      "sections": {
+        "ranges": [
+          {
+            "first": 8,
+            "past": 9
+          }
+        ]
+      }
+    },
+    {
+      "kind": 4,
+      "name": "aviation.Engine",
+      "fixed": {
+        "prefix": 5
+      },
+      "sections": {
+        "ranges": [
+          {
+            "first": 5,
+            "past": 6
+          }
+        ]
+      }
+    },
+    {
+      "kind": 4,
+      "name": "aviation.Lease",
+      "fixed": {
+        "prefix": 14
+      },
+      "sections": {
+        "ranges": [
+          {
+            "first": 14,
+            "past": 15
+          }
+        ]
+      }
+    },
+    {
+      "kind": 4,
+      "name": "aviation.Organization",
+      "fixed": {
+        "prefix": 7
+      },
+      "sections": {
+        "ranges": [
+          {
+            "first": 7,
+            "past": 10
+          }
+        ]
+      }
+    },
+    {
+      "kind": 4,
+      "name": "aviation.Owns",
+      "fixed": {
+        "prefix": 10
+      },
+      "sections": {
+        "ranges": [
+          {
+            "first": 10,
+            "past": 11
+          }
+        ]
+      }
+    },
+    {
+      "kind": 4,
+      "name": "aviation.PartOf",
+      "fixed": {
+        "prefix": 11
+      },
+      "sections": {
+        "ranges": [
+          {
+            "first": 11,
+            "past": 12
+          }
+        ]
+      }
+    },
+    {
+      "kind": 4,
+      "name": "aviation.Supply",
+      "fixed": {
+        "prefix": 13
+      },
+      "sections": {
+        "ranges": [
+          {
+            "first": 13,
+            "past": 14
+          }
+        ]
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Agreement.signed",
+      "fixed": {
+        "name": "signed",
+        "type_name": "aviation.Agreement",
+        "predicate": "https://example.org/aviation#signed",
+        "type": {
+          "tag": 17
+        },
+        "default": null,
+        "doc": null,
+        "flags": 0,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 17
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Aircraft.tail_number",
+      "fixed": {
+        "name": "tail_number",
+        "type_name": "aviation.Aircraft",
+        "predicate": "https://example.org/aviation#tail_number",
+        "type": {
+          "tag": 14
+        },
+        "default": null,
+        "doc": null,
+        "flags": 8,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 14
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Asset.commissioned",
+      "fixed": {
+        "name": "commissioned",
+        "type_name": "aviation.Asset",
+        "predicate": "https://example.org/aviation#commissioned",
+        "type": {
+          "tag": 17
+        },
+        "default": null,
+        "doc": null,
+        "flags": 0,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 17
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Asset.embedding",
+      "fixed": {
+        "name": "embedding",
+        "type_name": "aviation.Asset",
+        "predicate": "https://example.org/aviation#embedding",
+        "type": {
+          "tag": 28,
+          "a": 1,
+          "b": 768
+        },
+        "default": null,
+        "doc": null,
+        "flags": 1,
+        "indexes": 16,
+        "metric": 1,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 28,
+            "a": 1,
+            "b": 768
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Asset.notes",
+      "fixed": {
+        "name": "notes",
+        "type_name": "aviation.Asset",
+        "predicate": "https://example.org/aviation#notes",
+        "type": {
+          "tag": 15
+        },
+        "default": null,
+        "doc": null,
+        "flags": 1,
+        "indexes": 2,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 15
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Asset.serial",
+      "fixed": {
+        "name": "serial",
+        "type_name": "aviation.Asset",
+        "predicate": "https://example.org/aviation#serial",
+        "type": {
+          "tag": 14
+        },
+        "default": null,
+        "doc": null,
+        "flags": 6,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [
+          {
+            "kind": 1,
+            "a": "[A-Z0-9-]{6,20}",
+            "b": 0
+          }
+        ],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 14
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Asset.status",
+      "fixed": {
+        "name": "status",
+        "type_name": "aviation.Asset",
+        "predicate": "https://example.org/aviation#status",
+        "type": {
+          "tag": 24,
+          "a": "aviation.Status"
+        },
+        "default": null,
+        "doc": null,
+        "flags": 0,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 24,
+            "a": "aviation.Status"
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Asset.tags",
+      "fixed": {
+        "name": "tags",
+        "type_name": "aviation.Asset",
+        "predicate": "https://example.org/aviation#tags",
+        "type": {
+          "tag": 26,
+          "a": {
+            "tag": 14
+          }
+        },
+        "default": null,
+        "doc": null,
+        "flags": 0,
+        "indexes": 1,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 14
+          },
+          {
+            "tag": 26,
+            "a": {
+              "tag": 14
+            }
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Authority.jurisdiction",
+      "fixed": {
+        "name": "jurisdiction",
+        "type_name": "aviation.Authority",
+        "predicate": "https://example.org/aviation#jurisdiction",
+        "type": {
+          "tag": 14
+        },
+        "default": null,
+        "doc": null,
+        "flags": 0,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [
+          {
+            "kind": 3,
+            "a": 0,
+            "b": 3
+          }
+        ],
+        "values": [
+          {
+            "type": {
+              "tag": 14
+            },
+            "text": "EU"
+          },
+          {
+            "type": {
+              "tag": 14
+            },
+            "text": "US"
+          },
+          {
+            "type": {
+              "tag": 14
+            },
+            "text": "UK"
+          }
+        ],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 14
+          }
+        ],
+        "constants": [
+          {
+            "type": {
+              "tag": 14
+            },
+            "text": "EU"
+          },
+          {
+            "type": {
+              "tag": 14
+            },
+            "text": "US"
+          },
+          {
+            "type": {
+              "tag": 14
+            },
+            "text": "UK"
+          }
+        ],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Avionics.firmware",
+      "fixed": {
+        "name": "firmware",
+        "type_name": "aviation.Avionics",
+        "predicate": "https://example.org/aviation#firmware",
+        "type": {
+          "tag": 14
+        },
+        "default": null,
+        "doc": null,
+        "flags": 1,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 14
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Certifies.valid",
+      "fixed": {
+        "name": "valid",
+        "type_name": "aviation.Certifies",
+        "predicate": "https://example.org/aviation#valid_start",
+        "type": {
+          "tag": 22,
+          "a": {
+            "tag": 17
+          }
+        },
+        "default": null,
+        "doc": null,
+        "flags": 0,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 17
+          },
+          {
+            "tag": 22,
+            "a": {
+              "tag": 17
+            }
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Engine.thrust_kn",
+      "fixed": {
+        "name": "thrust_kn",
+        "type_name": "aviation.Engine",
+        "predicate": "https://example.org/aviation#thrust_kn",
+        "type": {
+          "tag": 12
+        },
+        "default": null,
+        "doc": null,
+        "flags": 0,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [
+          {
+            "kind": 2,
+            "a": {
+              "type": {
+                "tag": 12
+              },
+              "text": "0"
+            },
+            "b": {
+              "type": {
+                "tag": 12
+              },
+              "text": "2000"
+            }
+          }
+        ],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 12
+          }
+        ],
+        "constants": [
+          {
+            "type": {
+              "tag": 12
+            },
+            "text": "0"
+          },
+          {
+            "type": {
+              "tag": 12
+            },
+            "text": "2000"
+          }
+        ],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Lease.term",
+      "fixed": {
+        "name": "term",
+        "type_name": "aviation.Lease",
+        "predicate": "https://example.org/aviation#term_start",
+        "type": {
+          "tag": 22,
+          "a": {
+            "tag": 17
+          }
+        },
+        "default": null,
+        "doc": null,
+        "flags": 0,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 17
+          },
+          {
+            "tag": 22,
+            "a": {
+              "tag": 17
+            }
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Organization.name",
+      "fixed": {
+        "name": "name",
+        "type_name": "aviation.Organization",
+        "predicate": "https://example.org/aviation#name",
+        "type": {
+          "tag": 14
+        },
+        "default": null,
+        "doc": null,
+        "flags": 6,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [
+          "https://schema.org/legalName"
+        ],
+        "type_table": [
+          {
+            "tag": 14
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Owns.since",
+      "fixed": {
+        "name": "since",
+        "type_name": "aviation.Owns",
+        "predicate": "https://example.org/aviation#since",
+        "type": {
+          "tag": 17
+        },
+        "default": null,
+        "doc": null,
+        "flags": 0,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 17
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 5,
+      "name": "aviation.Supply.value",
+      "fixed": {
+        "name": "value",
+        "type_name": "aviation.Supply",
+        "predicate": "https://example.org/aviation#value",
+        "type": {
+          "tag": 13,
+          "a": 18,
+          "b": 2
+        },
+        "default": null,
+        "doc": null,
+        "flags": 0,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [
+          {
+            "kind": 4,
+            "a": {
+              "first": 0,
+              "len": 3,
+              "result": {
+                "tag": 1
+              },
+              "depth": 2,
+              "filter": false,
+              "instructions": [
+                {
+                  "op": "FIELD",
+                  "arg": "value"
+                },
+                {
+                  "op": "CONST",
+                  "arg": {
+                    "type": {
+                      "tag": 13,
+                      "a": 18,
+                      "b": 2
+                    },
+                    "text": "0"
+                  }
+                },
+                {
+                  "op": "GT"
+                }
+              ]
+            },
+            "b": "value > 0"
+          }
+        ],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 13,
+            "a": 18,
+            "b": 2
+          },
+          {
+            "tag": 1
+          }
+        ],
+        "constants": [
+          {
+            "type": {
+              "tag": 13,
+              "a": 18,
+              "b": 2
+            },
+            "text": "0"
+          }
+        ],
+        "programs": [
+          {
+            "first": 0,
+            "len": 3,
+            "result": {
+              "tag": 1
+            },
+            "depth": 2,
+            "filter": false,
+            "instructions": [
+              {
+                "op": "FIELD",
+                "arg": "value"
+              },
+              {
+                "op": "CONST",
+                "arg": {
+                  "type": {
+                    "tag": 13,
+                    "a": 18,
+                    "b": 2
+                  },
+                  "text": "0"
+                }
+              },
+              {
+                "op": "GT"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#Agreement_counterparty",
+      "fixed": {
+        "iri": "https://example.org/aviation#Agreement_counterparty",
+        "datatype": null,
+        "kind": 0,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 8,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Agreement"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#Agreement_party",
+      "fixed": {
+        "iri": "https://example.org/aviation#Agreement_party",
+        "datatype": null,
+        "kind": 0,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 8,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Agreement"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#Lease_asset",
+      "fixed": {
+        "iri": "https://example.org/aviation#Lease_asset",
+        "datatype": null,
+        "kind": 0,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Lease"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#Lease_lessee",
+      "fixed": {
+        "iri": "https://example.org/aviation#Lease_lessee",
+        "datatype": null,
+        "kind": 0,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Lease"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#Lease_lessor",
+      "fixed": {
+        "iri": "https://example.org/aviation#Lease_lessor",
+        "datatype": null,
+        "kind": 0,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Lease"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#Supply_buyer",
+      "fixed": {
+        "iri": "https://example.org/aviation#Supply_buyer",
+        "datatype": null,
+        "kind": 0,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 4,
+        "mutability": 3,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Supply"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#Supply_item",
+      "fixed": {
+        "iri": "https://example.org/aviation#Supply_item",
+        "datatype": null,
+        "kind": 0,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 3,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Supply"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#Supply_supplier",
+      "fixed": {
+        "iri": "https://example.org/aviation#Supply_supplier",
+        "datatype": null,
+        "kind": 0,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 3,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Supply"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#assembly",
+      "fixed": {
+        "iri": "https://example.org/aviation#assembly",
+        "datatype": null,
+        "kind": 0,
+        "cardinality": 2,
+        "flags": 2,
+        "facts": 4,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Asset"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#certification",
+      "fixed": {
+        "iri": "https://example.org/aviation#certification",
+        "datatype": null,
+        "kind": 0,
+        "cardinality": 2,
+        "flags": 2,
+        "facts": 4,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Supply"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#commissioned",
+      "fixed": {
+        "iri": "https://example.org/aviation#commissioned",
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Asset"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#embedding",
+      "fixed": {
+        "iri": "https://example.org/aviation#embedding",
+        "datatype": "https://w3id.org/ultragraphdb/ns/float32vector",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 4,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 768,
+        "metric": 1,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Asset"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#firmware",
+      "fixed": {
+        "iri": "https://example.org/aviation#firmware",
+        "datatype": "http://www.w3.org/2001/XMLSchema#string",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Avionics"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#jurisdiction",
+      "fixed": {
+        "iri": "https://example.org/aviation#jurisdiction",
+        "datatype": "http://www.w3.org/2001/XMLSchema#string",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Authority"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#name",
+      "fixed": {
+        "iri": "https://example.org/aviation#name",
+        "datatype": "http://www.w3.org/2001/XMLSchema#string",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 1,
+        "facts": 2,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Organization"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#notes",
+      "fixed": {
+        "iri": "https://example.org/aviation#notes",
+        "datatype": "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [
+          "fulltext"
+        ],
+        "domains": [
+          "aviation.Asset"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#owner",
+      "fixed": {
+        "iri": "https://example.org/aviation#owner",
+        "datatype": null,
+        "kind": 0,
+        "cardinality": 2,
+        "flags": 2,
+        "facts": 4,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Asset"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#serial",
+      "fixed": {
+        "iri": "https://example.org/aviation#serial",
+        "datatype": "http://www.w3.org/2001/XMLSchema#string",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 1,
+        "facts": 2,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Asset"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#signed",
+      "fixed": {
+        "iri": "https://example.org/aviation#signed",
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Agreement"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#since",
+      "fixed": {
+        "iri": "https://example.org/aviation#since",
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Owns"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#status",
+      "fixed": {
+        "iri": "https://example.org/aviation#status",
+        "datatype": "http://www.w3.org/2001/XMLSchema#string",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Asset"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#tags",
+      "fixed": {
+        "iri": "https://example.org/aviation#tags",
+        "datatype": "http://www.w3.org/2001/XMLSchema#string",
+        "kind": 1,
+        "cardinality": 2,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [
+          "exact"
+        ],
+        "domains": [
+          "aviation.Asset"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#tail_number",
+      "fixed": {
+        "iri": "https://example.org/aviation#tail_number",
+        "datatype": "http://www.w3.org/2001/XMLSchema#string",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 1,
+        "facts": 2,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Aircraft"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#term_end",
+      "fixed": {
+        "iri": "https://example.org/aviation#term_end",
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Lease"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#term_end_precision",
+      "fixed": {
+        "iri": "https://example.org/aviation#term_end_precision",
+        "datatype": "https://w3id.org/ultragraphdb/ns/precision",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Lease"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#term_start",
+      "fixed": {
+        "iri": "https://example.org/aviation#term_start",
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Lease"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#term_start_precision",
+      "fixed": {
+        "iri": "https://example.org/aviation#term_start_precision",
+        "datatype": "https://w3id.org/ultragraphdb/ns/precision",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Lease"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#thrust_kn",
+      "fixed": {
+        "iri": "https://example.org/aviation#thrust_kn",
+        "datatype": "http://www.w3.org/2001/XMLSchema#double",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Engine"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#valid_end",
+      "fixed": {
+        "iri": "https://example.org/aviation#valid_end",
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Certifies"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#valid_end_precision",
+      "fixed": {
+        "iri": "https://example.org/aviation#valid_end_precision",
+        "datatype": "https://w3id.org/ultragraphdb/ns/precision",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Certifies"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#valid_start",
+      "fixed": {
+        "iri": "https://example.org/aviation#valid_start",
+        "datatype": "http://www.w3.org/2001/XMLSchema#date",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Certifies"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#valid_start_precision",
+      "fixed": {
+        "iri": "https://example.org/aviation#valid_start_precision",
+        "datatype": "https://w3id.org/ultragraphdb/ns/precision",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 1,
+        "mutability": 1,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Certifies"
+        ]
+      }
+    },
+    {
+      "kind": 6,
+      "name": "https://example.org/aviation#value",
+      "fixed": {
+        "iri": "https://example.org/aviation#value",
+        "datatype": "http://www.w3.org/2001/XMLSchema#decimal",
+        "kind": 1,
+        "cardinality": 1,
+        "flags": 0,
+        "facts": 4,
+        "mutability": 3,
+        "dimension": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "tokenizers": [],
+        "domains": [
+          "aviation.Supply"
+        ]
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.Agreement.counterparty",
+      "fixed": {
+        "name": "counterparty",
+        "relation": "aviation.Agreement",
+        "super_role": null,
+        "navigation": "counterparty_agreements",
+        "predicate": "https://example.org/aviation#Agreement_counterparty",
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 0,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Organization"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.Agreement.party",
+      "fixed": {
+        "name": "party",
+        "relation": "aviation.Agreement",
+        "super_role": null,
+        "navigation": "agreements",
+        "predicate": "https://example.org/aviation#Agreement_party",
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 4,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Organization"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.Certifies.authority",
+      "fixed": {
+        "name": "authority",
+        "relation": "aviation.Certifies",
+        "super_role": null,
+        "navigation": "certifications",
+        "predicate": null,
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 0,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Authority"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.Certifies.contract",
+      "fixed": {
+        "name": "contract",
+        "relation": "aviation.Certifies",
+        "super_role": null,
+        "navigation": "certification",
+        "predicate": "https://example.org/aviation#certification",
+        "doc": null,
+        "min": 0,
+        "max": 1,
+        "flags": 4,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Supply"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.Lease.asset",
+      "fixed": {
+        "name": "asset",
+        "relation": "aviation.Lease",
+        "super_role": null,
+        "navigation": "leases",
+        "predicate": "https://example.org/aviation#Lease_asset",
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 0,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Aircraft"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.Lease.lessee",
+      "fixed": {
+        "name": "lessee",
+        "relation": "aviation.Lease",
+        "super_role": "aviation.Agreement.counterparty",
+        "navigation": "leases_in",
+        "predicate": "https://example.org/aviation#Lease_lessee",
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 0,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Organization"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.Lease.lessor",
+      "fixed": {
+        "name": "lessor",
+        "relation": "aviation.Lease",
+        "super_role": "aviation.Agreement.party",
+        "navigation": "leases_out",
+        "predicate": "https://example.org/aviation#Lease_lessor",
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 4,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Organization"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.Owns.asset",
+      "fixed": {
+        "name": "asset",
+        "relation": "aviation.Owns",
+        "super_role": null,
+        "navigation": "owner",
+        "predicate": "https://example.org/aviation#owner",
+        "doc": null,
+        "min": 0,
+        "max": 1,
+        "flags": 4,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Asset"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.Owns.owner",
+      "fixed": {
+        "name": "owner",
+        "relation": "aviation.Owns",
+        "super_role": null,
+        "navigation": "assets",
+        "predicate": null,
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 0,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Organization"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.PartOf.part",
+      "fixed": {
+        "name": "part",
+        "relation": "aviation.PartOf",
+        "super_role": null,
+        "navigation": "assembly",
+        "predicate": "https://example.org/aviation#assembly",
+        "doc": null,
+        "min": 0,
+        "max": 1,
+        "flags": 4,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Asset"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.PartOf.whole",
+      "fixed": {
+        "name": "whole",
+        "relation": "aviation.PartOf",
+        "super_role": null,
+        "navigation": "parts",
+        "predicate": null,
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 0,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Asset"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.Supply.buyer",
+      "fixed": {
+        "name": "buyer",
+        "relation": "aviation.Supply",
+        "super_role": "aviation.Agreement.counterparty",
+        "navigation": "purchases",
+        "predicate": "https://example.org/aviation#Supply_buyer",
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 0,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Company"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.Supply.item",
+      "fixed": {
+        "name": "item",
+        "relation": "aviation.Supply",
+        "super_role": null,
+        "navigation": "contracts",
+        "predicate": "https://example.org/aviation#Supply_item",
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 0,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Asset"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 7,
+      "name": "aviation.Supply.supplier",
+      "fixed": {
+        "name": "supplier",
+        "relation": "aviation.Supply",
+        "super_role": "aviation.Agreement.party",
+        "navigation": "sales",
+        "predicate": "https://example.org/aviation#Supply_supplier",
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 4,
+        "catalog": 0
+      },
+      "sections": {
+        "participant_types": [
+          "aviation.Company"
+        ],
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Aircraft.leases",
+      "fixed": {
+        "name": "leases",
+        "type": "aviation.Aircraft",
+        "relation": "aviation.Lease",
+        "role": "asset",
+        "min": 0,
+        "max": null,
+        "direction": 2,
+        "yields": 2
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Asset.assembly",
+      "fixed": {
+        "name": "assembly",
+        "type": "aviation.Asset",
+        "relation": "aviation.PartOf",
+        "role": "part",
+        "min": 0,
+        "max": 1,
+        "direction": 1,
+        "yields": 1
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Asset.contracts",
+      "fixed": {
+        "name": "contracts",
+        "type": "aviation.Asset",
+        "relation": "aviation.Supply",
+        "role": "item",
+        "min": 0,
+        "max": null,
+        "direction": 2,
+        "yields": 2
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Asset.owner",
+      "fixed": {
+        "name": "owner",
+        "type": "aviation.Asset",
+        "relation": "aviation.Owns",
+        "role": "asset",
+        "min": 0,
+        "max": 1,
+        "direction": 1,
+        "yields": 1
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Asset.parts",
+      "fixed": {
+        "name": "parts",
+        "type": "aviation.Asset",
+        "relation": "aviation.PartOf",
+        "role": "whole",
+        "min": 0,
+        "max": null,
+        "direction": 2,
+        "yields": 1
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Authority.certifications",
+      "fixed": {
+        "name": "certifications",
+        "type": "aviation.Authority",
+        "relation": "aviation.Certifies",
+        "role": "authority",
+        "min": 0,
+        "max": null,
+        "direction": 2,
+        "yields": 1
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Company.purchases",
+      "fixed": {
+        "name": "purchases",
+        "type": "aviation.Company",
+        "relation": "aviation.Supply",
+        "role": "buyer",
+        "min": 0,
+        "max": null,
+        "direction": 2,
+        "yields": 2
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Company.sales",
+      "fixed": {
+        "name": "sales",
+        "type": "aviation.Company",
+        "relation": "aviation.Supply",
+        "role": "supplier",
+        "min": 0,
+        "max": null,
+        "direction": 1,
+        "yields": 2
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Organization.agreements",
+      "fixed": {
+        "name": "agreements",
+        "type": "aviation.Organization",
+        "relation": "aviation.Agreement",
+        "role": "party",
+        "min": 0,
+        "max": null,
+        "direction": 1,
+        "yields": 2
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Organization.assets",
+      "fixed": {
+        "name": "assets",
+        "type": "aviation.Organization",
+        "relation": "aviation.Owns",
+        "role": "owner",
+        "min": 0,
+        "max": null,
+        "direction": 2,
+        "yields": 1
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Organization.counterparty_agreements",
+      "fixed": {
+        "name": "counterparty_agreements",
+        "type": "aviation.Organization",
+        "relation": "aviation.Agreement",
+        "role": "counterparty",
+        "min": 0,
+        "max": null,
+        "direction": 2,
+        "yields": 2
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Organization.leases_in",
+      "fixed": {
+        "name": "leases_in",
+        "type": "aviation.Organization",
+        "relation": "aviation.Lease",
+        "role": "lessee",
+        "min": 0,
+        "max": null,
+        "direction": 2,
+        "yields": 2
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Organization.leases_out",
+      "fixed": {
+        "name": "leases_out",
+        "type": "aviation.Organization",
+        "relation": "aviation.Lease",
+        "role": "lessor",
+        "min": 0,
+        "max": null,
+        "direction": 1,
+        "yields": 2
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 8,
+      "name": "aviation.Supply.certification",
+      "fixed": {
+        "name": "certification",
+        "type": "aviation.Supply",
+        "relation": "aviation.Certifies",
+        "role": "contract",
+        "min": 0,
+        "max": 1,
+        "direction": 1,
+        "yields": 1
+      },
+      "sections": {
+        "maps_to": []
+      }
+    },
+    {
+      "kind": 9,
+      "name": "aviation.Status",
+      "fixed": {
+        "name": "Status",
+        "schema": "aviation",
+        "doc": null,
+        "open": false
+      },
+      "sections": {
+        "members": [
+          "active",
+          "stored",
+          "retired"
+        ]
+      }
+    },
+    {
+      "kind": 11,
+      "name": "aviation.Embedding",
+      "fixed": {
+        "name": "Embedding",
+        "schema": "aviation",
+        "type": {
+          "tag": 28,
+          "a": 1,
+          "b": 768
+        },
+        "doc": null,
+        "flags": 0,
+        "indexes": 16,
+        "metric": 1,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 28,
+            "a": 1,
+            "b": 768
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 11,
+      "name": "aviation.Serial",
+      "fixed": {
+        "name": "Serial",
+        "schema": "aviation",
+        "type": {
+          "tag": 14
+        },
+        "doc": null,
+        "flags": 0,
+        "indexes": 0,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [
+          {
+            "kind": 1,
+            "a": "[A-Z0-9-]{6,20}",
+            "b": 0
+          }
+        ],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 14
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 11,
+      "name": "aviation.Tag",
+      "fixed": {
+        "name": "Tag",
+        "schema": "aviation",
+        "type": {
+          "tag": 14
+        },
+        "doc": null,
+        "flags": 0,
+        "indexes": 1,
+        "metric": 0,
+        "quantization": 0
+      },
+      "sections": {
+        "value_checks": [],
+        "values": [],
+        "maps_to": [],
+        "type_table": [
+          {
+            "tag": 14
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 14,
+      "name": "aviation.Asset.all_parts",
+      "fixed": {
+        "name": "all_parts",
+        "type": "aviation.Asset",
+        "result": {
+          "tag": 35,
+          "a": "aviation.Asset"
+        },
+        "program": null,
+        "body": "parts+",
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 0
+      },
+      "sections": {
+        "type_table": [
+          {
+            "tag": 35,
+            "a": "aviation.Asset"
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 14,
+      "name": "aviation.Company.suppliers",
+      "fixed": {
+        "name": "suppliers",
+        "type": "aviation.Company",
+        "result": {
+          "tag": 35,
+          "a": "aviation.Company"
+        },
+        "program": null,
+        "body": "purchases.supplier",
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 0
+      },
+      "sections": {
+        "type_table": [
+          {
+            "tag": 35,
+            "a": "aviation.Company"
+          }
+        ],
+        "constants": [],
+        "programs": []
+      }
+    },
+    {
+      "kind": 15,
+      "name": "aviation.Aircraft.engines",
+      "fixed": {
+        "name": "engines",
+        "type": "aviation.Aircraft",
+        "schema": "aviation",
+        "result": {
+          "tag": 35,
+          "a": "aviation.Engine"
+        },
+        "body": "all_parts(is Engine)",
+        "doc": null,
+        "min": 0,
+        "max": null,
+        "flags": 1
+      },
+      "sections": {
+        "parameters": [],
+        "type_table": [
+          {
+            "tag": 35,
+            "a": "aviation.Engine"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 15,
+      "name": "aviation.Company.spend",
+      "fixed": {
+        "name": "spend",
+        "type": "aviation.Company",
+        "schema": "aviation",
+        "result": {
+          "tag": 13,
+          "a": 18,
+          "b": 2
+        },
+        "body": "sum(purchases(signed >= since).value)",
+        "doc": null,
+        "min": 1,
+        "max": 1,
+        "flags": 0
+      },
+      "sections": {
+        "parameters": [
+          {
+            "name": "since",
+            "type": {
+              "tag": 17
+            },
+            "optional": false
+          }
+        ],
+        "type_table": [
+          {
+            "tag": 13,
+            "a": 18,
+            "b": 2
+          },
+          {
+            "tag": 17
+          }
+        ]
+      }
+    },
+    {
+      "kind": 16,
+      "name": "aviation.production",
+      "fixed": {
+        "name": "production",
+        "schema": "aviation",
+        "iri": "https://example.org/aviation#production",
+        "base": "https://example.org/aviation#",
+        "doc": null,
+        "default": true
+      },
+      "sections": {}
+    },
+    {
+      "kind": 17,
+      "name": "aviation.Agreement",
+      "fixed": {
+        "type": "aviation.Agreement"
+      },
+      "sections": {
+        "operations": []
+      }
+    },
+    {
+      "kind": 17,
+      "name": "aviation.Aircraft",
+      "fixed": {
+        "type": "aviation.Aircraft"
+      },
+      "sections": {
+        "operations": [
+          {
+            "operation": 1,
+            "path": 2,
+            "local": false,
+            "member": null,
+            "by": "@unique",
+            "indexes": 2
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "commissioned",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "embedding",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "notes",
+            "by": null,
+            "indexes": 2
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "status",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "tags",
+            "by": null,
+            "indexes": 2
+          },
+          {
+            "operation": 2,
+            "path": 2,
+            "local": false,
+            "member": "tail_number",
+            "by": "@unique",
+            "indexes": 0
+          },
+          {
+            "operation": 4,
+            "path": 3,
+            "local": false,
+            "member": null,
+            "by": "restrict",
+            "indexes": 2
+          }
+        ]
+      }
+    },
+    {
+      "kind": 17,
+      "name": "aviation.Asset",
+      "fixed": {
+        "type": "aviation.Asset"
+      },
+      "sections": {
+        "operations": []
+      }
+    },
+    {
+      "kind": 17,
+      "name": "aviation.Authority",
+      "fixed": {
+        "type": "aviation.Authority"
+      },
+      "sections": {
+        "operations": [
+          {
+            "operation": 1,
+            "path": 2,
+            "local": true,
+            "member": null,
+            "by": "@key",
+            "indexes": 0
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "jurisdiction",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 4,
+            "path": 3,
+            "local": false,
+            "member": null,
+            "by": "cascade",
+            "indexes": 0
+          }
+        ]
+      }
+    },
+    {
+      "kind": 17,
+      "name": "aviation.Avionics",
+      "fixed": {
+        "type": "aviation.Avionics"
+      },
+      "sections": {
+        "operations": [
+          {
+            "operation": 1,
+            "path": 2,
+            "local": true,
+            "member": null,
+            "by": "@key",
+            "indexes": 2
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "commissioned",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "embedding",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "firmware",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "notes",
+            "by": null,
+            "indexes": 2
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "status",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "tags",
+            "by": null,
+            "indexes": 2
+          },
+          {
+            "operation": 4,
+            "path": 3,
+            "local": false,
+            "member": null,
+            "by": "restrict",
+            "indexes": 2
+          }
+        ]
+      }
+    },
+    {
+      "kind": 17,
+      "name": "aviation.Certifies",
+      "fixed": {
+        "type": "aviation.Certifies"
+      },
+      "sections": {
+        "operations": [
+          {
+            "operation": 1,
+            "path": 2,
+            "local": true,
+            "member": null,
+            "by": "cardinality",
+            "indexes": 1
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "valid",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 4,
+            "path": 1,
+            "local": true,
+            "member": null,
+            "by": null,
+            "indexes": 1
+          }
+        ]
+      }
+    },
+    {
+      "kind": 17,
+      "name": "aviation.Company",
+      "fixed": {
+        "type": "aviation.Company"
+      },
+      "sections": {
+        "operations": [
+          {
+            "operation": 1,
+            "path": 2,
+            "local": true,
+            "member": null,
+            "by": "@key",
+            "indexes": 0
+          },
+          {
+            "operation": 4,
+            "path": 3,
+            "local": false,
+            "member": null,
+            "by": "restrict",
+            "indexes": 0
+          }
+        ]
+      }
+    },
+    {
+      "kind": 17,
+      "name": "aviation.Engine",
+      "fixed": {
+        "type": "aviation.Engine"
+      },
+      "sections": {
+        "operations": [
+          {
+            "operation": 1,
+            "path": 2,
+            "local": true,
+            "member": null,
+            "by": "@key",
+            "indexes": 2
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "commissioned",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "embedding",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "notes",
+            "by": null,
+            "indexes": 2
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "status",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "tags",
+            "by": null,
+            "indexes": 2
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "thrust_kn",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 4,
+            "path": 3,
+            "local": false,
+            "member": null,
+            "by": "restrict",
+            "indexes": 2
+          }
+        ]
+      }
+    },
+    {
+      "kind": 17,
+      "name": "aviation.Lease",
+      "fixed": {
+        "type": "aviation.Lease"
+      },
+      "sections": {
+        "operations": [
+          {
+            "operation": 1,
+            "path": 1,
+            "local": true,
+            "member": null,
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "signed",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "term",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 4,
+            "path": 1,
+            "local": true,
+            "member": null,
+            "by": null,
+            "indexes": 0
+          }
+        ]
+      }
+    },
+    {
+      "kind": 17,
+      "name": "aviation.Organization",
+      "fixed": {
+        "type": "aviation.Organization"
+      },
+      "sections": {
+        "operations": []
+      }
+    },
+    {
+      "kind": 17,
+      "name": "aviation.Owns",
+      "fixed": {
+        "type": "aviation.Owns"
+      },
+      "sections": {
+        "operations": [
+          {
+            "operation": 1,
+            "path": 2,
+            "local": true,
+            "member": null,
+            "by": "cardinality",
+            "indexes": 1
+          },
+          {
+            "operation": 2,
+            "path": 1,
+            "local": true,
+            "member": "since",
+            "by": null,
+            "indexes": 0
+          },
+          {
+            "operation": 4,
+            "path": 1,
+            "local": true,
+            "member": null,
+            "by": null,
+            "indexes": 1
+          }
+        ]
+      }
+    },
+    {
+      "kind": 17,
+      "name": "aviation.PartOf",
+      "fixed": {
+        "type": "aviation.PartOf"
+      },
+      "sections": {
+        "operations": [
+          {
+            "operation": 1,
+            "path": 3,
+            "local": false,
+            "member": null,
+            "by": "@acyclic",
+            "indexes": 1
+          },
+          {
+            "operation": 4,
+            "path": 1,
+            "local": true,
+            "member": null,
+            "by": null,
+            "indexes": 1
+          }
+        ]
+      }
+    },
+    {
+      "kind": 17,
+      "name": "aviation.Supply",
+      "fixed": {
+        "type": "aviation.Supply"
+      },
+      "sections": {
+        "operations": [
+          {
+            "operation": 1,
+            "path": 3,
+            "local": false,
+            "member": null,
+            "by": "@limit",
+            "indexes": 0
+          }
+        ]
+      }
+    },
+    {
+      "kind": 18,
+      "name": "",
+      "fixed": {},
+      "sections": {
+        "records": [
+          {
+            "code": 902,
+            "subject": "aviation.Aircraft.engines",
+            "a": "fn",
+            "b": "7"
+          },
+          {
+            "code": 902,
+            "subject": "aviation.Asset.all_parts",
+            "a": "derive",
+            "b": "7"
+          },
+          {
+            "code": 902,
+            "subject": "aviation.Company.spend",
+            "a": "fn",
+            "b": "7"
+          },
+          {
+            "code": 902,
+            "subject": "aviation.Company.suppliers",
+            "a": "derive",
+            "b": "7"
+          },
+          {
+            "code": 902,
+            "subject": "aviation.Embedding",
+            "a": "@index(ann)",
+            "b": "8"
+          },
+          {
+            "code": 903,
+            "subject": "aviation.PartOf.whole",
+            "a": "whole",
+            "b": 0
+          },
+          {
+            "code": 903,
+            "subject": "aviation.Supply.buyer",
+            "a": "buyer",
+            "b": 0
+          },
+          {
+            "code": 903,
+            "subject": "aviation.Supply.item",
+            "a": "item",
+            "b": 0
+          },
+          {
+            "code": 904,
+            "subject": "aviation.Supply",
+            "a": "restrict",
+            "b": "@limit"
+          },
+          {
+            "code": 905,
+            "subject": "aviation.Aircraft.leases",
+            "a": "aviation.Lease",
+            "b": "asset"
+          },
+          {
+            "code": 905,
+            "subject": "aviation.Asset.all_parts",
+            "a": "aviation.PartOf",
+            "b": "whole"
+          },
+          {
+            "code": 905,
+            "subject": "aviation.Asset.contracts",
+            "a": "aviation.Supply",
+            "b": "item"
+          },
+          {
+            "code": 905,
+            "subject": "aviation.Asset.parts",
+            "a": "aviation.PartOf",
+            "b": "whole"
+          },
+          {
+            "code": 905,
+            "subject": "aviation.Authority.certifications",
+            "a": "aviation.Certifies",
+            "b": "authority"
+          },
+          {
+            "code": 905,
+            "subject": "aviation.Company.purchases",
+            "a": "aviation.Supply",
+            "b": "buyer"
+          },
+          {
+            "code": 905,
+            "subject": "aviation.Company.suppliers",
+            "a": "aviation.Supply",
+            "b": "buyer"
+          },
+          {
+            "code": 905,
+            "subject": "aviation.Organization.assets",
+            "a": "aviation.Owns",
+            "b": "owner"
+          },
+          {
+            "code": 905,
+            "subject": "aviation.Organization.counterparty_agreements",
+            "a": "aviation.Agreement",
+            "b": "counterparty"
+          },
+          {
+            "code": 905,
+            "subject": "aviation.Organization.leases_in",
+            "a": "aviation.Lease",
+            "b": "lessee"
+          },
+          {
+            "code": 906,
+            "subject": "aviation.Aircraft.create",
+            "a": 2,
+            "b": 1
+          },
+          {
+            "code": 906,
+            "subject": "aviation.Aircraft.delete",
+            "a": 2,
+            "b": 4
+          },
+          {
+            "code": 906,
+            "subject": "aviation.Aircraft.update.notes",
+            "a": 2,
+            "b": 2
+          },
+          {
+            "code": 906,
+            "subject": "aviation.Aircraft.update.tags",
+            "a": 2,
+            "b": 3
+          },
+          {
+            "code": 906,
+            "subject": "aviation.Avionics.create",
+            "a": 2,
+            "b": 5
+          },
+          {
+            "code": 906,
+            "subject": "aviation.Avionics.delete",
+            "a": 2,
+            "b": 8
+          },
+          {
+            "code": 906,
+            "subject": "aviation.Avionics.update.notes",
+            "a": 2,
+            "b": 6
+          },
+          {
+            "code": 906,
+            "subject": "aviation.Avionics.update.tags",
+            "a": 2,
+            "b": 7
+          },
+          {
+            "code": 906,
+            "subject": "aviation.Engine.create",
+            "a": 2,
+            "b": 9
+          },
+          {
+            "code": 906,
+            "subject": "aviation.Engine.update.notes",
+            "a": 2,
+            "b": 10
+          }
+        ]
+      }
+    },
+    {
+      "kind": 19,
+      "name": "aviation",
+      "file": "../valid/aviation/aviation.ugs"
+    }
+  ]
+}

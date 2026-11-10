@@ -1,0 +1,31 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1020",
+  "name": "a company retracted while an open SubOrganizationOf names it as parent, which @on_retract(parent: restrict open) restricts",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { id: \"AGENT:co1\" }",
+        "insert Team { id: \"AGENT:team1\" }",
+        "insert SubOrganizationOf { unit: Team(id = \"AGENT:team1\"), parent: Company(id = \"AGENT:co1\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "operations": [
+        {
+          "kind": "retract",
+          "iri": "https://example.org/deep_brain#Node/AGENT%3Aco1"
+        }
+      ],
+      "uql": [
+        "retract Company(id = \"AGENT:co1\")"
+      ],
+      "expect": {
+        "refused": "UGS1020"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

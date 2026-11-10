@@ -1,0 +1,7 @@
+// expect: UGS0307 at 5:20
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Person @key(code) {
+  name: String
+}

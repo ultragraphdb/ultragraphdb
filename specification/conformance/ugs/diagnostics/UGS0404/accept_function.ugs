@@ -1,0 +1,10 @@
+// expect: compiles with UGS0902 at 10:9
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Part {
+  weight: Int32
+  heavy:  Bool
+}
+
+fn Part.over_limit() -> Bool = weight > 100

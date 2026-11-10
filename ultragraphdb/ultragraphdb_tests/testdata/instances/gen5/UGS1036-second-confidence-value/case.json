@@ -1,0 +1,21 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1036",
+  "name": "a second confidence value written on a Company without removing the present one is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { id: \"ORG:acme\", confidence: 0.5 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "second-value.nq",
+      "expect": {
+        "refused": "UGS1036"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

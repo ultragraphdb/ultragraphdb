@@ -1,0 +1,4 @@
+<https://example.org/deep_brain#Node/DOC%3Ad1> <https://example.org/deep_brain#realizes> <https://example.org/deep_brain#Node/CLM%3Ak1> <https://example.org/deep_brain#ontology> .
+_:z1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Realizes> <https://example.org/deep_brain#ontology> .
+_:z1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/DOC%3Ad1> <https://example.org/deep_brain#realizes> <https://example.org/deep_brain#Node/CLM%3Ak1> )>> <https://example.org/deep_brain#ontology> .
+_:z1 <https://example.org/deep_brain#rank> "preferred" <https://example.org/deep_brain#ontology> .

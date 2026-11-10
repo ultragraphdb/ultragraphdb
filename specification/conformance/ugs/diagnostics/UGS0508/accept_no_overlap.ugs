@@ -1,0 +1,12 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Person { name: String }
+entity Post   { title: String }
+
+relation Holds @valid(term) @no_overlap(per: [post]) {
+  post:   Post   -> holders*
+  holder: Person -> holds*
+  term:   Interval<Date>
+}

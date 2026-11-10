@@ -1,0 +1,12 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+import "https://schema.org/" as sdo
+
+entity Person {
+  name: String @maps_to(sdo:name)
+}
+
+entity Place {
+  name: String @maps_to(sdo:name)
+}

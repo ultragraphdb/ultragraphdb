@@ -1,0 +1,8 @@
+// expect: UGS0109 at 4:27
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+import schema calendar >= 2
+
+entity Pilot {
+  name: String
+}

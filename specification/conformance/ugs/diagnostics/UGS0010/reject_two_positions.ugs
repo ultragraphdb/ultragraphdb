@@ -1,0 +1,7 @@
+// expect: UGS0010 at 7:3
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Reading @append_only {
+  level: Int32
+} @append_only

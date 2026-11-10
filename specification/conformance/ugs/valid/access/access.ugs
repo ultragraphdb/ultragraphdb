@@ -1,0 +1,11 @@
+// expect: compiles
+schema access version 1
+prefix ax = "https://example.org/access#"
+
+entity User
+entity Doc
+
+relation CanRead @access {
+  reader: User -> readable*
+  doc:    Doc  -> readers*
+}

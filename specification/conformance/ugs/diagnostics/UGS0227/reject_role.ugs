@@ -1,0 +1,20 @@
+// expect: UGS0227 at 20:30
+schema library version 1
+prefix ex = "https://example.org/library#"
+
+entity Person {
+  name: String
+  age:  Int32
+}
+
+entity Book {
+  title: String
+}
+
+relation Loan {
+  holder:     Person -> loans*
+  book:       Book   -> borrowers*
+  holder_age: Int32
+}
+
+derive Loan.to_adult: Bool = holder.age >= 18

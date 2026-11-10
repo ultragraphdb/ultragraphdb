@@ -1,0 +1,7 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Player {
+  scores: Set<Int32> @index(range)
+}

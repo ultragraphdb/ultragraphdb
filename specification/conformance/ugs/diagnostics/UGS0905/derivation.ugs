@@ -1,0 +1,11 @@
+// expect: compiles with UGS0902 at 11:14
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Paper
+relation Cites {
+  citing: Paper -> cites*
+  cited:  Paper -> cited_by*
+}
+
+derive Paper.citers = cited_by

@@ -1,0 +1,31 @@
+// expect: compiles
+/// A lending library's core: what it lends, to whom, and who holds what. Modules add kinds of
+/// item and kinds of holding.
+schema library version 1
+prefix lib = "https://example.org/library#"
+
+/// How an item is published; modules add formats.
+enum Format @open { print, digital }
+
+/// Anything the library lends, named by its shelf code.
+abstract entity Item @key(code) {
+  code:   String
+  title:  Text @index(fulltext)
+  format: Format
+}
+entity Book : Item
+
+/// A card holder.
+entity Member @key(card) {
+  card: String
+  name: String @index(range)
+}
+
+/// An item in a member's hands. An item is held once at a time, and leaves the catalogue only
+/// when no one holds it.
+abstract relation Holds {
+  item:   Item   -> holder?
+  holder: Member -> holdings*
+} @on_delete(item: restrict)
+
+graph main : library @default

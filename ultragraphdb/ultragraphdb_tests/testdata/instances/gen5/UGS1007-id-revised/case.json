@@ -1,0 +1,25 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1007",
+  "name": "a revision writing another value to an Object's id",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Object { id: \"OBJ:o1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "delete": "break-delete.nq",
+      "uql": [
+        "update Object(id = \"OBJ:o1\") { id: \"OBJ:o2\" }"
+      ],
+      "expect": {
+        "refused": "UGS1007"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

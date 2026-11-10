@@ -1,0 +1,16 @@
+// expect: compiles
+schema library version 1
+prefix ex = "https://example.org/library#"
+
+entity Shelf {
+  label: String
+}
+
+entity Book {
+  title: String
+}
+
+relation Holds {
+  shelf: Shelf -> books*
+  book:  Book  -> shelves*
+} @limit(count() <= 50 per shelf)

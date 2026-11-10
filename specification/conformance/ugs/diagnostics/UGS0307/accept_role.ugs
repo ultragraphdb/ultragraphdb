@@ -1,0 +1,17 @@
+// expect: compiles
+schema library version 1
+prefix ex = "https://example.org/library#"
+
+entity Person {
+  name: String
+}
+
+entity Book {
+  title: String
+}
+
+relation Loan @key(ref) {
+  holder: Person -> loans*
+  book:   Book   -> borrowers*
+  ref:    String
+}

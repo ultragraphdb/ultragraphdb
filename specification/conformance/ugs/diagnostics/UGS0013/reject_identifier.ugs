@@ -1,0 +1,7 @@
+// expect: UGS0013 at 6:3
+schema sensors version 1
+prefix se = "https://example.org/sensors#"
+
+entity Sensor {
+  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: Int32
+}

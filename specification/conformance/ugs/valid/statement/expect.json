@@ -1,0 +1,26 @@
+{
+  "name": "statement",
+  "sources": [
+    "statement_types.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "statement_types.Claim": 3,
+    "statement_types.Fact": 4,
+    "statement_types.Supports": 5
+  },
+  "report": [
+    "UGS0901 statement_types.Fact.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 statement_types.Fact.update.label path=coordination-free local=true by=none indexes=0",
+    "UGS0901 statement_types.Fact.update.note path=coordination-free local=true by=none indexes=0",
+    "UGS0901 statement_types.Fact.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 statement_types.Supports.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 statement_types.Supports.update.note path=coordination-free local=true by=none indexes=0",
+    "UGS0901 statement_types.Supports.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0905 statement_types.Claim.grounded_by relation=statement_types.Supports role=claim"
+  ]
+}

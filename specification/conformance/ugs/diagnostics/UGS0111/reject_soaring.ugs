@@ -1,0 +1,7 @@
+// expect: UGS0111 at 5:8
+module soaring version 1 extends core >= 1
+prefix so = "https://example.org/soaring#"
+
+entity Glider : Aircraft {
+  span_m: Float64
+}

@@ -1,0 +1,7 @@
+// expect: compiles
+schema open_type version 1
+prefix ot = "https://example.org/open_type#"
+
+entity Note @open {
+  body: String
+}

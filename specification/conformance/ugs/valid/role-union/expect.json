@@ -1,0 +1,29 @@
+{
+  "name": "role-union",
+  "sources": [
+    "role_union.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "role_union.Contract": 3,
+    "role_union.Person": 4,
+    "role_union.Company": 5,
+    "role_union.Signs": 6
+  },
+  "report": [
+    "UGS0901 role_union.Company.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 role_union.Company.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 role_union.Contract.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 role_union.Contract.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 role_union.Person.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 role_union.Person.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 role_union.Signs.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 role_union.Signs.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0905 role_union.Company.signed relation=role_union.Signs role=signer",
+    "UGS0905 role_union.Person.signed relation=role_union.Signs role=signer"
+  ]
+}

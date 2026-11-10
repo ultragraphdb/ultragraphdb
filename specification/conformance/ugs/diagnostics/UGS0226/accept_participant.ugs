@@ -1,0 +1,17 @@
+// expect: compiles
+schema library version 1
+prefix ex = "https://example.org/library#"
+
+entity Person {
+  name: String
+  age:  Int32 @immutable
+}
+
+entity Book {
+  title: String
+}
+
+relation Loan @check(holder.age >= 18) {
+  holder: Person -> loans*
+  book:   Book   -> borrowers*
+}

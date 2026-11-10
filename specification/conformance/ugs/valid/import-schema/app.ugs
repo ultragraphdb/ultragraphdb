@@ -1,0 +1,13 @@
+// expect: compiles
+schema app version 1
+prefix ap = "https://example.org/app#"
+import schema core >= 1
+
+entity Team {
+  title: String
+}
+
+relation Member {
+  team:   Team        -> members*
+  person: core.Person -> teams*
+}

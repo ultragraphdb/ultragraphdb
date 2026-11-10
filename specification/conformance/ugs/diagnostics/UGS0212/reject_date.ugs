@@ -1,0 +1,7 @@
+// expect: UGS0212 at 6:21
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Event {
+  held: Date @range(2027-01-01, 2026-01-01)
+}

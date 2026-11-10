@@ -1,0 +1,10 @@
+// expect: UGS0118 at 9:12
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Account {
+  balance: Int64
+}
+
+fn Account.total() -> Int64 = adjusted() + 1
+fn Account.adjusted() -> Int64 = total() - 1

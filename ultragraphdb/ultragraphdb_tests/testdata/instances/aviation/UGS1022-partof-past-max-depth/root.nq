@@ -1,0 +1,5 @@
+<https://example.org/aviation#Asset/CHAIN-0> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Avionics> <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/CHAIN-0> <https://example.org/aviation#serial> "CHAIN-0" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/CHAIN-0> <https://example.org/aviation#commissioned> "2026-10-30"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/CHAIN-0> <https://example.org/aviation#status> "active" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/CHAIN-0> <https://example.org/aviation#tags> "chain" <https://example.org/aviation#production> .

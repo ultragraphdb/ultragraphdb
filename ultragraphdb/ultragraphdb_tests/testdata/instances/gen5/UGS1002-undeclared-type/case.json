@@ -1,0 +1,13 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1002",
+  "name": "an instance typed with db:Router, a class the schema does not declare",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1002"
+      }
+    }
+  ]
+}

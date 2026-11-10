@@ -1,0 +1,9 @@
+// expect: UGS0211 at 5:25
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+attribute Count = Int32 @pattern("[0-9]+")
+
+entity Item {
+  stock: Count
+}

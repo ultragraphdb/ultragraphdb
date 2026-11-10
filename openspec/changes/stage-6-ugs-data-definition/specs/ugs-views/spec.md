@@ -131,7 +131,8 @@ property or a super role's triple, SHALL be refused with `UGS1029`.
 - **THEN** the commit is refused with `UGS1029`, the message naming `av:owner` as the triple to write
 
 ### Requirement: The view round-trips against the oracle
-The engine's RDF view, every quad of the dataset, SHALL equal the oracle's `R(G)` for every instance set the Lean
+The engine's RDF view, every quad of the dataset but a derived name's, which `R` leaves out, SHALL equal the
+oracle's `R(G)` for every instance set the Lean
 oracle exports (`lean/schema/ApgModel`), written through quads into a tenant holding its schema, up to a bijection
 between `R(G)`'s blank nodes and the IRIs the engine minted for them, and SHALL satisfy the properties the model
 states for the engine, proposition 17.3's round trip first. The oracle's files SHALL be committed test data; no Bazel
@@ -139,9 +140,11 @@ target runs `lake`.
 
 #### Scenario: The aviation instance sets round-trip
 - **WHEN** each aviation instance set of the oracle is written as quads and every quad is read back
-- **THEN** the quads read equal that set's `R(G)` file up to the naming of handles and reifiers
+- **THEN** the quads read, a derived name's left out, equal that set's `R(G)` file up to the naming of handles and
+  reifiers
 
 #### Scenario: The Gen5 instance sets round-trip
 - **WHEN** each Gen5 instance set of the oracle is written as quads into a tenant holding Gen5 and every quad is read
   back
-- **THEN** the quads read equal that set's `R(G)` file up to the naming of handles and reifiers
+- **THEN** the quads read, a derived name's left out, equal that set's `R(G)` file up to the naming of handles and
+  reifiers

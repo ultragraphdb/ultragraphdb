@@ -1,0 +1,18 @@
+{
+  "code": "UGS0406",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "one super role specialized by two roles of a subtype",
+      "sources": ["reject.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0406", "kind": "error",
+          "file": "reject.ugs", "line": 16, "column": 21, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept.ugs"], "warnings": [] }
+    }
+  ]
+}

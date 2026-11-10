@@ -1,0 +1,42 @@
+{
+  "code": "UGS0408",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@symmetric on a relation of three roles",
+      "sources": ["reject_not_binary.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0408", "kind": "error",
+          "file": "reject_not_binary.ugs", "line": 8, "column": 16, "length": 10,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_not_binary.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@symmetric on a binary relation whose roles name two participant types",
+      "sources": ["reject_two_types.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0408", "kind": "error",
+          "file": "reject_two_types.ugs", "line": 8, "column": 16, "length": 10,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_two_types.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@symmetric on a binary relation whose roles declare two navigation names",
+      "sources": ["reject_two_navigations.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0408", "kind": "error",
+          "file": "reject_two_navigations.ugs", "line": 7, "column": 16, "length": 10,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_two_navigations.ugs"], "warnings": [] }
+    }
+  ]
+}

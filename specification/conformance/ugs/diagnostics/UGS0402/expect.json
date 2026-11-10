@@ -1,0 +1,58 @@
+{
+  "code": "UGS0402",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "an enum as a participant type",
+      "sources": ["reject_enum.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0402", "kind": "error",
+          "file": "reject_enum.ugs", "line": 11, "column": 11, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_enum.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a scalar type as a participant type",
+      "sources": ["reject_scalar.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0402", "kind": "error",
+          "file": "reject_scalar.ugs", "line": 9, "column": 11, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_scalar.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a union naming one member twice",
+      "sources": ["reject_repeated_member.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0402", "kind": "error",
+          "file": "reject_repeated_member.ugs", "line": 9, "column": 30, "length": 6,
+          "fix": [
+            { "file": "reject_repeated_member.ugs", "line": 9, "column": 27, "length": 9, "replacement": "" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_repeated_member.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a union naming a member and a subtype of it",
+      "sources": ["reject_nested_member.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0402", "kind": "error",
+          "file": "reject_nested_member.ugs", "line": 10, "column": 21, "length": 6,
+          "fix": [
+            { "file": "reject_nested_member.ugs", "line": 10, "column": 18, "length": 9, "replacement": "" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_nested_member.ugs"], "warnings": [] }
+    }
+  ]
+}

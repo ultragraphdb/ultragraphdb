@@ -1,0 +1,19 @@
+{
+  "name": "pattern",
+  "sources": [
+    "patterns.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "patterns.Part": 3
+  },
+  "report": [
+    "UGS0901 patterns.Part.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 patterns.Part.update.code path=coordination-free local=true by=none indexes=0",
+    "UGS0901 patterns.Part.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

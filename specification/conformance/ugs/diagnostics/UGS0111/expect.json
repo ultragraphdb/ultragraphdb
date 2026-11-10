@@ -1,0 +1,33 @@
+{
+  "code": "UGS0111",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "two modules declaring one name; the second in source order, ties broken by name, is refused",
+      "sources": [
+        "core.ugs",
+        "gliders.ugs",
+        "reject_soaring.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0111",
+          "kind": "error",
+          "file": "reject_soaring.ugs",
+          "line": 5,
+          "column": 8,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "core.ugs",
+          "gliders.ugs",
+          "accept_soaring.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

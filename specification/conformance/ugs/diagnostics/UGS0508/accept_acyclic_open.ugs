@@ -1,0 +1,11 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity OrgUnit { name: String }
+
+relation SubUnitOf @acyclic(open) @valid(term) {
+  unit:   OrgUnit -> parents*
+  parent: OrgUnit -> units*
+  term:   Interval<Date> Optional
+}

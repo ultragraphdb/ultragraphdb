@@ -1,0 +1,7 @@
+// expect: compiles
+schema entity_basic version 1
+prefix eb = "https://example.org/entity_basic#"
+
+entity Thing {
+  label: String
+}

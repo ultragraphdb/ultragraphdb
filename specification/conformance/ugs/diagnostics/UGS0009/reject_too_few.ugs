@@ -1,0 +1,7 @@
+// expect: UGS0009 at 6:16
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Aircraft {
+  seats: Int32 @range(0)
+}

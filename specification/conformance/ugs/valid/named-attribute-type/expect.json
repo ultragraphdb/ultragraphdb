@@ -1,0 +1,22 @@
+{
+  "name": "named-attribute-type",
+  "sources": [
+    "named_types.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "named_types.Airport": 3
+  },
+  "report": [
+    "UGS0901 named_types.Airport.create path=coordination-free local=true by=none indexes=1",
+    "UGS0901 named_types.Airport.update.code path=coordination-free local=true by=none indexes=2",
+    "UGS0901 named_types.Airport.delete path=coordination-free local=true by=none indexes=1",
+    "UGS0906 named_types.Airport.create indexes=1 rank=2",
+    "UGS0906 named_types.Airport.delete indexes=1 rank=3",
+    "UGS0906 named_types.Airport.update.code indexes=2 rank=1"
+  ]
+}

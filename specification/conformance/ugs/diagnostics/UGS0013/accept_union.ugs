@@ -1,0 +1,111 @@
+// expect: compiles
+schema parts version 1
+prefix pt = "https://example.org/parts#"
+
+entity Part01 {
+  serial: String
+}
+entity Part02 {
+  serial: String
+}
+entity Part03 {
+  serial: String
+}
+entity Part04 {
+  serial: String
+}
+entity Part05 {
+  serial: String
+}
+entity Part06 {
+  serial: String
+}
+entity Part07 {
+  serial: String
+}
+entity Part08 {
+  serial: String
+}
+entity Part09 {
+  serial: String
+}
+entity Part10 {
+  serial: String
+}
+entity Part11 {
+  serial: String
+}
+entity Part12 {
+  serial: String
+}
+entity Part13 {
+  serial: String
+}
+entity Part14 {
+  serial: String
+}
+entity Part15 {
+  serial: String
+}
+entity Part16 {
+  serial: String
+}
+entity Part17 {
+  serial: String
+}
+entity Part18 {
+  serial: String
+}
+entity Part19 {
+  serial: String
+}
+entity Part20 {
+  serial: String
+}
+entity Part21 {
+  serial: String
+}
+entity Part22 {
+  serial: String
+}
+entity Part23 {
+  serial: String
+}
+entity Part24 {
+  serial: String
+}
+entity Part25 {
+  serial: String
+}
+entity Part26 {
+  serial: String
+}
+entity Part27 {
+  serial: String
+}
+entity Part28 {
+  serial: String
+}
+entity Part29 {
+  serial: String
+}
+entity Part30 {
+  serial: String
+}
+entity Part31 {
+  serial: String
+}
+entity Part32 {
+  serial: String
+}
+entity Part33 {
+  serial: String
+}
+entity Label {
+  text: String
+}
+
+relation Tags {
+  tagged: Part01 | Part02 | Part03 | Part04 | Part05 | Part06 | Part07 | Part08 | Part09 | Part10 | Part11 | Part12 | Part13 | Part14 | Part15 | Part16 | Part17 | Part18 | Part19 | Part20 | Part21 | Part22 | Part23 | Part24 | Part25 | Part26 | Part27 | Part28 | Part29 | Part30 | Part31 | Part32 -> labels*
+  label:  Label -> items*
+}

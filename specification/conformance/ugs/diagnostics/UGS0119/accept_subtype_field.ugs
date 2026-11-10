@@ -1,0 +1,20 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+abstract entity Asset {
+  serial: String
+}
+entity Engine : Asset {
+  thrust_kn: Float64
+}
+entity Fleet {
+  name: String
+}
+
+relation Owns {
+  owner: Fleet -> assets*
+  asset: Asset -> owners*
+}
+
+fn Fleet.strong_engines() -> Engine* = assets(is Engine, thrust_kn > 100)

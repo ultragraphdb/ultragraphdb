@@ -13,13 +13,21 @@ every relation shape and every attribute view the aviation schema lacks, and a g
 - The statement envelope: `Statement` `@bitemporal` with `valid`, an `Interval<DateTime>`, and `uncertainty`, the
   `Uncertainty` record written as JSON; `Asserted`'s method, confidence, `inferred` and `rank`.
 - `Node` keyed by `id`, its IRI `{base}Node/{id}`; agents, an object, an event with a measure and a fixed-unit
-  measure, a quantity, kinds with `ProposedKind`'s catalog type as a value, a teloid with a `List<KeyValue>`.
-- `MemberOf`, node-encoded with three roles, one optional, specializing `Relation`'s; `ConnectsTo`, `@symmetric`;
+  measure, a quantity, kinds with `ProposedKind`'s catalog type as a value, a teloid with a `List<KeyValue>` and
+  `action_identifier` under the predicate its `@iri` names.
+- `MemberOf`, node-encoded with three roles, one optional, specializing `Relation`'s, with
+  `@on_retract(collection: restrict open)`; `ConnectsTo`, `@symmetric`;
   `DerivesFrom` and `ClassifiedAs`, edge-encoded with reifiers; `Alternatives`, its set-valued role `members` reified as
   the role label `Alternatives_members`; `AssertedBy`, edge-encoded without a reifier.
 
-Left out: `embedding` (`Vector`, stage 8), `Gap`, `Source`, `Absence` (a role naming a catalog type), `Teloid`'s
-`action_identifier` (its `@iri` predicate), and the attributes the subset's sets leave absent.
+Every type the sets write carries every required attribute and role its declaration in the source states. Left out:
+`embedding` (`Vector`, stage 8), `Gap`, `Source`, `Absence` (a role naming a catalog type), and the optional attributes
+the subset's sets leave absent.
+
+The sets are states the engine reaches: retracting the object `OBJ:o1` retracts, by `ConnectsTo`'s default
+`@on_retract(cascade)`, the connection naming it in the same commit (`SCHEMA.md` section 8.4, rule 6), so the live slice
+stays closed under references (`SCHEMA-APG.md`, proposition 15.2); and every interval bound coarser than its type is its
+unit's first instant (`SCHEMA.md` section 12.2).
 -/
 
 namespace ApgModel.Oracle.Gen5
@@ -102,15 +110,17 @@ def catalog : Catalog typeside where
         req "state" (NTy.enum ["active", "draft", "retired", "superseded", "validated"]),
         req "version" (.prim (Prim.int .u32)), .attr "efficacious" instantInterval true .interval] },
     { name := "Teloid", kind := .entity, parent := some "Directive", abstract := false, pfx := 23,
-      fields := [req "teloid_id" (.prim (Prim.int .u64)),
+      fields := [req "teloid_id" (.prim (Prim.int .u64)), req "action_identifier" (.prim Prim.string),
         req "modality" (NTy.enum ["impermissible", "obligatory", "optional", "permitted", "right"]),
+        req "timestamp" (.prim (Prim.int .i64)), req "specificity" (.prim (Prim.int .i32)),
         req "priority" (.prim (Prim.int .i32)), opt "tags" (.set (.prim Prim.string)),
-        opt "meta" (.list keyValue)] },
+        opt "meta" (.list keyValue), req "predicate_kind" (NTy.enum ["deterministic", "uncertain"]),
+        req "predicate_id" (.prim Prim.string)] },
     { name := "Relation", kind := .relation, parent := some "Asserted", abstract := true, pfx := 24, multi := true,
       fields := [.role "subject" ["Statement"] false (some "out") none,
         .role "object" ["Statement"] false (some "in") none] },
     { name := "MemberOf", kind := .relation, parent := some "Relation", abstract := false, pfx := 25,
-      colocate := some "collection",
+      colocate := some "collection", onRetract := [("collection", .restrictOpen)],
       fields := [.role "member" ["Endurant"] false (some "memberships") (some "subject"),
         .role "collection" ["Object", "Event", "Organization"] false (some "members") (some "object"),
         .role "role" ["RoleKind"] true (some "member_roles") none] },
@@ -132,11 +142,14 @@ def catalog : Catalog typeside where
       fields := [.role "statement" ["Statement"] false (some "asserted_by") none,
         .role "asserter" ["Agent"] false (some "assertions") none] }]
 
-/-- The subset's bases: `db:` for its vocabulary and instances, and the graph `main`. -/
+/-- The subset's bases: `db:` for its vocabulary and instances, the graph `{base}ontology` that
+`graph ontology : deep_brain @default` declares (`SCHEMA.md` section 6.11), and `Teloid`'s `action_identifier` under
+its `@iri`. -/
 def bases : Bases where
   vocab := "https://example.org/deep_brain#"
   inst := "https://example.org/deep_brain#"
-  graph := "https://example.org/deep_brain#main"
+  graph := "https://example.org/deep_brain#ontology"
+  iris := [("action_identifier", "https://example.org/deep_brain#teloid_action_identifier")]
 
 /-! ## Building values -/
 
@@ -174,6 +187,7 @@ def instances (n : Nat) : FinApg catalog.schema where
   elems :=
     let k := n + 1
     let t0 : Int := 1704067200
+    let retracted (i : Nat) : Option Int := if i = 1 then some (t0 + 3600 * (i : Int) + 60) else none
     [(1, "Company", record "Company" (envelope t0 ++ [("id", prim .string "AGENT:acme"),
         ("identifiers", present (.set [prim .string "lei:5299001", prim .string "ror:01abc"]))])),
      (2, "RoleKind", record "RoleKind" (envelope t0 ++ [("id", prim .string "KIND:engineer"),
@@ -191,8 +205,10 @@ def instances (n : Nat) : FinApg catalog.schema where
         ("valid", present (.record [("end", absent), ("end_precision", absent),
           ("start", present (instant (t0 - 86400))), ("start_precision", present (prim .precision .day))]))])),
      (6, "Teloid", record "Teloid" (envelope t0 ++ [("id", prim .string "TELOID:root"),
-        ("teloid_id", prim (.int .u64) 1), ("modality", member "obligatory"), ("priority", prim (.int .i32) 10),
-        ("state", member "active"), ("version", prim (.int .u32) 1),
+        ("teloid_id", prim (.int .u64) 1), ("action_identifier", prim .string "halt"),
+        ("modality", member "obligatory"), ("timestamp", prim (.int .i64) t0), ("specificity", prim (.int .i32) 1),
+        ("priority", prim (.int .i32) 10), ("predicate_kind", member "deterministic"),
+        ("predicate_id", prim .string "pred:root"), ("state", member "active"), ("version", prim (.int .u32) 1),
         ("meta", present (.list [.record [("key", prim .string "owner"), ("value", prim .string "ops \"core\"")],
           .record [("key", prim .string "tier"), ("value", prim .string "1")]])),
         ("tags", present (.set [prim .string "safety"]))]))] ++
@@ -202,21 +218,25 @@ def instances (n : Nat) : FinApg catalog.schema where
           ("personal_name", if i % 2 = 0 then present (prim .text ("Ada " ++ toString i, none)) else absent),
           ("personal_identifiers", present (.set [prim .string ("orcid:0000-" ++ pad 4 i)]))])),
         (200 + i, "Object", record "Object" (
-          [("asserted", asserted t (if i = 1 then some (t + 60) else none)), ("inferred", prim .bool (i % 2 = 1)),
+          [("asserted", asserted t (retracted i)), ("inferred", prim .bool (i % 2 = 1)),
             ("rank", member (if i = 0 then "preferred" else "normal")),
             ("id", prim .string ("OBJ:o" ++ toString i)), ("level", present (prim (.int .u8) (i % 256))),
             ("confidence", present (prim .float64 ⟨3, -2⟩)), ("method", present (member "import"))])),
         (300 + i, "Teloid", record "Teloid" (envelope t ++ [("id", prim .string ("TELOID:t" ++ toString i)),
-          ("teloid_id", prim (.int .u64) (100 + i)), ("modality", member "permitted"),
-          ("priority", prim (.int .i32) (-(i : Int))), ("state", member "draft"), ("version", prim (.int .u32) 2),
-          ("efficacious", present (.record [("end", present (instant (t + 31536000))),
+          ("teloid_id", prim (.int .u64) (100 + i)), ("action_identifier", prim .string ("inspect-" ++ toString i)),
+          ("modality", member "permitted"), ("timestamp", prim (.int .i64) t),
+          ("specificity", prim (.int .i32) (i + 2)), ("priority", prim (.int .i32) (-(i : Int))),
+          ("predicate_kind", member (if i % 2 = 0 then "deterministic" else "uncertain")),
+          ("predicate_id", prim .string ("pred:t" ++ toString i)), ("state", member "draft"),
+          ("version", prim (.int .u32) 2),
+          ("efficacious", present (.record [("end", present (instant (t0 + 31622400))),
             ("end_precision", present (prim .precision .month)), ("start", present (instant t)),
             ("start_precision", present (prim .precision .nanosecond))]))])),
         (400 + i, "MemberOf", record "MemberOf" (envelope t ++ [("member", ref ["Endurant"] "Person" (100 + i)),
           ("collection", ref ["Object", "Event", "Organization"] "Company" 1),
           ("role", if i % 2 = 0 then present (ref ["RoleKind"] "RoleKind" 2) else absent)])),
-        (500 + i, "ConnectsTo", record "ConnectsTo" (envelope t ++ [("a", ref ["Statement"] "Object" (200 + i)),
-          ("b", ref ["Statement"] "Event" 5)])),
+        (500 + i, "ConnectsTo", record "ConnectsTo" (("asserted", asserted t (retracted i)) :: envelope t ++
+          [("a", ref ["Statement"] "Object" (200 + i)), ("b", ref ["Statement"] "Event" 5)])),
         (600 + i, "DerivesFrom", record "DerivesFrom" (envelope t ++ [("lower", ref ["Purpose"] "Teloid" (300 + i)),
           ("higher", ref ["Purpose"] "Teloid" 6)])),
         (700 + i, "AssertedBy", record "AssertedBy" [("statement", ref ["Statement"] "Object" (200 + i)),

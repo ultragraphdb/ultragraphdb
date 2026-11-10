@@ -1,0 +1,30 @@
+{
+  "name": "index-ann",
+  "sources": [
+    "index_ann.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [
+    {
+      "code": "UGS0902",
+      "kind": "warning",
+      "file": "index_ann.ugs",
+      "line": 6,
+      "column": 29,
+      "length": 47,
+      "fix": null
+    }
+  ],
+  "prefixes": {
+    "index_ann.Doc": 3
+  },
+  "report": [
+    "UGS0901 index_ann.Doc.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 index_ann.Doc.update.embedding path=coordination-free local=true by=none indexes=0",
+    "UGS0901 index_ann.Doc.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0902 index_ann.Doc.embedding construct=@index(ann) stage=8"
+  ]
+}

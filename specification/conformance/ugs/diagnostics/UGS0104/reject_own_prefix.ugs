@@ -1,0 +1,7 @@
+// expect: UGS0104 at 5:26
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Aircraft @maps_to(fl:Vehicle) {
+  serial: String
+}

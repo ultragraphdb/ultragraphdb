@@ -1,0 +1,76 @@
+{
+  "code": "UGS0601",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a mutable participant whose role takes the default cascade",
+      "sources": ["reject_default_cascade.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0601", "kind": "error",
+          "file": "reject_default_cascade.ugs", "line": 9, "column": 12, "length": 4,
+          "fix": [
+            { "file": "reject_default_cascade.ugs", "line": 11, "column": 2, "length": 0, "replacement": " @on_delete(item: restrict)" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_default_cascade.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a mutable participant whose role declares cascade",
+      "sources": ["reject_declared_cascade.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0601", "kind": "error",
+          "file": "reject_declared_cascade.ugs", "line": 9, "column": 12, "length": 4,
+          "fix": [
+            { "file": "reject_declared_cascade.ugs", "line": 11, "column": 20, "length": 7, "replacement": "restrict" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_declared_cascade.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a union role with one mutable member",
+      "sources": ["reject_union_member.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0601", "kind": "error",
+          "file": "reject_union_member.ugs", "line": 10, "column": 19, "length": 5,
+          "fix": [
+            { "file": "reject_union_member.ugs", "line": 12, "column": 2, "length": 0, "replacement": " @on_delete(item: restrict)" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_union_member.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a participant that is a mutable relation type",
+      "sources": ["reject_mutable_relation.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0601", "kind": "error",
+          "file": "reject_mutable_relation.ugs", "line": 13, "column": 13, "length": 5,
+          "fix": [
+            { "file": "reject_mutable_relation.ugs", "line": 15, "column": 2, "length": 0, "replacement": " @on_delete(link: restrict)" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_mutable_relation.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a mutable participant whose role declares orphan, which writes the instance as cascade deletes it",
+      "sources": ["reject_orphan.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0601", "kind": "error",
+          "file": "reject_orphan.ugs", "line": 9, "column": 12, "length": 4,
+          "fix": [
+            { "file": "reject_orphan.ugs", "line": 11, "column": 20, "length": 6, "replacement": "restrict" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_orphan.ugs"], "warnings": [] }
+    }
+  ]
+}

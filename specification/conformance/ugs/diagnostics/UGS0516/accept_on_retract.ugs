@@ -1,0 +1,19 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Claim @bitemporal(valid: valid) {
+  valid: Interval<DateTime> Optional
+  text:  String
+}
+
+entity Source @bitemporal(valid: valid) {
+  valid: Interval<DateTime> Optional
+  name:  String
+}
+
+relation CitedIn @bitemporal(valid: valid) {
+  claim:  Claim  -> sources*
+  source: Source -> _
+  valid:  Interval<DateTime> Optional
+} @on_retract(source: cascade)

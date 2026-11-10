@@ -1,0 +1,31 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1040",
+  "name": "making a unit with four open units below it a unit of another walks within rule_read_max and commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Organization { id: \"ORG:hub\" }",
+        "insert Organization { id: \"ORG:top\" }",
+        "insert Organization { id: \"ORG:u1\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:u1\"), parent: Organization(id = \"ORG:hub\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:u2\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:u2\"), parent: Organization(id = \"ORG:hub\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:u3\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:u3\"), parent: Organization(id = \"ORG:hub\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert Organization { id: \"ORG:u4\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:u4\"), parent: Organization(id = \"ORG:hub\"), valid: 2026-01-01T00:00:00Z .. }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "attach.nq",
+      "uql": [
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:hub\"), parent: Organization(id = \"ORG:top\"), valid: 2026-01-01T00:00:00Z .. }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

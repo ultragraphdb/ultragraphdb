@@ -1,0 +1,25 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1015",
+  "name": "a ParticipatesIn created without its required event role",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Person { id: \"AGENT:p0\" }",
+        "insert Event { id: \"EVENT:e1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert ParticipatesIn { participant: Person(id = \"AGENT:p0\") }"
+      ],
+      "expect": {
+        "refused": "UGS1015"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

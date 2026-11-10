@@ -1,0 +1,5 @@
+// expect: compiles with UGS0805 at 5:8
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity part

@@ -1,0 +1,9 @@
+// expect: compiles
+schema composite_keys version 1
+prefix ckk = "https://example.org/composite_keys#"
+
+entity Flight @key(carrier, number, day) {
+  carrier: String
+  number:  Int32
+  day:     Date
+}

@@ -1,0 +1,52 @@
+{
+  "code": "UGS0114",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "`@on_delete` naming a role the relation lacks",
+      "sources": [
+        "reject_on_delete.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0114",
+          "kind": "error",
+          "file": "reject_on_delete.ugs",
+          "line": 15,
+          "column": 14,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_on_delete.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "`@limit` grouping per a role the relation lacks",
+      "sources": [
+        "reject_limit_per.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0114",
+          "kind": "error",
+          "file": "reject_limit_per.ugs",
+          "line": 15,
+          "column": 27,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_limit_per.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

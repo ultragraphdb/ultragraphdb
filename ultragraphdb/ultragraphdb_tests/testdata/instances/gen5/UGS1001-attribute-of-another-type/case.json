@@ -1,0 +1,13 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1001",
+  "name": "an Object written with context_id, which Context declares and Object does not",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1001"
+      }
+    }
+  ]
+}

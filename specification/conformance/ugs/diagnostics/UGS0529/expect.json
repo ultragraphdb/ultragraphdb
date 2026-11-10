@@ -1,0 +1,42 @@
+{
+  "code": "UGS0529",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a lower bound >= 1 per two roles",
+      "sources": ["reject_two_roles.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0529", "kind": "error",
+          "file": "reject_two_roles.ugs", "line": 11, "column": 27, "length": 17,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_two_roles.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a lower bound >= 1 per a role and type",
+      "sources": ["reject_type.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0529", "kind": "error",
+          "file": "reject_type.ugs", "line": 11, "column": 27, "length": 15,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_type.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a bound = 1, a lower bound, per two roles",
+      "sources": ["reject_equal.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0529", "kind": "error",
+          "file": "reject_equal.ugs", "line": 11, "column": 26, "length": 17,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_equal.ugs"], "warnings": [] }
+    }
+  ]
+}

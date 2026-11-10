@@ -1,0 +1,25 @@
+{
+  "name": "access",
+  "sources": [
+    "access.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "access.User": 3,
+    "access.Doc": 4,
+    "access.CanRead": 5
+  },
+  "report": [
+    "UGS0901 access.CanRead.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 access.CanRead.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 access.Doc.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 access.Doc.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 access.User.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 access.User.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0905 access.Doc.readers relation=access.CanRead role=doc"
+  ]
+}

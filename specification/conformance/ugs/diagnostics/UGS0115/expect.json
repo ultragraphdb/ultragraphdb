@@ -1,0 +1,75 @@
+{
+  "code": "UGS0115",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "`@valid` naming an attribute the type lacks",
+      "sources": [
+        "reject_valid.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0115",
+          "kind": "error",
+          "file": "reject_valid.ugs",
+          "line": 5,
+          "column": 23,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_valid.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "`@bitemporal` naming an attribute the type lacks",
+      "sources": [
+        "reject_bitemporal.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0115",
+          "kind": "error",
+          "file": "reject_bitemporal.ugs",
+          "line": 5,
+          "column": 35,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_bitemporal.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "`@limit` summing an attribute the relation lacks",
+      "sources": [
+        "reject_limit_sum.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0115",
+          "kind": "error",
+          "file": "reject_limit_sum.ugs",
+          "line": 16,
+          "column": 14,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_limit_sum.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

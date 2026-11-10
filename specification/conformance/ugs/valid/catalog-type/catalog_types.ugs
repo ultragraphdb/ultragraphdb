@@ -1,0 +1,16 @@
+// expect: compiles
+schema catalog_types version 1
+prefix ct = "https://example.org/catalog_types#"
+
+entity Thing {
+  label: String
+}
+
+entity Rule {
+  applies_to: schema.EntityType<Thing>
+}
+
+relation Governs {
+  rule:   Rule                     -> targets*
+  target: schema.EntityType<Thing> -> _
+}

@@ -1,0 +1,16 @@
+<https://example.org/deep_brain#Node/DOC%3Ad1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Document> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/DOC%3Ad1> <https://example.org/deep_brain#id> "DOC:d1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Concept> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac1> <https://example.org/deep_brain#id> "CON:c1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Concept> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac2> <https://example.org/deep_brain#id> "CON:c2" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/DOC%3Ad1> <https://example.org/deep_brain#about> <https://example.org/deep_brain#Node/CON%3Ac1> <https://example.org/deep_brain#ontology> .
+_:a1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#IsAbout> <https://example.org/deep_brain#ontology> .
+_:a1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/DOC%3Ad1> <https://example.org/deep_brain#about> <https://example.org/deep_brain#Node/CON%3Ac1> )>> <https://example.org/deep_brain#ontology> .
+_:a1 <https://example.org/deep_brain#rank> "preferred" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/DOC%3Ad1> <https://example.org/deep_brain#about> <https://example.org/deep_brain#Node/CON%3Ac2> <https://example.org/deep_brain#ontology> .
+_:a2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#IsAbout> <https://example.org/deep_brain#ontology> .
+_:a2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/DOC%3Ad1> <https://example.org/deep_brain#about> <https://example.org/deep_brain#Node/CON%3Ac2> )>> <https://example.org/deep_brain#ontology> .
+_:a2 <https://example.org/deep_brain#rank> "normal" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac3> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Concept> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac3> <https://example.org/deep_brain#id> "CON:c3" <https://example.org/deep_brain#ontology> .

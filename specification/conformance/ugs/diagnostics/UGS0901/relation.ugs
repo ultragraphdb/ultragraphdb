@@ -1,0 +1,11 @@
+// expect: compiles
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Asset
+entity Site
+relation Located {
+  asset: Asset -> location?
+  site:  Site  -> assets*
+  since: Date
+} @on_delete(asset: restrict)

@@ -1,0 +1,14 @@
+// expect: compiles
+schema records version 1
+prefix rc = "https://example.org/records#"
+
+record Address {
+  street: String
+  city:   String
+  zip:    String Optional @pattern("[0-9]{5}")
+}
+
+entity Site {
+  address:  Address
+  previous: List<Address> Optional
+}

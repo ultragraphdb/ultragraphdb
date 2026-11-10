@@ -1,0 +1,7 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+record Span {
+  inner: Span Optional
+}

@@ -1,0 +1,25 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1007",
+  "name": "an existing engine's serial replaced by another value",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Engine { serial: \"EN-0001\", commissioned: 2022-01-08, status: active, tags: [\"engine\"], thrust_kn: 120.5 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "delete": "break-delete.nq",
+      "uql": [
+        "update Asset(serial = \"EN-0001\") { serial: \"EN-0002\" }"
+      ],
+      "expect": {
+        "refused": "UGS1007"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

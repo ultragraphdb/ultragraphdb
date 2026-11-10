@@ -1,0 +1,98 @@
+{
+  "code": "UGS0005",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a date naming no calendar day",
+      "sources": [
+        "reject_date.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0005",
+          "kind": "error",
+          "file": "reject_date.ugs",
+          "line": 6,
+          "column": 18,
+          "length": 10,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_date.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a time naming no time of day",
+      "sources": [
+        "reject_time.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0005",
+          "kind": "error",
+          "file": "reject_time.ugs",
+          "line": 6,
+          "column": 18,
+          "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_time.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a date-time whose minute is past 59",
+      "sources": [
+        "reject_datetime.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0005",
+          "kind": "error",
+          "file": "reject_datetime.ugs",
+          "line": 6,
+          "column": 25,
+          "length": 20,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_datetime.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a duration with no part, read as one where a `Duration` is expected",
+      "sources": [
+        "reject_duration.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0005",
+          "kind": "error",
+          "file": "reject_duration.ugs",
+          "line": 6,
+          "column": 26,
+          "length": 2,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_duration.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

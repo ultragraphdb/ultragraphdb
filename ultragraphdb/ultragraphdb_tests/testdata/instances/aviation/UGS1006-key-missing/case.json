@@ -1,0 +1,13 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1006",
+  "name": "an engine created under its key's IRI without the key attribute serial",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1006"
+      }
+    }
+  ]
+}

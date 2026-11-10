@@ -1,0 +1,7 @@
+// expect: compiles with UGS0807 at 5:20
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Item @check(price > 0) {
+  price: Int32 Optional
+}

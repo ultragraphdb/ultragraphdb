@@ -1,0 +1,7 @@
+// expect: compiles
+schema geometry version 1
+prefix ge = "https://example.org/geometry#"
+
+entity Site {
+  location: Geo
+}

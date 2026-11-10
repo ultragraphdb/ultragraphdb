@@ -1,0 +1,27 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1013",
+  "name": "a mutable aircraft's status and a mutable lease's term updated, where Supply alone is @append_only",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "uql": [
+        "insert Company { name: \"Leonardo\" }",
+        "insert Company { name: \"Airbus\" }",
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }",
+        "insert Lease { lessor: Company(name = \"Leonardo\"), lessee: Company(name = \"Airbus\"), asset: Aircraft(serial = \"AC-0001\"), signed: 2022-01-10, term: 2022-01-10 .. 2030-01-01 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "step2.nq",
+      "delete": "step2-delete.nq",
+      "uql": [
+        "update Asset(serial = \"AC-0001\") { status: stored }",
+        "update Lease(lessor: Company(name = \"Leonardo\"), asset: Aircraft(serial = \"AC-0001\")) { term: 2022-01-10 .. 2031-01-01 }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

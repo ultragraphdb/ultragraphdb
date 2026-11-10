@@ -1,0 +1,22 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1036",
+  "name": "a second commissioned value written on an existing Engine without deleting the present one is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }",
+        "insert Engine { serial: \"EN-4471-B\", commissioned: 2026-10-30, status: active, tags: [\"engine\"], thrust_kn: 310 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "second-value.nq",
+      "expect": {
+        "refused": "UGS1036"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

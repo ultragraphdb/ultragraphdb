@@ -1,0 +1,12 @@
+// expect: compiles
+schema role_union version 1
+prefix ru = "https://example.org/role_union#"
+
+entity Contract
+entity Person
+entity Company
+
+relation Signs {
+  contract: Contract         -> signatories*
+  signer:   Person | Company -> signed*
+}

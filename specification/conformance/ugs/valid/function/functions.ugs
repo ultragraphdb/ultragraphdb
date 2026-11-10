@@ -1,0 +1,10 @@
+// expect: compiles with UGS0902 at 9:9, UGS0902 at 10:4
+schema functions version 1
+prefix fu = "https://example.org/functions#"
+
+entity Item {
+  price: Decimal(10, 2)
+}
+
+fn Item.is_cheap() -> Bool = price < 10
+fn cheap_items() -> Item* = Item(price < 10)

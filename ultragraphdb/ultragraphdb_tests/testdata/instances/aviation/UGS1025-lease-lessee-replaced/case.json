@@ -1,0 +1,29 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1025",
+  "name": "replacing the lessee triple of an existing Lease, a required single-valued role, is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }",
+        "insert Company { name: \"Beta\" }",
+        "insert Company { name: \"Gamma\" }",
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"], tail_number: \"D-A0001\" }",
+        "insert Lease { lessor: Company(name = \"Alpha\"), lessee: Company(name = \"Beta\"), asset: Aircraft(serial = \"AC-0001\"), signed: 2026-01-01, term: 2026-01-01 .. 2030-01-01 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "replace-lessee.nq",
+      "delete": "replace-lessee-old.nq",
+      "uql": [
+        "update Lease(lessor: Company(name = \"Alpha\"), lessee: Company(name = \"Beta\")) { lessee: Company(name = \"Gamma\") }"
+      ],
+      "expect": {
+        "refused": "UGS1025"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

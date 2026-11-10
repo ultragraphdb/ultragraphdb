@@ -1,0 +1,29 @@
+{
+  "code": "UGS0222",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a record field declared twice",
+      "sources": [
+        "reject.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0222",
+          "kind": "error",
+          "file": "reject.ugs",
+          "line": 8,
+          "column": 3,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

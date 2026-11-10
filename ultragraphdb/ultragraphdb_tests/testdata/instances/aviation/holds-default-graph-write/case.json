@@ -1,0 +1,22 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1031",
+  "name": "a Company written as triples in the default graph lands in av:production, the @default graph",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Company { name: \"Beta\" }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

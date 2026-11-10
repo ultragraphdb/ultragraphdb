@@ -1,0 +1,35 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1009",
+  "name": "a Context written with the context_id of a retracted Context: the claim is permanent",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "uql": [
+        "insert Context { id: \"CTX:a\", context_id: 7 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "operations": [
+        {
+          "kind": "retract",
+          "iri": "https://example.org/deep_brain#Node/CTX%3Aa"
+        }
+      ],
+      "uql": [
+        "retract Context(id = \"CTX:a\")"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert Context { id: \"CTX:b\", context_id: 7 }"
+      ],
+      "expect": {
+        "refused": "UGS1009"
+      }
+    }
+  ]
+}

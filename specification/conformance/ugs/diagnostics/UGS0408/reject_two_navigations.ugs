@@ -1,0 +1,10 @@
+// expect: UGS0408 at 7:16
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Person { name: String }
+
+relation Knows @symmetric {
+  a: Person -> knows*
+  b: Person -> known_by*
+}

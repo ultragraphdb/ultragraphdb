@@ -1,0 +1,13 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1002",
+  "name": "a blank node with asset attributes and no rdf:type creates an instance naming no concrete type",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1002"
+      }
+    }
+  ]
+}

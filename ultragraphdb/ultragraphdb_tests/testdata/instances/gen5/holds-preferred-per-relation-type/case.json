@@ -1,0 +1,27 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1023",
+  "name": "a Realizes with rank preferred for a Document that has a preferred IsAbout commits: the bound is per subject and type",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Document { id: \"DOC:d1\" }",
+        "insert Concept { id: \"CON:c1\" }",
+        "insert Concept { id: \"CON:c2\" }",
+        "insert IsAbout { information: Document(id = \"DOC:d1\"), topic: Concept(id = \"CON:c1\"), rank: preferred }",
+        "insert IsAbout { information: Document(id = \"DOC:d1\"), topic: Concept(id = \"CON:c2\"), rank: normal }",
+        "insert Claim { id: \"CLM:k1\", statement: \"the launch slipped\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "realizes.nq",
+      "uql": [
+        "insert Realizes { carrier: Document(id = \"DOC:d1\"), content: Claim(id = \"CLM:k1\"), rank: preferred }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

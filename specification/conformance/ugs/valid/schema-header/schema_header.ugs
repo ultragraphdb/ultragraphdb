@@ -1,0 +1,8 @@
+// expect: compiles
+schema schema_header version 1
+prefix hd = "https://example.org/schema_header#"
+reserve Legacy, Draft
+
+entity Thing {
+  label: String
+}

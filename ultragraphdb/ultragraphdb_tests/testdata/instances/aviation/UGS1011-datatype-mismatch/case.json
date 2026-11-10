@@ -1,0 +1,13 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1011",
+  "name": "an engine whose thrust_kn, a Float64, is written as an xsd:string",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1011"
+      }
+    }
+  ]
+}

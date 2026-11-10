@@ -1,0 +1,7 @@
+// expect: compiles
+schema attribute_iris version 1
+prefix ai = "https://example.org/attribute_iris#"
+
+entity Person {
+  label: String @iri("https://example.org/vocab/label")
+}

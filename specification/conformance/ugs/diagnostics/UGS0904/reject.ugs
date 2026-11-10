@@ -1,0 +1,10 @@
+// expect: compiles with UGS0904 at 10:3
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Asset
+entity Site
+relation Located {
+  asset: Asset -> location?
+  site:  Site  -> assets*
+} @limit(count() <= 100 per site)

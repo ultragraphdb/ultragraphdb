@@ -1,0 +1,24 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1017",
+  "name": "an InScheme naming a Scheme that does not exist",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Concept { id: \"CON:c1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert InScheme { concept: Concept(id = \"CON:c1\"), scheme: Scheme(id = \"SCH:none\") }"
+      ],
+      "expect": {
+        "refused": "UGS1017"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

@@ -1,0 +1,24 @@
+{
+  "name": "retracts",
+  "sources": [
+    "retracts.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "retracts.Claim": 3,
+    "retracts.Supersedes": 4
+  },
+  "report": [
+    "UGS0901 retracts.Claim.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 retracts.Claim.update.valid path=coordination-free local=true by=none indexes=0",
+    "UGS0901 retracts.Claim.retract path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 retracts.Supersedes.insert path=segmented local=true by=@retracts indexes=0",
+    "UGS0901 retracts.Supersedes.update.valid path=coordination-free local=true by=none indexes=0",
+    "UGS0901 retracts.Supersedes.retract path=coordination-free local=true by=none indexes=0",
+    "UGS0905 retracts.Claim.replaces relation=retracts.Supersedes role=new"
+  ]
+}

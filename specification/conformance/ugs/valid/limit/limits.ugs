@@ -1,0 +1,12 @@
+// expect: compiles
+schema limits version 1
+prefix lm = "https://example.org/limits#"
+
+entity Account
+entity Merchant
+
+relation Charge @multi {
+  account:  Account  -> charges*
+  merchant: Merchant -> sales*
+  amount:   Decimal(18, 2) @range(0, open)
+} @limit(sum(amount) <= 10_000 per account)

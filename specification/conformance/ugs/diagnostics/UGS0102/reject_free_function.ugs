@@ -1,0 +1,10 @@
+// expect: UGS0102 at 10:4
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Pilot {
+  hours: Int32
+}
+
+fn senior_pilots() -> Pilot* = Pilot(hours >= 1000)
+fn senior_pilots() -> Pilot* = Pilot(hours >= 5000)

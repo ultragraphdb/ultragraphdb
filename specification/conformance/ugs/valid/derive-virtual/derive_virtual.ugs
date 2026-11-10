@@ -1,0 +1,13 @@
+// expect: compiles with UGS0902 at 13:13
+schema derive_virtual version 1
+prefix dv = "https://example.org/derive_virtual#"
+
+entity Person
+entity Club
+
+relation Joins {
+  member: Person -> clubs*
+  club:   Club   -> members*
+}
+
+derive Club.roster = members

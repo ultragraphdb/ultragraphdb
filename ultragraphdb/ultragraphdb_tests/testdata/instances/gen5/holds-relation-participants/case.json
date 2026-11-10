@@ -1,0 +1,12 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1018",
+  "name": "relations whose every required role holds a live participant of the role's type, a catalog type at or below Node among them",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

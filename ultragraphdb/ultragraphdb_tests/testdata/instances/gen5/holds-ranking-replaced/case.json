@@ -1,0 +1,30 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1014",
+  "name": "a Post created with its PostIn, and a mutable RankedBy deleted and another inserted in one transaction, so ranked_by? holds at commit",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "uql": [
+        "insert Organization { id: \"AGENT:acme\" }",
+        "insert Post { id: \"AGENT:post1\" }",
+        "insert PostIn { post: Post(id = \"AGENT:post1\"), organisation: Organization(id = \"AGENT:acme\") }",
+        "insert Object { id: \"OBJ:o1\" }",
+        "insert Person { id: \"AGENT:p0\" }",
+        "insert Person { id: \"AGENT:p1\" }",
+        "insert RankedBy { statement: Object(id = \"OBJ:o1\"), agent: Person(id = \"AGENT:p0\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "step2.nq",
+      "delete": "step2-delete.nq",
+      "uql": [
+        "delete RankedBy(statement: Object(id = \"OBJ:o1\"))",
+        "insert RankedBy { statement: Object(id = \"OBJ:o1\"), agent: Person(id = \"AGENT:p1\") }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

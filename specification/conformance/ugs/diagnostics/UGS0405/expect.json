@@ -1,0 +1,44 @@
+{
+  "code": "UGS0405",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "as naming no role of the supertype",
+      "sources": ["reject_unknown_role.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0405", "kind": "error",
+          "file": "reject_unknown_role.ugs", "line": 14, "column": 20, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_unknown_role.ugs"], "warnings": [] }
+    },
+    {
+      "name": "as in a relation with no supertype",
+      "sources": ["reject_no_supertype.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0405", "kind": "error",
+          "file": "reject_no_supertype.ugs", "line": 8, "column": 18, "length": 6,
+          "fix": [
+            { "file": "reject_no_supertype.ugs", "line": 8, "column": 14, "length": 10, "replacement": "" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_no_supertype.ugs"], "warnings": [] }
+    },
+    {
+      "name": "as naming an attribute of the supertype",
+      "sources": ["reject_attribute.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0405", "kind": "error",
+          "file": "reject_attribute.ugs", "line": 15, "column": 20, "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_attribute.ugs"], "warnings": [] }
+    }
+  ]
+}

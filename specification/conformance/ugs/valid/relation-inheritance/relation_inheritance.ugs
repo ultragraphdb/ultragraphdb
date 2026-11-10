@@ -1,0 +1,18 @@
+// expect: compiles
+schema relation_inheritance version 1
+prefix ri = "https://example.org/relation_inheritance#"
+
+entity Org
+entity Person
+
+abstract relation Affiliation {
+  org:    Org    -> affiliations*
+  member: Person -> affiliated*
+}
+
+relation Employment : Affiliation {
+  employer: Org as org       -> employments*
+  employee: Person as member -> jobs*
+}
+
+relation Membership : Affiliation { }

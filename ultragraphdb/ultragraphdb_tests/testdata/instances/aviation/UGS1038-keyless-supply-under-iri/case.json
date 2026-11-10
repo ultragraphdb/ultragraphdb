@@ -1,0 +1,23 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1038",
+  "name": "a Supply, a keyless type, created under an IRI in place of a blank node is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }",
+        "insert Company { name: \"Beta\" }",
+        "insert Avionics { serial: \"AV-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "supply.nq",
+      "expect": {
+        "refused": "UGS1038"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

@@ -1,0 +1,13 @@
+// expect: compiles
+schema retracts version 1
+prefix rt = "https://example.org/retracts#"
+
+entity Claim @bitemporal(valid: valid) {
+  valid: Interval<DateTime> Optional
+}
+
+relation Supersedes @multi @bitemporal(valid: valid) @retracts(old) {
+  old:   Claim -> replaced_by*
+  new:   Claim -> replaces*
+  valid: Interval<DateTime> Optional
+}

@@ -1,0 +1,75 @@
+schema aviation version 1
+
+prefix av = "https://example.org/aviation#"
+import "https://schema.org/" as sdo
+
+attribute Serial    = String @pattern("[A-Z0-9-]{6,20}")
+attribute Tag       = String @index(range)
+attribute Embedding = Vector<F32, 768> @index(ann, metric: cosine)
+
+enum Status { active, stored, retired }
+
+/// Anything that can be owned, assembled and supplied.
+abstract entity Asset @key(serial) {
+  serial:       Serial
+  commissioned: Date
+  status:       Status
+  tags:         Set<Tag>
+  notes:        Text Optional @index(fulltext)
+  embedding:    Embedding Optional
+}
+entity Aircraft : Asset { tail_number: String @unique }
+entity Engine   : Asset { thrust_kn: Float64 @range(0, 2000) }
+entity Avionics : Asset { firmware: String Optional }
+
+abstract entity Organization @key(name) {
+  name: String @maps_to(sdo:legalName)
+}
+entity Company   : Organization
+entity Authority : Organization { jurisdiction: String @values("EU", "US", "UK") }
+
+relation Owns @colocate(asset) {
+  owner: Organization -> assets*
+  asset: Asset        -> owner?
+  since: Date
+}
+
+relation PartOf @acyclic(max_depth: 16) {
+  part:  Asset -> assembly?
+  whole: Asset -> parts*
+} @on_delete(whole: restrict)
+
+abstract relation Agreement @multi {
+  party:        Organization -> agreements*
+  counterparty: Organization -> counterparty_agreements*
+  signed:       Date
+}
+
+relation Supply : Agreement @append_only {
+  supplier: Company as party        -> sales*
+  buyer:    Company as counterparty -> purchases*
+  item:     Asset                   -> contracts*
+  value:    Decimal(18, 2) @check(value > 0)
+} @limit(sum(value) <= 50_000_000 per buyer)
+  @on_delete(supplier: restrict, buyer: restrict, item: restrict)
+
+relation Lease : Agreement {
+  lessor: Organization as party        -> leases_out*
+  lessee: Organization as counterparty -> leases_in*
+  asset:  Aircraft                     -> leases*
+  term:   Interval<Date>
+}
+
+relation Certifies @colocate(contract) {
+  authority: Authority -> certifications*
+  contract:  Supply    -> certification?
+  valid:     Interval<Date>
+}
+
+derive Asset.all_parts   = parts+
+derive Company.suppliers = purchases.supplier
+
+fn Aircraft.engines() -> Engine* = all_parts(is Engine)
+fn Company.spend(since: Date) -> Decimal(18, 2) = sum(purchases(signed >= since).value)
+
+graph production : aviation @default

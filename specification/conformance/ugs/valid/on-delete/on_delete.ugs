@@ -1,0 +1,11 @@
+// expect: compiles
+schema on_delete version 1
+prefix od = "https://example.org/on_delete#"
+
+entity Folder
+entity File
+
+relation Filing {
+  folder: Folder        -> entries*
+  file:   File Optional -> folders*
+} @on_delete(folder: restrict, file: orphan)

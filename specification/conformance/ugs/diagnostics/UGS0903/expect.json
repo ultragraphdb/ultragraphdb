@@ -1,0 +1,37 @@
+{
+  "code": "UGS0903",
+  "kind": "warning",
+  "cases": [
+    {
+      "name": "`restrict` on a role that is not the anchor, whose instances live in other partitions; the fix colocates the relation on that role",
+      "sources": [
+        "reject.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0903",
+          "kind": "warning",
+          "file": "reject.ugs",
+          "line": 10,
+          "column": 14,
+          "length": 14,
+          "fix": [
+            {
+              "file": "reject.ugs",
+              "line": 7,
+              "column": 17,
+              "length": 0,
+              "replacement": " @colocate(site)"
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "relation-binary",
+  "sources": [
+    "relation_binary.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "relation_binary.Author": 3,
+    "relation_binary.Book": 4,
+    "relation_binary.Wrote": 5
+  },
+  "report": [
+    "UGS0901 relation_binary.Author.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_binary.Author.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_binary.Book.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_binary.Book.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 relation_binary.Wrote.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 relation_binary.Wrote.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0905 relation_binary.Book.authors relation=relation_binary.Wrote role=book"
+  ]
+}

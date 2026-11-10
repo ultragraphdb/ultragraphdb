@@ -5,7 +5,8 @@ The metadata group SHALL allocate each declared statement, entity and relation t
 0 (invalid), 1 (`Resource`) and 2 (`Statement`): the first catalog version holding a type assigns the next free
 prefix to each new type in the order of the types' declarations in the installed sources, in an order the sources alone decide, schemas by name as UTF-8 bytes, then modules, each after what it extends
 and ties by name, each source in text order, and a later version assigns the next free prefixes to the types it adds. An abstract type SHALL hold a prefix. A prefix SHALL never be reassigned, renumbered or reused. A version that
-would pass 65,533 declared types in its tenant SHALL be refused with `UGS2005`.
+would pass 65,532 declared types in its tenant, the prefixes 3 to 65,534, SHALL be refused with `UGS2005`; prefix
+65,535 SHALL never be allocated, so the next free prefix and a prefix range's end fit 16 bits.
 
 #### Scenario: The aviation prefixes
 - **WHEN** the aviation schema of `SCHEMA.md` section 16 is installed into an empty tenant
@@ -26,7 +27,7 @@ would pass 65,533 declared types in its tenant SHALL be refused with `UGS2005`.
 - **THEN** the aviation types hold the prefixes 3 to 15, and `zoo`'s types follow from 16
 
 #### Scenario: The prefixes of a tenant run out
-- **WHEN** an Install would give a tenant its 65,534th declared type
+- **WHEN** an Install would give a tenant its 65,533rd declared type, which prefix 65,535 would hold
 - **THEN** it is refused with `UGS2005`, and the tenant's catalog is unchanged
 
 ### Requirement: A type's prefix set is sorted ranges

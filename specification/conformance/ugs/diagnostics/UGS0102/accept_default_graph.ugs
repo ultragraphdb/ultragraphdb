@@ -1,0 +1,10 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Pilot {
+  name: String
+}
+
+graph production : fleet @default
+graph archive    : fleet @base("https://example.org/archive/")

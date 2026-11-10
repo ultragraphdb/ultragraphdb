@@ -1,0 +1,9 @@
+// expect: UGS0112 at 8:20
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+enum Status { active, stored, retired }
+
+entity Aircraft {
+  status: Status = archived
+}

@@ -1,0 +1,20 @@
+{
+  "name": "list-set",
+  "sources": [
+    "collections.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "collections.Basket": 3
+  },
+  "report": [
+    "UGS0901 collections.Basket.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 collections.Basket.update.items path=coordination-free local=true by=none indexes=0",
+    "UGS0901 collections.Basket.update.labels path=coordination-free local=true by=none indexes=0",
+    "UGS0901 collections.Basket.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "code": "UGS0704",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "`@materialized` on a path whose one step is a reverse navigation, read through the participant's referrers in other partitions; the fix colocates the relation on the deriving type's role",
+      "sources": [
+        "reject_reverse_step.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0704",
+          "kind": "error",
+          "file": "reject_reverse_step.ugs",
+          "line": 12,
+          "column": 20,
+          "length": 6,
+          "fix": [
+            {
+              "file": "reject_reverse_step.ugs",
+              "line": 7,
+              "column": 17,
+              "length": 0,
+              "replacement": " @colocate(site)"
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_reverse_step.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "`@materialized` on a path whose first step stays in the anchor partition and whose second step leaves it; the twin drops `@materialized` and the virtual derivation waits for stage 7",
+      "sources": [
+        "reject_second_step.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0704",
+          "kind": "error",
+          "file": "reject_second_step.ugs",
+          "line": 12,
+          "column": 33,
+          "length": 9,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_second_step.ugs"
+        ],
+        "warnings": [
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_second_step.ugs",
+            "line": 12,
+            "column": 13,
+            "length": 10,
+            "fix": null
+          }
+        ]
+      }
+    }
+  ]
+}

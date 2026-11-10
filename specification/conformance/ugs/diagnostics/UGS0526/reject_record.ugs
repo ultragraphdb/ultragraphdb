@@ -1,0 +1,12 @@
+// expect: UGS0526 at 11:24
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+record Point {
+  x: Int32
+  y: Int32
+}
+
+entity Site {
+  origin: Point @index(range)
+}

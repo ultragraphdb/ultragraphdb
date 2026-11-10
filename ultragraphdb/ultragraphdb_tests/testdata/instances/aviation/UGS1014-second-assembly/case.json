@@ -1,0 +1,27 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1014",
+  "name": "an engine made part of a second assembly past assembly?, the anchor role's bound",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }",
+        "insert Aircraft { serial: \"AC-0002\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAB\" }",
+        "insert Engine { serial: \"EN-0001\", commissioned: 2022-01-08, status: active, tags: [\"engine\"], thrust_kn: 120.5 }",
+        "insert PartOf { part: Asset(serial = \"EN-0001\"), whole: Asset(serial = \"AC-0001\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert PartOf { part: Asset(serial = \"EN-0001\"), whole: Asset(serial = \"AC-0002\") }"
+      ],
+      "expect": {
+        "refused": "UGS1014"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

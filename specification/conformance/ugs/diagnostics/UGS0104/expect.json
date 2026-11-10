@@ -1,0 +1,52 @@
+{
+  "code": "UGS0104",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "`@maps_to` naming a prefix no `import` declares",
+      "sources": [
+        "reject_undeclared.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0104",
+          "kind": "error",
+          "file": "reject_undeclared.ugs",
+          "line": 6,
+          "column": 25,
+          "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_undeclared.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "`@maps_to` naming the schema's own `prefix`, which is a vocabulary base and no `import`",
+      "sources": [
+        "reject_own_prefix.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0104",
+          "kind": "error",
+          "file": "reject_own_prefix.ugs",
+          "line": 5,
+          "column": 26,
+          "length": 2,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_own_prefix.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

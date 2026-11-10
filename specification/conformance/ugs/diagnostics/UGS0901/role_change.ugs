@@ -1,0 +1,13 @@
+// expect: compiles
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+abstract entity Logged @append_only {
+  logged: DateTime @index(range)
+}
+entity Entry : Logged
+entity Person
+relation Review @multi {
+  entry:    Entry           -> reviews*
+  reviewer: Person Optional -> reviewed*
+}

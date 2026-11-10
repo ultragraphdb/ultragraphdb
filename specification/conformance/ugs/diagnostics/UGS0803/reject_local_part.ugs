@@ -1,0 +1,8 @@
+// expect: UGS0803 at 7:25
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+import "https://schema.org/" as sdo
+
+entity Company {
+  name: String @maps_to(sdo:legal\Name)
+}

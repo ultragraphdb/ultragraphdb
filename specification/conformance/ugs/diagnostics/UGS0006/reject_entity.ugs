@@ -1,0 +1,7 @@
+// expect: UGS0006 at 5:1
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+Entity Pilot {
+  name: String
+}

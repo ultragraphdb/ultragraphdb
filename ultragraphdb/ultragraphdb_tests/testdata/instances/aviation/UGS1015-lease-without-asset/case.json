@@ -1,0 +1,25 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1015",
+  "name": "a lease created without its required asset role",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Leonardo\" }",
+        "insert Company { name: \"Airbus\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert Lease { lessor: Company(name = \"Leonardo\"), lessee: Company(name = \"Airbus\"), signed: 2022-01-10, term: 2022-01-10 .. 2030-01-01 }"
+      ],
+      "expect": {
+        "refused": "UGS1015"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

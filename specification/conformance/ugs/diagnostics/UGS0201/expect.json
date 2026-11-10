@@ -1,0 +1,152 @@
+{
+  "code": "UGS0201",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a field typed with a built-in type's name in the wrong case",
+      "sources": [
+        "reject_case.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0201",
+          "kind": "error",
+          "file": "reject_case.ugs",
+          "line": 6,
+          "column": 9,
+          "length": 6,
+          "fix": [
+            {
+              "file": "reject_case.ugs",
+              "line": 6,
+              "column": 9,
+              "length": 6,
+              "replacement": "String"
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_case.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a named attribute type over an undeclared type",
+      "sources": [
+        "reject_named.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0201",
+          "kind": "error",
+          "file": "reject_named.ugs",
+          "line": 5,
+          "column": 18,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_named.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a type argument naming an undeclared type",
+      "sources": [
+        "reject_argument.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0201",
+          "kind": "error",
+          "file": "reject_argument.ugs",
+          "line": 6,
+          "column": 13,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_argument.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a parent naming an undeclared type",
+      "sources": [
+        "reject_parent.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0201",
+          "kind": "error",
+          "file": "reject_parent.ugs",
+          "line": 5,
+          "column": 17,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_parent.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a participant naming an undeclared type",
+      "sources": [
+        "reject_participant.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0201",
+          "kind": "error",
+          "file": "reject_participant.ugs",
+          "line": 8,
+          "column": 13,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_participant.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a computed derivation declaring an undeclared type",
+      "sources": [
+        "reject_derivation.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0201",
+          "kind": "error",
+          "file": "reject_derivation.ugs",
+          "line": 9,
+          "column": 20,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_derivation.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

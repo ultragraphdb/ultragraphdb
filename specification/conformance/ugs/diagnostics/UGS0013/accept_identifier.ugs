@@ -1,0 +1,7 @@
+// expect: compiles
+schema sensors version 1
+prefix se = "https://example.org/sensors#"
+
+entity Sensor {
+  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: Int32
+}

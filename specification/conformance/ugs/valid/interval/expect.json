@@ -1,0 +1,21 @@
+{
+  "name": "interval",
+  "sources": [
+    "intervals.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "intervals.Event": 3
+  },
+  "report": [
+    "UGS0901 intervals.Event.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 intervals.Event.update.days path=coordination-free local=true by=none indexes=0",
+    "UGS0901 intervals.Event.update.span path=coordination-free local=true by=none indexes=0",
+    "UGS0901 intervals.Event.update.window path=coordination-free local=true by=none indexes=0",
+    "UGS0901 intervals.Event.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

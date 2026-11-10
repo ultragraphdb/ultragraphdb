@@ -1,0 +1,29 @@
+{
+  "name": "relation-nary",
+  "sources": [
+    "relation_nary.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "relation_nary.Seller": 3,
+    "relation_nary.Buyer": 4,
+    "relation_nary.Item": 5,
+    "relation_nary.Sale": 6
+  },
+  "report": [
+    "UGS0901 relation_nary.Buyer.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_nary.Buyer.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 relation_nary.Item.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_nary.Item.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 relation_nary.Sale.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 relation_nary.Sale.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_nary.Seller.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_nary.Seller.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0905 relation_nary.Buyer.purchases relation=relation_nary.Sale role=buyer",
+    "UGS0905 relation_nary.Item.sold_in relation=relation_nary.Sale role=item"
+  ]
+}

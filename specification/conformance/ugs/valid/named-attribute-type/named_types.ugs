@@ -1,0 +1,9 @@
+// expect: compiles
+schema named_types version 1
+prefix nt = "https://example.org/named_types#"
+
+attribute Code = String @pattern("[A-Z]{3}") @index(range)
+
+entity Airport {
+  code: Code
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1029",
+  "name": "a write of db:closed, Asserted's materialized computed derivation, is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { id: \"ORG:acme\", rank: normal }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "closed.nq",
+      "expect": {
+        "refused": "UGS1029"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

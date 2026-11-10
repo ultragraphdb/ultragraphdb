@@ -1,0 +1,16 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1010",
+  "name": "a Person with a label, which Person's @check(label is none and description is none) refuses",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Person { id: \"AGENT:p0\", label: \"Ada\" }"
+      ],
+      "expect": {
+        "refused": "UGS1010"
+      }
+    }
+  ]
+}

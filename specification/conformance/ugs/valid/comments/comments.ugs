@@ -1,0 +1,11 @@
+// expect: compiles
+/* a block comment /* nested in it */ still the block */
+/// The schema's documentation.
+schema comments version 1
+prefix cm = "https://example.org/comments#"
+
+/// A documented entity.
+entity Note {
+  /// The note's text.
+  body: String // a trailing line comment
+}

@@ -1,0 +1,14 @@
+// expect: compiles
+// The two ways a member holds an item.
+module loans version 1 extends library >= 1
+prefix loans = "https://example.org/loans#"
+
+/// An item lent to a member until it is due.
+relation Loan : Holds {
+  due: Date @index(range)
+}
+
+/// An item set aside for a member.
+relation Reservation : Holds {
+  placed: Date
+}

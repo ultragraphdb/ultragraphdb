@@ -1,0 +1,3 @@
+<https://example.org/deep_brain#Node/AGENT%3Aacme> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Aacme> <https://example.org/deep_brain#id> "AGENT:acme" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Aacme> <https://example.org/deep_brain#identifiers> "LEI-5299001" <https://example.org/deep_brain#ontology> .

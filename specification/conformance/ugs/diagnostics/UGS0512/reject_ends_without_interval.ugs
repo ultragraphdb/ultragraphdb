@@ -1,0 +1,13 @@
+// expect: UGS0512 at 10:19
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Plan @valid(term) {
+  name: String
+  term: Interval<Date>
+}
+
+relation Replaces @ends(old) {
+  old: Plan -> replaced_by*
+  new: Plan -> replaces*
+}

@@ -1,0 +1,24 @@
+{
+  "name": "index-range",
+  "sources": [
+    "index_range.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "index_range.Product": 3
+  },
+  "report": [
+    "UGS0901 index_range.Product.create path=coordination-free local=true by=none indexes=2",
+    "UGS0901 index_range.Product.update.sku path=coordination-free local=true by=none indexes=2",
+    "UGS0901 index_range.Product.update.tags path=coordination-free local=true by=none indexes=2",
+    "UGS0901 index_range.Product.delete path=coordination-free local=true by=none indexes=2",
+    "UGS0906 index_range.Product.create indexes=2 rank=1",
+    "UGS0906 index_range.Product.delete indexes=2 rank=4",
+    "UGS0906 index_range.Product.update.sku indexes=2 rank=2",
+    "UGS0906 index_range.Product.update.tags indexes=2 rank=3"
+  ]
+}

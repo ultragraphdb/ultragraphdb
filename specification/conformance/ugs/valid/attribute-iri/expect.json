@@ -1,0 +1,19 @@
+{
+  "name": "attribute-iri",
+  "sources": [
+    "attribute_iris.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "attribute_iris.Person": 3
+  },
+  "report": [
+    "UGS0901 attribute_iris.Person.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 attribute_iris.Person.update.label path=coordination-free local=true by=none indexes=0",
+    "UGS0901 attribute_iris.Person.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

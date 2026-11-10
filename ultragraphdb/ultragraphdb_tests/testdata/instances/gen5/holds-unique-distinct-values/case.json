@@ -1,0 +1,18 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1009",
+  "name": "contextoid_id and context_id values distinct across their trees",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Object { id: \"OBJ:o1\", contextoid_id: 9223372036854775809 }",
+        "insert Concept { id: \"CON:c1\", contextoid_id: 9223372036854775810 }",
+        "insert Context { id: \"CTX:a\", context_id: 7 }",
+        "insert Context { id: \"CTX:b\", context_id: 8 }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

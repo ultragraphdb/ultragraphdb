@@ -1,0 +1,5 @@
+_:x <https://example.org/aviation#serial> "XX-0001" <https://example.org/aviation#production> .
+_:x <https://example.org/aviation#commissioned> "2022-01-08"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .
+_:x <https://example.org/aviation#status> "active" <https://example.org/aviation#production> .
+_:x <https://example.org/aviation#tags> "fleet" <https://example.org/aviation#production> .
+_:x <https://example.org/aviation#thrust_kn> "120.5"^^<http://www.w3.org/2001/XMLSchema#double> <https://example.org/aviation#production> .

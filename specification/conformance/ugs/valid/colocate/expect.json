@@ -1,0 +1,27 @@
+{
+  "name": "colocate",
+  "sources": [
+    "colocate.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "colocate.Person": 3,
+    "colocate.Account": 4,
+    "colocate.Owns": 5
+  },
+  "report": [
+    "UGS0901 colocate.Account.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 colocate.Account.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 colocate.Owns.insert path=segmented local=true by=cardinality indexes=1",
+    "UGS0901 colocate.Owns.delete path=coordination-free local=true by=none indexes=1",
+    "UGS0901 colocate.Person.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 colocate.Person.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0905 colocate.Person.accounts relation=colocate.Owns role=owner",
+    "UGS0906 colocate.Owns.delete indexes=1 rank=2",
+    "UGS0906 colocate.Owns.insert indexes=1 rank=1"
+  ]
+}

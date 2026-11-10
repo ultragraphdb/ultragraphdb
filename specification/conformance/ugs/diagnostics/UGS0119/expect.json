@@ -1,0 +1,72 @@
+{
+  "code": "UGS0119",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a function body naming a field its type lacks",
+      "sources": [
+        "reject_field.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0119",
+          "kind": "error",
+          "file": "reject_field.ugs",
+          "line": 9,
+          "column": 33,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_field.ugs"
+        ],
+        "warnings": [
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_field.ugs",
+            "line": 9,
+            "column": 12,
+            "length": 7,
+            "fix": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "a filter naming a subtype's field without first narrowing the element with `is`",
+      "sources": [
+        "reject_subtype_field.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0119",
+          "kind": "error",
+          "file": "reject_subtype_field.ugs",
+          "line": 20,
+          "column": 46,
+          "length": 9,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_subtype_field.ugs"
+        ],
+        "warnings": [
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_subtype_field.ugs",
+            "line": 20,
+            "column": 10,
+            "length": 14,
+            "fix": null
+          }
+        ]
+      }
+    }
+  ]
+}

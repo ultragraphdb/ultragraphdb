@@ -1,0 +1,24 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1023",
+  "name": "a Reading created without a GeneratedBy breaks the lower bound its type selects",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Activity { id: \"ACT:a1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "reading.nq",
+      "uql": [
+        "insert Reading { valid: 2026-01-01T00:00:00Z .. 2026-01-01T00:00:01Z, text: \"ok\" }"
+      ],
+      "expect": {
+        "refused": "UGS1023"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

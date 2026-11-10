@@ -1,0 +1,66 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1022",
+  "name": "a 17th PartOf appended to a chain of 16 makes a path longer than max_depth 16",
+  "steps": [
+    {
+      "insert": "root.nq",
+      "uql": [
+        "insert Avionics { serial: \"CHAIN-0\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "generate": {
+        "from": 1,
+        "to": 16,
+        "insert": "chain-line.nq"
+      },
+      "uql": [
+        "insert Avionics { serial: \"CHAIN-1\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-1\"), whole: Avionics(serial = \"CHAIN-0\") }",
+        "insert Avionics { serial: \"CHAIN-2\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-2\"), whole: Avionics(serial = \"CHAIN-1\") }",
+        "insert Avionics { serial: \"CHAIN-3\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-3\"), whole: Avionics(serial = \"CHAIN-2\") }",
+        "insert Avionics { serial: \"CHAIN-4\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-4\"), whole: Avionics(serial = \"CHAIN-3\") }",
+        "insert Avionics { serial: \"CHAIN-5\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-5\"), whole: Avionics(serial = \"CHAIN-4\") }",
+        "insert Avionics { serial: \"CHAIN-6\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-6\"), whole: Avionics(serial = \"CHAIN-5\") }",
+        "insert Avionics { serial: \"CHAIN-7\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-7\"), whole: Avionics(serial = \"CHAIN-6\") }",
+        "insert Avionics { serial: \"CHAIN-8\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-8\"), whole: Avionics(serial = \"CHAIN-7\") }",
+        "insert Avionics { serial: \"CHAIN-9\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-9\"), whole: Avionics(serial = \"CHAIN-8\") }",
+        "insert Avionics { serial: \"CHAIN-10\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-10\"), whole: Avionics(serial = \"CHAIN-9\") }",
+        "insert Avionics { serial: \"CHAIN-11\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-11\"), whole: Avionics(serial = \"CHAIN-10\") }",
+        "insert Avionics { serial: \"CHAIN-12\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-12\"), whole: Avionics(serial = \"CHAIN-11\") }",
+        "insert Avionics { serial: \"CHAIN-13\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-13\"), whole: Avionics(serial = \"CHAIN-12\") }",
+        "insert Avionics { serial: \"CHAIN-14\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-14\"), whole: Avionics(serial = \"CHAIN-13\") }",
+        "insert Avionics { serial: \"CHAIN-15\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-15\"), whole: Avionics(serial = \"CHAIN-14\") }",
+        "insert Avionics { serial: \"CHAIN-16\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-16\"), whole: Avionics(serial = \"CHAIN-15\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "append.nq",
+      "uql": [
+        "insert Avionics { serial: \"CHAIN-17\", commissioned: 2026-10-30, status: active, tags: [\"chain\"] }",
+        "insert PartOf { part: Avionics(serial = \"CHAIN-17\"), whole: Avionics(serial = \"CHAIN-16\") }"
+      ],
+      "expect": {
+        "refused": "UGS1022"
+      }
+    }
+  ]
+}

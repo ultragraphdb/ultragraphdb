@@ -1,0 +1,9 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Ticket {
+  due: Date
+}
+
+fn Ticket.overdue(day: Date) -> Bool = due < day

@@ -1,0 +1,14 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Stop {
+  name: String
+}
+
+relation Leg {
+  origin:      Stop -> next*
+  destination: Stop -> previous*
+}
+
+derive Stop.reachable = next+

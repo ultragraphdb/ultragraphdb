@@ -1,0 +1,9 @@
+// expect: compiles
+schema enums version 1
+prefix en = "https://example.org/enums#"
+
+enum Status { active, retired }
+
+entity Asset {
+  status: Status = active
+}

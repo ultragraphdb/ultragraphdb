@@ -1,0 +1,60 @@
+{
+  "code": "UGS0301",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a key naming an Optional attribute",
+      "sources": [
+        "reject_own.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0301",
+          "kind": "error",
+          "file": "reject_own.ugs",
+          "line": 6,
+          "column": 16,
+          "length": 8,
+          "fix": [
+            {
+              "file": "reject_own.ugs",
+              "line": 6,
+              "column": 15,
+              "length": 9,
+              "replacement": ""
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_own.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a key naming an inherited Optional attribute",
+      "sources": [
+        "reject_inherited.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0301",
+          "kind": "error",
+          "file": "reject_inherited.ugs",
+          "line": 6,
+          "column": 16,
+          "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_inherited.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+enum SourceKind { file, log_record, stream }

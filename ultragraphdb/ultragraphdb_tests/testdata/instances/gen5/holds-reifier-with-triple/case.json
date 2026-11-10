@@ -1,0 +1,23 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1034",
+  "name": "an IsAbout written as its triple with its reifier commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Document { id: \"DOC:d1\" }",
+        "insert Concept { id: \"CON:c1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "isabout.nq",
+      "uql": [
+        "insert IsAbout { information: Document(id = \"DOC:d1\"), topic: Concept(id = \"CON:c1\") }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

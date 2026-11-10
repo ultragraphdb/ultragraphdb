@@ -1,0 +1,19 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1012",
+  "name": "a revision replacing a ProposedKind's @immutable supertype",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "delete": "break-delete.nq",
+      "expect": {
+        "refused": "UGS1012"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

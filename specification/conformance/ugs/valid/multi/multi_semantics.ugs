@@ -1,0 +1,11 @@
+// expect: compiles
+schema multi_semantics version 1
+prefix ms = "https://example.org/multi_semantics#"
+
+entity Sensor
+entity Station
+
+relation Reading @multi {
+  sensor:  Sensor  -> readings*
+  station: Station -> station_readings*
+}

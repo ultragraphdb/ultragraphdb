@@ -1,0 +1,22 @@
+{
+  "name": "index-interval",
+  "sources": [
+    "index_interval.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "index_interval.Booking": 3
+  },
+  "report": [
+    "UGS0901 index_interval.Booking.create path=coordination-free local=true by=none indexes=2",
+    "UGS0901 index_interval.Booking.update.period path=coordination-free local=true by=none indexes=4",
+    "UGS0901 index_interval.Booking.delete path=coordination-free local=true by=none indexes=2",
+    "UGS0906 index_interval.Booking.create indexes=2 rank=2",
+    "UGS0906 index_interval.Booking.delete indexes=2 rank=3",
+    "UGS0906 index_interval.Booking.update.period indexes=4 rank=1"
+  ]
+}

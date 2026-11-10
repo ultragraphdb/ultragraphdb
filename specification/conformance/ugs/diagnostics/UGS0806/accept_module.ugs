@@ -1,0 +1,5 @@
+// expect: compiles
+module gadgets version 1 extends depot >= 1
+prefix gd = "https://example.org/gadgets#"
+
+entity Gadget : Device

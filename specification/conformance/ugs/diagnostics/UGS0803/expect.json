@@ -1,0 +1,52 @@
+{
+  "code": "UGS0803",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "`@maps_to` naming a relative IRI",
+      "sources": [
+        "reject_relative_iri.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0803",
+          "kind": "error",
+          "file": "reject_relative_iri.ugs",
+          "line": 6,
+          "column": 25,
+          "length": 11,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_relative_iri.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "`@maps_to` naming a CURIE whose local part holds an escape PN_LOCAL lacks, `\\N`",
+      "sources": [
+        "reject_local_part.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0803",
+          "kind": "error",
+          "file": "reject_local_part.ugs",
+          "line": 7,
+          "column": 25,
+          "length": 14,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_local_part.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "code": "UGS0526",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@index(range) on a Geo",
+      "sources": ["reject_geo.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0526", "kind": "error",
+          "file": "reject_geo.ugs", "line": 6, "column": 20, "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_geo.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@index(range) on a List, which no member index covers",
+      "sources": ["reject_list.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0526", "kind": "error",
+          "file": "reject_list.ugs", "line": 6, "column": 30, "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_list.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@index(range) on a record",
+      "sources": ["reject_record.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0526", "kind": "error",
+          "file": "reject_record.ugs", "line": 11, "column": 24, "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_record.ugs"], "warnings": [] }
+    }
+  ]
+}

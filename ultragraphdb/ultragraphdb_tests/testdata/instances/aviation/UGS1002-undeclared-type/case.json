@@ -1,0 +1,13 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1002",
+  "name": "a blank node typed with a class the schema does not declare",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1002"
+      }
+    }
+  ]
+}

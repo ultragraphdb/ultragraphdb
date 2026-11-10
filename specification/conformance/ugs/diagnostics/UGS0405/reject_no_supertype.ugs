@@ -1,0 +1,10 @@
+// expect: UGS0405 at 8:18
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Doc { title: String }
+
+relation Cites {
+  citing: Doc as source -> cites*
+  cited:  Doc -> cited_by*
+}

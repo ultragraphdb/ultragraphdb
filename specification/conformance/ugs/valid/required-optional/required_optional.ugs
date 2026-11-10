@@ -1,0 +1,8 @@
+// expect: compiles
+schema required_optional version 1
+prefix ro = "https://example.org/required_optional#"
+
+entity Contact {
+  name:  String
+  phone: String Optional
+}

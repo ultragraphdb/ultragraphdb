@@ -1,0 +1,9 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Item {
+  weight: Int32
+}
+
+derive Item.heavy: Bool = weight > 10

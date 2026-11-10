@@ -1,0 +1,30 @@
+{
+  "name": "relation-inheritance",
+  "sources": [
+    "relation_inheritance.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "relation_inheritance.Org": 3,
+    "relation_inheritance.Person": 4,
+    "relation_inheritance.Affiliation": 5,
+    "relation_inheritance.Employment": 6,
+    "relation_inheritance.Membership": 7
+  },
+  "report": [
+    "UGS0901 relation_inheritance.Employment.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 relation_inheritance.Employment.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_inheritance.Membership.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 relation_inheritance.Membership.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_inheritance.Org.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_inheritance.Org.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_inheritance.Person.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_inheritance.Person.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0905 relation_inheritance.Person.affiliated relation=relation_inheritance.Affiliation role=member",
+    "UGS0905 relation_inheritance.Person.jobs relation=relation_inheritance.Employment role=employee"
+  ]
+}

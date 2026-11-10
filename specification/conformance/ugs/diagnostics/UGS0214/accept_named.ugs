@@ -1,0 +1,9 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+attribute Percent = Int32 @range(0, 100)
+
+entity Share {
+  portion: Percent @range(0, 50)
+}

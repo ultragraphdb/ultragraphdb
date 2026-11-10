@@ -1,0 +1,11 @@
+// expect: UGS0601 at 9:12
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Item { name: String }
+entity Auditor @append_only { name: String }
+
+relation Audited @append_only {
+  item:    Item    -> audits*
+  auditor: Auditor -> audited*
+} @on_delete(item: cascade)

@@ -1,0 +1,10 @@
+// expect: UGS0504 at 7:37
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Part { name: String }
+
+relation PartOf @acyclic(max_depth: 0) {
+  part:  Part -> assemblies*
+  whole: Part -> parts*
+}

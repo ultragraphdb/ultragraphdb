@@ -1,0 +1,11 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+abstract entity Asset {
+  code: String Optional @immutable
+}
+
+entity Engine : Asset {
+  code: String @immutable
+}

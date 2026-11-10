@@ -1,0 +1,108 @@
+{
+  "code": "UGS0227",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a computed derivation reading a navigation",
+      "sources": [
+        "reject_navigation.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0227",
+          "kind": "error",
+          "file": "reject_navigation.ugs",
+          "line": 19,
+          "column": 34,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_navigation.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a computed derivation on a relation reading a role",
+      "sources": [
+        "reject_role.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0227",
+          "kind": "error",
+          "file": "reject_role.ugs",
+          "line": 20,
+          "column": 30,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_role.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a computed derivation reading the instances of a type",
+      "sources": [
+        "reject_instances.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0227",
+          "kind": "error",
+          "file": "reject_instances.ugs",
+          "line": 10,
+          "column": 34,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_instances.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a computed derivation calling a function that reads a navigation",
+      "sources": [
+        "reject_function.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0227",
+          "kind": "error",
+          "file": "reject_function.ugs",
+          "line": 21,
+          "column": 32,
+          "length": 11,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_function.ugs"
+        ],
+        "warnings": [
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_function.ugs",
+            "line": 19,
+            "column": 11,
+            "length": 9,
+            "fix": null
+          }
+        ]
+      }
+    }
+  ]
+}

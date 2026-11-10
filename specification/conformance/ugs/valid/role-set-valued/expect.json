@@ -1,0 +1,26 @@
+{
+  "name": "role-set-valued",
+  "sources": [
+    "role_set_valued.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "role_set_valued.Meeting": 3,
+    "role_set_valued.Person": 4,
+    "role_set_valued.Attendance": 5
+  },
+  "report": [
+    "UGS0901 role_set_valued.Attendance.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 role_set_valued.Attendance.role.attendees path=coordination-free local=true by=none indexes=0",
+    "UGS0901 role_set_valued.Attendance.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 role_set_valued.Meeting.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 role_set_valued.Meeting.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 role_set_valued.Person.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 role_set_valued.Person.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0905 role_set_valued.Person.meetings relation=role_set_valued.Attendance role=attendees"
+  ]
+}

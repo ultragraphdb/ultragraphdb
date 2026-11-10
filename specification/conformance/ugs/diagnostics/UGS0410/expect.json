@@ -1,0 +1,18 @@
+{
+  "code": "UGS0410",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a specialized union with a member outside the super role's type tree",
+      "sources": ["reject.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0410", "kind": "error",
+          "file": "reject.ugs", "line": 16, "column": 19, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept.ugs"], "warnings": [] }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+// expect: UGS0526 at 6:30
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Player {
+  scores: List<Int32> @index(range)
+}

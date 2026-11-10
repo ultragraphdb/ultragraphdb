@@ -1,0 +1,11 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Reading { value: Float64 }
+entity Sensor  { name: String }
+
+relation MadeBy {
+  reading: Reading -> made_by*
+  sensor:  Sensor  -> readings*
+} @limit(count() >= 1 per reading)

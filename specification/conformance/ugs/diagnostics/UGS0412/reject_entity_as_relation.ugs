@@ -1,0 +1,10 @@
+// expect: UGS0412 at 9:32
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Person { name: String }
+
+entity Policy {
+  name:    String
+  applies: schema.RelationType<Person>
+}

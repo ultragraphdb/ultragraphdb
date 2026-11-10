@@ -1,0 +1,9 @@
+// expect: compiles
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Paper
+relation Cites {
+  citing: Paper -> cites*
+  cited:  Paper -> cited_by*
+}

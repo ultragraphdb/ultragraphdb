@@ -1,0 +1,24 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1008",
+  "name": "an Engine created with the serial a live Aircraft holds: one key space across Asset's tree",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert Engine { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"engine\"], thrust_kn: 120.5 }"
+      ],
+      "expect": {
+        "refused": "UGS1008"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

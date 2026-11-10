@@ -1,0 +1,7 @@
+// expect: compiles
+schema alpha version 1
+prefix al = "https://example.org/shared#"
+
+entity Item {
+  name: String
+}

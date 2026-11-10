@@ -1,0 +1,209 @@
+{
+  "code": "UGS0102",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "two types of one name",
+      "sources": [
+        "reject_type.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0102",
+          "kind": "error",
+          "file": "reject_type.ugs",
+          "line": 8,
+          "column": 8,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_type.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "two attributes of one name in one type",
+      "sources": [
+        "reject_attribute.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0102",
+          "kind": "error",
+          "file": "reject_attribute.ugs",
+          "line": 7,
+          "column": 3,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_attribute.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a second `prefix` in one schema",
+      "sources": [
+        "reject_prefix.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0102",
+          "kind": "error",
+          "file": "reject_prefix.ugs",
+          "line": 4,
+          "column": 8,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_prefix.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a second graph carrying `@default`",
+      "sources": [
+        "reject_default_graph.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0102",
+          "kind": "error",
+          "file": "reject_default_graph.ugs",
+          "line": 10,
+          "column": 64,
+          "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_default_graph.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "two imports under one prefix",
+      "sources": [
+        "reject_import_prefix.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0102",
+          "kind": "error",
+          "file": "reject_import_prefix.ugs",
+          "line": 5,
+          "column": 40,
+          "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_import_prefix.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a record declared under a scalar type's name, a clash with a built-in",
+      "sources": [
+        "reject_builtin.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0102",
+          "kind": "error",
+          "file": "reject_builtin.ugs",
+          "line": 5,
+          "column": 8,
+          "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_builtin.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "two units of one name, within the units' own name space",
+      "sources": [
+        "reject_unit.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0102",
+          "kind": "error",
+          "file": "reject_unit.ugs",
+          "line": 8,
+          "column": 6,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_unit.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "two free functions of one name",
+      "sources": [
+        "reject_free_function.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0102",
+          "kind": "error",
+          "file": "reject_free_function.ugs",
+          "line": 10,
+          "column": 4,
+          "length": 13,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_free_function.ugs"
+        ],
+        "warnings": [
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_free_function.ugs",
+            "line": 9,
+            "column": 4,
+            "length": 13,
+            "fix": null
+          },
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_free_function.ugs",
+            "line": 10,
+            "column": 4,
+            "length": 14,
+            "fix": null
+          }
+        ]
+      }
+    }
+  ]
+}

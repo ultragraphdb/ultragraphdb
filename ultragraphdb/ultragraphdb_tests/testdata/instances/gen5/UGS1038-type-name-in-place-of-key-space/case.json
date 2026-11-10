@@ -1,0 +1,21 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1038",
+  "name": "a Company created under db:Company/ORG%3Abeta, where its key mints db:Node/ORG%3Abeta, is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { id: \"ORG:acme\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1038"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

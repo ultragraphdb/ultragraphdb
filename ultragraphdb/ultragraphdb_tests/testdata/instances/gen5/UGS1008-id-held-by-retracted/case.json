@@ -1,0 +1,35 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1008",
+  "name": "an Object created with the id of a retracted Object: a @bitemporal type's key claim is permanent",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "uql": [
+        "insert Object { id: \"OBJ:o1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "operations": [
+        {
+          "kind": "retract",
+          "iri": "https://example.org/deep_brain#Node/OBJ%3Ao1"
+        }
+      ],
+      "uql": [
+        "retract Object(id = \"OBJ:o1\")"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert Object { id: \"OBJ:o1\" }"
+      ],
+      "expect": {
+        "refused": "UGS1008"
+      }
+    }
+  ]
+}

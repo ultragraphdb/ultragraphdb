@@ -1,0 +1,30 @@
+{
+  "code": "UGS0503",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@acyclic on a relation of three roles",
+      "sources": ["reject_not_binary.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0503", "kind": "error",
+          "file": "reject_not_binary.ugs", "line": 7, "column": 21, "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_not_binary.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@acyclic on a binary relation whose participant types share no supertype",
+      "sources": ["reject_no_common_supertype.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0503", "kind": "error",
+          "file": "reject_no_common_supertype.ugs", "line": 9, "column": 16, "length": 8,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_no_common_supertype.ugs"], "warnings": [] }
+    }
+  ]
+}

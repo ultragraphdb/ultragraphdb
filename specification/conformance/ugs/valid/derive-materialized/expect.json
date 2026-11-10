@@ -1,0 +1,25 @@
+{
+  "name": "derive-materialized",
+  "sources": [
+    "derive_materialized.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "derive_materialized.Person": 3,
+    "derive_materialized.Account": 4,
+    "derive_materialized.Holds": 5
+  },
+  "report": [
+    "UGS0901 derive_materialized.Account.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 derive_materialized.Account.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 derive_materialized.Holds.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 derive_materialized.Holds.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 derive_materialized.Person.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 derive_materialized.Person.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0905 derive_materialized.Account.holders relation=derive_materialized.Holds role=account"
+  ]
+}

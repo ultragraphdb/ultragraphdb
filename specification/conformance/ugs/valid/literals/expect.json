@@ -1,0 +1,32 @@
+{
+  "name": "literals",
+  "sources": [
+    "literals.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "literals.Sample": 3
+  },
+  "report": [
+    "UGS0901 literals.Sample.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.active path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.big path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.clock path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.day path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.era path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.home path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.local path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.motto path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.price path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.share path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.span path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.stamp path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.term path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.update.tiny path=coordination-free local=true by=none indexes=0",
+    "UGS0901 literals.Sample.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

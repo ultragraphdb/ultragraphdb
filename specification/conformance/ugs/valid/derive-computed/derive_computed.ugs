@@ -1,0 +1,10 @@
+// expect: compiles
+schema derive_computed version 1
+prefix dc = "https://example.org/derive_computed#"
+
+entity Task {
+  done:    Bool
+  blocked: Bool
+}
+
+derive Task.active: Bool = not done and not blocked

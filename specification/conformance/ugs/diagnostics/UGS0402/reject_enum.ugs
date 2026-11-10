@@ -1,0 +1,12 @@
+// expect: UGS0402 at 11:11
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+enum Status { active, retired }
+
+entity Person { name: String }
+
+relation HasStatus {
+  person: Person -> statuses*
+  status: Status -> holders*
+}

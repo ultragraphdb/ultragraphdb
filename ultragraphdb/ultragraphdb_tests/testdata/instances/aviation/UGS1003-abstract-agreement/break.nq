@@ -1,0 +1,4 @@
+_:a <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Agreement> <https://example.org/aviation#production> .
+_:a <https://example.org/aviation#Agreement_party> <https://example.org/aviation#Organization/Leonardo> <https://example.org/aviation#production> .
+_:a <https://example.org/aviation#Agreement_counterparty> <https://example.org/aviation#Organization/Airbus> <https://example.org/aviation#production> .
+_:a <https://example.org/aviation#signed> "2022-01-09"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .

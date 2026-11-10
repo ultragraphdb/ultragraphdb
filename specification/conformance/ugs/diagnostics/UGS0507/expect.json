@@ -1,0 +1,30 @@
+{
+  "code": "UGS0507",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a @limit condition reading a participant's key attribute",
+      "sources": ["reject_participant_attribute.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0507", "kind": "error",
+          "file": "reject_participant_attribute.ugs", "line": 12, "column": 39, "length": 11,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_participant_attribute.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a @limit condition reading a participant's navigation",
+      "sources": ["reject_participant_navigation.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0507", "kind": "error",
+          "file": "reject_participant_navigation.ugs", "line": 12, "column": 46, "length": 12,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_participant_navigation.ugs"], "warnings": [] }
+    }
+  ]
+}

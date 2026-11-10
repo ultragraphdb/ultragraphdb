@@ -1,0 +1,12 @@
+// expect: UGS0308 at 11:17
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+record Point {
+  x: Float64
+  y: Float64
+}
+
+entity Site {
+  origin: Point @unique
+}

@@ -1,0 +1,30 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1025",
+  "name": "a revision replacing the member of a MemberOf, a required single-valued role, is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Organization { id: \"ORG:acme\" }",
+        "insert Person { id: \"AGENT:p1\" }",
+        "insert Person { id: \"AGENT:p2\" }",
+        "insert RoleKind { id: \"KIND:engineer\" }",
+        "insert RoleKind { id: \"KIND:lead\" }",
+        "insert MemberOf { member: Person(id = \"AGENT:p1\"), collection: Organization(id = \"ORG:acme\"), role: RoleKind(id = \"KIND:engineer\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "replace-member.nq",
+      "delete": "replace-member-old.nq",
+      "uql": [
+        "update MemberOf(member: Person(id = \"AGENT:p1\"), collection: Organization(id = \"ORG:acme\")) { member: Person(id = \"AGENT:p2\") }"
+      ],
+      "expect": {
+        "refused": "UGS1025"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

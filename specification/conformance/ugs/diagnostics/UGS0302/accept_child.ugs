@@ -1,0 +1,11 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+abstract entity Asset @key(serial) {
+  serial: String
+}
+
+entity Engine : Asset {
+  engine_no: String
+}

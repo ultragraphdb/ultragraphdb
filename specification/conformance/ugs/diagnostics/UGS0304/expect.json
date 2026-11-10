@@ -1,0 +1,144 @@
+{
+  "code": "UGS0304",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a template omitting a key attribute",
+      "sources": [
+        "reject_omitted.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0304",
+          "kind": "error",
+          "file": "reject_omitted.ugs",
+          "line": 8,
+          "column": 8,
+          "length": 38,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_omitted.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a template naming a key attribute twice",
+      "sources": [
+        "reject_repeated.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0304",
+          "kind": "error",
+          "file": "reject_repeated.ugs",
+          "line": 8,
+          "column": 46,
+          "length": 9,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_repeated.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a template naming an attribute outside the key",
+      "sources": [
+        "reject_not_key.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0304",
+          "kind": "error",
+          "file": "reject_not_key.ugs",
+          "line": 9,
+          "column": 55,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_not_key.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a template with two placeholders and no text between them",
+      "sources": [
+        "reject_adjacent.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0304",
+          "kind": "error",
+          "file": "reject_adjacent.ugs",
+          "line": 8,
+          "column": 36,
+          "length": 17,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_adjacent.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a template separating placeholders by unreserved characters only",
+      "sources": [
+        "reject_unreserved.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0304",
+          "kind": "error",
+          "file": "reject_unreserved.ugs",
+          "line": 8,
+          "column": 45,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_unreserved.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a template that is not an absolute IRI",
+      "sources": [
+        "reject_relative.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0304",
+          "kind": "error",
+          "file": "reject_relative.ugs",
+          "line": 8,
+          "column": 8,
+          "length": 27,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_relative.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

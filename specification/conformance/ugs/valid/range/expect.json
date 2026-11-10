@@ -1,0 +1,20 @@
+{
+  "name": "range",
+  "sources": [
+    "ranges.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "ranges.Sensor": 3
+  },
+  "report": [
+    "UGS0901 ranges.Sensor.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 ranges.Sensor.update.level path=coordination-free local=true by=none indexes=0",
+    "UGS0901 ranges.Sensor.update.reading path=coordination-free local=true by=none indexes=0",
+    "UGS0901 ranges.Sensor.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

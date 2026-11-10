@@ -1,0 +1,11 @@
+// expect: compiles
+schema role_set_valued version 1
+prefix rsv = "https://example.org/role_set_valued#"
+
+entity Meeting
+entity Person
+
+relation Attendance {
+  meeting:   Meeting  -> attendances*
+  attendees: [Person] -> meetings*
+}

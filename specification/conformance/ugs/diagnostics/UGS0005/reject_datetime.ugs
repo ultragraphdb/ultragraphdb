@@ -1,0 +1,7 @@
+// expect: UGS0005 at 6:25
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Airport {
+  certified: DateTime = 2026-11-01T12:61:00Z
+}

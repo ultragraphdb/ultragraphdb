@@ -1,0 +1,11 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+abstract entity Asset {
+  load: Int32 @range(0, 100)
+}
+
+entity Crane : Asset {
+  load: Int32 @range(0, 50)
+}

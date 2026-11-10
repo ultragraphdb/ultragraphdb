@@ -1,0 +1,19 @@
+{
+  "name": "open-enum",
+  "sources": [
+    "open_enum.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "open_enum.Paint": 3
+  },
+  "report": [
+    "UGS0901 open_enum.Paint.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 open_enum.Paint.update.color path=coordination-free local=true by=none indexes=0",
+    "UGS0901 open_enum.Paint.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

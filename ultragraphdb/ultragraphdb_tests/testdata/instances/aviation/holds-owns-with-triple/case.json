@@ -1,0 +1,23 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1034",
+  "name": "an Owns written as its triple with its reifier holding since commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }",
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"], tail_number: \"D-A0001\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "owns.nq",
+      "uql": [
+        "insert Owns { owner: Company(name = \"Alpha\"), asset: Aircraft(serial = \"AC-0001\"), since: 2026-11-01 }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

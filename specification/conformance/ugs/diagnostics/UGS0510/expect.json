@@ -1,0 +1,46 @@
+{
+  "code": "UGS0510",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@valid beside @bitemporal naming the same attribute",
+      "sources": ["reject_same_attribute.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0510", "kind": "error",
+          "file": "reject_same_attribute.ugs", "line": 5, "column": 39, "length": 13,
+          "fix": [
+            { "file": "reject_same_attribute.ugs", "line": 5, "column": 38, "length": 14, "replacement": "" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_same_attribute.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@valid beside @bitemporal naming another attribute",
+      "sources": ["reject_other_attribute.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0510", "kind": "error",
+          "file": "reject_other_attribute.ugs", "line": 5, "column": 39, "length": 17,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_other_attribute.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@valid on a subtype of a @bitemporal type",
+      "sources": ["reject_subtype.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0510", "kind": "error",
+          "file": "reject_subtype.ugs", "line": 9, "column": 27, "length": 13,
+          "fix": [
+            { "file": "reject_subtype.ugs", "line": 9, "column": 26, "length": 14, "replacement": "" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_subtype.ugs"], "warnings": [] }
+    }
+  ]
+}

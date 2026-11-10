@@ -1,0 +1,205 @@
+{
+  "name": "aviation",
+  "sources": [
+    "aviation.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [
+    {
+      "code": "UGS0902",
+      "kind": "warning",
+      "file": "aviation.ugs",
+      "line": 8,
+      "column": 40,
+      "length": 27,
+      "fix": null
+    },
+    {
+      "code": "UGS0903",
+      "kind": "warning",
+      "file": "aviation.ugs",
+      "line": 40,
+      "column": 14,
+      "length": 15,
+      "fix": [
+        {
+          "file": "aviation.ugs",
+          "line": 37,
+          "column": 16,
+          "length": 0,
+          "replacement": " @colocate(whole)"
+        }
+      ]
+    },
+    {
+      "code": "UGS0904",
+      "kind": "warning",
+      "file": "aviation.ugs",
+      "line": 53,
+      "column": 3,
+      "length": 42,
+      "fix": null
+    },
+    {
+      "code": "UGS0903",
+      "kind": "warning",
+      "file": "aviation.ugs",
+      "line": 54,
+      "column": 34,
+      "length": 15,
+      "fix": [
+        {
+          "file": "aviation.ugs",
+          "line": 48,
+          "column": 28,
+          "length": 0,
+          "replacement": " @colocate(buyer)"
+        }
+      ]
+    },
+    {
+      "code": "UGS0903",
+      "kind": "warning",
+      "file": "aviation.ugs",
+      "line": 54,
+      "column": 51,
+      "length": 14,
+      "fix": [
+        {
+          "file": "aviation.ugs",
+          "line": 48,
+          "column": 28,
+          "length": 0,
+          "replacement": " @colocate(item)"
+        }
+      ]
+    },
+    {
+      "code": "UGS0902",
+      "kind": "warning",
+      "file": "aviation.ugs",
+      "line": 69,
+      "column": 14,
+      "length": 9,
+      "fix": null
+    },
+    {
+      "code": "UGS0902",
+      "kind": "warning",
+      "file": "aviation.ugs",
+      "line": 70,
+      "column": 16,
+      "length": 9,
+      "fix": null
+    },
+    {
+      "code": "UGS0902",
+      "kind": "warning",
+      "file": "aviation.ugs",
+      "line": 72,
+      "column": 13,
+      "length": 7,
+      "fix": null
+    },
+    {
+      "code": "UGS0902",
+      "kind": "warning",
+      "file": "aviation.ugs",
+      "line": 73,
+      "column": 12,
+      "length": 5,
+      "fix": null
+    }
+  ],
+  "prefixes": {
+    "aviation.Asset": 3,
+    "aviation.Aircraft": 4,
+    "aviation.Engine": 5,
+    "aviation.Avionics": 6,
+    "aviation.Organization": 7,
+    "aviation.Company": 8,
+    "aviation.Authority": 9,
+    "aviation.Owns": 10,
+    "aviation.PartOf": 11,
+    "aviation.Agreement": 12,
+    "aviation.Supply": 13,
+    "aviation.Lease": 14,
+    "aviation.Certifies": 15
+  },
+  "report": [
+    "UGS0901 aviation.Aircraft.create path=segmented local=false by=@unique indexes=2",
+    "UGS0901 aviation.Aircraft.update.commissioned path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Aircraft.update.embedding path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Aircraft.update.notes path=coordination-free local=true by=none indexes=2",
+    "UGS0901 aviation.Aircraft.update.status path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Aircraft.update.tags path=coordination-free local=true by=none indexes=2",
+    "UGS0901 aviation.Aircraft.update.tail_number path=segmented local=false by=@unique indexes=0",
+    "UGS0901 aviation.Aircraft.delete path=coordinated local=false by=restrict indexes=2",
+    "UGS0901 aviation.Authority.create path=segmented local=true by=@key indexes=0",
+    "UGS0901 aviation.Authority.update.jurisdiction path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Authority.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 aviation.Avionics.create path=segmented local=true by=@key indexes=2",
+    "UGS0901 aviation.Avionics.update.commissioned path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Avionics.update.embedding path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Avionics.update.firmware path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Avionics.update.notes path=coordination-free local=true by=none indexes=2",
+    "UGS0901 aviation.Avionics.update.status path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Avionics.update.tags path=coordination-free local=true by=none indexes=2",
+    "UGS0901 aviation.Avionics.delete path=coordinated local=false by=restrict indexes=2",
+    "UGS0901 aviation.Certifies.insert path=segmented local=true by=cardinality indexes=1",
+    "UGS0901 aviation.Certifies.update.valid path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Certifies.delete path=coordination-free local=true by=none indexes=1",
+    "UGS0901 aviation.Company.create path=segmented local=true by=@key indexes=0",
+    "UGS0901 aviation.Company.delete path=coordinated local=false by=restrict indexes=0",
+    "UGS0901 aviation.Engine.create path=segmented local=true by=@key indexes=2",
+    "UGS0901 aviation.Engine.update.commissioned path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Engine.update.embedding path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Engine.update.notes path=coordination-free local=true by=none indexes=2",
+    "UGS0901 aviation.Engine.update.status path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Engine.update.tags path=coordination-free local=true by=none indexes=2",
+    "UGS0901 aviation.Engine.update.thrust_kn path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Engine.delete path=coordinated local=false by=restrict indexes=2",
+    "UGS0901 aviation.Lease.insert path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Lease.update.signed path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Lease.update.term path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Lease.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Owns.insert path=segmented local=true by=cardinality indexes=1",
+    "UGS0901 aviation.Owns.update.since path=coordination-free local=true by=none indexes=0",
+    "UGS0901 aviation.Owns.delete path=coordination-free local=true by=none indexes=1",
+    "UGS0901 aviation.PartOf.insert path=coordinated local=false by=@acyclic indexes=1",
+    "UGS0901 aviation.PartOf.delete path=coordination-free local=true by=none indexes=1",
+    "UGS0901 aviation.Supply.insert path=coordinated local=false by=@limit indexes=0",
+    "UGS0902 aviation.Aircraft.engines construct=fn stage=7",
+    "UGS0902 aviation.Asset.all_parts construct=derive stage=7",
+    "UGS0902 aviation.Company.spend construct=fn stage=7",
+    "UGS0902 aviation.Company.suppliers construct=derive stage=7",
+    "UGS0902 aviation.Embedding construct=@index(ann) stage=8",
+    "UGS0903 aviation.PartOf.whole colocate=whole",
+    "UGS0903 aviation.Supply.buyer colocate=buyer",
+    "UGS0903 aviation.Supply.item colocate=item",
+    "UGS0904 aviation.Supply local=restrict coordinated=@limit",
+    "UGS0905 aviation.Aircraft.leases relation=aviation.Lease role=asset",
+    "UGS0905 aviation.Asset.all_parts relation=aviation.PartOf role=whole",
+    "UGS0905 aviation.Asset.contracts relation=aviation.Supply role=item",
+    "UGS0905 aviation.Asset.parts relation=aviation.PartOf role=whole",
+    "UGS0905 aviation.Authority.certifications relation=aviation.Certifies role=authority",
+    "UGS0905 aviation.Company.purchases relation=aviation.Supply role=buyer",
+    "UGS0905 aviation.Company.suppliers relation=aviation.Supply role=buyer",
+    "UGS0905 aviation.Organization.assets relation=aviation.Owns role=owner",
+    "UGS0905 aviation.Organization.counterparty_agreements relation=aviation.Agreement role=counterparty",
+    "UGS0905 aviation.Organization.leases_in relation=aviation.Lease role=lessee",
+    "UGS0906 aviation.Aircraft.create indexes=2 rank=1",
+    "UGS0906 aviation.Aircraft.delete indexes=2 rank=4",
+    "UGS0906 aviation.Aircraft.update.notes indexes=2 rank=2",
+    "UGS0906 aviation.Aircraft.update.tags indexes=2 rank=3",
+    "UGS0906 aviation.Avionics.create indexes=2 rank=5",
+    "UGS0906 aviation.Avionics.delete indexes=2 rank=8",
+    "UGS0906 aviation.Avionics.update.notes indexes=2 rank=6",
+    "UGS0906 aviation.Avionics.update.tags indexes=2 rank=7",
+    "UGS0906 aviation.Engine.create indexes=2 rank=9",
+    "UGS0906 aviation.Engine.update.notes indexes=2 rank=10"
+  ]
+}

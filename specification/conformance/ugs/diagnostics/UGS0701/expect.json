@@ -1,0 +1,52 @@
+{
+  "code": "UGS0701",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "`@colocate` naming a role the relation neither declares nor inherits",
+      "sources": [
+        "reject_unknown_role.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0701",
+          "kind": "error",
+          "file": "reject_unknown_role.ugs",
+          "line": 7,
+          "column": 28,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_unknown_role.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "`@colocate` naming an attribute of the relation, which is no role",
+      "sources": [
+        "reject_attribute.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0701",
+          "kind": "error",
+          "file": "reject_attribute.ugs",
+          "line": 7,
+          "column": 28,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_attribute.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

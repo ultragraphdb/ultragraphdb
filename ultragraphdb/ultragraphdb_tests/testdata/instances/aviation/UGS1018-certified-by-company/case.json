@@ -1,0 +1,24 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1018",
+  "name": "a certification by a Company, outside the role's type Authority",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Leonardo\" }",
+        "insert Company { name: \"Airbus\" }",
+        "insert Engine { serial: \"EN-0001\", commissioned: 2022-01-08, status: active, tags: [\"engine\"], thrust_kn: 120.5 }",
+        "insert Supply { supplier: Company(name = \"Leonardo\"), buyer: Company(name = \"Airbus\"), item: Engine(serial = \"EN-0001\"), signed: 2022-01-09, value: 1500000.00 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "expect": {
+        "refused": "UGS1018"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

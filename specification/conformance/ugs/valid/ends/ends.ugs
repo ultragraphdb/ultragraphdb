@@ -1,0 +1,13 @@
+// expect: compiles
+schema ends version 1
+prefix nd = "https://example.org/ends#"
+
+entity Position @valid(term) {
+  term: Interval<Date>
+}
+
+relation Succeeds @multi @valid(term) @ends(previous) {
+  previous: Position -> successors*
+  next:     Position -> predecessors*
+  term:     Interval<Date>
+}

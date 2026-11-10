@@ -1,0 +1,22 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1029",
+  "name": "a write of av:parts, the inverse navigation of PartOf, is refused; the stored triple is av:assembly",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Avionics { serial: \"AV-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }",
+        "insert Avionics { serial: \"AV-0002\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "inverse.nq",
+      "expect": {
+        "refused": "UGS1029"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

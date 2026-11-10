@@ -1,0 +1,92 @@
+{
+  "code": "UGS0524",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@index(ann) on a list of floats",
+      "sources": ["reject_not_vector.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0524", "kind": "error",
+          "file": "reject_not_vector.ugs", "line": 6, "column": 35, "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": ["accept_not_vector.ugs"],
+        "warnings": [
+          {
+            "code": "UGS0902", "kind": "warning",
+            "file": "accept_not_vector.ugs", "line": 6, "column": 29, "length": 27,
+            "fix": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "@index(ann) with an unknown metric",
+      "sources": ["reject_unknown_metric.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0524", "kind": "error",
+          "file": "reject_unknown_metric.ugs", "line": 6, "column": 49, "length": 9,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": ["accept_unknown_metric.ugs"],
+        "warnings": [
+          {
+            "code": "UGS0902", "kind": "warning",
+            "file": "accept_unknown_metric.ugs", "line": 6, "column": 29, "length": 23,
+            "fix": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "@index(ann) with an unknown quantization",
+      "sources": ["reject_unknown_quantization.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0524", "kind": "error",
+          "file": "reject_unknown_quantization.ugs", "line": 6, "column": 71, "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": ["accept_unknown_quantization.ugs"],
+        "warnings": [
+          {
+            "code": "UGS0902", "kind": "warning",
+            "file": "accept_unknown_quantization.ugs", "line": 6, "column": 29, "length": 47,
+            "fix": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "@index(ann) with a search-time parameter",
+      "sources": ["reject_search_parameter.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0524", "kind": "error",
+          "file": "reject_search_parameter.ugs", "line": 6, "column": 57, "length": 13,
+          "fix": [
+            { "file": "reject_search_parameter.ugs", "line": 6, "column": 55, "length": 15, "replacement": "" }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": ["accept_search_parameter.ugs"],
+        "warnings": [
+          {
+            "code": "UGS0902", "kind": "warning",
+            "file": "accept_search_parameter.ugs", "line": 6, "column": 29, "length": 27,
+            "fix": null
+          }
+        ]
+      }
+    }
+  ]
+}

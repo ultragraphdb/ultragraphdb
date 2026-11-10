@@ -1,0 +1,7 @@
+// expect: UGS0010 at 6:34
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Aircraft {
+  callsign: String @index(range) @index(range)
+}

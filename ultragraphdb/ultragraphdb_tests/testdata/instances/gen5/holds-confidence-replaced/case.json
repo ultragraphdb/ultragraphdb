@@ -1,0 +1,23 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1036",
+  "name": "a confidence value replaced, the present one deleted in the same transaction, commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { id: \"ORG:acme\", confidence: 0.5 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "replace.nq",
+      "delete": "replace-old.nq",
+      "uql": [
+        "update Company(id = \"ORG:acme\") { confidence: 0.75 }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

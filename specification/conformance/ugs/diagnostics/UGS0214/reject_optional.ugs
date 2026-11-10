@@ -1,0 +1,11 @@
+// expect: UGS0214 at 10:16
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+abstract entity Asset {
+  code: String
+}
+
+entity Engine : Asset {
+  code: String Optional @pattern("[A-Z]+")
+}

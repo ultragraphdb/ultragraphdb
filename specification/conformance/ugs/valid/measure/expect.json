@@ -1,0 +1,22 @@
+{
+  "name": "measure",
+  "sources": [
+    "measures.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "measures.Runway": 3
+  },
+  "report": [
+    "UGS0901 measures.Runway.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 measures.Runway.update.display_unit path=coordination-free local=true by=none indexes=0",
+    "UGS0901 measures.Runway.update.length path=coordination-free local=true by=none indexes=0",
+    "UGS0901 measures.Runway.update.reading path=coordination-free local=true by=none indexes=0",
+    "UGS0901 measures.Runway.update.width path=coordination-free local=true by=none indexes=0",
+    "UGS0901 measures.Runway.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

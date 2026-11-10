@@ -1,0 +1,12 @@
+// expect: UGS0507 at 12:46
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Buyer { name: String }
+entity Seller @key(code) { code: String }
+
+relation Sale @multi {
+  buyer:   Buyer  -> purchases*
+  seller:  Seller -> sales*
+  pending: Bool
+} @limit(count() <= 5 per buyer where exists seller.sales)

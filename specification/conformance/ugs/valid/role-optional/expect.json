@@ -1,0 +1,26 @@
+{
+  "name": "role-optional",
+  "sources": [
+    "role_optional.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "role_optional.Task": 3,
+    "role_optional.Person": 4,
+    "role_optional.Assignment": 5
+  },
+  "report": [
+    "UGS0901 role_optional.Assignment.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 role_optional.Assignment.role.assignee path=coordination-free local=true by=none indexes=0",
+    "UGS0901 role_optional.Assignment.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 role_optional.Person.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 role_optional.Person.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 role_optional.Task.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 role_optional.Task.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0905 role_optional.Person.tasks relation=role_optional.Assignment role=assignee"
+  ]
+}

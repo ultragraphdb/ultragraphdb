@@ -1,0 +1,21 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1034",
+  "name": "a Supply role triple written for a blank node with nothing else of it is an incomplete instance",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "role-triple.nq",
+      "expect": {
+        "refused": "UGS1034"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

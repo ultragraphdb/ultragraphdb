@@ -1,0 +1,7 @@
+// expect: UGS0003 at 6:36
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Flight {
+  number: String @pattern("[A-Z]{2}\d{1,4}")
+}

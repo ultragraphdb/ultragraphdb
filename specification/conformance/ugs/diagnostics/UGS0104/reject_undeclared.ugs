@@ -1,0 +1,7 @@
+// expect: UGS0104 at 6:25
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Organization {
+  name: String @maps_to(sdo:legalName)
+}

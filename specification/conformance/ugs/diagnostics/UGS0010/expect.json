@@ -1,0 +1,98 @@
+{
+  "code": "UGS0010",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a field annotation repeated",
+      "sources": [
+        "reject_field.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0010",
+          "kind": "error",
+          "file": "reject_field.ugs",
+          "line": 6,
+          "column": 30,
+          "length": 10,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_field.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a type annotation before the body and again after it, the two positions forming one list",
+      "sources": [
+        "reject_two_positions.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0010",
+          "kind": "error",
+          "file": "reject_two_positions.ugs",
+          "line": 7,
+          "column": 3,
+          "length": 12,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_two_positions.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "`@index` repeated with the same index kind, where it may repeat once per kind",
+      "sources": [
+        "reject_index_kind.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0010",
+          "kind": "error",
+          "file": "reject_index_kind.ugs",
+          "line": 6,
+          "column": 34,
+          "length": 13,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_index_kind.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "`@maps_to` repeated with the same external term, where it may repeat once per term",
+      "sources": [
+        "reject_maps_to_term.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0010",
+          "kind": "error",
+          "file": "reject_maps_to_term.ugs",
+          "line": 7,
+          "column": 40,
+          "length": 23,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_maps_to_term.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

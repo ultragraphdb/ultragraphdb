@@ -1,0 +1,30 @@
+{
+  "code": "UGS0504",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "max_depth of 0",
+      "sources": ["reject_zero.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0504", "kind": "error",
+          "file": "reject_zero.ugs", "line": 7, "column": 37, "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_zero.ugs"], "warnings": [] }
+    },
+    {
+      "name": "max_depth of 4,097",
+      "sources": ["reject_above.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0504", "kind": "error",
+          "file": "reject_above.ugs", "line": 7, "column": 37, "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_above.ugs"], "warnings": [] }
+    }
+  ]
+}

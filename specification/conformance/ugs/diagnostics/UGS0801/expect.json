@@ -1,0 +1,52 @@
+{
+  "code": "UGS0801",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "an attribute named as another attribute's interval bound, both minting `{base}term_start`",
+      "sources": [
+        "reject_interval_bound.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0801",
+          "kind": "error",
+          "file": "reject_interval_bound.ugs",
+          "line": 9,
+          "column": 3,
+          "length": 10,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_interval_bound.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a navigation name equal to another type's attribute, both minting `{base}holder`",
+      "sources": [
+        "reject_navigation.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0801",
+          "kind": "error",
+          "file": "reject_navigation.ugs",
+          "line": 11,
+          "column": 19,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_navigation.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

@@ -7,14 +7,14 @@ import ApgModel.Oracle.NQuads
 /-!
 # Reading N-Quads back
 
-The parser of the oracle's export, which checks that every file it writes reads back as `R(G)` (decision L5).
+The parser of the oracle's export, which checks that every file it writes reads back as its quads (decision L5).
 
 - **Syntax.** A line is a subject, a predicate, an object and a graph: IRIs in angle brackets, blank nodes `_:x`,
   literals with a datatype or a language tag, and RDF 1.2 triple terms `<<( s p o )>>` (`parseLine`).
-- **Terms.** A predicate is read back through the catalog's table of the predicates it mints (`predTable`), unique by
-  `UGS0801`; a literal through its attribute's type in the catalog, the subject's label read from its type quads: a
-  lexical form parsed back to its value (`parseLexical`), an enumeration's member, a JSON value (`parseJson`), a
-  measure, a precision.
+- **Terms.** A predicate is read back through the catalog's table of the predicates it mints (`predTable`) and the
+  `@iri` predicates its bases name, unique by `UGS0801`; a literal through its attribute's type in the catalog, the
+  subject's label read from its type quads: a lexical form parsed back to its value (`parseLexical`), an enumeration's
+  member, a JSON value (`parseJson`), a measure, a precision.
 -/
 
 namespace ApgModel.Oracle
@@ -314,6 +314,7 @@ def readPred (K : Catalog typeside) (B : Bases) (iri : String) : Option Pred :=
   else if iri == ugdb ++ "asserted_start" then some .assertedStart
   else if iri == ugdb ++ "asserted_end" then some .assertedEnd
   else if iri == ugdb ++ "live" then some .live
+  else if let some (a, _) := B.iris.find? (·.2 == iri) then some (.attr a)
   else if iri.startsWith B.vocab then
     ((predTable K).find? (·.1 == iri.drop B.vocab.length)).map Prod.snd
   else none

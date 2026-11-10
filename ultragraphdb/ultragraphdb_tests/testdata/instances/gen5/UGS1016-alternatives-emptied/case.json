@@ -1,0 +1,18 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1016",
+  "name": "a revision removing the last member of an Alternatives' set-valued members role",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "expect": "commit"
+    },
+    {
+      "delete": "break-delete.nq",
+      "expect": {
+        "refused": "UGS1016"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

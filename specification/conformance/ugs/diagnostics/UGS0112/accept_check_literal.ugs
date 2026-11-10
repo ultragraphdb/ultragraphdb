@@ -1,0 +1,9 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+enum Status { active, stored, retired }
+
+entity Aircraft {
+  status: Status
+} @check(status <> retired)

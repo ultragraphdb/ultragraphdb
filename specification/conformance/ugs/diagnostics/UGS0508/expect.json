@@ -1,0 +1,30 @@
+{
+  "code": "UGS0508",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@no_overlap on a relation without a valid interval",
+      "sources": ["reject_no_overlap.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0508", "kind": "error",
+          "file": "reject_no_overlap.ugs", "line": 8, "column": 16, "length": 24,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_no_overlap.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@acyclic(open) on a relation without a valid interval",
+      "sources": ["reject_acyclic_open.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0508", "kind": "error",
+          "file": "reject_acyclic_open.ugs", "line": 7, "column": 29, "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_acyclic_open.ugs"], "warnings": [] }
+    }
+  ]
+}

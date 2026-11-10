@@ -1,0 +1,75 @@
+{
+  "code": "UGS0007",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "an attribute named with the reserved word `graph`",
+      "sources": [
+        "reject_attribute.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0007",
+          "kind": "error",
+          "file": "reject_attribute.ugs",
+          "line": 6,
+          "column": 3,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_attribute.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an enum member named with the reserved word `record`",
+      "sources": [
+        "reject_enum_member.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0007",
+          "kind": "error",
+          "file": "reject_enum_member.ugs",
+          "line": 5,
+          "column": 25,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_enum_member.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a navigation name that is the reserved word `module`",
+      "sources": [
+        "reject_navigation.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0007",
+          "kind": "error",
+          "file": "reject_navigation.ugs",
+          "line": 13,
+          "column": 27,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_navigation.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+// expect: compiles
+schema colocate version 1
+prefix cl = "https://example.org/colocate#"
+
+entity Person
+entity Account
+
+relation Owns @colocate(account) {
+  owner:   Person  -> accounts*
+  account: Account -> owner?
+}

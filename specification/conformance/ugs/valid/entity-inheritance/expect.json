@@ -1,0 +1,27 @@
+{
+  "name": "entity-inheritance",
+  "sources": [
+    "entity_inheritance.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "entity_inheritance.Asset": 3,
+    "entity_inheritance.Aircraft": 4,
+    "entity_inheritance.Engine": 5
+  },
+  "report": [
+    "UGS0901 entity_inheritance.Aircraft.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 entity_inheritance.Aircraft.update.notes path=coordination-free local=true by=none indexes=0",
+    "UGS0901 entity_inheritance.Aircraft.update.serial path=coordination-free local=true by=none indexes=0",
+    "UGS0901 entity_inheritance.Aircraft.update.tail path=coordination-free local=true by=none indexes=0",
+    "UGS0901 entity_inheritance.Aircraft.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 entity_inheritance.Engine.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 entity_inheritance.Engine.update.notes path=coordination-free local=true by=none indexes=0",
+    "UGS0901 entity_inheritance.Engine.update.serial path=coordination-free local=true by=none indexes=0",
+    "UGS0901 entity_inheritance.Engine.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

@@ -1,0 +1,14 @@
+// expect: UGS0515 at 14:23
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Claim @bitemporal(valid: valid) {
+  valid: Interval<DateTime> Optional
+  text:  String
+}
+
+relation Cites @bitemporal(valid: valid) {
+  citing: Claim -> cites*
+  cited:  Claim -> cited_by*
+  valid:  Interval<DateTime> Optional
+} @on_retract(citing: orphan)

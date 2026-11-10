@@ -1,0 +1,8 @@
+// expect: compiles
+schema deprecations version 1
+prefix dp = "https://example.org/deprecations#"
+
+entity Thing {
+  label:     String
+  old_label: String Optional @deprecated(use: label)
+}

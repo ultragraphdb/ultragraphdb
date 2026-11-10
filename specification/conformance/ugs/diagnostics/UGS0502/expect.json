@@ -1,0 +1,30 @@
+{
+  "code": "UGS0502",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a cardinality {m, n} with m > n",
+      "sources": ["reject_reversed.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0502", "kind": "error",
+          "file": "reject_reversed.ugs", "line": 9, "column": 26, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_reversed.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a cardinality {m, n} with n = 0",
+      "sources": ["reject_zero.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0502", "kind": "error",
+          "file": "reject_zero.ugs", "line": 9, "column": 26, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_zero.ugs"], "warnings": [] }
+    }
+  ]
+}

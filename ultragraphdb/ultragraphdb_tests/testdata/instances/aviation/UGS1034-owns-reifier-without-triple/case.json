@@ -1,0 +1,22 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1034",
+  "name": "an Owns reifier with its since written without the triple it reifies is an incomplete instance",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }",
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"], tail_number: \"D-A0001\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "reifier.nq",
+      "expect": {
+        "refused": "UGS1034"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

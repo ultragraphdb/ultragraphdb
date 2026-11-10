@@ -1,0 +1,52 @@
+{
+  "code": "UGS0302",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a key on a subtype of a keyed entity",
+      "sources": [
+        "reject_child.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0302",
+          "kind": "error",
+          "file": "reject_child.ugs",
+          "line": 9,
+          "column": 23,
+          "length": 15,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_child.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a key two levels below a keyed statement",
+      "sources": [
+        "reject_grandchild.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0302",
+          "kind": "error",
+          "file": "reject_grandchild.ugs",
+          "line": 13,
+          "column": 27,
+          "length": 12,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_grandchild.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

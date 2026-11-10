@@ -1,0 +1,7 @@
+// expect: UGS0228 at 5:21
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Batch @check(total / 0 > 1) {
+  total: Int32
+}

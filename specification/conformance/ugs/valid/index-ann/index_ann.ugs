@@ -1,0 +1,7 @@
+// expect: compiles with UGS0902 at 6:29
+schema index_ann version 1
+prefix ia = "https://example.org/index_ann#"
+
+entity Doc {
+  embedding: Vector<F32, 4> @index(ann, metric: cosine, quantization: int8)
+}

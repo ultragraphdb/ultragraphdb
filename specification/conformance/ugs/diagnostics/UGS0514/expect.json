@@ -1,0 +1,34 @@
+{
+  "code": "UGS0514",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@on_delete on a relation declaring @bitemporal",
+      "sources": ["reject_declared.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0514", "kind": "error",
+          "file": "reject_declared.ugs", "line": 14, "column": 3, "length": 28,
+          "fix": [
+            { "file": "reject_declared.ugs", "line": 14, "column": 3, "length": 10, "replacement": "@on_retract" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_declared.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@on_delete on a subtype of a @bitemporal relation",
+      "sources": ["reject_inherited.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0514", "kind": "error",
+          "file": "reject_inherited.ugs", "line": 16, "column": 27, "length": 28,
+          "fix": [
+            { "file": "reject_inherited.ugs", "line": 16, "column": 27, "length": 10, "replacement": "@on_retract" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_inherited.ugs"], "warnings": [] }
+    }
+  ]
+}

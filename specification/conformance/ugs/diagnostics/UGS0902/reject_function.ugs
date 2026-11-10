@@ -1,0 +1,9 @@
+// expect: compiles with UGS0902 at 9:8
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Doc {
+  title: String
+}
+
+fn Doc.heading() -> String = title

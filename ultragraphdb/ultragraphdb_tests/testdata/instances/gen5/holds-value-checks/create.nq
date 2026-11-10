@@ -1,0 +1,25 @@
+<https://example.org/deep_brain#Node/QTY%3Aq1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Quantity> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/QTY%3Aq1> <https://example.org/deep_brain#id> "QTY:q1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/QTY%3Aq1> <https://example.org/deep_brain#value> "12.5 m"^^<https://w3id.org/ultragraphdb/ns/measure> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/QTY%3Aq1> <https://example.org/deep_brain#quantity_kind> "Length" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/QTY%3Aq2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Quantity> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/QTY%3Aq2> <https://example.org/deep_brain#id> "QTY:q2" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/QTY%3Aq2> <https://example.org/deep_brain#text> "high" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/QTY%3Aq2> <https://example.org/deep_brain#quantity_kind> "Score" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Ap0> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Person> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Ap0> <https://example.org/deep_brain#id> "AGENT:p0" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Ap0> <https://example.org/deep_brain#personal_name> "Ada" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/OBJ%3Ao1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Object> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/OBJ%3Ao1> <https://example.org/deep_brain#id> "OBJ:o1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/OBJ%3Ao1> <https://example.org/deep_brain#confidence> "1"^^<http://www.w3.org/2001/XMLSchema#double> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Aacme> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Aacme> <https://example.org/deep_brain#id> "AGENT:acme" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Aacme> <https://example.org/deep_brain#identifiers> "lei:5299001" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/AGENT%3Aacme> <https://example.org/deep_brain#identifiers> "ror:01abc" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Event> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae1> <https://example.org/deep_brain#id> "EVENT:e1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Event> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae2> <https://example.org/deep_brain#id> "EVENT:e2" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae1> <https://example.org/deep_brain#precedes> <https://example.org/deep_brain#Node/EVENT%3Ae2> <https://example.org/deep_brain#ontology> .
+_:pr1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/EVENT%3Ae1> <https://example.org/deep_brain#precedes> <https://example.org/deep_brain#Node/EVENT%3Ae2> )>> <https://example.org/deep_brain#ontology> .
+_:pr1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Precedes> <https://example.org/deep_brain#ontology> .

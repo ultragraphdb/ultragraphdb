@@ -1,0 +1,54 @@
+{
+  "code": "UGS0512",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@retracts naming a role whose participant type is not @bitemporal",
+      "sources": ["reject_retracts.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0512", "kind": "error",
+          "file": "reject_retracts.ugs", "line": 18, "column": 13, "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_retracts.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@retracts naming a union role with a member that is not @bitemporal",
+      "sources": ["reject_retracts_union.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0512", "kind": "error",
+          "file": "reject_retracts_union.ugs", "line": 18, "column": 13, "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_retracts_union.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@ends naming a role whose participant type has no valid interval",
+      "sources": ["reject_ends.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0512", "kind": "error",
+          "file": "reject_ends.ugs", "line": 16, "column": 9, "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_ends.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@ends on a relation without a valid interval",
+      "sources": ["reject_ends_without_interval.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0512", "kind": "error",
+          "file": "reject_ends_without_interval.ugs", "line": 10, "column": 19, "length": 10,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_ends_without_interval.ugs"], "warnings": [] }
+    }
+  ]
+}

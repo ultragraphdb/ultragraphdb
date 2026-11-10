@@ -1,0 +1,162 @@
+{
+  "code": "UGS0207",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a default of another type than its field",
+      "sources": [
+        "reject_default.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0207",
+          "kind": "error",
+          "file": "reject_default.ugs",
+          "line": 6,
+          "column": 18,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_default.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an integer default the field's type cannot hold",
+      "sources": [
+        "reject_range.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0207",
+          "kind": "error",
+          "file": "reject_range.ugs",
+          "line": 6,
+          "column": 18,
+          "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_range.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an identifier where a number is expected, inf naming no value",
+      "sources": [
+        "reject_non_finite.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0207",
+          "kind": "error",
+          "file": "reject_non_finite.ugs",
+          "line": 6,
+          "column": 21,
+          "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_non_finite.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a literal compared with a field of another type",
+      "sources": [
+        "reject_expression.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0207",
+          "kind": "error",
+          "file": "reject_expression.ugs",
+          "line": 5,
+          "column": 29,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_expression.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a computed derivation declaring another type than its expression's",
+      "sources": [
+        "reject_derivation.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0207",
+          "kind": "error",
+          "file": "reject_derivation.ugs",
+          "line": 9,
+          "column": 20,
+          "length": 5,
+          "fix": [
+            {
+              "file": "reject_derivation.ugs",
+              "line": 9,
+              "column": 20,
+              "length": 5,
+              "replacement": "Bool"
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_derivation.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a function body of another type than the declared result",
+      "sources": [
+        "reject_function.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0207",
+          "kind": "error",
+          "file": "reject_function.ugs",
+          "line": 9,
+          "column": 28,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_function.ugs"
+        ],
+        "warnings": [
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_function.ugs",
+            "line": 9,
+            "column": 9,
+            "length": 5,
+            "fix": null
+          }
+        ]
+      }
+    }
+  ]
+}

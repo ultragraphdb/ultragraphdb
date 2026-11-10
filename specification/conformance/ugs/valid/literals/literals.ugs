@@ -1,0 +1,20 @@
+// expect: compiles
+schema literals version 1
+prefix lt = "https://example.org/literals#"
+
+entity Sample {
+  big:    Int64 = 50_000_000
+  price:  Decimal(10, 2) = 1_250.00
+  share:  Decimal(10, 4) = 1 / 4
+  tiny:   Float64 = 2.5e-7
+  active: Bool = false
+  motto:  String = "say \"hi\"\t\u{1F600}"
+  home:   Iri = <https://example.org/home>
+  day:    Date = 2026-11-01
+  stamp:  DateTime = 2026-11-01T12:00:00Z
+  local:  LocalDateTime = 2026-11-01T12:00:00.5
+  clock:  Time = 09:30:00+01:00
+  span:   Duration = P1DT12H
+  term:   Interval<Date> = 2026-09-14 .. 2027
+  era:    Interval<Date> = 1990s .. 20c
+}

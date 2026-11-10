@@ -1,0 +1,29 @@
+{
+  "code": "UGS0904",
+  "kind": "warning",
+  "cases": [
+    {
+      "name": "without `@colocate` the anchor is the first role, whose cardinality is local; the `@limit` per the other role, which that role as anchor would make local, is coordinated",
+      "sources": [
+        "reject.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0904",
+          "kind": "warning",
+          "file": "reject.ugs",
+          "line": 10,
+          "column": 3,
+          "length": 31,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

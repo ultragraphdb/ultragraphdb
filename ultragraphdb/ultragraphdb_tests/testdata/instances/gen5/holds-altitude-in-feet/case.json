@@ -1,0 +1,19 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1027",
+  "name": "an Event's altitude written in ft_i, a declared unit of Altitude, commits with its unit",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Event { id: \"EVENT:launch\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "altitude.nq",
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

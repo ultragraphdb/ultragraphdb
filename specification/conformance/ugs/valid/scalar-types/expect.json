@@ -1,0 +1,40 @@
+{
+  "name": "scalar-types",
+  "sources": [
+    "scalar_types.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "scalar_types.Sample": 3
+  },
+  "report": [
+    "UGS0901 scalar_types.Sample.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.amount path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.blob path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.body path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.clock path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.code path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.day path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.f32 path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.f64 path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.flag path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.i128 path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.i16 path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.i32 path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.i64 path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.i8 path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.link path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.local path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.span path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.stamp path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.u16 path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.u32 path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.u64 path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.update.u8 path=coordination-free local=true by=none indexes=0",
+    "UGS0901 scalar_types.Sample.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

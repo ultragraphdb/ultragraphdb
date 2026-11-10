@@ -1,0 +1,28 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1026",
+  "name": "a delete, Operation kind 5, of the same Engine commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }",
+        "insert Engine { serial: \"EN-4471-B\", commissioned: 2026-10-30, status: active, tags: [\"engine\"], thrust_kn: 310 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "operations": [
+        {
+          "kind": "delete",
+          "iri": "https://example.org/aviation#Asset/EN-4471-B"
+        }
+      ],
+      "uql": [
+        "delete Engine(serial = \"EN-4471-B\")"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

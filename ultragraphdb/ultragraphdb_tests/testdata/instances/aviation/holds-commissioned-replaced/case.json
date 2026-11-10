@@ -1,0 +1,24 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1036",
+  "name": "an Engine's commissioned replaced, the present value deleted in the same transaction, commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }",
+        "insert Engine { serial: \"EN-4471-B\", commissioned: 2026-10-30, status: active, tags: [\"engine\"], thrust_kn: 310 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "replace.nq",
+      "delete": "replace-old.nq",
+      "uql": [
+        "update Engine(serial = \"EN-4471-B\") { commissioned: 2026-11-01 }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

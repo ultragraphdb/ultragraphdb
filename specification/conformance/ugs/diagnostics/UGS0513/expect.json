@@ -1,0 +1,20 @@
+{
+  "code": "UGS0513",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@on_retract on a relation that is not @bitemporal",
+      "sources": ["reject.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0513", "kind": "error",
+          "file": "reject.ugs", "line": 11, "column": 3, "length": 26,
+          "fix": [
+            { "file": "reject.ugs", "line": 11, "column": 3, "length": 11, "replacement": "@on_delete" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept.ugs"], "warnings": [] }
+    }
+  ]
+}

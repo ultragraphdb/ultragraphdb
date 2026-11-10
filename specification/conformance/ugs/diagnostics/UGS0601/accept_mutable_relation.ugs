@@ -1,0 +1,15 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Person @append_only { name: String }
+
+relation Knows {
+  person: Person -> knows*
+  other:  Person -> known_by*
+}
+
+relation Endorses @append_only {
+  link:     Knows  -> endorsements*
+  endorser: Person -> endorsed*
+} @on_delete(link: restrict)

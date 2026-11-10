@@ -1,0 +1,23 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1030",
+  "name": "an Engine's status replaced by \"scrapped\", which Status does not declare, is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }",
+        "insert Engine { serial: \"EN-4471-B\", commissioned: 2026-10-30, status: active, tags: [\"engine\"], thrust_kn: 310 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "status.nq",
+      "delete": "status-old.nq",
+      "expect": {
+        "refused": "UGS1030"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

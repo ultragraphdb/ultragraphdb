@@ -1,0 +1,11 @@
+// expect: compiles
+schema role_optional version 1
+prefix rop = "https://example.org/role_optional#"
+
+entity Task
+entity Person
+
+relation Assignment {
+  task:     Task            -> assignments*
+  assignee: Person Optional -> tasks*
+}

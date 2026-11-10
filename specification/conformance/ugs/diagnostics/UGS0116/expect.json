@@ -1,0 +1,29 @@
+{
+  "code": "UGS0116",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a graph over a schema the tenant does not hold",
+      "sources": [
+        "reject.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0116",
+          "kind": "error",
+          "file": "reject.ugs",
+          "line": 9,
+          "column": 20,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

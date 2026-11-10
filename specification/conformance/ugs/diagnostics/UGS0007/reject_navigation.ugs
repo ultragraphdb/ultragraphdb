@@ -1,0 +1,15 @@
+// expect: UGS0007 at 13:27
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Component {
+  serial: String
+}
+entity Module {
+  name: String
+}
+
+relation InstalledIn {
+  component: Component -> module*
+  host:      Module    -> components*
+}

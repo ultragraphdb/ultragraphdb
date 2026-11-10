@@ -1,0 +1,11 @@
+// expect: UGS0418 at 9:17
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Item { name: String }
+entity Tag  { label: String }
+
+relation Tagged {
+  tag:  Tag  -> _
+  item: Item -> tags*
+}

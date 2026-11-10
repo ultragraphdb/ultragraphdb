@@ -1,0 +1,19 @@
+{
+  "name": "key",
+  "sources": [
+    "keys.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "keys.Person": 3
+  },
+  "report": [
+    "UGS0901 keys.Person.create path=segmented local=true by=@key indexes=0",
+    "UGS0901 keys.Person.update.name path=coordination-free local=true by=none indexes=0",
+    "UGS0901 keys.Person.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

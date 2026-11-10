@@ -1,0 +1,40 @@
+{
+  "name": "function",
+  "sources": [
+    "functions.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [
+    {
+      "code": "UGS0902",
+      "kind": "warning",
+      "file": "functions.ugs",
+      "line": 9,
+      "column": 9,
+      "length": 8,
+      "fix": null
+    },
+    {
+      "code": "UGS0902",
+      "kind": "warning",
+      "file": "functions.ugs",
+      "line": 10,
+      "column": 4,
+      "length": 11,
+      "fix": null
+    }
+  ],
+  "prefixes": {
+    "functions.Item": 3
+  },
+  "report": [
+    "UGS0901 functions.Item.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 functions.Item.update.price path=coordination-free local=true by=none indexes=0",
+    "UGS0901 functions.Item.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0902 functions.Item.is_cheap construct=fn stage=7",
+    "UGS0902 functions.cheap_items construct=fn stage=7"
+  ]
+}

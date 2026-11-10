@@ -1,0 +1,52 @@
+{
+  "code": "UGS0216",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a key attribute's name declared by a second type tree",
+      "sources": [
+        "reject_key.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0216",
+          "kind": "error",
+          "file": "reject_key.ugs",
+          "line": 10,
+          "column": 3,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_key.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a @unique attribute's name declared by a second type tree",
+      "sources": [
+        "reject_unique.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0216",
+          "kind": "error",
+          "file": "reject_unique.ugs",
+          "line": 10,
+          "column": 3,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_unique.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

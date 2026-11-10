@@ -1,0 +1,68 @@
+{
+  "code": "UGS0804",
+  "kind": "warning",
+  "cases": [
+    {
+      "name": "a documentation comment followed by the closing brace of a body, which is no documentable item; the fix removes the comment",
+      "sources": [
+        "reject_before_brace.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0804",
+          "kind": "warning",
+          "file": "reject_before_brace.ugs",
+          "line": 7,
+          "column": 3,
+          "length": 55,
+          "fix": [
+            {
+              "file": "reject_before_brace.ugs",
+              "line": 7,
+              "column": 1,
+              "length": 57,
+              "replacement": ""
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_before_brace.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a documentation comment followed by the `prefix` header, which is no documentable item; the fix removes the comment",
+      "sources": [
+        "reject_before_prefix.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0804",
+          "kind": "warning",
+          "file": "reject_before_prefix.ugs",
+          "line": 3,
+          "column": 1,
+          "length": 24,
+          "fix": [
+            {
+              "file": "reject_before_prefix.ugs",
+              "line": 3,
+              "column": 1,
+              "length": 24,
+              "replacement": ""
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_before_prefix.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

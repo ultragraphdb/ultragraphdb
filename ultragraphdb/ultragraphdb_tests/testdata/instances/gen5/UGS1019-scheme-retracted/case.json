@@ -1,0 +1,36 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1019",
+  "name": "an InScheme naming a retracted Scheme",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "uql": [
+        "insert Concept { id: \"CON:c1\" }",
+        "insert Scheme { id: \"SCH:s1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "operations": [
+        {
+          "kind": "retract",
+          "iri": "https://example.org/deep_brain#Node/SCH%3As1"
+        }
+      ],
+      "uql": [
+        "retract Scheme(id = \"SCH:s1\")"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert InScheme { concept: Concept(id = \"CON:c1\"), scheme: Scheme(id = \"SCH:s1\") }"
+      ],
+      "expect": {
+        "refused": "UGS1019"
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+// expect: UGS0802 at 6:8
+schema store version 1
+prefix store = "https://example.org/store#"
+import schema shared
+
+entity Thing
+relation Holds {
+  holder: Thing        -> held*
+  item:   shared.Thing -> _
+}

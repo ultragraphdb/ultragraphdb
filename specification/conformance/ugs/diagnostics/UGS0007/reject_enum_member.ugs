@@ -1,0 +1,5 @@
+// expect: UGS0007 at 5:25
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+enum SourceKind { file, record, stream }

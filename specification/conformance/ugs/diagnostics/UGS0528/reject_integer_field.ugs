@@ -1,0 +1,7 @@
+// expect: UGS0528 at 6:27
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Grade {
+  level: Int32 @values(1, "high")
+}

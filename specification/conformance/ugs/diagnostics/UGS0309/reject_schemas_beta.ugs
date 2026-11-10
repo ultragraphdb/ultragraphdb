@@ -1,0 +1,7 @@
+// expect: UGS0309 at 3:13
+schema beta version 1
+prefix be = "https://example.org/shared#"
+
+entity Part {
+  label: String
+}

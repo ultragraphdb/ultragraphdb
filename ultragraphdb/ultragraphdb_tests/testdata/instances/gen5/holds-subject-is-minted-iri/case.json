@@ -1,0 +1,22 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1038",
+  "name": "a Company created under db:Node/ORG%3Abeta, the IRI its key mints, commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { id: \"ORG:acme\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Company { id: \"ORG:beta\" }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

@@ -1,0 +1,21 @@
+// expect: UGS0602 at 19:13
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Claim @bitemporal(valid: valid) {
+  valid: Interval<DateTime> Optional
+  text:  String
+}
+
+entity Source @append_only { name: String }
+
+relation Cites @append_only {
+  claim:  Claim  -> citations*
+  source: Source -> cited_in*
+}
+
+relation Endorses @bitemporal(valid: valid) {
+  claim:    Claim -> endorsements*
+  citation: Cites -> endorsed_by*
+  valid:    Interval<DateTime> Optional
+}

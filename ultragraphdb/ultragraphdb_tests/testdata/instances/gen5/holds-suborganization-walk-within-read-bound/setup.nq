@@ -1,0 +1,28 @@
+<https://example.org/deep_brain#Node/ORG%3Ahub> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Ahub> <https://example.org/deep_brain#id> "ORG:hub" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Atop> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Atop> <https://example.org/deep_brain#id> "ORG:top" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au1> <https://example.org/deep_brain#id> "ORG:u1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au1> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Ahub> <https://example.org/deep_brain#ontology> .
+_:s1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#SubOrganizationOf> <https://example.org/deep_brain#ontology> .
+_:s1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/ORG%3Au1> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Ahub> )>> <https://example.org/deep_brain#ontology> .
+_:s1 <https://example.org/deep_brain#valid_start> "2026-01-01T00:00:00Z"^^<http://www.w3.org/2001/XMLSchema#dateTimeStamp> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au2> <https://example.org/deep_brain#id> "ORG:u2" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au2> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Ahub> <https://example.org/deep_brain#ontology> .
+_:s2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#SubOrganizationOf> <https://example.org/deep_brain#ontology> .
+_:s2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/ORG%3Au2> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Ahub> )>> <https://example.org/deep_brain#ontology> .
+_:s2 <https://example.org/deep_brain#valid_start> "2026-01-01T00:00:00Z"^^<http://www.w3.org/2001/XMLSchema#dateTimeStamp> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au3> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au3> <https://example.org/deep_brain#id> "ORG:u3" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au3> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Ahub> <https://example.org/deep_brain#ontology> .
+_:s3 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#SubOrganizationOf> <https://example.org/deep_brain#ontology> .
+_:s3 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/ORG%3Au3> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Ahub> )>> <https://example.org/deep_brain#ontology> .
+_:s3 <https://example.org/deep_brain#valid_start> "2026-01-01T00:00:00Z"^^<http://www.w3.org/2001/XMLSchema#dateTimeStamp> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au4> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au4> <https://example.org/deep_brain#id> "ORG:u4" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Au4> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Ahub> <https://example.org/deep_brain#ontology> .
+_:s4 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#SubOrganizationOf> <https://example.org/deep_brain#ontology> .
+_:s4 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/ORG%3Au4> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Ahub> )>> <https://example.org/deep_brain#ontology> .
+_:s4 <https://example.org/deep_brain#valid_start> "2026-01-01T00:00:00Z"^^<http://www.w3.org/2001/XMLSchema#dateTimeStamp> <https://example.org/deep_brain#ontology> .

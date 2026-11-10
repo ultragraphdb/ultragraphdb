@@ -1,0 +1,10 @@
+// expect: compiles
+schema store version 1
+prefix store = "https://example.org/store#"
+import schema shared
+
+entity Holder
+relation Holds {
+  holder: Holder       -> held*
+  item:   shared.Thing -> _
+}

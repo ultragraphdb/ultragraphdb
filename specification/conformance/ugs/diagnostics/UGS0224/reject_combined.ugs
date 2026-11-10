@@ -1,0 +1,8 @@
+// expect: UGS0224 at 5:22
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Ticket @check(closed - opened <= P30D) {
+  opened: Date
+  closed: DateTime
+}

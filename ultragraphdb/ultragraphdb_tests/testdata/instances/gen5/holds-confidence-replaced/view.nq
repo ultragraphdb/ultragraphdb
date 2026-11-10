@@ -1,0 +1,11 @@
+<https://example.org/deep_brain#Node/ORG%3Aacme> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Company> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Aacme> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Aacme> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Agent> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Aacme> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Endurant> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Aacme> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Node> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Aacme> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Asserted> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Aacme> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Statement> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Aacme> <https://example.org/deep_brain#id> "ORG:acme" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Aacme> <https://example.org/deep_brain#confidence> "0.75"^^<http://www.w3.org/2001/XMLSchema#double> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Aacme> <https://example.org/deep_brain#inferred> "false"^^<http://www.w3.org/2001/XMLSchema#boolean> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Aacme> <https://example.org/deep_brain#rank> "normal" <https://example.org/deep_brain#ontology> .

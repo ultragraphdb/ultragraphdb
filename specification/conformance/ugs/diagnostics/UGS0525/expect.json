@@ -1,0 +1,20 @@
+{
+  "code": "UGS0525",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@index(fulltext) on a String",
+      "sources": ["reject.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0525", "kind": "error",
+          "file": "reject.ugs", "line": 6, "column": 24, "length": 8,
+          "fix": [
+            { "file": "reject.ugs", "line": 6, "column": 10, "length": 6, "replacement": "Text" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept.ugs"], "warnings": [] }
+    }
+  ]
+}

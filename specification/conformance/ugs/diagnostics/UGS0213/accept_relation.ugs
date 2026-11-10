@@ -1,0 +1,17 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Person {
+  name: String
+}
+
+abstract relation Agreement {
+  party:        Person -> agreements*
+  counterparty: Person -> counter_agreements*
+  signed:       Date Optional
+}
+
+relation Lease : Agreement {
+  signed: Date
+}

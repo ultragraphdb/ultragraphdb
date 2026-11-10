@@ -1,0 +1,18 @@
+{
+  "code": "UGS0523",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@index(geo) on a String",
+      "sources": ["reject.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0523", "kind": "error",
+          "file": "reject.ugs", "line": 6, "column": 27, "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept.ugs"], "warnings": [] }
+    }
+  ]
+}

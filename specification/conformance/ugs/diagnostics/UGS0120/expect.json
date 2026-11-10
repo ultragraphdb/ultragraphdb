@@ -1,0 +1,75 @@
+{
+  "code": "UGS0120",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "an expression missing its right operand",
+      "sources": [
+        "reject_missing_operand.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0120",
+          "kind": "error",
+          "file": "reject_missing_operand.ugs",
+          "line": 6,
+          "column": 32,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_missing_operand.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a measure multiplied by a measure, beyond version 1's measure arithmetic",
+      "sources": [
+        "reject_measure_product.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0120",
+          "kind": "error",
+          "file": "reject_measure_product.ugs",
+          "line": 12,
+          "column": 16,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_measure_product.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "measures of two quantity kinds added, beyond version 1's measure arithmetic",
+      "sources": [
+        "reject_measure_kinds.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0120",
+          "kind": "error",
+          "file": "reject_measure_kinds.ugs",
+          "line": 14,
+          "column": 16,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_measure_kinds.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

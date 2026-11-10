@@ -1,0 +1,11 @@
+// expect: compiles
+schema relation_binary version 1
+prefix rb = "https://example.org/relation_binary#"
+
+entity Author
+entity Book
+
+relation Wrote {
+  author: Author -> books*
+  book:   Book   -> authors*
+}

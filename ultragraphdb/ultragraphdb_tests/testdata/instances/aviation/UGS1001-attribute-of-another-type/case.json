@@ -1,0 +1,13 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1001",
+  "name": "an engine written with tail_number, which Aircraft declares and Engine does not",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1001"
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+// expect: UGS0215 at 10:9
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Person {
+  name: String
+}
+
+entity Place {
+  name: Text
+}

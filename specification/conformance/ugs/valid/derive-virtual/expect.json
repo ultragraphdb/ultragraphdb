@@ -1,0 +1,37 @@
+{
+  "name": "derive-virtual",
+  "sources": [
+    "derive_virtual.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [
+    {
+      "code": "UGS0902",
+      "kind": "warning",
+      "file": "derive_virtual.ugs",
+      "line": 13,
+      "column": 13,
+      "length": 6,
+      "fix": null
+    }
+  ],
+  "prefixes": {
+    "derive_virtual.Person": 3,
+    "derive_virtual.Club": 4,
+    "derive_virtual.Joins": 5
+  },
+  "report": [
+    "UGS0901 derive_virtual.Club.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 derive_virtual.Club.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 derive_virtual.Joins.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 derive_virtual.Joins.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 derive_virtual.Person.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 derive_virtual.Person.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0902 derive_virtual.Club.roster construct=derive stage=7",
+    "UGS0905 derive_virtual.Club.members relation=derive_virtual.Joins role=club",
+    "UGS0905 derive_virtual.Club.roster relation=derive_virtual.Joins role=club"
+  ]
+}

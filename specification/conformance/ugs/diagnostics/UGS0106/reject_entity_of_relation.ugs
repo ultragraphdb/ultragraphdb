@@ -1,0 +1,19 @@
+// expect: UGS0106 at 17:18
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Pilot {
+  name: String
+}
+entity Aircraft {
+  serial: String
+}
+
+relation Flies {
+  pilot:    Pilot    -> flown*
+  aircraft: Aircraft -> pilots*
+}
+
+entity Logbook : Flies {
+  pages: Int32
+}

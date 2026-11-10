@@ -1,0 +1,30 @@
+{
+  "code": "UGS0401",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a relation declaring one role",
+      "sources": ["reject_one_role.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0401", "kind": "error",
+          "file": "reject_one_role.ugs", "line": 7, "column": 10, "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_one_role.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a relation declaring attributes and no role",
+      "sources": ["reject_no_role.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0401", "kind": "error",
+          "file": "reject_no_role.ugs", "line": 7, "column": 10, "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_no_role.ugs"], "warnings": [] }
+    }
+  ]
+}

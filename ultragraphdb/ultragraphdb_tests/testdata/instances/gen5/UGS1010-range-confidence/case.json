@@ -1,0 +1,16 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1010",
+  "name": "an Object whose confidence is above @range(0, 1)",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Object { id: \"OBJ:o1\", confidence: 1.5 }"
+      ],
+      "expect": {
+        "refused": "UGS1010"
+      }
+    }
+  ]
+}

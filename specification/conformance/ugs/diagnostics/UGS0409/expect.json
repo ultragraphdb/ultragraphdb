@@ -1,0 +1,34 @@
+{
+  "code": "UGS0409",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@multi on a subtype of a relation that is @set by default",
+      "sources": ["reject_multi_below_set.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0409", "kind": "error",
+          "file": "reject_multi_below_set.ugs", "line": 12, "column": 26, "length": 6,
+          "fix": [
+            { "file": "reject_multi_below_set.ugs", "line": 12, "column": 25, "length": 7, "replacement": "" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_multi_below_set.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@set on a subtype of a @multi relation",
+      "sources": ["reject_set_below_multi.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0409", "kind": "error",
+          "file": "reject_set_below_multi.ugs", "line": 12, "column": 26, "length": 4,
+          "fix": [
+            { "file": "reject_set_below_multi.ugs", "line": 12, "column": 25, "length": 5, "replacement": "" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_set_below_multi.ugs"], "warnings": [] }
+    }
+  ]
+}

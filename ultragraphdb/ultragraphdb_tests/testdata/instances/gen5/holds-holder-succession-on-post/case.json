@@ -1,0 +1,28 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1024",
+  "name": "closing the first holder's valid interval where the second's begins, in one transaction, leaves no overlap",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Organization { id: \"ORG:acme\" }",
+        "insert Post { id: \"AGENT:post1\" }",
+        "insert PostIn { post: Post(id = \"AGENT:post1\"), organisation: Organization(id = \"ORG:acme\") }",
+        "insert Person { id: \"AGENT:p1\" }",
+        "insert Person { id: \"AGENT:p2\" }",
+        "insert Holds { holder: Person(id = \"AGENT:p1\"), post: Post(id = \"AGENT:post1\"), valid: 2026-01-01T00:00:00Z .. }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "succession.nq",
+      "uql": [
+        "update Holds(post: Post(id = \"AGENT:post1\"), holder: Person(id = \"AGENT:p1\")) { valid: 2026-01-01T00:00:00Z .. 2026-06-01T00:00:00Z }",
+        "insert Holds { holder: Person(id = \"AGENT:p2\"), post: Post(id = \"AGENT:post1\"), valid: 2026-06-01T00:00:00Z .. }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

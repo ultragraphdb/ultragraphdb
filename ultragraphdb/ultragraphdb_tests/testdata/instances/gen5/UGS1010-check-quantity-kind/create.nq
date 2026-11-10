@@ -1,0 +1,4 @@
+<https://example.org/deep_brain#Node/QTY%3Aq1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Quantity> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/QTY%3Aq1> <https://example.org/deep_brain#id> "QTY:q1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/QTY%3Aq1> <https://example.org/deep_brain#value> "12.5 m"^^<https://w3id.org/ultragraphdb/ns/measure> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/QTY%3Aq1> <https://example.org/deep_brain#quantity_kind> "Time" <https://example.org/deep_brain#ontology> .

@@ -1,0 +1,11 @@
+// expect: UGS0516 at 11:19
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Item { name: String }
+entity Tag  { label: String }
+
+relation Tagged {
+  item: Item -> tags*
+  tag:  Tag  -> _
+} @on_delete(tag: restrict)

@@ -1,0 +1,22 @@
+{
+  "name": "index-fulltext",
+  "sources": [
+    "index_fulltext.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "index_fulltext.Article": 3
+  },
+  "report": [
+    "UGS0901 index_fulltext.Article.create path=coordination-free local=true by=none indexes=1",
+    "UGS0901 index_fulltext.Article.update.body path=coordination-free local=true by=none indexes=2",
+    "UGS0901 index_fulltext.Article.delete path=coordination-free local=true by=none indexes=1",
+    "UGS0906 index_fulltext.Article.create indexes=1 rank=2",
+    "UGS0906 index_fulltext.Article.delete indexes=1 rank=3",
+    "UGS0906 index_fulltext.Article.update.body indexes=2 rank=1"
+  ]
+}

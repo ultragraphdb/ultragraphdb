@@ -1,0 +1,9 @@
+// expect: UGS0225 at 9:37
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Ticket {
+  due: Date
+}
+
+fn Ticket.overdue() -> Bool = due < today()

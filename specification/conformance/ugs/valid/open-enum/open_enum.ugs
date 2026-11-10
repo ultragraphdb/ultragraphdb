@@ -1,0 +1,9 @@
+// expect: compiles
+schema open_enum version 1
+prefix oe = "https://example.org/open_enum#"
+
+enum Color @open { red, green }
+
+entity Paint {
+  color: Color
+}

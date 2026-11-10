@@ -1,0 +1,9 @@
+// expect: UGS0401 at 7:10
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Person { name: String }
+
+relation Note {
+  text: String
+}

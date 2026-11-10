@@ -1,0 +1,11 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Person {
+  name: String
+}
+
+entity Place {
+  name: Text @iri("https://example.org/shop#place_name")
+}

@@ -1,0 +1,19 @@
+{
+  "name": "comments",
+  "sources": [
+    "comments.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "comments.Note": 3
+  },
+  "report": [
+    "UGS0901 comments.Note.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 comments.Note.update.body path=coordination-free local=true by=none indexes=0",
+    "UGS0901 comments.Note.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

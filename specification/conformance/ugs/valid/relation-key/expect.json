@@ -1,0 +1,26 @@
+{
+  "name": "relation-key",
+  "sources": [
+    "relation_key.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "relation_key.Buyer": 3,
+    "relation_key.Seller": 4,
+    "relation_key.Contract": 5
+  },
+  "report": [
+    "UGS0901 relation_key.Buyer.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_key.Buyer.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 relation_key.Contract.insert path=segmented local=true by=@key indexes=0",
+    "UGS0901 relation_key.Contract.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_key.Seller.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 relation_key.Seller.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0905 relation_key.Buyer.purchases relation=relation_key.Contract role=buyer",
+    "UGS0905 relation_key.Seller.sales relation=relation_key.Contract role=seller"
+  ]
+}

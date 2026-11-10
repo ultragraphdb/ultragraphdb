@@ -1,0 +1,16 @@
+<https://example.org/aviation#Organization/Leonardo> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Company> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Leonardo> <https://example.org/aviation#name> "Leonardo" <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Airbus> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Company> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Airbus> <https://example.org/aviation#name> "Airbus" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/EN-0001> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Engine> <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/EN-0001> <https://example.org/aviation#serial> "EN-0001" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/EN-0001> <https://example.org/aviation#commissioned> "2022-01-08"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/EN-0001> <https://example.org/aviation#status> "active" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/EN-0001> <https://example.org/aviation#tags> "engine" <https://example.org/aviation#production> .
+<https://example.org/aviation#Asset/EN-0001> <https://example.org/aviation#thrust_kn> "120.5"^^<http://www.w3.org/2001/XMLSchema#double> <https://example.org/aviation#production> .
+_:supply1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Supply> <https://example.org/aviation#production> .
+_:supply1 <https://example.org/aviation#Supply_supplier> <https://example.org/aviation#Organization/Leonardo> <https://example.org/aviation#production> .
+_:supply1 <https://example.org/aviation#Supply_buyer> <https://example.org/aviation#Organization/Airbus> <https://example.org/aviation#production> .
+_:supply1 <https://example.org/aviation#Supply_item> <https://example.org/aviation#Asset/EN-0001> <https://example.org/aviation#production> .
+_:supply1 <https://example.org/aviation#signed> "2022-01-09"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .
+_:supply1 <https://example.org/aviation#value> "1500000"^^<http://www.w3.org/2001/XMLSchema#decimal> <https://example.org/aviation#production> .

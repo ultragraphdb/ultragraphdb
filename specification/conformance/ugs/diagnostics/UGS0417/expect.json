@@ -1,0 +1,54 @@
+{
+  "code": "UGS0417",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "two roles of one name",
+      "sources": ["reject_role.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0417", "kind": "error",
+          "file": "reject_role.ugs", "line": 9, "column": 3, "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_role.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a role named as an attribute of the relation",
+      "sources": ["reject_attribute.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0417", "kind": "error",
+          "file": "reject_attribute.ugs", "line": 11, "column": 3, "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_attribute.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a role named as the built-in field type",
+      "sources": ["reject_builtin.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0417", "kind": "error",
+          "file": "reject_builtin.ugs", "line": 10, "column": 3, "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_builtin.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a role named as an attribute the relation inherits",
+      "sources": ["reject_inherited_attribute.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0417", "kind": "error",
+          "file": "reject_inherited_attribute.ugs", "line": 15, "column": 3, "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_inherited_attribute.ugs"], "warnings": [] }
+    }
+  ]
+}

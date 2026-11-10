@@ -1,0 +1,68 @@
+{
+  "code": "UGS0805",
+  "kind": "warning",
+  "cases": [
+    {
+      "name": "an attribute in lowerCamelCase, where the convention is lower_snake_case",
+      "sources": [
+        "reject_attribute.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0805",
+          "kind": "warning",
+          "file": "reject_attribute.ugs",
+          "line": 6,
+          "column": 3,
+          "length": 12,
+          "fix": [
+            {
+              "file": "reject_attribute.ugs",
+              "line": 6,
+              "column": 3,
+              "length": 12,
+              "replacement": "serial_number"
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_attribute.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an entity type in lower case, where the convention is UpperCamelCase",
+      "sources": [
+        "reject_type.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0805",
+          "kind": "warning",
+          "file": "reject_type.ugs",
+          "line": 5,
+          "column": 8,
+          "length": 4,
+          "fix": [
+            {
+              "file": "reject_type.ugs",
+              "line": 5,
+              "column": 8,
+              "length": 4,
+              "replacement": "Part"
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_type.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

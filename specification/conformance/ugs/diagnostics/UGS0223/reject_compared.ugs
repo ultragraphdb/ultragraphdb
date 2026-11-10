@@ -1,0 +1,8 @@
+// expect: UGS0223 at 5:22
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Flight @check(scheduled < departed) {
+  scheduled: LocalDateTime
+  departed:  DateTime
+}

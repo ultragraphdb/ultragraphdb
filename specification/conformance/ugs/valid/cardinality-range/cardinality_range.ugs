@@ -1,0 +1,11 @@
+// expect: compiles
+schema cardinality_range version 1
+prefix crg = "https://example.org/cardinality_range#"
+
+entity Car
+entity Wheel
+
+relation Fitted {
+  car:   Car   -> wheels{2, 4}
+  wheel: Wheel -> fitted_to*
+}

@@ -1,0 +1,52 @@
+{
+  "code": "UGS0206",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "an Interval over String",
+      "sources": [
+        "reject_string.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0206",
+          "kind": "error",
+          "file": "reject_string.ugs",
+          "line": 6,
+          "column": 18,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_string.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an Interval over a float",
+      "sources": [
+        "reject_float.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0206",
+          "kind": "error",
+          "file": "reject_float.ugs",
+          "line": 6,
+          "column": 18,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_float.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

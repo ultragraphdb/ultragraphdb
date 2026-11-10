@@ -1,0 +1,7 @@
+// expect: compiles
+schema index_geo version 1
+prefix ig = "https://example.org/index_geo#"
+
+entity Site {
+  location: Geo @index(geo)
+}

@@ -1,0 +1,7 @@
+// expect: UGS0524 at 6:35
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Doc {
+  embedding: List<Float32> @index(ann, metric: cosine)
+}

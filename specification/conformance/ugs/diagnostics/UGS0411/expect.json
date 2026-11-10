@@ -1,0 +1,32 @@
+{
+  "code": "UGS0411",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a cardinality after `-> _`",
+      "sources": ["reject_cardinality.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0411", "kind": "error",
+          "file": "reject_cardinality.ugs", "line": 10, "column": 18, "length": 1,
+          "fix": [
+            { "file": "reject_cardinality.ugs", "line": 10, "column": 18, "length": 1, "replacement": "" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_cardinality.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@limit per a role declaring `-> _`",
+      "sources": ["reject_limit.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0411", "kind": "error",
+          "file": "reject_limit.ugs", "line": 11, "column": 29, "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_limit.ugs"], "warnings": [] }
+    }
+  ]
+}

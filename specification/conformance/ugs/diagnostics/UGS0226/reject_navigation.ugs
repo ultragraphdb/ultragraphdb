@@ -1,0 +1,16 @@
+// expect: UGS0226 at 5:27
+schema library version 1
+prefix ex = "https://example.org/library#"
+
+entity Shelf @check(count(books) <= 50) {
+  label: String
+}
+
+entity Book {
+  title: String
+}
+
+relation Holds {
+  shelf: Shelf -> books*
+  book:  Book  -> shelves*
+}

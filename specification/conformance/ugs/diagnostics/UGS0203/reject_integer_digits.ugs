@@ -1,0 +1,7 @@
+// expect: UGS0203 at 6:18
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Invoice {
+  total: Decimal(24, 2)
+}

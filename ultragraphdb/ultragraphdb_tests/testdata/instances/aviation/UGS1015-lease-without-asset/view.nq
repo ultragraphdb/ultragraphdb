@@ -1,0 +1,6 @@
+<https://example.org/aviation#Organization/Leonardo> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Company> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Leonardo> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Organization> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Leonardo> <https://example.org/aviation#name> "Leonardo" <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Airbus> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Company> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Airbus> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Organization> <https://example.org/aviation#production> .
+<https://example.org/aviation#Organization/Airbus> <https://example.org/aviation#name> "Airbus" <https://example.org/aviation#production> .

@@ -1,0 +1,10 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Part {
+  weight: Int32
+  heavy:  Bool
+}
+
+derive Part.over_limit: Bool = weight > 100

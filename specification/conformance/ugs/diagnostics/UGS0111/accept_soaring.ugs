@@ -1,0 +1,7 @@
+// expect: compiles
+module soaring version 1 extends core >= 1
+prefix so = "https://example.org/soaring#"
+
+entity Sailplane : Aircraft {
+  span_m: Float64
+}

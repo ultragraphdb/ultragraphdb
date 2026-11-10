@@ -1,0 +1,14 @@
+// expect: UGS0013 at 14:179
+schema routes version 1
+prefix rt = "https://example.org/routes#"
+
+entity Stop {
+  name: String
+}
+
+relation Leg {
+  origin:      Stop -> next*
+  destination: Stop -> previous*
+}
+
+derive Stop.far = next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next.next

@@ -1,0 +1,11 @@
+// expect: compiles
+schema set_semantics version 1
+prefix ss = "https://example.org/set_semantics#"
+
+entity Post
+entity Tag
+
+relation Tagged @set {
+  post: Post -> tags*
+  tag:  Tag  -> posts*
+}

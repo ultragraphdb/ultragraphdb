@@ -1,0 +1,42 @@
+{
+  "code": "UGS0509",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "@valid naming an attribute that is not an Interval",
+      "sources": ["reject_valid_not_interval.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0509", "kind": "error",
+          "file": "reject_valid_not_interval.ugs", "line": 5, "column": 21, "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_valid_not_interval.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@bitemporal naming an Interval over an integer type",
+      "sources": ["reject_bitemporal_integer_interval.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0509", "kind": "error",
+          "file": "reject_bitemporal_integer_interval.ugs", "line": 5, "column": 35, "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_bitemporal_integer_interval.ugs"], "warnings": [] }
+    },
+    {
+      "name": "@bitemporal naming an attribute that is not an Interval",
+      "sources": ["reject_bitemporal_not_interval.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0509", "kind": "error",
+          "file": "reject_bitemporal_not_interval.ugs", "line": 5, "column": 35, "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": { "sources": ["accept_bitemporal_not_interval.ugs"], "warnings": [] }
+    }
+  ]
+}

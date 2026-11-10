@@ -1,0 +1,34 @@
+{
+  "code": "UGS0519",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a subtype loosening restrict to cascade",
+      "sources": ["reject_cascade.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0519", "kind": "error",
+          "file": "reject_cascade.ugs", "line": 13, "column": 44, "length": 7,
+          "fix": [
+            { "file": "reject_cascade.ugs", "line": 13, "column": 44, "length": 7, "replacement": "restrict" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_cascade.ugs"], "warnings": [] }
+    },
+    {
+      "name": "a subtype loosening restrict to orphan",
+      "sources": ["reject_orphan.ugs"],
+      "diagnostics": [
+        {
+          "code": "UGS0519", "kind": "error",
+          "file": "reject_orphan.ugs", "line": 13, "column": 46, "length": 6,
+          "fix": [
+            { "file": "reject_orphan.ugs", "line": 13, "column": 46, "length": 6, "replacement": "restrict" }
+          ]
+        }
+      ],
+      "accept": { "sources": ["accept_orphan.ugs"], "warnings": [] }
+    }
+  ]
+}

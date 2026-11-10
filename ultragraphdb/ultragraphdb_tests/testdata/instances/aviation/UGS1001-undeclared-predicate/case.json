@@ -1,0 +1,21 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1001",
+  "name": "a predicate the catalog does not declare, written on an existing aircraft",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "expect": {
+        "refused": "UGS1001"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

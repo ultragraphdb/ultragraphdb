@@ -1,0 +1,7 @@
+// expect: compiles
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Company {
+  name: String @maps_to(<https://schema.org/legalName>)
+}

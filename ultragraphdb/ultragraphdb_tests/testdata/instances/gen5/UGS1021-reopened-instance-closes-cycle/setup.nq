@@ -1,0 +1,14 @@
+<https://example.org/deep_brain#Node/ORG%3Aa> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Aa> <https://example.org/deep_brain#id> "ORG:a" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Ab> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Ab> <https://example.org/deep_brain#id> "ORG:b" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Ac> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Organization> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Ac> <https://example.org/deep_brain#id> "ORG:c" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Ab> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Aa> <https://example.org/deep_brain#ontology> .
+_:s1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#SubOrganizationOf> <https://example.org/deep_brain#ontology> .
+_:s1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/ORG%3Ab> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Aa> )>> <https://example.org/deep_brain#ontology> .
+_:s1 <https://example.org/deep_brain#valid_start> "2026-01-01T00:00:00Z"^^<http://www.w3.org/2001/XMLSchema#dateTimeStamp> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/ORG%3Ac> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Ab> <https://example.org/deep_brain#ontology> .
+_:s2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#SubOrganizationOf> <https://example.org/deep_brain#ontology> .
+_:s2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/ORG%3Ac> <https://example.org/deep_brain#parents> <https://example.org/deep_brain#Node/ORG%3Ab> )>> <https://example.org/deep_brain#ontology> .
+_:s2 <https://example.org/deep_brain#valid_start> "2026-01-01T00:00:00Z"^^<http://www.w3.org/2001/XMLSchema#dateTimeStamp> <https://example.org/deep_brain#ontology> .

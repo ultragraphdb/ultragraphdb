@@ -1,0 +1,91 @@
+{
+  "code": "UGS0006",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "`optional` after a field's type: the keyword differs by case alone and is named as the fix",
+      "sources": [
+        "reject_optional.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0006",
+          "kind": "error",
+          "file": "reject_optional.ugs",
+          "line": 7,
+          "column": 19,
+          "length": 8,
+          "fix": [
+            {
+              "file": "reject_optional.ugs",
+              "line": 7,
+              "column": 19,
+              "length": 8,
+              "replacement": "Optional"
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_optional.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "`Entity` where a declaration begins: the keyword differs by case alone and is named as the fix",
+      "sources": [
+        "reject_entity.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0006",
+          "kind": "error",
+          "file": "reject_entity.ugs",
+          "line": 5,
+          "column": 1,
+          "length": 6,
+          "fix": [
+            {
+              "file": "reject_entity.ugs",
+              "line": 5,
+              "column": 1,
+              "length": 6,
+              "replacement": "entity"
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_entity.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a comma between the fields of a type, which the grammar separates by nothing",
+      "sources": [
+        "reject_comma.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0006",
+          "kind": "error",
+          "file": "reject_comma.ugs",
+          "line": 6,
+          "column": 18,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_comma.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

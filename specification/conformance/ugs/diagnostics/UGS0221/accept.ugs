@@ -1,0 +1,9 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+enum Status { active, stored }
+
+entity Item {
+  status: Status
+}

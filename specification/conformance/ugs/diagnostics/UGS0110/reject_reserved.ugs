@@ -1,0 +1,7 @@
+// expect: UGS0110 at 5:8
+module lab version 1 extends core >= 1
+prefix lab = "https://example.org/lab#"
+
+entity Measurement : Observation {
+  level: Float64
+}

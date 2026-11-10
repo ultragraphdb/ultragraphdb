@@ -1,0 +1,23 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1008",
+  "name": "a Concept whose id differs from a live Object's in its prefix alone, and a revision of the Object under its own key",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "uql": [
+        "insert Object { id: \"OBJ:o1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "step2.nq",
+      "uql": [
+        "insert Concept { id: \"CON:o1\" }",
+        "update Object(id = \"OBJ:o1\") { label: \"router\" }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

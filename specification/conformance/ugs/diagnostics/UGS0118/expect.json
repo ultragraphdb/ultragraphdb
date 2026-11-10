@@ -1,0 +1,81 @@
+{
+  "code": "UGS0118",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a function calling itself",
+      "sources": [
+        "reject_self.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0118",
+          "kind": "error",
+          "file": "reject_self.ugs",
+          "line": 9,
+          "column": 12,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_self.ugs"
+        ],
+        "warnings": [
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_self.ugs",
+            "line": 9,
+            "column": 12,
+            "length": 5,
+            "fix": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "two functions calling each other, the first declaration of the cycle",
+      "sources": [
+        "reject_pair.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0118",
+          "kind": "error",
+          "file": "reject_pair.ugs",
+          "line": 9,
+          "column": 12,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_pair.ugs"
+        ],
+        "warnings": [
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_pair.ugs",
+            "line": 9,
+            "column": 12,
+            "length": 5,
+            "fix": null
+          },
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_pair.ugs",
+            "line": 10,
+            "column": 12,
+            "length": 8,
+            "fix": null
+          }
+        ]
+      }
+    }
+  ]
+}

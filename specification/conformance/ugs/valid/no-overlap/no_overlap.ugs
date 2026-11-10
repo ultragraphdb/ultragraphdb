@@ -1,0 +1,12 @@
+// expect: compiles
+schema no_overlap version 1
+prefix nov = "https://example.org/no_overlap#"
+
+entity Room
+entity Guest
+
+relation Stay @multi @valid(period) @no_overlap(per: [room]) {
+  room:   Room  -> stays*
+  guest:  Guest -> visits*
+  period: Interval<DateTime>
+}

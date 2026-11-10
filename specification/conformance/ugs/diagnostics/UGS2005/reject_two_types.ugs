@@ -1,0 +1,6 @@
+// expect: UGS2005 at 6:8
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity First
+entity Second

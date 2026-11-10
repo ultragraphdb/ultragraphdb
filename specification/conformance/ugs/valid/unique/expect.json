@@ -1,0 +1,19 @@
+{
+  "name": "unique",
+  "sources": [
+    "uniques.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "uniques.Account": 3
+  },
+  "report": [
+    "UGS0901 uniques.Account.create path=segmented local=false by=@unique indexes=0",
+    "UGS0901 uniques.Account.update.email path=segmented local=false by=@unique indexes=0",
+    "UGS0901 uniques.Account.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

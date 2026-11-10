@@ -1,0 +1,9 @@
+// expect: compiles
+schema routes version 1
+prefix rt = "https://example.org/routes#"
+
+entity Stop {
+  name: String
+}
+
+fn Stop.pick(p01: Int32, p02: Int32, p03: Int32, p04: Int32, p05: Int32, p06: Int32, p07: Int32, p08: Int32, p09: Int32, p10: Int32, p11: Int32, p12: Int32, p13: Int32, p14: Int32, p15: Int32, p16: Int32, p17: Int32, p18: Int32, p19: Int32, p20: Int32, p21: Int32, p22: Int32, p23: Int32, p24: Int32, p25: Int32, p26: Int32, p27: Int32, p28: Int32, p29: Int32, p30: Int32, p31: Int32, p32: Int32) -> Int32 = p01

@@ -1,0 +1,75 @@
+{
+  "code": "UGS0004",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "an integer with two `_` separators side by side",
+      "sources": [
+        "reject_adjacent_separators.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0004",
+          "kind": "error",
+          "file": "reject_adjacent_separators.ugs",
+          "line": 6,
+          "column": 27,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_adjacent_separators.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an integer ending in a `_` separator",
+      "sources": [
+        "reject_trailing_separator.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0004",
+          "kind": "error",
+          "file": "reject_trailing_separator.ugs",
+          "line": 6,
+          "column": 27,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_trailing_separator.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a float whose exponent has no digit",
+      "sources": [
+        "reject_exponent_without_digits.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0004",
+          "kind": "error",
+          "file": "reject_exponent_without_digits.ugs",
+          "line": 6,
+          "column": 25,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_exponent_without_digits.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Person { name: String }
+
+relation Owns {
+  owner: Person -> owns*
+  thing: Person -> owned_by*
+}
+
+relation Allows {
+  person: Person -> allowed*
+  kind:   schema.RelationType<Owns> -> _
+}

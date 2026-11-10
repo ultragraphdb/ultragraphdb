@@ -1,0 +1,7 @@
+// expect: UGS0528 at 6:29
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Grade {
+  code: String @values("a", 2)
+}

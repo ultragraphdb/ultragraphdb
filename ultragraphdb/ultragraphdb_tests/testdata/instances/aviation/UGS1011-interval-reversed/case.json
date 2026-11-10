@@ -1,0 +1,26 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1011",
+  "name": "a lease whose term starts after it ends",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Leonardo\" }",
+        "insert Company { name: \"Airbus\" }",
+        "insert Aircraft { serial: \"AC-0001\", commissioned: 2022-01-08, status: active, tags: [\"fleet\"], tail_number: \"D-AAAA\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert Lease { lessor: Company(name = \"Leonardo\"), lessee: Company(name = \"Airbus\"), asset: Aircraft(serial = \"AC-0001\"), signed: 2022-01-10, term: 2030-01-01 .. 2022-01-10 }"
+      ],
+      "expect": {
+        "refused": "UGS1011"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

@@ -1,0 +1,7 @@
+// expect: UGS0013 at 6:85
+schema gauges version 1
+prefix ga = "https://example.org/gauges#"
+
+entity Gauge {
+  level: Int32 @check((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((level >= 0))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+}

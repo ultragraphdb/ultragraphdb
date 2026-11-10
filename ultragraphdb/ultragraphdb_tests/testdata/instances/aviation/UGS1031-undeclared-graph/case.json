@@ -1,0 +1,21 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1031",
+  "name": "a Company created in av:archive, which the schema declares no graph for, is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1031"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

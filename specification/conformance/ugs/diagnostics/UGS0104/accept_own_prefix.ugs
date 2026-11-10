@@ -1,0 +1,8 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+import "https://schema.org/" as sdo
+
+entity Aircraft @maps_to(sdo:Vehicle) {
+  serial: String
+}

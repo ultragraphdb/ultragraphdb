@@ -1,0 +1,8 @@
+// expect: compiles
+schema vectors version 1
+prefix vc = "https://example.org/vectors#"
+
+entity Doc {
+  embedding: Vector<F32, 4>
+  compact:   Vector<BF16, 4> Optional
+}

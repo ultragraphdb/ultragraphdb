@@ -1,0 +1,15 @@
+// expect: compiles
+schema entity_inheritance version 1
+prefix ei = "https://example.org/entity_inheritance#"
+
+abstract entity Asset {
+  serial: String
+  notes:  String Optional
+}
+
+entity Aircraft : Asset {
+  notes: String @pattern("[A-Z ]+")
+  tail:  String
+}
+
+entity Engine : Asset

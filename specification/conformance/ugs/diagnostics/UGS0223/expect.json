@@ -1,0 +1,52 @@
+{
+  "code": "UGS0223",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a LocalDateTime compared with a DateTime",
+      "sources": [
+        "reject_compared.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0223",
+          "kind": "error",
+          "file": "reject_compared.ugs",
+          "line": 5,
+          "column": 22,
+          "length": 20,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_compared.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a LocalDateTime subtracted from a DateTime",
+      "sources": [
+        "reject_combined.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0223",
+          "kind": "error",
+          "file": "reject_combined.ugs",
+          "line": 5,
+          "column": 22,
+          "length": 20,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_combined.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

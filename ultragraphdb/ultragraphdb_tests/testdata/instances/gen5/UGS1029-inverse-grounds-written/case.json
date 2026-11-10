@@ -1,0 +1,22 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1029",
+  "name": "a write of db:grounds, the inverse navigation of GroundedIn, is refused; the stored triple is db:grounded_in",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Concept { id: \"CON:c1\" }",
+        "insert Concept { id: \"CON:c2\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "inverse.nq",
+      "expect": {
+        "refused": "UGS1029"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

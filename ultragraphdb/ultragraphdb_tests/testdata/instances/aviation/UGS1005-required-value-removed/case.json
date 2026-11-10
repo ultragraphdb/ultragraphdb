@@ -1,0 +1,21 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1005",
+  "name": "the required thrust_kn removed from an existing engine",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Engine { serial: \"EN-0001\", commissioned: 2022-01-08, status: active, tags: [\"engine\"], thrust_kn: 120.5 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "delete": "break-delete.nq",
+      "expect": {
+        "refused": "UGS1005"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

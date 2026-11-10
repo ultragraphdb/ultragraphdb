@@ -1,0 +1,22 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1029",
+  "name": "a write of av:all_parts, a derived name, is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Avionics { serial: \"AV-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }",
+        "insert Avionics { serial: \"AV-0002\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "derived.nq",
+      "expect": {
+        "refused": "UGS1029"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

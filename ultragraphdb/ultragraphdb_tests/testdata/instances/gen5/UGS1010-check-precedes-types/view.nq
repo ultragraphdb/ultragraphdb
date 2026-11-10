@@ -1,0 +1,16 @@
+<https://example.org/deep_brain#Node/EVENT%3Ae1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Event> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Perdurant> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Node> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Asserted> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Statement> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae1> <https://example.org/deep_brain#id> "EVENT:e1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae1> <https://example.org/deep_brain#inferred> "false"^^<http://www.w3.org/2001/XMLSchema#boolean> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/EVENT%3Ae1> <https://example.org/deep_brain#rank> "normal" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/TIME%3At1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#TimeNode> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/TIME%3At1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Node> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/TIME%3At1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Asserted> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/TIME%3At1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Statement> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/TIME%3At1> <https://example.org/deep_brain#id> "TIME:t1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/TIME%3At1> <https://example.org/deep_brain#temporal> "instant" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/TIME%3At1> <https://example.org/deep_brain#inferred> "false"^^<http://www.w3.org/2001/XMLSchema#boolean> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/TIME%3At1> <https://example.org/deep_brain#rank> "normal" <https://example.org/deep_brain#ontology> .

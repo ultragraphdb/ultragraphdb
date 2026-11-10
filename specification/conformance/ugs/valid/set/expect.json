@@ -1,0 +1,25 @@
+{
+  "name": "set",
+  "sources": [
+    "set_semantics.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "set_semantics.Post": 3,
+    "set_semantics.Tag": 4,
+    "set_semantics.Tagged": 5
+  },
+  "report": [
+    "UGS0901 set_semantics.Post.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 set_semantics.Post.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 set_semantics.Tag.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 set_semantics.Tag.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 set_semantics.Tagged.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 set_semantics.Tagged.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0905 set_semantics.Tag.posts relation=set_semantics.Tagged role=tag"
+  ]
+}

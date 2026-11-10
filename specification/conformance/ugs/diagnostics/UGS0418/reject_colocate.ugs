@@ -1,0 +1,11 @@
+// expect: UGS0418 at 8:27
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Item { name: String }
+entity Tag  { label: String }
+
+relation Tagged @colocate(tag) {
+  item: Item -> tags*
+  tag:  Tag  -> _
+}

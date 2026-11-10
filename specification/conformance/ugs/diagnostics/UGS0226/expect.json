@@ -1,0 +1,52 @@
+{
+  "code": "UGS0226",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a relation's @check reading a participant's mutable field",
+      "sources": [
+        "reject_participant.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0226",
+          "kind": "error",
+          "file": "reject_participant.ugs",
+          "line": 14,
+          "column": 22,
+          "length": 10,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_participant.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an entity's @check reading other instances through a navigation",
+      "sources": [
+        "reject_navigation.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0226",
+          "kind": "error",
+          "file": "reject_navigation.ugs",
+          "line": 5,
+          "column": 27,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_navigation.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

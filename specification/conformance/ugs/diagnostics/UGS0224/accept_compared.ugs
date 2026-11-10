@@ -1,0 +1,8 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Ticket @check(opened <= date(closed)) {
+  opened: Date
+  closed: DateTime
+}

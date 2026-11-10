@@ -1,0 +1,15 @@
+// expect: compiles
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity T1 @append_only { f1: Int32 @index(range) }
+entity T2 : T1 { f2: Int32 @index(range) }
+entity T3 : T2 { f3: Int32 @index(range) }
+entity T4 : T3 { f4: Int32 @index(range) }
+entity T5 : T4 { f5: Int32 @index(range) }
+entity T6 : T5 { f6: Int32 @index(range) }
+entity T7 : T6 { f7: Int32 @index(range) }
+entity T8 : T7 { f8: Int32 @index(range) }
+entity T9 : T8 { f9: Int32 @index(range) }
+entity T10 : T9 { f10: Int32 @index(range) }
+entity T11 : T10 { f11: Int32 @index(range) }

@@ -1,0 +1,27 @@
+{
+  "name": "cardinality-range",
+  "sources": [
+    "cardinality_range.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "cardinality_range.Car": 3,
+    "cardinality_range.Wheel": 4,
+    "cardinality_range.Fitted": 5
+  },
+  "report": [
+    "UGS0901 cardinality_range.Car.create path=segmented local=true by=cardinality indexes=0",
+    "UGS0901 cardinality_range.Car.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 cardinality_range.Fitted.insert path=segmented local=true by=cardinality indexes=1",
+    "UGS0901 cardinality_range.Fitted.delete path=segmented local=true by=cardinality indexes=1",
+    "UGS0901 cardinality_range.Wheel.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 cardinality_range.Wheel.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0905 cardinality_range.Wheel.fitted_to relation=cardinality_range.Fitted role=wheel",
+    "UGS0906 cardinality_range.Fitted.delete indexes=1 rank=2",
+    "UGS0906 cardinality_range.Fitted.insert indexes=1 rank=1"
+  ]
+}

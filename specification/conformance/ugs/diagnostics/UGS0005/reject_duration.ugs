@@ -1,0 +1,7 @@
+// expect: UGS0005 at 6:26
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Airport {
+  turnaround: Duration = PT
+}

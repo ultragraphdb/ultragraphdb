@@ -1,0 +1,5 @@
+// expect: compiles
+schema shared version 1
+prefix shared = "https://example.org/shared#"
+
+entity Thing

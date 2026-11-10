@@ -1,0 +1,28 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1020",
+  "name": "an organization retracted whose only MemberOf has a closed valid interval, which restrict open retracts with it",
+  "steps": [
+    {
+      "insert": "step1.nq",
+      "uql": [
+        "insert Organization { id: \"AGENT:acme\" }",
+        "insert Person { id: \"AGENT:p0\" }",
+        "insert MemberOf { member: Person(id = \"AGENT:p0\"), collection: Organization(id = \"AGENT:acme\"), valid: 2024-01-01T00:00:00Z .. 2024-06-01T00:00:00Z }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "operations": [
+        {
+          "kind": "retract",
+          "iri": "https://example.org/deep_brain#Node/AGENT%3Aacme"
+        }
+      ],
+      "uql": [
+        "retract Organization(id = \"AGENT:acme\")"
+      ],
+      "expect": "commit"
+    }
+  ]
+}

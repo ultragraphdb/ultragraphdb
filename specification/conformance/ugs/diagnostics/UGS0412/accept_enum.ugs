@@ -1,0 +1,12 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+enum Status { active, retired }
+
+entity Person { name: String }
+
+relation Allows {
+  person: Person -> allowed*
+  kind:   schema.EntityType<Person> -> _
+}

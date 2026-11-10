@@ -1,0 +1,26 @@
+{
+  "name": "catalog-type",
+  "sources": [
+    "catalog_types.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "catalog_types.Thing": 3,
+    "catalog_types.Rule": 4,
+    "catalog_types.Governs": 5
+  },
+  "report": [
+    "UGS0901 catalog_types.Governs.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 catalog_types.Governs.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 catalog_types.Rule.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 catalog_types.Rule.update.applies_to path=coordination-free local=true by=none indexes=0",
+    "UGS0901 catalog_types.Rule.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 catalog_types.Thing.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 catalog_types.Thing.update.label path=coordination-free local=true by=none indexes=0",
+    "UGS0901 catalog_types.Thing.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

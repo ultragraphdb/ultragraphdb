@@ -1,0 +1,19 @@
+{
+  "name": "schema-header",
+  "sources": [
+    "schema_header.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "schema_header.Thing": 3
+  },
+  "report": [
+    "UGS0901 schema_header.Thing.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 schema_header.Thing.update.label path=coordination-free local=true by=none indexes=0",
+    "UGS0901 schema_header.Thing.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

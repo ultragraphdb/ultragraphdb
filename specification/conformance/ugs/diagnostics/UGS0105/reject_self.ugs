@@ -1,0 +1,7 @@
+// expect: UGS0105 at 5:8
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Glider : Glider {
+  span_m: Float64
+}

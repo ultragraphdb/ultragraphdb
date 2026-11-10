@@ -1,0 +1,2 @@
+_:a <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#IsAbout> <https://example.org/deep_brain#ontology> .
+_:a <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/DOC%3Ad1> <https://example.org/deep_brain#about> <https://example.org/deep_brain#Node/CON%3Ac1> )>> <https://example.org/deep_brain#ontology> .

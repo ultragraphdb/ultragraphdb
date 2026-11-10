@@ -1,0 +1,11 @@
+// expect: compiles
+schema cardinality_at_most_one version 1
+prefix cmo = "https://example.org/cardinality_at_most_one#"
+
+entity Person
+entity Address
+
+relation Lives {
+  resident: Person  -> home?
+  address:  Address -> residents*
+}

@@ -1,0 +1,9 @@
+<https://example.org/deep_brain#Node/OBJ%3Ao1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Object> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/OBJ%3Ao1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Endurant> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/OBJ%3Ao1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Node> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/OBJ%3Ao1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Asserted> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/OBJ%3Ao1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Statement> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/OBJ%3Ao1> <https://example.org/deep_brain#id> "OBJ:o1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/OBJ%3Ao1> <https://example.org/deep_brain#contextoid_id> "9223372036854775809"^^<http://www.w3.org/2001/XMLSchema#unsignedLong> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/OBJ%3Ao1> <https://example.org/deep_brain#inferred> "false"^^<http://www.w3.org/2001/XMLSchema#boolean> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/OBJ%3Ao1> <https://example.org/deep_brain#rank> "normal" <https://example.org/deep_brain#ontology> .

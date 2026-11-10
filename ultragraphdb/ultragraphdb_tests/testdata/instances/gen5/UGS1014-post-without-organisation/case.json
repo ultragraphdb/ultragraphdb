@@ -1,0 +1,16 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1014",
+  "name": "a Post created without the PostIn its organisation{1,1} requires in the same transaction",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Post { id: \"AGENT:post1\" }"
+      ],
+      "expect": {
+        "refused": "UGS1014"
+      }
+    }
+  ]
+}

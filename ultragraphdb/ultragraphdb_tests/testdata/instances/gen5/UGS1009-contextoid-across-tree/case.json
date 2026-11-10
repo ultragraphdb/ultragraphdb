@@ -1,0 +1,24 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1009",
+  "name": "a Concept written with the contextoid_id a live Object holds: @unique across Node's tree",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Object { id: \"OBJ:o1\", contextoid_id: 9223372036854775809 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "uql": [
+        "insert Concept { id: \"CON:c1\", contextoid_id: 9223372036854775809 }"
+      ],
+      "expect": {
+        "refused": "UGS1009"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

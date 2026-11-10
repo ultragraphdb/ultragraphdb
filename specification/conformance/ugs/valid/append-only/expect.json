@@ -1,0 +1,20 @@
+{
+  "name": "append-only",
+  "sources": [
+    "append_only.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "append_only.Event": 3,
+    "append_only.Follows": 4
+  },
+  "report": [
+    "UGS0901 append_only.Event.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 append_only.Follows.insert path=segmented local=true by=@set indexes=0",
+    "UGS0905 append_only.Event.successors relation=append_only.Follows role=earlier"
+  ]
+}

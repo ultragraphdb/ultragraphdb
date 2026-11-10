@@ -1,0 +1,16 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1011",
+  "name": "an Object whose valid interval starts after it ends",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Object { id: \"OBJ:o1\", valid: 2025-01-01T00:00:00Z .. 2024-01-01T00:00:00Z }"
+      ],
+      "expect": {
+        "refused": "UGS1011"
+      }
+    }
+  ]
+}

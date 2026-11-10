@@ -1,0 +1,98 @@
+{
+  "code": "UGS0215",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "two types declaring one attribute name with different types",
+      "sources": [
+        "reject_type.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0215",
+          "kind": "error",
+          "file": "reject_type.ugs",
+          "line": 10,
+          "column": 9,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_type.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "two types declaring one attribute name with different indexes",
+      "sources": [
+        "reject_index.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0215",
+          "kind": "error",
+          "file": "reject_index.ugs",
+          "line": 10,
+          "column": 16,
+          "length": 13,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_index.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "two types declaring one attribute name, one of them @immutable",
+      "sources": [
+        "reject_immutable.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0215",
+          "kind": "error",
+          "file": "reject_immutable.ugs",
+          "line": 10,
+          "column": 15,
+          "length": 10,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_immutable.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "two types declaring one attribute name, one of them mapped",
+      "sources": [
+        "reject_mapping.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0215",
+          "kind": "error",
+          "file": "reject_mapping.ugs",
+          "line": 11,
+          "column": 16,
+          "length": 18,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_mapping.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

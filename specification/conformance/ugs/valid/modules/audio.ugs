@@ -1,0 +1,11 @@
+// expect: compiles
+// Sound recordings, lent as any item is.
+module audio version 1 extends library >= 1
+prefix audio = "https://example.org/audio#"
+
+enum library.Format { audio }
+
+/// A recording, its running time in minutes.
+entity Recording : library.Item {
+  minutes: Int32 @range(1, 6000)
+}

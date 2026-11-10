@@ -1,0 +1,7 @@
+// expect: compiles
+schema core version 1
+prefix core = "https://example.org/core#"
+
+abstract entity Site {
+  name: String
+}

@@ -1,0 +1,52 @@
+{
+  "code": "UGS0906",
+  "kind": "note",
+  "cases": [
+    {
+      "name": "operations ranked by the index entries they write; one writing none is left out",
+      "sources": [
+        "ranks.ugs"
+      ],
+      "diagnostics": [],
+      "report": [
+        "UGS0901 depot.Note.create path=coordination-free local=true by=none indexes=2",
+        "UGS0901 depot.Ping.create path=coordination-free local=true by=none indexes=0",
+        "UGS0901 depot.Sighting.create path=coordination-free local=true by=none indexes=3",
+        "UGS0901 depot.Tally.create path=coordination-free local=true by=none indexes=1",
+        "UGS0906 depot.Note.create indexes=2 rank=2",
+        "UGS0906 depot.Sighting.create indexes=3 rank=1",
+        "UGS0906 depot.Tally.create indexes=1 rank=3"
+      ]
+    },
+    {
+      "name": "eleven operations writing index entries: the ten writing most are ranked, the eleventh is left out",
+      "sources": [
+        "top_ten.ugs"
+      ],
+      "diagnostics": [],
+      "report": [
+        "UGS0901 depot.T1.create path=coordination-free local=true by=none indexes=1",
+        "UGS0901 depot.T10.create path=coordination-free local=true by=none indexes=10",
+        "UGS0901 depot.T11.create path=coordination-free local=true by=none indexes=11",
+        "UGS0901 depot.T2.create path=coordination-free local=true by=none indexes=2",
+        "UGS0901 depot.T3.create path=coordination-free local=true by=none indexes=3",
+        "UGS0901 depot.T4.create path=coordination-free local=true by=none indexes=4",
+        "UGS0901 depot.T5.create path=coordination-free local=true by=none indexes=5",
+        "UGS0901 depot.T6.create path=coordination-free local=true by=none indexes=6",
+        "UGS0901 depot.T7.create path=coordination-free local=true by=none indexes=7",
+        "UGS0901 depot.T8.create path=coordination-free local=true by=none indexes=8",
+        "UGS0901 depot.T9.create path=coordination-free local=true by=none indexes=9",
+        "UGS0906 depot.T10.create indexes=10 rank=2",
+        "UGS0906 depot.T11.create indexes=11 rank=1",
+        "UGS0906 depot.T2.create indexes=2 rank=10",
+        "UGS0906 depot.T3.create indexes=3 rank=9",
+        "UGS0906 depot.T4.create indexes=4 rank=8",
+        "UGS0906 depot.T5.create indexes=5 rank=7",
+        "UGS0906 depot.T6.create indexes=6 rank=6",
+        "UGS0906 depot.T7.create indexes=7 rank=5",
+        "UGS0906 depot.T8.create indexes=8 rank=4",
+        "UGS0906 depot.T9.create indexes=9 rank=3"
+      ]
+    }
+  ]
+}

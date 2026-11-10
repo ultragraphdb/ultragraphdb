@@ -1,0 +1,39 @@
+{
+  "code": "UGS0806",
+  "kind": "warning",
+  "cases": [
+    {
+      "name": "a module's type extending a type its schema declares `@deprecated(use: Device)`; the fix names the replacement",
+      "sources": [
+        "core.ugs",
+        "reject_module.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0806",
+          "kind": "warning",
+          "file": "reject_module.ugs",
+          "line": 5,
+          "column": 17,
+          "length": 6,
+          "fix": [
+            {
+              "file": "reject_module.ugs",
+              "line": 5,
+              "column": 17,
+              "length": 6,
+              "replacement": "Device"
+            }
+          ]
+        }
+      ],
+      "accept": {
+        "sources": [
+          "core.ugs",
+          "accept_module.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

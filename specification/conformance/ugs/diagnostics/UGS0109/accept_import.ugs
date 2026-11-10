@@ -1,0 +1,8 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+import schema calendar >= 1
+
+entity Pilot {
+  name: String
+}

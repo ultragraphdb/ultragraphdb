@@ -1,0 +1,77 @@
+{
+  "code": "UGS0110",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a module declaring a name the schema it extends reserves",
+      "sources": [
+        "reserving_core.ugs",
+        "reject_reserved.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0110",
+          "kind": "error",
+          "file": "reject_reserved.ugs",
+          "line": 5,
+          "column": 8,
+          "length": 11,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "reserving_core.ugs",
+          "accept_reserved.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an external vocabulary imported under the prefix `schema`",
+      "sources": [
+        "reject_import_schema.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0110",
+          "kind": "error",
+          "file": "reject_import_schema.ugs",
+          "line": 4,
+          "column": 33,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_import_schema.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a vocabulary base declared under the prefix `schema`",
+      "sources": [
+        "reject_prefix_schema.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0110",
+          "kind": "error",
+          "file": "reject_prefix_schema.ugs",
+          "line": 3,
+          "column": 8,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_prefix_schema.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

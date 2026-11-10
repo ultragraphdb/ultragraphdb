@@ -1,0 +1,144 @@
+{
+  "code": "UGS0113",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a kind's `canonical` naming a unit that does not list the kind",
+      "sources": [
+        "reject_canonical_other_kind.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0113",
+          "kind": "error",
+          "file": "reject_canonical_other_kind.ugs",
+          "line": 5,
+          "column": 60,
+          "length": 2,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_canonical_other_kind.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a unit's `quantities` naming an unknown kind",
+      "sources": [
+        "reject_unknown_kind.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0113",
+          "kind": "error",
+          "file": "reject_unknown_kind.ugs",
+          "line": 8,
+          "column": 26,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_unknown_kind.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a canonical unit stating a multiplier other than 1",
+      "sources": [
+        "reject_canonical_multiplier.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0113",
+          "kind": "error",
+          "file": "reject_canonical_multiplier.ugs",
+          "line": 7,
+          "column": 71,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_canonical_multiplier.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a ratio kind without the `canonical` unit it requires",
+      "sources": [
+        "reject_missing_canonical.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0113",
+          "kind": "error",
+          "file": "reject_missing_canonical.ugs",
+          "line": 5,
+          "column": 10,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_missing_canonical.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a `Measure` naming an unknown quantity kind",
+      "sources": [
+        "reject_measure_kind.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0113",
+          "kind": "error",
+          "file": "reject_measure_kind.ugs",
+          "line": 10,
+          "column": 19,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_measure_kind.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a `Measure` naming an unknown unit",
+      "sources": [
+        "reject_measure_unit.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0113",
+          "kind": "error",
+          "file": "reject_measure_unit.ugs",
+          "line": 10,
+          "column": 27,
+          "length": 2,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_measure_unit.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

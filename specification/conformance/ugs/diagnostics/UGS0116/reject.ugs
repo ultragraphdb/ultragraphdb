@@ -1,0 +1,9 @@
+// expect: UGS0116 at 9:20
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Aircraft {
+  serial: String
+}
+
+graph production : fleets @default

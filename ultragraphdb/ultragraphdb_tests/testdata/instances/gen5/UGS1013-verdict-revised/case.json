@@ -1,0 +1,22 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1013",
+  "name": "a revision of an @append_only Verdict's outcome",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Verdict { id: \"VER:v1\", outcome: \"allow\", status: fired }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "break.nq",
+      "delete": "break-delete.nq",
+      "expect": {
+        "refused": "UGS1013"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

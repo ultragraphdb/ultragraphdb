@@ -1,0 +1,8 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Licence @bitemporal(valid: validity) {
+  number:   String
+  validity: Interval<DateTime> Optional
+}

@@ -1,0 +1,12 @@
+// expect: compiles
+schema relation_attribute version 1
+prefix ra = "https://example.org/relation_attribute#"
+
+entity Author
+entity Book
+
+relation Wrote {
+  author: Author -> books*
+  book:   Book   -> authors*
+  year:   Int32
+}

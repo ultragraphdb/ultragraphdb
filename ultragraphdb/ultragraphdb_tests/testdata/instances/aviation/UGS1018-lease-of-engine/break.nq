@@ -1,0 +1,7 @@
+_:lease1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Lease> <https://example.org/aviation#production> .
+_:lease1 <https://example.org/aviation#Lease_lessor> <https://example.org/aviation#Organization/Leonardo> <https://example.org/aviation#production> .
+_:lease1 <https://example.org/aviation#Lease_lessee> <https://example.org/aviation#Organization/Airbus> <https://example.org/aviation#production> .
+_:lease1 <https://example.org/aviation#Lease_asset> <https://example.org/aviation#Asset/EN-0001> <https://example.org/aviation#production> .
+_:lease1 <https://example.org/aviation#signed> "2022-01-10"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .
+_:lease1 <https://example.org/aviation#term_start> "2022-01-10"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .
+_:lease1 <https://example.org/aviation#term_end> "2030-01-01"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .

@@ -1,0 +1,7 @@
+// expect: compiles
+schema patterns version 1
+prefix pt = "https://example.org/patterns#"
+
+entity Part {
+  code: String @pattern("[A-Z]{2}-[0-9]{4}")
+}

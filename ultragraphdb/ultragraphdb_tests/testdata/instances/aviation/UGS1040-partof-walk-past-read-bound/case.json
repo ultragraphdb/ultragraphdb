@@ -1,0 +1,32 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1040",
+  "name": "making an asset with 4,097 parts a part of another needs the @acyclic and max_depth walk to read past rule_read_max",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Avionics { serial: \"HUB-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }",
+        "insert Avionics { serial: \"TOP-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "generate": {
+        "from": 1,
+        "to": 4097,
+        "insert": "part-line.nq"
+      },
+      "expect": "commit"
+    },
+    {
+      "insert": "attach.nq",
+      "uql": [
+        "insert PartOf { part: Avionics(serial = \"HUB-0001\"), whole: Avionics(serial = \"TOP-0001\") }"
+      ],
+      "expect": {
+        "refused": "UGS1040"
+      }
+    }
+  ]
+}

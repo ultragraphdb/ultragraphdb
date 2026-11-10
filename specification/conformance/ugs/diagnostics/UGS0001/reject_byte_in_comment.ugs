@@ -1,0 +1,8 @@
+// expect: UGS0001 at 5:38
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+// Exported from the legacy register ÿ
+entity Airport {
+  code: String
+}

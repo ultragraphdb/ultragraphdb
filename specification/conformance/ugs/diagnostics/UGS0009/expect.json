@@ -1,0 +1,121 @@
+{
+  "code": "UGS0009",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a `prefix` base that ends in neither `#` nor `/`",
+      "sources": [
+        "reject_base_suffix.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0009",
+          "kind": "error",
+          "file": "reject_base_suffix.ugs",
+          "line": 3,
+          "column": 13,
+          "length": 27,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_base_suffix.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a `prefix` base that is not an absolute IRI",
+      "sources": [
+        "reject_base_relative.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0009",
+          "kind": "error",
+          "file": "reject_base_relative.ugs",
+          "line": 3,
+          "column": 13,
+          "length": 20,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_base_relative.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an argument of the wrong type: `@pattern` given an integer",
+      "sources": [
+        "reject_wrong_type.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0009",
+          "kind": "error",
+          "file": "reject_wrong_type.ugs",
+          "line": 6,
+          "column": 25,
+          "length": 2,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_wrong_type.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "too few arguments: `@range` given one bound",
+      "sources": [
+        "reject_too_few.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0009",
+          "kind": "error",
+          "file": "reject_too_few.ugs",
+          "line": 6,
+          "column": 16,
+          "length": 9,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_too_few.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "too many arguments: `@immutable`, which takes none, given one",
+      "sources": [
+        "reject_too_many.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0009",
+          "kind": "error",
+          "file": "reject_too_many.ugs",
+          "line": 6,
+          "column": 29,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_too_many.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

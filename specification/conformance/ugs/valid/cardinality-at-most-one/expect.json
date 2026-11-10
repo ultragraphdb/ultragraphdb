@@ -1,0 +1,27 @@
+{
+  "name": "cardinality-at-most-one",
+  "sources": [
+    "cardinality_at_most_one.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "cardinality_at_most_one.Person": 3,
+    "cardinality_at_most_one.Address": 4,
+    "cardinality_at_most_one.Lives": 5
+  },
+  "report": [
+    "UGS0901 cardinality_at_most_one.Address.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 cardinality_at_most_one.Address.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0901 cardinality_at_most_one.Lives.insert path=segmented local=true by=cardinality indexes=1",
+    "UGS0901 cardinality_at_most_one.Lives.delete path=coordination-free local=true by=none indexes=1",
+    "UGS0901 cardinality_at_most_one.Person.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 cardinality_at_most_one.Person.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0905 cardinality_at_most_one.Address.residents relation=cardinality_at_most_one.Lives role=address",
+    "UGS0906 cardinality_at_most_one.Lives.delete indexes=1 rank=2",
+    "UGS0906 cardinality_at_most_one.Lives.insert indexes=1 rank=1"
+  ]
+}

@@ -1,0 +1,5 @@
+_:h <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/aviation#Helicopter> <https://example.org/aviation#production> .
+_:h <https://example.org/aviation#serial> "HE-0001" <https://example.org/aviation#production> .
+_:h <https://example.org/aviation#commissioned> "2022-01-08"^^<http://www.w3.org/2001/XMLSchema#date> <https://example.org/aviation#production> .
+_:h <https://example.org/aviation#status> "active" <https://example.org/aviation#production> .
+_:h <https://example.org/aviation#tags> "fleet" <https://example.org/aviation#production> .

@@ -1,0 +1,12 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+quantity Length { dimension: "L", scale: ratio, canonical: m }
+
+unit m  { quantities: [Length], ucum: "m",  symbol: "m" }
+
+entity Plot {
+  width: Measure<Length, m>
+  depth: Measure<Length, m>
+} @check(width + depth <= 80)

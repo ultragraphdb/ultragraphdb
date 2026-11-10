@@ -1,0 +1,32 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1040",
+  "name": "making a unit with 4,097 open units below it a unit of another needs the @acyclic and max_depth walk to read past rule_read_max",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Organization { id: \"ORG:hub\" }",
+        "insert Organization { id: \"ORG:top\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "generate": {
+        "from": 1,
+        "to": 4097,
+        "insert": "unit-line.nq"
+      },
+      "expect": "commit"
+    },
+    {
+      "insert": "attach.nq",
+      "uql": [
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:hub\"), parent: Organization(id = \"ORG:top\"), valid: 2026-01-01T00:00:00Z .. }"
+      ],
+      "expect": {
+        "refused": "UGS1040"
+      }
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "code": "UGS0228",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a @check dividing by an integer zero",
+      "sources": [
+        "reject_check.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0228",
+          "kind": "error",
+          "file": "reject_check.ugs",
+          "line": 5,
+          "column": 21,
+          "length": 9,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_check.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a computed derivation dividing by a decimal zero",
+      "sources": [
+        "reject_derivation.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0228",
+          "kind": "error",
+          "file": "reject_derivation.ugs",
+          "line": 9,
+          "column": 28,
+          "length": 12,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_derivation.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a @limit condition dividing by zero",
+      "sources": [
+        "reject_limit.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0228",
+          "kind": "error",
+          "file": "reject_limit.ugs",
+          "line": 17,
+          "column": 40,
+          "length": 7,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_limit.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

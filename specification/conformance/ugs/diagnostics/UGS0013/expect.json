@@ -1,0 +1,279 @@
+{
+  "code": "UGS0013",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "nesting of 65 levels: braces and parentheses together, the 65th opening parenthesis",
+      "sources": [
+        "reject_nesting.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0013",
+          "kind": "error",
+          "file": "reject_nesting.ugs",
+          "line": 6,
+          "column": 85,
+          "length": 1,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_nesting.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a line of 65,537 bytes, one past 64 KiB",
+      "sources": [
+        "reject_line.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0013",
+          "kind": "error",
+          "file": "reject_line.ugs",
+          "line": 5,
+          "column": 1,
+          "length": 65537,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_line.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an identifier of 129 bytes",
+      "sources": [
+        "reject_identifier.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0013",
+          "kind": "error",
+          "file": "reject_identifier.ugs",
+          "line": 6,
+          "column": 3,
+          "length": 129,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_identifier.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a string literal whose text is 4,097 bytes",
+      "sources": [
+        "reject_string.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0013",
+          "kind": "error",
+          "file": "reject_string.ugs",
+          "line": 6,
+          "column": 18,
+          "length": 4099,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_string.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a type of 4,097 fields, the 4,097th field",
+      "sources": [
+        "reject_fields.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0013",
+          "kind": "error",
+          "file": "reject_fields.ugs",
+          "line": 4102,
+          "column": 3,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_fields.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a relation of 65 roles, the 65th role",
+      "sources": [
+        "reject_roles.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0013",
+          "kind": "error",
+          "file": "reject_roles.ugs",
+          "line": 74,
+          "column": 3,
+          "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_roles.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a union of 33 members, the 33rd member",
+      "sources": [
+        "reject_union.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0013",
+          "kind": "error",
+          "file": "reject_union.ugs",
+          "line": 109,
+          "column": 299,
+          "length": 6,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_union.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "an enum of 4,097 members, the 4,097th member",
+      "sources": [
+        "reject_enum.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0013",
+          "kind": "error",
+          "file": "reject_enum.ugs",
+          "line": 4102,
+          "column": 3,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_enum.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a key of 9 components, the 9th component",
+      "sources": [
+        "reject_key.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0013",
+          "kind": "error",
+          "file": "reject_key.ugs",
+          "line": 5,
+          "column": 51,
+          "length": 2,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_key.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a derivation path of 33 steps, the 33rd step",
+      "sources": [
+        "reject_path.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0013",
+          "kind": "error",
+          "file": "reject_path.ugs",
+          "line": 14,
+          "column": 179,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_path.ugs"
+        ],
+        "warnings": [
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_path.ugs",
+            "line": 14,
+            "column": 13,
+            "length": 3,
+            "fix": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "a function of 33 parameters, the 33rd parameter",
+      "sources": [
+        "reject_parameters.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0013",
+          "kind": "error",
+          "file": "reject_parameters.ugs",
+          "line": 9,
+          "column": 398,
+          "length": 3,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_parameters.ugs"
+        ],
+        "warnings": [
+          {
+            "code": "UGS0902",
+            "kind": "warning",
+            "file": "accept_parameters.ugs",
+            "line": 9,
+            "column": 9,
+            "length": 4,
+            "fix": null
+          }
+        ]
+      }
+    }
+  ]
+}

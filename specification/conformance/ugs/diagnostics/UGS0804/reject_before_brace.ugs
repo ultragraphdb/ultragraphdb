@@ -1,0 +1,8 @@
+// expect: compiles with UGS0804 at 7:3
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Part {
+  name: String
+  /// Nothing follows this comment but the closing brace.
+}

@@ -1,0 +1,98 @@
+{
+  "code": "UGS0205",
+  "kind": "error",
+  "cases": [
+    {
+      "name": "a collection nested in a collection",
+      "sources": [
+        "reject_nested.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0205",
+          "kind": "error",
+          "file": "reject_nested.ugs",
+          "line": 6,
+          "column": 14,
+          "length": 11,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_nested.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a Set of records",
+      "sources": [
+        "reject_set_record.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0205",
+          "kind": "error",
+          "file": "reject_set_record.ugs",
+          "line": 11,
+          "column": 15,
+          "length": 5,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_set_record.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a record field holding a collection",
+      "sources": [
+        "reject_record_field.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0205",
+          "kind": "error",
+          "file": "reject_record_field.ugs",
+          "line": 6,
+          "column": 10,
+          "length": 12,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_record_field.ugs"
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "name": "a record holding itself through a required field",
+      "sources": [
+        "reject_cycle.ugs"
+      ],
+      "diagnostics": [
+        {
+          "code": "UGS0205",
+          "kind": "error",
+          "file": "reject_cycle.ugs",
+          "line": 5,
+          "column": 8,
+          "length": 4,
+          "fix": null
+        }
+      ],
+      "accept": {
+        "sources": [
+          "accept_cycle.ugs"
+        ],
+        "warnings": []
+      }
+    }
+  ]
+}

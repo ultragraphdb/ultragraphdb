@@ -1,0 +1,2 @@
+<https://example.org/deep_brain#Company/ORG%3Abeta> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Company> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Company/ORG%3Abeta> <https://example.org/deep_brain#id> "ORG:beta" <https://example.org/deep_brain#ontology> .

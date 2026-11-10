@@ -1,0 +1,7 @@
+// expect: compiles
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Item @check(price is none or price > 0) {
+  price: Int32 Optional
+}

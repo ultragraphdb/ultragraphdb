@@ -1,0 +1,12 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1010",
+  "name": "values every value check admits: a Quantity's kind among its unit's, a Quantity of text alone, a Person without label, confidence at its upper bound, identifiers matching Identifier, a Precedes between two Events",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

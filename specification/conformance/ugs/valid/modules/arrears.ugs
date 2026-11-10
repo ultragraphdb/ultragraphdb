@@ -1,0 +1,10 @@
+// expect: compiles
+// Loans past their due date. Extends `loans`, so it is placed after it although its name sorts
+// before every other module's.
+module arrears version 1 extends loans >= 1
+prefix arrears = "https://example.org/arrears#"
+
+/// A loan past its due date, with the day the member was told.
+relation Overdue : Loan {
+  notified: Date
+}

@@ -1,0 +1,22 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1028",
+  "name": "an Engine's embedding, a Vector<F32, 768>, written with 767 elements is refused",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Company { name: \"Alpha\" }",
+        "insert Engine { serial: \"EN-4471-B\", commissioned: 2026-10-30, status: active, tags: [\"engine\"], thrust_kn: 310 }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "embedding.nq",
+      "expect": {
+        "refused": "UGS1028"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

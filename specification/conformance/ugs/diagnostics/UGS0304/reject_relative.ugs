@@ -1,0 +1,8 @@
+// expect: UGS0304 at 8:8
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Flight @key(carrier, number) {
+  carrier: String
+  number:  Int32
+} @iri("flight/{carrier}/{number}")

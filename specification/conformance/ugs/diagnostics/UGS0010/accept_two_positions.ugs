@@ -1,0 +1,7 @@
+// expect: compiles
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Reading @append_only {
+  level: Int32
+}

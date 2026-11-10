@@ -1,0 +1,10 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Part { name: String }
+
+relation PartOf @acyclic(max_depth: 1) {
+  part:  Part -> assemblies*
+  whole: Part -> parts*
+}

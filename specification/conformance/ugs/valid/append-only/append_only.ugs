@@ -1,0 +1,12 @@
+// expect: compiles
+schema append_only version 1
+prefix ao = "https://example.org/append_only#"
+
+entity Event @append_only {
+  label: String
+}
+
+relation Follows @append_only {
+  later:   Event -> predecessors*
+  earlier: Event -> successors*
+}

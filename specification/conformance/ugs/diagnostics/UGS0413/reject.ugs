@@ -1,0 +1,10 @@
+// expect: UGS0413 at 9:40
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Person { name: String }
+
+relation Allows {
+  person: Person -> allowed*
+  kind:   schema.EntityType<Person> -> kinds*
+}

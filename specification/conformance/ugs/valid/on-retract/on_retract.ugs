@@ -1,0 +1,17 @@
+// expect: compiles
+schema on_retract version 1
+prefix orr = "https://example.org/on_retract#"
+
+entity Fact @bitemporal(valid: valid) {
+  valid: Interval<DateTime> Optional
+}
+
+entity Source @bitemporal(valid: valid) {
+  valid: Interval<DateTime> Optional
+}
+
+relation Cites @bitemporal(valid: valid) {
+  fact:   Fact   -> citations*
+  source: Source -> cited_by*
+  valid:  Interval<DateTime> Optional
+} @on_retract(fact: restrict open, source: cascade)

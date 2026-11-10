@@ -1,0 +1,13 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1011",
+  "name": "an Event whose where is a GeoJSON MultiPoint, which Geo does not admit",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "expect": {
+        "refused": "UGS1011"
+      }
+    }
+  ]
+}

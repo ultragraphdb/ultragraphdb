@@ -1,0 +1,36 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1021",
+  "name": "removing the valid end of the closed b unit of a reopens it and closes a cycle among open instances",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Organization { id: \"ORG:a\" }",
+        "insert Organization { id: \"ORG:b\" }",
+        "insert Organization { id: \"ORG:c\" }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:b\"), parent: Organization(id = \"ORG:a\"), valid: 2026-01-01T00:00:00Z .. }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:c\"), parent: Organization(id = \"ORG:b\"), valid: 2026-01-01T00:00:00Z .. }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "close-and-reverse.nq",
+      "uql": [
+        "update SubOrganizationOf(unit: Organization(id = \"ORG:b\"), parent: Organization(id = \"ORG:a\")) { valid: 2026-01-01T00:00:00Z .. 2026-06-01T00:00:00Z }",
+        "insert SubOrganizationOf { unit: Organization(id = \"ORG:a\"), parent: Organization(id = \"ORG:c\"), valid: 2026-06-01T00:00:00Z .. }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "delete": "reopen.nq",
+      "uql": [
+        "update SubOrganizationOf(unit: Organization(id = \"ORG:b\"), parent: Organization(id = \"ORG:a\")) { valid: 2026-01-01T00:00:00Z .. }"
+      ],
+      "expect": {
+        "refused": "UGS1021"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

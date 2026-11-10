@@ -1,0 +1,14 @@
+// expect: compiles
+schema measures version 1
+prefix me = "https://example.org/measures#"
+
+quantity Length { dimension: "L", scale: ratio, canonical: m }
+unit m    { quantities: [Length], ucum: "m", symbol: "m", multiplier: 1 }
+unit ft_i { quantities: [Length], ucum: "[ft_i]", symbol: "ft", multiplier: 0.3048 }
+
+entity Runway {
+  length:       Measure<Length, m>
+  width:        Measure<Length>
+  reading:      Measure Optional
+  display_unit: Unit Optional
+}

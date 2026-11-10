@@ -1,0 +1,13 @@
+// expect: UGS0404 at 11:21
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Person {
+  name:    String
+  friends: Int32
+}
+
+relation Knows {
+  person: Person -> friends*
+  other:  Person -> known_by*
+}

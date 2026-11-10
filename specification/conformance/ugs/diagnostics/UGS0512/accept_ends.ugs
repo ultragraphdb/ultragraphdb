@@ -1,0 +1,16 @@
+// expect: compiles
+schema corpus version 1
+prefix ex = "https://example.org/corpus#"
+
+entity Plan @valid(term) {
+  name: String
+  term: Interval<Date>
+}
+
+entity Person { name: String }
+
+relation Replaces @valid(term) {
+  old:  Plan   -> replaced_by*
+  new:  Plan   -> replaces*
+  term: Interval<Date>
+} @ends(old)

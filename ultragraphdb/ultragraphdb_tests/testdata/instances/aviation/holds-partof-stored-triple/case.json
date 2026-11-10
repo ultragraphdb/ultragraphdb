@@ -1,0 +1,23 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1029",
+  "name": "PartOf written as its stored triple, from the anchor part's navigation av:assembly, commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Avionics { serial: \"AV-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }",
+        "insert Avionics { serial: \"AV-0002\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "partof.nq",
+      "uql": [
+        "insert PartOf { part: Avionics(serial = \"AV-0002\"), whole: Avionics(serial = \"AV-0001\") }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

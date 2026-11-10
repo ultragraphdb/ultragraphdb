@@ -1,0 +1,22 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1034",
+  "name": "an IsAbout reifier written without the triple it reifies is an incomplete instance",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Document { id: \"DOC:d1\" }",
+        "insert Concept { id: \"CON:c1\" }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "reifier.nq",
+      "expect": {
+        "refused": "UGS1034"
+      }
+    }
+  ],
+  "view": "view.nq"
+}

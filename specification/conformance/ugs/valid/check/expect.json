@@ -1,0 +1,21 @@
+{
+  "name": "check",
+  "sources": [
+    "checks.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "checks.Booking": 3
+  },
+  "report": [
+    "UGS0901 checks.Booking.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 checks.Booking.update.finish path=coordination-free local=true by=none indexes=0",
+    "UGS0901 checks.Booking.update.nights path=coordination-free local=true by=none indexes=0",
+    "UGS0901 checks.Booking.update.start path=coordination-free local=true by=none indexes=0",
+    "UGS0901 checks.Booking.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

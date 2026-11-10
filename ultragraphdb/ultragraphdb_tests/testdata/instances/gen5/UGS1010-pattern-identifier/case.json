@@ -1,0 +1,16 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1010",
+  "name": "an organization whose identifiers member breaks Identifier's @pattern(\"[a-z][a-z0-9]*:.+\")",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Organization { id: \"AGENT:acme\", identifiers: [\"LEI-5299001\"] }"
+      ],
+      "expect": {
+        "refused": "UGS1010"
+      }
+    }
+  ]
+}

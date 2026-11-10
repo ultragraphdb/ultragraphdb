@@ -1,0 +1,20 @@
+{
+  "name": "required-optional",
+  "sources": [
+    "required_optional.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "required_optional.Contact": 3
+  },
+  "report": [
+    "UGS0901 required_optional.Contact.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 required_optional.Contact.update.name path=coordination-free local=true by=none indexes=0",
+    "UGS0901 required_optional.Contact.update.phone path=coordination-free local=true by=none indexes=0",
+    "UGS0901 required_optional.Contact.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

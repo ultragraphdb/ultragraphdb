@@ -1,0 +1,4 @@
+<https://example.org/deep_brain#Node/KIND%3Arouter> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#ProposedKind> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/KIND%3Arouter> <https://example.org/deep_brain#id> "KIND:router" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/KIND%3Arouter> <https://example.org/deep_brain#type_name> "Router" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/KIND%3Arouter> <https://example.org/deep_brain#supertype> <https://example.org/deep_brain#Reading> <https://example.org/deep_brain#ontology> .

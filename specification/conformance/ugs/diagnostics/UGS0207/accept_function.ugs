@@ -1,0 +1,9 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Item {
+  name: String
+}
+
+fn Item.label() -> String = name

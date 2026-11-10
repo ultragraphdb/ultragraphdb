@@ -1,0 +1,8 @@
+// expect: UGS0115 at 5:23
+schema fleet version 1
+prefix fl = "https://example.org/fleet#"
+
+entity Licence @valid(validty) {
+  number:   String
+  validity: Interval<Date>
+}

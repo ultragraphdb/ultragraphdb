@@ -1,0 +1,8 @@
+// expect: compiles
+schema shop version 1
+prefix ex = "https://example.org/shop#"
+
+entity Flight @key(carrier, number) {
+  carrier: String
+  number:  Int32
+} @iri("https://example.org/flight/{carrier}/{number}")

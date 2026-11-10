@@ -1,0 +1,11 @@
+// expect: compiles
+schema cardinality_at_least_one version 1
+prefix clo = "https://example.org/cardinality_at_least_one#"
+
+entity Team
+entity Player
+
+relation Roster {
+  team:   Team   -> players+
+  player: Player -> teams*
+}

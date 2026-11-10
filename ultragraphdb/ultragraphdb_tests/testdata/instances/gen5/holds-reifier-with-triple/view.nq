@@ -1,0 +1,24 @@
+<https://example.org/deep_brain#Node/DOC%3Ad1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Document> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/DOC%3Ad1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Information> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/DOC%3Ad1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Node> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/DOC%3Ad1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Asserted> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/DOC%3Ad1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Statement> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/DOC%3Ad1> <https://example.org/deep_brain#id> "DOC:d1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/DOC%3Ad1> <https://example.org/deep_brain#about> <https://example.org/deep_brain#Node/CON%3Ac1> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/DOC%3Ad1> <https://example.org/deep_brain#inferred> "false"^^<http://www.w3.org/2001/XMLSchema#boolean> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/DOC%3Ad1> <https://example.org/deep_brain#rank> "normal" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Concept> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Meaning> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Node> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Asserted> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Statement> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac1> <https://example.org/deep_brain#id> "CON:c1" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac1> <https://example.org/deep_brain#inferred> "false"^^<http://www.w3.org/2001/XMLSchema#boolean> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CON%3Ac1> <https://example.org/deep_brain#rank> "normal" <https://example.org/deep_brain#ontology> .
+_:a <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#IsAbout> <https://example.org/deep_brain#ontology> .
+_:a <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Relation> <https://example.org/deep_brain#ontology> .
+_:a <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Asserted> <https://example.org/deep_brain#ontology> .
+_:a <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Statement> <https://example.org/deep_brain#ontology> .
+_:a <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( <https://example.org/deep_brain#Node/DOC%3Ad1> <https://example.org/deep_brain#about> <https://example.org/deep_brain#Node/CON%3Ac1> )>> <https://example.org/deep_brain#ontology> .
+_:a <https://example.org/deep_brain#inferred> "false"^^<http://www.w3.org/2001/XMLSchema#boolean> <https://example.org/deep_brain#ontology> .
+_:a <https://example.org/deep_brain#rank> "normal" <https://example.org/deep_brain#ontology> .

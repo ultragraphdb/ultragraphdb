@@ -1,0 +1,8 @@
+// expect: compiles
+schema immutables version 1
+prefix im = "https://example.org/immutables#"
+
+entity Document {
+  created: Date @immutable
+  title:   String
+}

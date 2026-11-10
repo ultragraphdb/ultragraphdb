@@ -1,0 +1,7 @@
+// expect: compiles
+module tools version 1 extends core >= 1
+prefix tl = "https://example.org/tools#"
+
+entity Tool : core.Asset {
+  code: String @pattern("[A-Z]+")
+}

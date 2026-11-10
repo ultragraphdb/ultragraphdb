@@ -1,0 +1,3 @@
+<https://example.org/deep_brain#Node/CLM%3Aold> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://example.org/deep_brain#Claim> <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CLM%3Aold> <https://example.org/deep_brain#id> "CLM:old" <https://example.org/deep_brain#ontology> .
+<https://example.org/deep_brain#Node/CLM%3Aold> <https://example.org/deep_brain#statement> "the router is up" <https://example.org/deep_brain#ontology> .

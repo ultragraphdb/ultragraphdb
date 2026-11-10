@@ -1,0 +1,28 @@
+{
+  "name": "import-schema",
+  "sources": [
+    "core.ugs",
+    "app.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "app.Team": 3,
+    "app.Member": 4,
+    "core.Person": 5
+  },
+  "report": [
+    "UGS0901 app.Member.insert path=segmented local=true by=@set indexes=0",
+    "UGS0901 app.Member.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 app.Team.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 app.Team.update.title path=coordination-free local=true by=none indexes=0",
+    "UGS0901 app.Team.delete path=coordination-free local=true by=none indexes=0",
+    "UGS0901 core.Person.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 core.Person.update.name path=coordination-free local=true by=none indexes=0",
+    "UGS0901 core.Person.delete path=coordinated local=false by=cascade indexes=0",
+    "UGS0905 core.Person.teams relation=app.Member role=person"
+  ]
+}

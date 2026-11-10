@@ -1,0 +1,16 @@
+{
+  "schema": "gen5",
+  "rule": "UGS1005",
+  "name": "a Claim created without statement, a required attribute",
+  "steps": [
+    {
+      "insert": "create.nq",
+      "uql": [
+        "insert Claim { id: \"CLM:c1\" }"
+      ],
+      "expect": {
+        "refused": "UGS1005"
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schema": "aviation",
+  "rule": "UGS1040",
+  "name": "making an asset with four parts a part of another walks within rule_read_max and commits",
+  "steps": [
+    {
+      "insert": "setup.nq",
+      "uql": [
+        "insert Avionics { serial: \"HUB-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }",
+        "insert Avionics { serial: \"TOP-0001\", commissioned: 2026-10-30, status: active, tags: [\"fleet\"] }",
+        "insert Avionics { serial: \"PART-1\", commissioned: 2026-10-30, status: active, tags: [\"bulk\"] }",
+        "insert PartOf { part: Avionics(serial = \"PART-1\"), whole: Avionics(serial = \"HUB-0001\") }",
+        "insert Avionics { serial: \"PART-2\", commissioned: 2026-10-30, status: active, tags: [\"bulk\"] }",
+        "insert PartOf { part: Avionics(serial = \"PART-2\"), whole: Avionics(serial = \"HUB-0001\") }",
+        "insert Avionics { serial: \"PART-3\", commissioned: 2026-10-30, status: active, tags: [\"bulk\"] }",
+        "insert PartOf { part: Avionics(serial = \"PART-3\"), whole: Avionics(serial = \"HUB-0001\") }",
+        "insert Avionics { serial: \"PART-4\", commissioned: 2026-10-30, status: active, tags: [\"bulk\"] }",
+        "insert PartOf { part: Avionics(serial = \"PART-4\"), whole: Avionics(serial = \"HUB-0001\") }"
+      ],
+      "expect": "commit"
+    },
+    {
+      "insert": "attach.nq",
+      "uql": [
+        "insert PartOf { part: Avionics(serial = \"HUB-0001\"), whole: Avionics(serial = \"TOP-0001\") }"
+      ],
+      "expect": "commit"
+    }
+  ],
+  "view": "view.nq"
+}

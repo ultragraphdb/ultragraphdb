@@ -1,0 +1,5 @@
+// expect: compiles
+module hangar version 1 extends core >= 1
+prefix hg = "https://example.org/hangar#"
+
+enum DoorKind { sliding, folding }

@@ -1,0 +1,19 @@
+{
+  "name": "values",
+  "sources": [
+    "value_lists.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "value_lists.Region": 3
+  },
+  "report": [
+    "UGS0901 value_lists.Region.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 value_lists.Region.update.code path=coordination-free local=true by=none indexes=0",
+    "UGS0901 value_lists.Region.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

@@ -1,0 +1,7 @@
+// expect: UGS0803 at 6:25
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Company {
+  name: String @maps_to(<legalName>)
+}

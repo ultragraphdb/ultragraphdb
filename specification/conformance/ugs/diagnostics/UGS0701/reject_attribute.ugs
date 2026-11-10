@@ -1,0 +1,11 @@
+// expect: UGS0701 at 7:28
+schema depot version 1
+prefix dp = "https://example.org/depot#"
+
+entity Asset
+entity Site
+relation Located @colocate(since) {
+  asset: Asset -> locations*
+  site:  Site  -> assets*
+  since: Date
+}

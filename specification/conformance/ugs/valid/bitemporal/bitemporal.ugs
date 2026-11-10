@@ -1,0 +1,8 @@
+// expect: compiles
+schema bitemporal version 1
+prefix bt = "https://example.org/bitemporal#"
+
+entity Belief @bitemporal(valid: valid) {
+  label: String
+  valid: Interval<DateTime> Optional
+}

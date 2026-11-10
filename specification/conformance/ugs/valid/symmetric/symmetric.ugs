@@ -1,0 +1,10 @@
+// expect: compiles
+schema symmetric version 1
+prefix sy = "https://example.org/symmetric#"
+
+entity Person
+
+relation Friend @symmetric {
+  a: Person -> friends*
+  b: Person -> friends*
+}

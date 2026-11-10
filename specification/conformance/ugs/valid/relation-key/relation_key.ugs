@@ -1,0 +1,12 @@
+// expect: compiles
+schema relation_key version 1
+prefix rk = "https://example.org/relation_key#"
+
+entity Buyer
+entity Seller
+
+relation Contract @multi @key(contract_no) {
+  buyer:       Buyer  -> purchases*
+  seller:      Seller -> sales*
+  contract_no: String
+}

@@ -1,0 +1,20 @@
+{
+  "name": "immutable",
+  "sources": [
+    "immutables.ugs"
+  ],
+  "inputs": {
+    "prefix_next": 3,
+    "predicate_next": "9223372036854775808"
+  },
+  "warnings": [],
+  "prefixes": {
+    "immutables.Document": 3
+  },
+  "report": [
+    "UGS0901 immutables.Document.create path=coordination-free local=true by=none indexes=0",
+    "UGS0901 immutables.Document.update.created path=coordination-free local=true by=none indexes=0",
+    "UGS0901 immutables.Document.update.title path=coordination-free local=true by=none indexes=0",
+    "UGS0901 immutables.Document.delete path=coordination-free local=true by=none indexes=0"
+  ]
+}

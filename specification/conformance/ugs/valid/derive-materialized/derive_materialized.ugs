@@ -1,0 +1,13 @@
+// expect: compiles
+schema derive_materialized version 1
+prefix dm = "https://example.org/derive_materialized#"
+
+entity Person
+entity Account
+
+relation Holds {
+  holder:  Person  -> accounts*
+  account: Account -> holders*
+}
+
+derive Person.held = accounts @materialized
