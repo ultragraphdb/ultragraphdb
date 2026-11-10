@@ -5,7 +5,7 @@ This backlog tracks what remains to be specified after stage 5, whose change
 format, the write-ahead log, the wire protocol and its transport, the Rust client, read sets, the commit step and the
 vector indexer, with the stage's verification of them. The distribution architecture
 (`openspec/notes/UltraGraphDB Distribution Architecture.md`) and the single-container deployment
-(`openspec/notes/UltraGraphDB Single-Container Deployment.md`) supersede the single-server design stage 5 drafted; the
+(`openspec/notes/archive/UltraGraphDB Single-Container Deployment.md`) supersede the single-server design stage 5 drafted; the
 next change sets are scoped from them, starting from the items below. Each item names what is to be specified, where
 the architecture notes speak to it, and the stage-5 material it starts from. That material follows the items,
 moved verbatim from the change: the single-server draft as it stood, kept as a record of what was considered, not as a

@@ -2,7 +2,7 @@
 
 * Status: findings of a non-binding exercise, 2026-11-05.
 * Method: `scrith/openspec/notes/schema/gen5/schema_graph_gen5.md`, DeepBrain's Gen5 draft written in the UGS of the
-  design note, was rewritten against `../../specification/schema/SCHEMA.md` as it stands. The result is
+  design note, was rewritten against `../../../specification/schema/SCHEMA.md` as it stands. The result is
   `scrith/openspec/notes/schema/gen5/DeepBrainSchema.ugs` (the core, 77 entity types, 69 relation kinds, 18 links,
   31 enums, 11 quantity kinds, 22 units, 5 derivations, 10 functions) and `ServiceRadarExtension.ugs` (the module).
   Every place the draft could not be written as it stood carries a marker `[E<n>]` in the files; the numbers below are
@@ -150,7 +150,7 @@ second implementation, a client-side checker or a language server, can be held t
 ### E1. Principles
 
 1. **Independent of the implementation.** The corpus is data: UGS sources, expectations and goldens in files under
-   `specification/conformance/ugs/`, exported by a Bazel `filegroup` any crate may depend on, as the TOML subset's
+   `../../../specification/conformance/ugs`, exported by a Bazel `filegroup` any crate may depend on, as the TOML subset's
    `toml-test` and the protocol's golden frames are. An expectation is written from the specification's text, or from
    an independent reference (the xxHash reference for buckets), never copied from an implementation's output; a golden
    an implementation produced is frozen only after review and says so in its header.
@@ -178,7 +178,7 @@ second implementation, a client-side checker or a language server, can be held t
 | Standard views | `views/<name>/vocabulary.nt`, `shapes.nt`, `graph_type.gql` | The RDF vocabulary and SHACL shapes as sorted N-Triples after canonicalisation; the GQL graph type as text | Section 11; hand-written for the small cases |
 | Commit-time rules | `commit/<code>.feature` | Gherkin: Given a schema, When a write in N-Quads or a UQL statement, Then refused with `UGS1xxx` naming the instance and rule, or accepted and read back; the report classifies the write as the table says | Sections 8 and 9; one scenario per refusal `UGS1001` to `UGS1035`, one per row of section 9.3, run by the repository's cucumber harness with step definitions in the implementing crate |
 | Evolution | `evolution/<name>/v1.ugs`, `v2.ugs`, `expected.json` | The change's kind, the prefixes before and after (stable), the report's path changes, or `UGS2xxx` | Section 13 |
-| Properties | generators, not files | A grammar-derived generator of sources: every generated source compiles or yields a diagnostic inside the source, never a panic; parse, print, parse is the identity; prefix allocation is a function of the install sequence alone; encode is injective | Sections 3, 4, 7.1, 10.2; the structure-aware fuzzer ROADMAP plans for the query parsers, run by `scripts/fuzz.sh` with the corpus as seeds |
+| Properties | generators, not files | A grammar-derived generator of sources: every generated source compiles or yields a diagnostic inside the source, never a panic; parse, print, parse is the identity; prefix allocation is a function of the install sequence alone; encode is injective | Sections 3, 4, 7.1, 10.2; the structure-aware fuzzer ROADMAP plans for the query parsers, run by `../../../scripts/fuzz.sh` with the corpus as seeds |
 
 ### E3. Layout
 
