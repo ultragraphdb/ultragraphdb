@@ -503,14 +503,18 @@ retract Holds(holder: Person(id = $p), post: Post(id = $post))
 
 | Statement | Writes |
 |---|---|
-| `insert T { … }` | One instance of the concrete type `T` (`UQL0501` for an abstract one); required fields and roles must be given or defaulted, which the commit checks (`UGS1005`, `UGS1015`); a keyless type's handle IRI is minted (`../schema/SCHEMA.md` section 7.3) |
+| `insert T { … }` **[stage 6]** | One instance of the concrete type `T` (`UQL0501` for an abstract one); required fields and roles must be given or defaulted, which the commit checks (`UGS1005`, `UGS1015`); a keyless type's handle IRI is minted (`../schema/SCHEMA.md` section 7.3) |
 | `upsert T(key) { … }` | The instance the key names, inserted if absent and updated if present; the filter must fix `T`'s whole key by equality (`UQL0506`) |
-| `update S { … }` | Every instance `S` selects; on a `@bitemporal` type each update is a **revision**, a new version of the same instance (`../schema/SCHEMA.md` section 8.4); an `@append_only` type is refused (`UQL0503`) |
-| `delete S` | Every instance `S` selects, under `@on_delete`; on a `@bitemporal` type `delete` is refused with `retract` as the fix (`UQL0504`) **[choice]** |
-| `retract S` | Closes `asserted` of every instance `S` selects, under `@on_retract`; on a type that is not `@bitemporal` refused (`UQL0505`) |
+| `update S { … }` **[stage 6]** | Every instance `S` selects; on a `@bitemporal` type each update is a **revision**, a new version of the same instance (`../schema/SCHEMA.md` section 8.4); an `@append_only` type is refused (`UQL0503`) |
+| `delete S` **[stage 6]** | Every instance `S` selects, under `@on_delete`; on a `@bitemporal` type `delete` is refused with `retract` as the fix (`UQL0504`) **[choice]** |
+| `retract S` **[stage 6]** | Closes `asserted` of every instance `S` selects, under `@on_retract`; on a type that is not `@bitemporal` refused (`UQL0505`) |
 
 Writes to a derived name are refused at compile time (`UQL0502`); every other rule is the commit's, refused with its
 `UGS1xxx` number (`../schema/SCHEMA.md` section 8.7).
+
+**[stage 6]** `insert`, `update`, `delete` and `retract` are the subset's (section 4.1): a role assigned by a point
+selector, a value by a literal or a parameter. `upsert`, `returning` and the nested inserts of section 12.2 come with
+the language and are refused with `UQL0901` until then.
 
 ### 12.2 Relations and nested inserts
 

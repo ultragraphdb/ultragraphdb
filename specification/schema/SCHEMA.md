@@ -699,7 +699,7 @@ it fits `T`.
 | `@on_retract(role: action, …)` | `@bitemporal` relation (`UGS0513`) | `restrict`, `restrict open` or `cascade` | Section 8.4 |
 | `@retracts(role)` | `@bitemporal` relation | A role whose every participant type is `@bitemporal` (`UGS0512`) | Inserting an instance retracts its participant in that role in the same commit |
 | `@ends(role)` | Relation with a valid interval | A role whose every participant type has a valid interval (`UGS0512`) | Inserting an instance closes its participant's valid interval at the instance's own valid start, in the same commit; section 8.4 |
-| `@acyclic` | Binary relation, or an abstract relation whose subtypes are binary, whose two roles' participant types share a common supertype (`UGS0503`) | Optional `open` and `max_depth: n`, `1 ≤ n ≤ 4096` (`UGS0504`) | No cycle through the relation's two roles, across the type tree; `max_depth` bounds every path; `open` counts only live instances whose valid interval is open (needs `@valid`, `UGS0508`) |
+| `@acyclic` | Binary relation, or an abstract relation whose subtypes are binary, whose two roles' participant types share a common supertype (`UGS0503`) | Optional `open` and `max_depth: n`, `1 ≤ n ≤ 4096` (`UGS0504`) | No cycle through the relation's two roles, across the type tree; `max_depth` bounds every path, and a check reads at most `rule_read_max` instances whether or not it is given (section 8.2); `open` counts only live instances whose valid interval is open (needs `@valid`, `UGS0508`) |
 | `@colocate(role)` | Relation without `@key` (`UGS0702`) | A role of the relation, own or inherited (`UGS0701`) | Section 9.1 |
 | `@limit(agg op n per (roles [, type]) [where cond])` | Relation | `agg` is `count()` or `sum(attr)` over a numeric attribute (`UGS0505`); `op` is `<=`, `>=` or `=`; `n` a literal; `per` names one or more roles, optionally the word `type`, and one role alone under a lower bound (`UGS0529`); `cond` a deterministic expression over the instance's own values, its participants' types and `open` (`UGS0507`); a top-level conjunct over the `per` participants' types selects the groups | Section 8.6 |
 | `@no_overlap(per: [roles])`, `@no_overlap(per: [roles], strict)` | Relation or entity with `@valid` or `@bitemporal` (`UGS0508`) | Roles of the relation | The valid intervals of live instances sharing those participants never certainly overlap, or with `strict` never possibly overlap (`UGS1024`) |
@@ -848,6 +848,11 @@ bucket and 24 reserved zero bits, compared as big-endian. No ID leaves the datab
   instance takes the bucket its key derives, as a keyed entity does, and so declares no `@colocate`. An unkeyed relation
   instance takes the bucket of its anchor participant (section 9.1).
 - **Sequences** are leased per (type, partition) by the metadata group (`metadata-group` specification).
+- **Declared predicates.** In a governed tenant each predicate a catalog version declares takes the `Resource` prefix
+  1, its IRI's bucket, and a sequence the metadata group allocates with the version from 2^63 upward, to the version's
+  new predicates in the order of their Predicate entries, never reissued; the `Resource` sequences it leases to
+  partitions stay below 2^63. The version holds each declared predicate's sequence (`CATALOG.md` section 2), so every
+  role reads a declared predicate's ID from the version in effect and no dictionary entry is made for it.
 
 ### 7.2 Keys and their canonical encoding
 
@@ -989,9 +994,9 @@ What each counts: live instances, unless the row says otherwise. Where it is che
 | A required, single-valued role's participant fixed for the instance's life | At a write replacing the participant | `UGS1025` |
 | Participation cardinality `?`, `+`, `{m, n}` | At an insert, delete or retraction changing the participant's count through the role; a lower bound is checked at the commit that creates the participant or removes an instance, so a participant and its first instance are created in one transaction | `UGS1014` |
 | `@set` | At insert: the combination resolves to the existing instance | none; the insert is idempotent |
-| `@acyclic`, `max_depth` | At an insert or a participant change of the relation | `UGS1021`, `UGS1022` |
-| `@limit` | At an insert, update of the aggregated attribute, delete or retraction, and for a lower bound at the creation of the grouped participant | `UGS1023` |
-| `@no_overlap` | At an insert or an update of the valid interval or of a `per` participant | `UGS1024` |
+| `@acyclic`, `max_depth` | At an insert or a participant change of the relation | `UGS1021`, `UGS1022`, `UGS1040` |
+| `@limit` | At an insert; at an update of the aggregated attribute or of an attribute its condition reads; at a delete or retraction; and for a lower bound at the creation of the grouped participant | `UGS1023` |
+| `@no_overlap` | At an insert or an update of the valid interval or of a `per` participant | `UGS1024`, `UGS1040` |
 | `@append_only` | At an update or delete of the instance | `UGS1013` |
 | `@bitemporal` revision: an update opens a new version; participants retracted | At an update; at an insert naming a retracted participant | `UGS1019` |
 | `@ends(role)` | At the insert | `UGS1035` |
@@ -1006,6 +1011,13 @@ key's type tree in one graph; `@unique` is an `EXCLUSIVE` key; a required attrib
 single-valued one `SINGLETON`. Each holds when its violation query returns nothing. Participation cardinality takes the
 bounded `COUNT` form PG-Schema proposes. `@acyclic`, `max_depth`, `@limit`, `@no_overlap` and the bitemporal rules are
 UGS's own.
+
+**What a rule reads beyond the instance is bounded.** Cardinality reads its count index and `@limit` its group's
+aggregate (section 8.6): one read each, whatever the group's size. `@acyclic` walks the relation's paths from the
+instance and `@no_overlap` reads the live instances sharing its participants; each check reads at most
+`rule_read_max` instances, 4,096, a bound of this specification. A check that would read more is refused with
+`UGS1040`, naming the rule and the bound, and is never decided past it, so a commit's latency is the schema's to bound
+and never the data's.
 
 ### 8.3 Mutability classes
 
@@ -1129,6 +1141,12 @@ checked at commit: creating the grouped participant and its first instances happ
 retraction, delete or valid-window close that would break it is refused (`UGS1023`). Cardinality markers are shorthand
 for unfiltered bounds on one role.
 
+**The aggregate is stored.** Each group's count or sum is a record in the marks keyspace of the partition that owns
+the group (section 9.3), written in the same commit as the change that moves it, as a count index is: an insert, a
+delete or retraction, an update of the aggregated attribute, and an update or valid-window close changing whether the
+condition holds for an instance each add or remove that instance's part, and the check reads the one record. A group
+no instance reaches holds no record and reads as zero.
+
 ### 8.7 Refusals
 
 A refusal travels as `../binary_protocol/PROTOCOL.md`'s Error with code 7 (Refused); section 15 asks the protocol to carry the UGS
@@ -1173,6 +1191,7 @@ refusal number and the instance. The refusals:
 | `UGS1037` | RetiredIri | mints an IRI equal to the birth IRI an instance holds (section 7.3) |
 | `UGS1038` | IriNotMinted | creates an instance under a subject IRI its type does not mint for it: a keyed type's instance under another IRI than its key mints, or a keyless type's instance under an IRI in place of a blank node (section 7.3) |
 | `UGS1039` | EvaluationFailed | commits an instance for which an expression of the schema cannot be evaluated: an overflow or a division by zero in a `@check`, a `@limit` condition or a computed derivation (section 4) |
+| `UGS1040` | ReadBound | would need a check of `@acyclic` or `@no_overlap` to read more than `rule_read_max` instances (section 8.2); the message names the rule and the bound |
 
 ### 8.8 Legal purge
 
@@ -1245,8 +1264,10 @@ partition.
 1. Enumerate every write operation the catalog version permits: per entity type, create, update of each attribute,
    delete; per relation type, insert, update of each attribute, change of each optional or set-valued role, delete, and
    for `@bitemporal` types retract in place of update and delete.
-2. For each constraint, list the operations that could violate it. Two operations **conflict** on a constraint when
-   concurrent executions of them in different partitions could both pass their local checks and together violate it.
+2. For each constraint, list the operations that could violate it: those writing what it reads, an update of an
+   attribute its condition reads among them, as a `@limit`'s `where` reads `rank`. Two operations **conflict** on a
+   constraint when concurrent executions of them in different partitions could both pass their local checks and
+   together violate it.
 3. Build the conflict graph: operations as nodes, an edge per conflict, labelled with the constraint and the partition
    that owns its state.
 4. Choose placement: for every constraint whose owner is not fixed by an annotation, choose the anchor role that makes
@@ -1325,8 +1346,15 @@ runs again once the schema governs it (`PROTOCOL.md` code 31), so no data is wri
 | 6 Placement and classification | Sections 9.1–9.4 | `UGS0700`–`UGS0799` |
 | 7 Views | Vocabulary IRIs, GQL names | `UGS0800`–`UGS0899` |
 | 8 Evolution | The difference from the previous version, section 13, and a migration source installed with the version, as `SCHEMA-EVOLUTION.md` section 5 checks it | `UGS2001`–`UGS2099`, `UGS2101`–`UGS2199` |
-| 9 Allocation | Prefixes for new types, from the metadata group | `UGS2005` |
-| 10 Emission | The catalog version, the views, the report | |
+| 9 Allocation | Prefixes for new types and sequences for new predicates, from the metadata group's next free ones | `UGS2005` |
+| 10 Emission | The catalog version, the views, the report; the version decoded by `CATALOG.md` section 6 and encoded back to the same bytes | |
+
+The compiler runs beside the metadata group, never on the thread that sequences its log: it takes the tenant's base
+version, next free prefix and next free predicate sequence as its inputs, so the version it emits is decided before
+the group sees it, and the group commits that version only while all three are still the tenant's. A version failing
+phase 10's decode or re-encoding is a fault of the compiler, never of the sources: the install is refused with
+`../binary_protocol/PROTOCOL.md` code 7, the message naming the decoder's step and offset, and nothing is allocated or
+committed.
 
 The version is committed as pending through the metadata group and takes effect at the epoch `../binary_protocol/PROTOCOL.md` section
 11.13 states; a tightening change is checked by the validation scan at that epoch (section 13.3), and the reply waits
@@ -1350,10 +1378,12 @@ rules:
 3. **Verified when read.** The fixed part holds a format version and an XXH3-64 of the bytes after it. A decoder checks
    the checksum, then every rule of the one encoding, the order, the offsets, the zero bytes and the strings'
    interning order, and refuses anything else. A role that cannot decode a version its log or its metadata group names
-   stops.
+   stops, so an install decodes the version it compiled before committing it (section 10.1).
 4. **Laid out for the commit.** Beside the entries in canonical order, a version holds an index from type prefix to
-   Type entry, so a partition reaches a type's fields, roles, checks and prefix ranges by index. What a partition
-   holds decoded is views over the bytes, built once, and nothing is parsed or looked up by name at a commit.
+   Type entry and one from a declared predicate's sequence to its Predicate entry, so a partition reaches a type's
+   fields, roles, checks and prefix ranges by index and a predicate's declaration from its ID (section 7.1). What a
+   role holds decoded is views over the bytes, built once and shared by its threads, and nothing is parsed or looked
+   up by name at a commit.
 5. **Expressions as verified programs.** An instance check, a `@limit` condition and a computed derivation, the
    expressions a commit evaluates, are stored as typed postfix programs of fixed-width instructions over the entry's
    fields and constants. The decoder verifies each program's stack discipline, its operands' bounds and its depth, at
@@ -1703,8 +1733,10 @@ type prefix.
 converted to `xsd:dateTimeStamp` on read from the sequencer's close times; `live` is the absence of the end. A tombstone
 is a statement record at the entity's home. A materialized derivation stores its result as quads under the derived
 name's predicate, written in the same commit as the write that changes it, within the anchor partition. Count indexes
-serve cardinality checks. `@acyclic` is checked by walking the relation's paths from the inserted instance, bounded by
-`max_depth`.
+serve cardinality checks, and a `@limit`'s aggregates, one record per group in the marks keyspace, serve its checks
+(section 8.6). `@acyclic` is checked by walking the relation's paths from the inserted instance, bounded by
+`max_depth` and by `rule_read_max`, and `@no_overlap` by reading the group's live instances within `rule_read_max`
+(section 8.2).
 
 ## 13. Schema evolution
 
@@ -2054,6 +2086,9 @@ that begin with one, `Asset.all_parts` and `Company.suppliers`.
 | One-frame writes | Decided 2026-11-10: a rule over the instance's own fields is validated in a DirectWrite's one turn; a claim, and a rule reading beyond the instance, take a transaction (section 9.6) |
 | A recreated IRI | Decided 2026-11-10: the new instance's record names the ID it replaced and the tombstone the delete's version, so a read of the past never answers absence where an instance was; the dictionary stays without versions (section 8.5) |
 | Order of sources | Decided 2026-11-10: schemas by name, then modules after what they extend, so prefix allocation is a function of the sources alone (section 7.1) |
+| What a rule reads at commit | Decided 2026-11-10: an update of an attribute a rule's condition reads is checked as an update of what it aggregates; a `@limit` keeps its aggregate per group, one read and one write whatever the group's size; `@acyclic` and `@no_overlap` read within `rule_read_max` and refuse past it (`UGS1040`); `@acyclic` without `max_depth` stays legal under the same bound (sections 8.2, 8.6, 9.4) |
+| Declared predicates' IDs | Decided 2026-11-10: allocated by the metadata group with the version, the `Resource` prefix with sequences from 2^63, held in the version's predicate index and never in an entry, since Describe carries entries and a system ID never leaves the database; a governed tenant resolves no declared predicate through the dictionary (section 7.1, `CATALOG.md` section 2) |
+| Where an install compiles | Decided 2026-11-10: beside the metadata group, from the base version and the next free prefix and predicate sequence, so the group's thread only commits bytes; the version is decoded and encoded back before it is committed, and a failure is the compiler's, refused with code 7 (section 10.1) |
 
 ## 18. Sources
 

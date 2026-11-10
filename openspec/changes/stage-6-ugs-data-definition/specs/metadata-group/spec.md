@@ -55,23 +55,36 @@ naming its size, the catalog unchanged, and the group SHALL refuse to hold one.
 ### Requirement: The metadata group holds compiled catalog versions with their sources
 For a governed tenant the metadata group SHALL hold each catalog version as the canonical bytes of ugs-catalog,
 opaque to it, with the sources the version was compiled from, committed as pending and effective at an epoch as every
-catalog version is. Its owner SHALL compile an Install's sources with the tenant's, and SHALL commit a version only
-when it builds on the tenant's current one. A version and its sources SHALL read back equal after a restart.
+catalog version is. Its owner SHALL compile nothing: it SHALL commit a version the frontend's compile thread compiled
+(ugs-catalog, "Install compiles a tenant's sources into a new version") only while the version builds on the tenant's
+current one and the next free prefix and next free predicate sequence it was compiled from are still the tenant's, its
+turn growing by the one append. The group SHALL hold each version's bytes as one immutable buffer, shared by its head,
+its state, its snapshots and every reply carrying the version, and the bytes of the versions it retains for a tenant
+SHALL stay within 16 times `catalog_bytes_max`: a version that would pass that SHALL be refused with code 7, `detail`
+the bound, the tenant's catalog unchanged. A version and its sources SHALL read back equal after a restart.
 
 #### Scenario: A version survives a restart
 - **WHEN** Gen5 is installed and the frontend is stopped and started
 - **THEN** the metadata group answers the same version number, bytes and sources for the tenant
 
+#### Scenario: A version is held once
+- **WHEN** Gen5 is installed, a snapshot of the group is taken, and a storage process reads the version with Catalog
+- **THEN** the group's head, its state and the snapshot hold one buffer of the version, the reply's section 0 is
+  written from it, and no copy of the version is made
+
 #### Scenario: Two installs on one base
 - **WHEN** two Installs naming catalog version 0 of one empty tenant reach the owner
 - **THEN** one commits version 1, and the other is refused as building on a version no longer current
 
-### Requirement: The metadata group allocates type prefixes
+### Requirement: The metadata group allocates type prefixes and predicate sequences
 The metadata group SHALL allocate type prefixes per tenant in its ordered log: each Install's new types take the next
 free prefixes in the order the compiler names them, from 3, and the allocation SHALL be committed with the version it
 belongs to, so an Install that is refused allocates nothing. A prefix SHALL never be allocated twice in a tenant, and
 the next free prefix SHALL read back after a restart. Sequence blocks SHALL be leased per (type prefix, partition) for
-declared types as for the built-in ones.
+declared types as for the built-in ones. Likewise each Install's new declared predicates SHALL take the tenant's next
+free predicate sequences, from 2^63, in the order of their Predicate entries, committed with the version (`SCHEMA.md`
+section 7.1): a predicate sequence SHALL never be allocated twice in a tenant, the next free one SHALL read back after
+a restart, and a lease of `Resource` sequences whose block would reach 2^63 SHALL be refused, naming the bound.
 
 #### Scenario: A refused Install allocates nothing
 - **WHEN** an Install declaring two new types is refused with code 28, and a later Install declares one new type
@@ -80,6 +93,11 @@ declared types as for the built-in ones.
 #### Scenario: Allocation survives a restart
 - **WHEN** the aviation schema is installed and the frontend is restarted
 - **THEN** the metadata group answers the same prefix for each of the 13 types, and 16 as the tenant's next free prefix
+
+#### Scenario: Predicate sequences survive a restart
+- **WHEN** the aviation schema is installed into an empty tenant and the frontend is restarted
+- **THEN** the version's predicate index names the same sequences, from 2^63 in the Predicate entries' order, and the
+  tenant's next free predicate sequence is 2^63 plus their count
 
 #### Scenario: A declared type leases its own sequences
 - **WHEN** the aviation schema is in effect and a partition first creates an `Engine`

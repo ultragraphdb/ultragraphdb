@@ -305,9 +305,14 @@ instance within the partition, and under `open` counting only live instances who
 SHALL hold per combination of the `per` participants, and per concrete subtype under `type`, over the live instances
 satisfying its condition, a top-level conjunct over the `per` participants' types selecting the groups; a write
 breaking it SHALL be refused with `UGS1023`, a lower bound at the commit creating the grouped participant, and a condition that cannot be evaluated with `UGS1039`.
+`@limit` SHALL be checked at an update of an attribute its condition reads as at an update of the attribute it
+aggregates. Each group's aggregate SHALL be a record in the marks keyspace of the partition owning the group, written
+in the commit that moves it, and a check SHALL read that record and no instance of the group.
 `@no_overlap` SHALL refuse an insert or update after which two live instances sharing the `per` participants have
-valid intervals that certainly overlap, or with `strict` possibly overlap (`UGS1024`). A check whose instances or
-paths lie in another partition SHALL refuse the transaction with code 23.
+valid intervals that certainly overlap, or with `strict` possibly overlap (`UGS1024`). A check of `@acyclic`, with or
+without `max_depth`, or of `@no_overlap` SHALL read at most `rule_read_max` instances, 4,096, and one that would read
+more SHALL be refused with `UGS1040`, naming the rule and the bound. A check whose instances or paths lie in another
+partition SHALL refuse the transaction with code 23.
 
 #### Scenario: A cycle is refused
 - **WHEN** `SubOrganizationOf` holds open instances making `b` a unit of `a` and `c` a unit of `b`, and one making `a`
@@ -322,6 +327,21 @@ paths lie in another partition SHALL refuse the transaction with code 23.
 - **WHEN** a `Document` has an `IsAbout` instance with `rank` `preferred` and a second `IsAbout` with `rank` `preferred`
   is inserted for it
 - **THEN** the commit is refused with `UGS1023`; and a `Realizes` with `rank` `preferred` for the same subject commits
+
+#### Scenario: A revision to preferred is checked
+- **WHEN** a `Document` has an `IsAbout` instance with `rank` `preferred` and a second `IsAbout` with `rank` `normal`,
+  and a transaction revises the second's `rank` to `preferred`
+- **THEN** the commit is refused with `UGS1023`, and both instances read as they were
+
+#### Scenario: A limit reads its group's aggregate
+- **WHEN** a `Document` has 1,000 `IsAbout` instances with `rank` `normal`, and one with `rank` `preferred` is inserted
+- **THEN** the commit succeeds having read the group's one aggregate record and none of its instances, and the record
+  then counts one
+
+#### Scenario: A walk past its bound is refused
+- **WHEN** a relation of the corpus declared `@acyclic` without `max_depth` holds a chain of 4,096 instances in one
+  partition, and an instance extending the chain is inserted
+- **THEN** the commit is refused with `UGS1040` naming `@acyclic` and 4,096, and nothing of it is written
 
 #### Scenario: A lower bound selected by type
 - **WHEN** a transaction creates a `Reading` with `valid` and a `value` and no `GeneratedBy`, and another creates a

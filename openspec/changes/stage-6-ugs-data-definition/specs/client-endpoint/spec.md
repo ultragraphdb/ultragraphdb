@@ -58,11 +58,13 @@ each bound at its Begin; every request acts in one, and a request's tenant autho
 ## ADDED Requirements
 
 ### Requirement: The frontend serves Install
-The frontend SHALL serve an Install that passes the gate through the metadata group's owner: the compile of the
-tenant's sources with those sent, the allocation of prefixes and the commit of the pending version, answering as
-ugs-catalog states, and no other role SHALL see the request. A compile SHALL run off the connection's turn, so other
-streams of the connection and other connections are served while it runs, and SHALL be bounded by the source bounds of
-ugs-syntax.
+The frontend SHALL serve an Install that passes the gate on its compile thread and through the metadata group's owner:
+the compile of the tenant's sources with those sent and its verification on the compile thread, and the allocation
+of prefixes and predicate sequences and the commit of the pending version by the owner, answering as ugs-catalog
+states, and no other role SHALL see the request. The compile thread SHALL be started at startup and fed over a bounded
+queue, an Install finding the queue full refused with code 5 (Busy), `detail` 0, the message naming the compile queue, and a
+compile SHALL run off the connection's turn and off the owner's, so other streams, other connections and every ask of
+the owner are served while it runs, and SHALL be bounded by the source bounds of ugs-syntax.
 
 #### Scenario: An Install is answered by the frontend
 - **WHEN** an authenticated principal installs the aviation schema into tenant 0
@@ -75,7 +77,8 @@ ugs-syntax.
 
 ### Requirement: The frontend compiles a UQL request and sends it as frames
 The frontend SHALL compile a Query of `language` 3 against the catalog version in effect for the transaction's tenant
-(uql-crud). It SHALL send a mutation's change records and operations to the transaction's partition as it relays a
+(uql-crud), on the connection's core, into buffers the connection holds from its start, sized by `max_frame` and the
+nesting bound of 64, which each request clears and reuses. It SHALL send a mutation's change records and operations to the transaction's partition as it relays a
 client's Write and Operation frames, binding the transaction by the first subject as a client's write binds it, and
 SHALL route a query's pattern reads to compute as it routes a client's Read. A Query of `language` 1 or 2, and a
 Prepare of `language` 1, 2 or 3, SHALL be refused with code 7 on its stream, the message naming the stage that serves

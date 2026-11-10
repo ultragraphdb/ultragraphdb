@@ -3,7 +3,9 @@
 ### Requirement: IRIs and blank nodes get system IDs
 Each IRI and each skolemized blank node, other than a reifier's skolem IRI, SHALL map, per tenant, to one system ID, never reused. One naming no instance of a declared type SHALL take the
 `Resource` type: an IRI's bucket computed from the tenant and the IRI's canonical encoding, a blank node's the one its
-skolem IRI states, and its sequence drawn from a block its home holds. An IRI naming an instance of a declared type
+skolem IRI states, and its sequence drawn from a block its home holds, but for a predicate the catalog version in
+effect declares, whose ID is the version's ("A governed tenant's declared predicates resolve from the catalog
+version"). An IRI naming an instance of a declared type
 SHALL map to an ID of that instance's concrete type's prefix, its bucket computed from its key space and key or stated
 by its handle (ugs-identity, "Keyed instances are named by an IRI minted from the key", "Keyless instances are named by
 a handle"). The same IRI SHALL
@@ -98,3 +100,22 @@ term's index, when it does not.
 - **WHEN** a Write names a handle IRI of `Supply`'s space whose bucket lies in the tenant's run and which no instance
   holds
 - **THEN** the Write is refused with code 7, `detail` the term's index, before any commit
+
+### Requirement: A governed tenant's declared predicates resolve from the catalog version
+In a governed tenant a predicate IRI the catalog version in effect declares SHALL resolve to its ID, and the ID to the
+IRI, from the version's Predicate entries and predicate index (system-identity, "A declared predicate's ID is
+allocated with its catalog version"), in every partition and compute process alike: the dictionary SHALL hold no entry
+for it, no partition SHALL register it at a home, and resolving it SHALL take no lock and read no store. A predicate
+the version does not declare, which only an `@open` schema admits, and every predicate of an ungoverned tenant SHALL
+resolve through the dictionary as before.
+
+#### Scenario: A declared predicate is resolved without its home
+- **WHEN** Gen5 is in effect over three partitions, and partition 1 first writes a statement whose predicate's IRI
+  lies in a bucket partition 2 owns
+- **THEN** partition 1 takes the predicate's ID from the version, sends no registration, and neither partition's
+  dictionary holds an entry for the predicate
+
+#### Scenario: A read names a declared predicate from the version
+- **WHEN** compute answers a read of a Gen5 instance's triples
+- **THEN** each declared predicate's IRI in the rows is the one the version's Predicate entry holds, and no dictionary
+  entry is read for it

@@ -105,3 +105,19 @@ an unkeyed relation instance's its anchor participant's (ugs-identity, "Buckets 
 #### Scenario: A keyless entity's bucket is its handle's
 - **WHEN** a partition creates a keyless entity and mints its handle
 - **THEN** the entity's ID carries the bucket the handle's first six digits state
+
+### Requirement: A declared predicate's ID is allocated with its catalog version
+In a governed tenant each predicate a catalog version declares SHALL have the system ID of the `Resource` prefix 1,
+its IRI's bucket computed as any IRI's, and a sequence of at least 2^63 the metadata group allocates with the version
+(metadata-group, "The metadata group allocates type prefixes and predicate sequences"), held in the version's predicate
+index and in no entry. A `Resource` sequence leased to a partition SHALL stay below 2^63, so no other ID equals a
+declared predicate's, and a declared predicate's ID SHALL be the same in every partition and compute process.
+
+#### Scenario: The aviation schema's predicates
+- **WHEN** the aviation schema is installed into an empty tenant 0
+- **THEN** each declared predicate's ID has type prefix 1, the bucket of its IRI in tenant 0, and a sequence from 2^63
+  upward in the order of the version's Predicate entries
+
+#### Scenario: A unique value's bucket follows the version
+- **WHEN** an aviation `@unique` attribute's value is claimed on two storage processes started from one catalog version
+- **THEN** both compute the claim's bucket from the same predicate ID, the one the version holds

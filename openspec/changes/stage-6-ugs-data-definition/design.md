@@ -154,6 +154,10 @@ reifier is deleted by the delete of its quad, change record 3.
 
 - `ultragraphdb_schema_uql` is pure: text, parameters and a catalog version in, a typed plan or a `UQLnnnn`
   diagnostic out. It reuses `ultragraphdb_schema_syntax`'s lexer and literal rules, since UQL's tokens are UGS's.
+- The UQL compile is request handling on the connection's core, the data plane of Ultra rule 3: its tokens and syntax
+  nodes borrow spans of the request's text, and it writes into buffers the connection holds from its start, sized by
+  `max_frame` and the nesting bound of 64, cleared and reused per request. The lexer has that one shape for UGS too,
+  on the control plane, so the two languages share it.
 - A write plan is change records and operations: an `insert` is the instance's triples of the RDF view (`SCHEMA.md`
   section 11.2) in one Write; an `update` replaces each assigned attribute's values; `delete` and `retract` are
   Operation kinds 5 and 6. The frontend sends them on the transaction's Bind stream as it relays a client's own
@@ -171,12 +175,19 @@ reifier is deleted by the delete of its quad, change record 3.
 
 | Crate | Path | Depends on | Provides |
 |---|---|---|---|
+| `ultragraphdb_core_body` | `ultragraphdb_core/` | — | The body layout's reader (`PROTOCOL.md` section 4.1) and the string list's reader and writer (section 4.3), moved out of `ultragraphdb_protocol_wire` by group 1, so the wire and the catalog read with one discipline and the catalog depends on no wire crate, which dev-depends on it |
 | `ultragraphdb_error_diagnostic` | `ultragraphdb_error/` | — | `Diagnostic`: code, severity, source span, reason, fix; its rendering in `SCHEMA.md` section 10.4's form. Raised by the three crates below, so it takes a crate of its own (`AGENTS.md`) |
 | `ultragraphdb_schema_syntax` | `ultragraphdb_schema/` | the diagnostic crate | Lexer, parser, the syntax tree with spans, the expression grammar; phase 1 |
-| `ultragraphdb_schema_compile` | `ultragraphdb_schema/` | syntax, `ultragraphdb_core_catalog`, `ultragraphdb_core_ids` | Phases 2 to 7 and 10: the checked model, the report, the catalog version. Phase 9's prefixes are passed in by the caller |
+| `ultragraphdb_schema_compile` | `ultragraphdb_schema/` | syntax, `ultragraphdb_core_catalog`, `ultragraphdb_core_ids` | Phases 2 to 7 and 10: the checked model, the report, the catalog version, decoded and encoded back before it is returned. Phase 9's next free prefix and predicate sequence are passed in by the caller |
 | `ultragraphdb_schema_uql` | `ultragraphdb_schema/` | syntax, `ultragraphdb_core_catalog` | The UQL subset: parse, type against a catalog version, plan |
 
-All four are pure, with no I/O and no async, so the metadata group, a test and a later language server call them
+The three schema crates use no recursion (Ultra rule 1): declarations parse in a loop over an explicit stack of at
+most 64 levels; an expression parses in an operator-precedence loop that emits the postfix form of `CATALOG.md`
+section 4 and types it with a type stack in the walk the decoder uses to verify a program's depth, so one form serves
+parsing, typing, storage, verification and evaluation, and no expression tree is built; inheritance, imports, the
+function call graph and the UQL parser walk bounded worklists.
+
+All four schema and diagnostic crates are pure, with no I/O and no async, so the metadata group, a test and a later language server call them
 alike. Each is created in full by the group that builds it. The group that creates the first crate adds
 `ultragraphdb_schema/*` to the workspace's members and the folder to `AGENTS.md`'s list of group folders. The
 catalog's encoding stays in `ultragraphdb_core_catalog`, which the partitions and compute read without the compiler.
@@ -199,11 +210,17 @@ As the preparation's section 2 decides: an Install accepts `@index(ann)`, record
 nothing; a `Vector<BF16>` write is refused with the later-stage refusal; a `Vector<F32>` value is stored as a value,
 as today. The Write path's vector-index declaration in an ungoverned tenant stays refused with code 7.
 
-### 9. `@pattern` takes the `regex` crate (user: accepted for now, 2026-11-10)
+### 9. `@pattern` takes the `regex` crate's syntax on `regex-automata` (user: accepted for now, 2026-11-10; the engine refined the same day)
 
-`SCHEMA.md` section 6.6 defines `@pattern` in the syntax of Rust's `regex` crate, anchored at both ends. The crate is
-pure Rust and matches in time linear in its input, so a schema's pattern cannot stall a commit. It is pinned in the
-workspace with default features off and `std`, `perf` and the Unicode tables the syntax needs.
+`SCHEMA.md` section 6.6 defines `@pattern` in the syntax of Rust's `regex` crate, anchored at both ends. A
+`regex::Regex` shared by several threads matches through an internal pool of caches: the thread that built it takes a
+fast path, every other takes a lock and allocates a cache on first use, which breaks share-nothing on the data plane.
+`@pattern` is therefore matched by `regex-automata`'s `meta::Regex`, the engine `regex` is built on, parsing the same
+syntax through `regex-syntax`: each partition builds its patterns and one `Cache` per pattern when it loads a version,
+on the control plane, and passes the cache by `&mut` at every match, so a match takes no lock and allocates nothing.
+The engine is pure Rust and matches in time linear in its input, so a schema's pattern cannot stall a commit. Both
+crates are pinned in the workspace with default features off and `std`, `perf` and the Unicode tables the syntax
+needs; `regex-automata` is already in the dependency tree under `regex`.
 
 - *Alternative, a hand-written matcher:* the syntax is the crate's, so a second implementation is a second dialect.
 
@@ -216,11 +233,31 @@ partitions in one process, with instances placed in two partitions.
 ### 11. The catalog on the commit path
 
 A partition holds the catalog version in effect as views over its bytes, built once when the version loads: the
-version's own index reaches a Type entry by type prefix, a table the partition builds reaches a predicate's entry by
-predicate ID, and a type's fields, roles, checks and prefix ranges follow by index. A check is a verified postfix
+version's own indexes reach a Type entry by type prefix and a Predicate entry by a declared predicate's ID, and a
+type's fields, roles, checks and prefix ranges follow by index. A check is a verified postfix
 program run in a loop. Validation of an instance looks nothing up by name, parses nothing and allocates nothing in
 the catalog. Group 7 measures the cost per instance and per triple against the baseline
 `openspec/benches/benches-2026-11-09.md` before group 8 adds index writes.
+
+- **One buffer per version.** A verified version is one immutable `Arc<[u8]>` per process. Rule 9's reason: it is
+  immutable after verification, every core reads it and none writes it. The metadata group's head, state and
+  snapshots hold it, a Catalog reply and Describe write slices of it, each core's views borrow it, and an execution
+  holds the version, never a copy; today's per-execution clone of the catalog
+  (`ultragraphdb_store_apply/src/types/changeset_core/mod.rs:220`) goes. Each endpoint core and each partition holds
+  the version in effect per tenant, refreshed when a close announces a new one, as `RoleLinks` holds the placement map,
+  so no frame asks the owner for it. The group bounds the bytes it retains per tenant to 16 times `catalog_bytes_max`.
+- **Declared predicates by ID.** The metadata group allocates each declared predicate's system ID with the version: the
+  `Resource` prefix, its IRI's bucket, and a sequence from 2^63, below which partitions lease `Resource` sequences. The
+  sequences sit in the version's predicate index, never in an entry, since Describe carries entries and a system ID
+  never leaves the database. A governed tenant resolves a declared predicate's IRI by a search over the Predicate
+  entries and its ID through the predicate index: no dictionary lock, store read or registration at a home on the
+  commit path or in compute. A governed tenant holds no statement at its Install, so no earlier ID stands in the way.
+- **The compile beside the owner.** The owner thread runs the metadata group and the sequencer in one turn, so a
+  compile there would hold every epoch close and `BeginCommit` for its duration. The frontend starts a compile thread
+  at startup, fed over a bounded queue; it compiles from the base version, the next free prefix and the next free
+  predicate sequence, decodes its output by `CATALOG.md` section 6 and encodes it back to the same bytes, and the
+  owner commits the bytes when the three inputs are still the tenant's. What a replica replays is bytes, never a
+  compile, which VSR's replicas need from stage 8.
 
 ### 12. Group A is the model in `lean/schema`
 
@@ -254,6 +291,25 @@ experience:
 | R6 | `with retracted` reads each instance's newest version | `QUERY-ULTRA-QL.md` 11.2 |
 | R7 | A declared relation's edge-encoded instance is named by its handle IRI | `PROTOCOL.md` 4.6, 9.1, 10.2; `SCHEMA.md` 7.3, 11.1 |
 | D1 to D19 | The four independent reviews' nineteen decisions, `statement` as a contextual keyword first, and their corrections to the capability specifications | The specification files; every capability of this change |
+
+### 15. The core principles' review (user, 2026-11-10)
+
+`notes/core-principles-review.md` reads this change against the three tenets and the six key properties and the code
+at `d1aad303`. The user accepted all eleven recommendations on 2026-11-10:
+
+| | Resolution | Where it lands |
+|---|---|---|
+| P1 | A `@limit` is checked at an update of an attribute its condition reads | `SCHEMA.md` 8.2, 9.4; `ugs-enforcement` |
+| P2 | Install decodes the version it compiled and encodes it back before the commit; a failure is the compiler's, code 7 | `SCHEMA.md` 10.1, 10.2; `CATALOG.md` 6; `ugs-catalog` |
+| P3 | No recursion in the compiler or the UQL parser: explicit stacks, an operator-precedence loop to postfix, worklists | `ugs-syntax`; decision 6; tasks 2.3, 10.3 |
+| P4 | `@limit` keeps its aggregate per group; `@acyclic` and `@no_overlap` read within `rule_read_max`, 4,096, refused past it with `UGS1040`; `@acyclic` without `max_depth` stays legal under that bound | `SCHEMA.md` 6.7, 8.2, 8.6, 8.7, 12.4; `ugs-enforcement`; tasks 7.5, 8.3 |
+| P5 | The compile runs on the frontend's compile thread, the owner commits bytes; a full compile queue answers code 5 | `SCHEMA.md` 10.1; `PROTOCOL.md` code 5; `ugs-catalog`, `metadata-group`, `client-endpoint`; decision 11 |
+| P6 | One immutable buffer per version per process; the retained bytes bounded | `CATALOG.md` 7; `ugs-catalog`, `metadata-group`; decision 11 |
+| P7 | Declared predicates' IDs allocated with the version, held in its predicate index | `SCHEMA.md` 7.1; `CATALOG.md` 2, 6, 7, 8, 10; `system-identity`, `term-dictionary`, `metadata-group`; decision 11 |
+| P8 | `@pattern` on `regex-automata` with a cache per partition | Decision 9; task 7.4 |
+| P9 | The lexer and parser borrow spans; the UQL compile writes into per-connection buffers | `ugs-syntax`, `client-endpoint`; decision 5 |
+| P10 | The commit path's Ultra Style lifts are a group of their own, 2b, beside group 3 | Tasks |
+| P11 | The body reader and string list move into `ultragraphdb_core_body` | Decision 6; task 1.2 |
 
 ## Risks / Trade-offs
 

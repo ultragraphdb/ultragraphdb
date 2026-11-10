@@ -26,7 +26,8 @@ UltraGraphDB is distributed from the start: three roles, frontend, compute and s
 with VSR (`openspec/notes/UltraGraphDB Distribution Architecture.md`, and for the protocol itself
 `openspec/notes/UltraGraphDB Distribution Protocol.md`). A single machine runs the same topology folded
 into one container (`openspec/notes/UltraGraphDB Single-Container Deployment.md`). Stages 4 to 10 replace DQL with
-SPARQL and GQL; UltraQL follows stage 10. What the next stages must specify is tracked in `openspec/notes/backlog.md`.
+SPARQL and GQL; UltraQL follows stage 10, its CRUD subset served from stage 6 for testing
+(`specification/query/QUERY-ULTRA-QL.md` section 4.1). What the next stages must specify is tracked in `openspec/notes/backlog.md`.
 
 - **5.5 Refactor for the three-role cluster.** The formats later stages store and build on, and the three roles as
   running binaries. Every entity and statement takes a 128-bit system ID of type prefix, sequence and bucket

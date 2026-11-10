@@ -43,7 +43,7 @@ every byte sequence that is not the encoding of some version.
 
 ## 2. The version
 
-A version is a body with a fixed part of 64 bytes and six sections.
+A version is a body with a fixed part of 64 bytes and seven sections.
 
 | Offset | Width | Field | Type | Rule |
 |---|---|---|---|---|
@@ -56,7 +56,9 @@ A version is a body with a fixed part of 64 bytes and six sections.
 | 32 | 4 | `entries` | u32 | the entry count |
 | 36 | 4 | `types` | u32 | the count of Type entries |
 | 40 | 2 | `prefix_next` | u16 | the tenant's next free type prefix once this version is allocated, at least 3 and above every prefix a Type entry holds |
-| 42 | 22 | zero | 0 | |
+| 42 | 6 | zero | 0 | |
+| 48 | 8 | `predicate_next` | u64 | the tenant's next free predicate sequence once this version is allocated, at least 2^63 and above every sequence the predicate index holds |
+| 56 | 8 | zero | 0 | |
 
 | Section | Contents |
 |---|---|
@@ -66,6 +68,7 @@ A version is a body with a fixed part of 64 bytes and six sections.
 | 3 | the entries' names: string list `text`, each distinct name once, in the order the entry table first uses it |
 | 4 | the prefix index, 8 bytes each |
 | 5 | the kind directory, 19 u32s |
+| 6 | the predicate index, 16 bytes each |
 
 **The entry table.** One record per entry, the record of Describe's section 7 (`PROTOCOL.md` section 8.3), so
 Describe carries a version's entries and their bytes as they stand and writes only its own string indices and
@@ -100,6 +103,21 @@ prefix by a search over fixed-width records:
 | 0 | 2 | `prefix` | u16: the type's prefix, at least 3 |
 | 2 | 2 | zero | 0 |
 | 4 | 4 | `entry` | u32: the index, in the entry table, of the Type entry holding that prefix |
+
+**The predicate index.** One record per Predicate entry, ascending by `sequence`, so a role reaches a predicate's
+entry from its system ID by a search over fixed-width records:
+
+| Record offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 8 | `sequence` | u64: the sequence of the predicate's system ID, at least 2^63 |
+| 8 | 4 | `entry` | u32: the index, in the entry table, of the Predicate entry |
+| 12 | 4 | zero | 0 |
+
+A declared predicate's system ID is the `Resource` type's prefix 1, this sequence, and the bucket of its IRI in the
+version's tenant (`SCHEMA.md` section 7.1). The metadata group allocates the sequences with the version, from the
+tenant's `predicate_next`, to new predicates in the order of their Predicate entries, and never reissues one. The ID is
+held here and in no entry, because Describe carries entries to clients as they stand and a system ID never leaves the
+database.
 
 **The kind directory.** Value `k`, for `k` from 1 to 19, is the number of entries whose kind is at most `k`: the
 entries of kind `k` are those from index value `k − 1`, 0 for kind 1, up to value `k`. Value 19 is `entries`.
@@ -499,32 +517,42 @@ A decoder refuses a version at the first rule broken, naming the rule and the of
 |---|---|
 | 1 | The bytes hold the fixed part; `magic` and `format` are this file's |
 | 2 | `checksum` is XXH3-64, seed 0, of the bytes from offset 8 |
-| 3 | The fixed part's zero bytes are zero; `version` is at least 1; `prefix_next` is at least 3 |
-| 4 | The body layout holds for six sections (`PROTOCOL.md` section 4.1) |
+| 3 | The fixed part's zero bytes are zero; `version` is at least 1; `prefix_next` is at least 3; `predicate_next` is at least 2^63 |
+| 4 | The body layout holds for seven sections (`PROTOCOL.md` section 4.1) |
 | 5 | The names are a string list (section 4.3 there), each distinct once |
 | 6 | The entry table is a whole number of records and holds `entries` of them; each record's zero bytes are zero, its `kind` 1 to 19, its `name` in bounds, its `offset` where the entry before ends, its bytes within section 1, and it comes after the entry before by kind, then by name; section 1 ends with the last entry; the names are interned in the table's order |
 | 7 | The kind directory holds, for each kind, the count of entries of that kind and below |
 | 8 | Each entry, in order: for kinds 1 to 18, its body layout with its kind's fixed part and section count; its fixed part's rules and zero bytes; each section a whole number of its records; every string, descriptor, constant and program index in bounds; its strings interned in order of first use, none unused; its descriptors, constants and programs as sections 3 and 4 state. For kind 19, its bytes UTF-8 |
-| 9 | The prefix index holds one record per Type entry, `types` of them, ascending, each naming a Type entry whose `prefix` is the record's; no two types share a prefix; every prefix is below `prefix_next` |
+| 9 | The prefix index holds one record per Type entry, `types` of them, ascending, each naming a Type entry whose `prefix` is the record's; no two types share a prefix; every prefix is below `prefix_next`. The predicate index holds one record per Predicate entry, its zero bytes zero, strictly ascending by `sequence`, every sequence at least 2^63 and below `predicate_next`, each naming a Predicate entry, and every Predicate entry named once |
 | 10 | Every name an entry holds resolves: a qualified name to the entry of that name and kind, an attribute's predicate to its Predicate entry, a Type entry's fields and roles to Attribute and Role entries, each type to one Prefix ranges and one Classification entry; one Report entry exists |
 | 11 | Each entry's name in the table is the one its fields give: a Type's `{schema}.{name}`, an Attribute's `{type_name}.{name}`, a Predicate's `iri`, and so on by the table of section 2 |
 
 Encoding a decoded version gives the bytes decoded. What the encoding leaves to the encoder is nothing: lists
 keep source order, strings and constants are interned in order of first use, and every other order is stated above.
 
+Install holds the compiler to this file before anything is committed: it decodes the version it compiled by these
+steps, with the decoder every role uses, and encodes the decoded version back to the same bytes. A version failing
+either is the compiler's fault, and the Install is refused with nothing allocated or committed (ugs-catalog), so no
+role meets a version it cannot read because of the compiler.
+
 ## 7. What a role holds decoded
 
 A role that loads a version verifies it once (section 6) and then holds it as views over the bytes: the entry
-table, the prefix index, and per entry its fixed part and sections, read in place. It builds, once:
+table, the prefix index, the predicate index, and per entry its fixed part and sections, read in place. The bytes are
+one immutable buffer per process, shared by every thread that reads the version and copied by none; a reply carrying
+the version or its entries writes slices of it. It builds, once, on the control plane:
 
 - from the prefix index, the Type entry of each prefix, and from each Type entry's fields and roles the indices of
   their Attribute and Role entries;
-- from the tenant's dictionary, the Predicate entry of each predicate ID its partition holds;
-- the parsed value of each constant.
+- from the predicate index and the tenant, each declared predicate's system ID, and for each Predicate entry its
+  sequence, so a predicate IRI resolves by a search over the Predicate entries, which are ordered by IRI;
+- the parsed value of each constant, and each `@pattern` compiled, with a matching cache for each thread that runs
+  it.
 
-After that a commit reaches a type from an instance's prefix, the type's fields, roles, checks and prefix ranges by
-index, and runs a check as a loop (section 4). It compares no name, parses nothing and allocates nothing in the
-catalog. A role that cannot verify a version its log or its metadata group names stops.
+After that a commit reaches a type from an instance's prefix, a predicate's declaration from its ID, the type's
+fields, roles, checks and prefix ranges by index, and runs a check as a loop (section 4). It compares no name, parses
+nothing, takes no lock and allocates nothing in the catalog, and it resolves no declared predicate through the
+dictionary. A role that cannot verify a version its log or its metadata group names stops.
 
 ## 8. Worked example
 
@@ -538,8 +566,9 @@ entity Thing @key(id) {
 }
 ```
 
-installed into tenant 0 as catalog version 1. `Thing` takes prefix 3, so `prefix_next` is 4. The version is 1,356
-bytes and holds eight entries:
+installed into tenant 0 as catalog version 1. `Thing` takes prefix 3, so `prefix_next` is 4, and the predicate
+`https://example.org/demo#id` takes the tenant's first sequence, 2^63, so `predicate_next` is 2^63 + 1. The version is
+1,384 bytes and holds eight entries:
 
 | Index | Kind | Name | `offset` | `len` |
 |---|---|---|---|---|
@@ -552,11 +581,11 @@ bytes and holds eight entries:
 | 6 | 18 Report | the empty string | 825 | 24 |
 | 7 | 19 Source | `demo` | 849 | 100 |
 
-**The version's fixed part and section table**, bytes 0 to 111:
+**The version's fixed part and section table**, bytes 0 to 119:
 
 | Bytes | Hex | Field | Value |
 |---|---|---|---|
-| 0–7 | `20 7a b3 e1 4f 60 71 f4` | `checksum` | `0xF471604FE1B37A20`, XXH3-64 of bytes 8 to 1,355 |
+| 0–7 | `12 3c 61 5b d0 ef 7e 40` | `checksum` | `0x407EEFD05B613C12`, XXH3-64 of bytes 8 to 1,383 |
 | 8–11 | `55 47 43 56` | `magic` | `UGCV` |
 | 12–13 | `01 00` | `format` | 1 |
 | 16–23 | `00` × 8 | `tenant` | 0 |
@@ -564,18 +593,20 @@ bytes and holds eight entries:
 | 32–35 | `08 00 00 00` | `entries` | 8 |
 | 36–39 | `01 00 00 00` | `types` | 1 |
 | 40–41 | `04 00` | `prefix_next` | 4 |
-| 64–71 | `70 00 00 00 80 00 00 00` | section 0 | the entry table at 112, 128 bytes |
-| 72–79 | `f0 00 00 00 b5 03 00 00` | section 1 | the entries' bytes at 240, 949 bytes |
-| 80–87 | `a8 04 00 00 14 00 00 00` | section 2 | the names' ends at 1,192, 20 bytes: five names |
-| 88–95 | `c0 04 00 00 36 00 00 00` | section 3 | the names' text at 1,216, 54 bytes |
-| 96–103 | `f8 04 00 00 08 00 00 00` | section 4 | the prefix index at 1,272: `03 00 00 00 01 00 00 00`, prefix 3 at entry 1 |
-| 104–111 | `00 05 00 00 4c 00 00 00` | section 5 | the kind directory at 1,280, 76 bytes: 1, 1, 2, 3, 4, 5 for kinds 1 to 6, 5 for kinds 7 to 16, 6, 7, 8 |
+| 48–55 | `01` then `00` × 6 then `80` | `predicate_next` | 2^63 + 1 |
+| 64–71 | `78 00 00 00 80 00 00 00` | section 0 | the entry table at 120, 128 bytes |
+| 72–79 | `f8 00 00 00 b5 03 00 00` | section 1 | the entries' bytes at 248, 949 bytes |
+| 80–87 | `b0 04 00 00 14 00 00 00` | section 2 | the names' ends at 1,200, 20 bytes: five names |
+| 88–95 | `c8 04 00 00 36 00 00 00` | section 3 | the names' text at 1,224, 54 bytes |
+| 96–103 | `00 05 00 00 08 00 00 00` | section 4 | the prefix index at 1,280: `03 00 00 00 01 00 00 00`, prefix 3 at entry 1 |
+| 104–111 | `08 05 00 00 4c 00 00 00` | section 5 | the kind directory at 1,288, 76 bytes: 1, 1, 2, 3, 4, 5 for kinds 1 to 6, 5 for kinds 7 to 16, 6, 7, 8 |
+| 112–119 | `58 05 00 00 10 00 00 00` | section 6 | the predicate index at 1,368, 16 bytes: `00` × 7 then `80`, then `04 00 00 00 00 00 00 00`, sequence 2^63 at entry 4 |
 
 The names, interned in the entry table's order, are `demo`, `demo.Thing`, `demo.Thing.id`,
 `https://example.org/demo#id` and the empty string; the Prefix ranges, the Classification and the Source entries
 name strings already listed.
 
-**The Attribute entry**, 175 bytes at byte 648 of the version (240 + 408), its offsets counted from its own
+**The Attribute entry**, 175 bytes at byte 656 of the version (248 + 408), its offsets counted from its own
 first byte:
 
 | Bytes | Hex | Field | Value |
@@ -601,94 +632,96 @@ the Predicate entry a single-valued property of datatype `http://www.w3.org/2001
 `facts` `02`, a claim, and the domain `demo.Thing`; the Classification entry two operations, a create, segmented
 and local by `@key`, and a delete, coordination-free; the Report entry no record.
 
-**The whole version**, 1,356 bytes:
+**The whole version**, 1,384 bytes:
 
 ```
-0000  20 7a b3 e1 4f 60 71 f4 55 47 43 56 01 00 00 00
+0000  12 3c 61 5b d0 ef 7e 40 55 47 43 56 01 00 00 00
 0010  00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00
 0020  08 00 00 00 01 00 00 00 04 00 00 00 00 00 00 00
-0030  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-0040  70 00 00 00 80 00 00 00 f0 00 00 00 b5 03 00 00
-0050  a8 04 00 00 14 00 00 00 c0 04 00 00 36 00 00 00
-0060  f8 04 00 00 08 00 00 00 00 05 00 00 4c 00 00 00
-0070  01 00 00 00 00 00 00 00 00 00 00 00 6e 00 00 00
-0080  03 00 00 00 01 00 00 00 6e 00 00 00 02 01 00 00
-0090  04 00 00 00 01 00 00 00 70 01 00 00 28 00 00 00
-00a0  05 00 00 00 02 00 00 00 98 01 00 00 af 00 00 00
-00b0  06 00 00 00 03 00 00 00 47 02 00 00 9c 00 00 00
-00c0  11 00 00 00 01 00 00 00 e3 02 00 00 56 00 00 00
-00d0  12 00 00 00 04 00 00 00 39 03 00 00 18 00 00 00
-00e0  13 00 00 00 00 00 00 00 51 03 00 00 64 00 00 00
-00f0  01 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00
-0100  02 00 00 00 ff ff ff ff 00 00 00 00 00 00 00 00
-0110  40 00 00 00 00 00 00 00 40 00 00 00 00 00 00 00
-0120  40 00 00 00 0c 00 00 00 50 00 00 00 1e 00 00 00
-0130  04 00 00 00 1d 00 00 00 1e 00 00 00 00 00 00 00
-0140  64 65 6d 6f 68 74 74 70 73 3a 2f 2f 65 78 61 6d
-0150  70 6c 65 2e 6f 72 67 2f 64 65 6d 6f 23 64 03 00
-0160  02 40 01 00 00 00 00 00 00 00 01 00 00 00 ff ff
-0170  ff ff 02 00 00 00 ff ff ff ff ff ff ff ff ff ff
-0180  ff ff ff ff ff ff ff ff ff ff 00 00 00 00 ff ff
-0190  ff ff 03 00 00 00 00 00 00 00 00 00 00 00 b8 00
-01a0  00 00 04 00 00 00 c0 00 00 00 04 00 00 00 c8 00
-01b0  00 00 00 00 00 00 c8 00 00 00 00 00 00 00 c8 00
+0030  01 00 00 00 00 00 00 80 00 00 00 00 00 00 00 00
+0040  78 00 00 00 80 00 00 00 f8 00 00 00 b5 03 00 00
+0050  b0 04 00 00 14 00 00 00 c8 04 00 00 36 00 00 00
+0060  00 05 00 00 08 00 00 00 08 05 00 00 4c 00 00 00
+0070  58 05 00 00 10 00 00 00 01 00 00 00 00 00 00 00
+0080  00 00 00 00 6e 00 00 00 03 00 00 00 01 00 00 00
+0090  6e 00 00 00 02 01 00 00 04 00 00 00 01 00 00 00
+00a0  70 01 00 00 28 00 00 00 05 00 00 00 02 00 00 00
+00b0  98 01 00 00 af 00 00 00 06 00 00 00 03 00 00 00
+00c0  47 02 00 00 9c 00 00 00 11 00 00 00 01 00 00 00
+00d0  e3 02 00 00 56 00 00 00 12 00 00 00 04 00 00 00
+00e0  39 03 00 00 18 00 00 00 13 00 00 00 00 00 00 00
+00f0  51 03 00 00 64 00 00 00 01 00 00 00 00 00 00 00
+0100  00 00 00 00 01 00 00 00 02 00 00 00 ff ff ff ff
+0110  00 00 00 00 00 00 00 00 40 00 00 00 00 00 00 00
+0120  40 00 00 00 00 00 00 00 40 00 00 00 0c 00 00 00
+0130  50 00 00 00 1e 00 00 00 04 00 00 00 1d 00 00 00
+0140  1e 00 00 00 00 00 00 00 64 65 6d 6f 68 74 74 70
+0150  73 3a 2f 2f 65 78 61 6d 70 6c 65 2e 6f 72 67 2f
+0160  64 65 6d 6f 23 64 03 00 02 40 01 00 00 00 00 00
+0170  00 00 01 00 00 00 ff ff ff ff 02 00 00 00 ff ff
+0180  ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+0190  ff ff 00 00 00 00 ff ff ff ff 03 00 00 00 00 00
+01a0  00 00 00 00 00 00 b8 00 00 00 04 00 00 00 c0 00
+01b0  00 00 04 00 00 00 c8 00 00 00 00 00 00 00 c8 00
 01c0  00 00 00 00 00 00 c8 00 00 00 00 00 00 00 c8 00
 01d0  00 00 00 00 00 00 c8 00 00 00 00 00 00 00 c8 00
 01e0  00 00 00 00 00 00 c8 00 00 00 00 00 00 00 c8 00
 01f0  00 00 00 00 00 00 c8 00 00 00 00 00 00 00 c8 00
-0200  00 00 00 00 00 00 c8 00 00 00 14 00 00 00 e0 00
-0210  00 00 22 00 00 00 03 00 00 00 00 00 00 00 04 00
-0220  00 00 00 00 00 00 05 00 00 00 09 00 00 00 13 00
-0230  00 00 15 00 00 00 22 00 00 00 00 00 00 00 54 68
-0240  69 6e 67 64 65 6d 6f 64 65 6d 6f 2e 54 68 69 6e
-0250  67 69 64 64 65 6d 6f 2e 54 68 69 6e 67 2e 69 64
-0260  03 00 00 00 00 00 00 00 20 00 00 00 04 00 00 00
-0270  28 00 00 00 00 00 00 00 28 00 00 00 00 00 00 00
-0280  03 00 04 00 00 00 00 00 00 00 00 00 01 00 00 00
-0290  02 00 00 00 00 00 00 00 ff ff ff ff ff ff ff ff
-02a0  06 00 00 00 00 00 00 00 68 00 00 00 00 00 00 00
+0200  00 00 00 00 00 00 c8 00 00 00 00 00 00 00 c8 00
+0210  00 00 14 00 00 00 e0 00 00 00 22 00 00 00 03 00
+0220  00 00 00 00 00 00 04 00 00 00 00 00 00 00 05 00
+0230  00 00 09 00 00 00 13 00 00 00 15 00 00 00 22 00
+0240  00 00 00 00 00 00 54 68 69 6e 67 64 65 6d 6f 64
+0250  65 6d 6f 2e 54 68 69 6e 67 69 64 64 65 6d 6f 2e
+0260  54 68 69 6e 67 2e 69 64 03 00 00 00 00 00 00 00
+0270  20 00 00 00 04 00 00 00 28 00 00 00 00 00 00 00
+0280  28 00 00 00 00 00 00 00 03 00 04 00 00 00 00 00
+0290  00 00 00 00 01 00 00 00 02 00 00 00 00 00 00 00
+02a0  ff ff ff ff ff ff ff ff 06 00 00 00 00 00 00 00
 02b0  68 00 00 00 00 00 00 00 68 00 00 00 00 00 00 00
-02c0  68 00 00 00 10 00 00 00 78 00 00 00 00 00 00 00
+02c0  68 00 00 00 00 00 00 00 68 00 00 00 10 00 00 00
 02d0  78 00 00 00 00 00 00 00 78 00 00 00 00 00 00 00
-02e0  78 00 00 00 0c 00 00 00 88 00 00 00 27 00 00 00
-02f0  0e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-0300  02 00 00 00 0c 00 00 00 27 00 00 00 00 00 00 00
-0310  69 64 64 65 6d 6f 2e 54 68 69 6e 67 68 74 74 70
-0320  73 3a 2f 2f 65 78 61 6d 70 6c 65 2e 6f 72 67 2f
-0330  64 65 6d 6f 23 69 64 00 00 00 00 01 00 00 00 01
-0340  01 01 02 01 00 00 00 00 00 00 00 00 00 00 00 38
-0350  00 00 00 00 00 00 00 38 00 00 00 04 00 00 00 40
-0360  00 00 00 0c 00 00 00 50 00 00 00 4c 00 00 00 02
-0370  00 00 00 00 00 00 00 1b 00 00 00 42 00 00 00 4c
-0380  00 00 00 00 00 00 00 68 74 74 70 73 3a 2f 2f 65
-0390  78 61 6d 70 6c 65 2e 6f 72 67 2f 64 65 6d 6f 23
-03a0  69 64 68 74 74 70 3a 2f 2f 77 77 77 2e 77 33 2e
-03b0  6f 72 67 2f 32 30 30 31 2f 58 4d 4c 53 63 68 65
-03c0  6d 61 23 73 74 72 69 6e 67 64 65 6d 6f 2e 54 68
-03d0  69 6e 67 00 00 00 00 00 00 00 00 20 00 00 00 20
-03e0  00 00 00 40 00 00 00 08 00 00 00 48 00 00 00 0e
-03f0  00 00 00 01 02 01 00 ff ff ff ff 01 00 00 00 00
-0400  00 00 00 04 01 01 00 ff ff ff ff ff ff ff ff 00
-0410  00 00 00 0a 00 00 00 0e 00 00 00 64 65 6d 6f 2e
-0420  54 68 69 6e 67 40 6b 65 79 18 00 00 00 00 00 00
-0430  00 18 00 00 00 00 00 00 00 18 00 00 00 00 00 00
-0440  00 73 63 68 65 6d 61 20 64 65 6d 6f 20 76 65 72
-0450  73 69 6f 6e 20 31 0a 70 72 65 66 69 78 20 64 20
-0460  3d 20 22 68 74 74 70 73 3a 2f 2f 65 78 61 6d 70
-0470  6c 65 2e 6f 72 67 2f 64 65 6d 6f 23 22 0a 65 6e
-0480  74 69 74 79 20 54 68 69 6e 67 20 40 6b 65 79 28
-0490  69 64 29 20 7b 0a 20 20 69 64 3a 20 53 74 72 69
-04a0  6e 67 0a 7d 0a 00 00 00 04 00 00 00 0e 00 00 00
-04b0  1b 00 00 00 36 00 00 00 36 00 00 00 00 00 00 00
-04c0  64 65 6d 6f 64 65 6d 6f 2e 54 68 69 6e 67 64 65
-04d0  6d 6f 2e 54 68 69 6e 67 2e 69 64 68 74 74 70 73
-04e0  3a 2f 2f 65 78 61 6d 70 6c 65 2e 6f 72 67 2f 64
-04f0  65 6d 6f 23 69 64 00 00 03 00 00 00 01 00 00 00
-0500  01 00 00 00 01 00 00 00 02 00 00 00 03 00 00 00
-0510  04 00 00 00 05 00 00 00 05 00 00 00 05 00 00 00
+02e0  78 00 00 00 00 00 00 00 78 00 00 00 0c 00 00 00
+02f0  88 00 00 00 27 00 00 00 0e 00 00 00 00 00 00 00
+0300  00 00 00 00 00 00 00 00 02 00 00 00 0c 00 00 00
+0310  27 00 00 00 00 00 00 00 69 64 64 65 6d 6f 2e 54
+0320  68 69 6e 67 68 74 74 70 73 3a 2f 2f 65 78 61 6d
+0330  70 6c 65 2e 6f 72 67 2f 64 65 6d 6f 23 69 64 00
+0340  00 00 00 01 00 00 00 01 01 01 02 01 00 00 00 00
+0350  00 00 00 00 00 00 00 38 00 00 00 00 00 00 00 38
+0360  00 00 00 04 00 00 00 40 00 00 00 0c 00 00 00 50
+0370  00 00 00 4c 00 00 00 02 00 00 00 00 00 00 00 1b
+0380  00 00 00 42 00 00 00 4c 00 00 00 00 00 00 00 68
+0390  74 74 70 73 3a 2f 2f 65 78 61 6d 70 6c 65 2e 6f
+03a0  72 67 2f 64 65 6d 6f 23 69 64 68 74 74 70 3a 2f
+03b0  2f 77 77 77 2e 77 33 2e 6f 72 67 2f 32 30 30 31
+03c0  2f 58 4d 4c 53 63 68 65 6d 61 23 73 74 72 69 6e
+03d0  67 64 65 6d 6f 2e 54 68 69 6e 67 00 00 00 00 00
+03e0  00 00 00 20 00 00 00 20 00 00 00 40 00 00 00 08
+03f0  00 00 00 48 00 00 00 0e 00 00 00 01 02 01 00 ff
+0400  ff ff ff 01 00 00 00 00 00 00 00 04 01 01 00 ff
+0410  ff ff ff ff ff ff ff 00 00 00 00 0a 00 00 00 0e
+0420  00 00 00 64 65 6d 6f 2e 54 68 69 6e 67 40 6b 65
+0430  79 18 00 00 00 00 00 00 00 18 00 00 00 00 00 00
+0440  00 18 00 00 00 00 00 00 00 73 63 68 65 6d 61 20
+0450  64 65 6d 6f 20 76 65 72 73 69 6f 6e 20 31 0a 70
+0460  72 65 66 69 78 20 64 20 3d 20 22 68 74 74 70 73
+0470  3a 2f 2f 65 78 61 6d 70 6c 65 2e 6f 72 67 2f 64
+0480  65 6d 6f 23 22 0a 65 6e 74 69 74 79 20 54 68 69
+0490  6e 67 20 40 6b 65 79 28 69 64 29 20 7b 0a 20 20
+04a0  69 64 3a 20 53 74 72 69 6e 67 0a 7d 0a 00 00 00
+04b0  04 00 00 00 0e 00 00 00 1b 00 00 00 36 00 00 00
+04c0  36 00 00 00 00 00 00 00 64 65 6d 6f 64 65 6d 6f
+04d0  2e 54 68 69 6e 67 64 65 6d 6f 2e 54 68 69 6e 67
+04e0  2e 69 64 68 74 74 70 73 3a 2f 2f 65 78 61 6d 70
+04f0  6c 65 2e 6f 72 67 2f 64 65 6d 6f 23 69 64 00 00
+0500  03 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+0510  02 00 00 00 03 00 00 00 04 00 00 00 05 00 00 00
 0520  05 00 00 00 05 00 00 00 05 00 00 00 05 00 00 00
 0530  05 00 00 00 05 00 00 00 05 00 00 00 05 00 00 00
-0540  06 00 00 00 07 00 00 00 08 00 00 00
+0540  05 00 00 00 05 00 00 00 06 00 00 00 07 00 00 00
+0550  08 00 00 00 00 00 00 00 00 00 00 00 00 00 00 80
+0560  04 00 00 00 00 00 00 00
 ```
 
 An implementation's first test decodes these bytes to the entries above and encodes them back to the same bytes;
@@ -714,7 +747,8 @@ written in.
 | Self-contained entries | Each entry carries its own strings, types, constants and programs. It costs repeated names across entries, and it is what lets Describe carry a subset to a principal and the schema id hash an entry as stored |
 | References by name | An entry names another by its qualified name, never by an index into the table, which a filtered Describe would not preserve; a role resolves names once, at load |
 | Integrity | A magic, a format number and an XXH3-64 over everything after the checksum, checked before anything is read; a version that fails is refused whole and a role holding it stops |
-| The prefix index | In the version, since every commit starts from an instance's prefix; predicate IDs are a dictionary's, so that table is built at load |
+| The prefix index | In the version, since every commit starts from an instance's prefix |
+| The predicate index | In the version beside its entries, never in one: the metadata group allocates a declared predicate's ID with the version, so every role holds the same ID table complete at load and no commit or read resolves a declared predicate through the dictionary; and a system ID never leaves the database, while Describe carries entries as they stand (user, 2026-11-10, `stage-6-ugs-data-definition/notes/core-principles-review.md`, P7) |
 | Expressions | Instance checks, limit conditions and computed derivations as verified postfix programs with a fixed 8-byte instruction, evaluated in a loop; the storage role needs no parser. Function bodies and path derivations stay text until the query core defines its compiled form at stage 7, since a plan's form is that stage's design |
 | Constants | Canonical lexical forms with a type, parsed once at load: one encoding already specified for every datatype in `PROTOCOL.md` section 10.5, in place of a second, binary one |
 | The request-typing facts | Fields of the Predicate entry, one fact in one place; the Classification entry holds a type's operations |

@@ -7,8 +7,12 @@ break. An identifier SHALL be at most 128 bytes, a string literal, an `@iri` tem
 union at most 32 members, an enum at most 4,096, a key at most 8 components, a derivation path at most 32 steps and a
 function at most 32 parameters. A source past any of these bounds SHALL be
 refused with `UGS0013`, naming the bound, as `SCHEMA.md` section 3.7 lists them. The parser SHALL read a source in one
-pass, SHALL hold its recursion within the nesting bound, and SHALL return a diagnostic, never panic, on any byte sequence: text that
-is not UTF-8 SHALL be refused with `UGS0001` at its first invalid byte.
+pass and SHALL return a diagnostic, never panic, on any byte sequence: text that is not UTF-8 SHALL be refused with
+`UGS0001` at its first invalid byte. The lexer, the parser and every walk of the compiler SHALL use no recursion
+(`openspec/protocols/ULTRA_STYLE.md` rule 1): declarations SHALL be parsed by a loop over an explicit stack of at
+most 64 levels, an expression by an operator-precedence loop emitting the postfix form of `CATALOG.md` section 4, and
+inheritance, imports and the function call graph SHALL be walked by worklists bounded by the bounds above. Tokens and
+syntax nodes SHALL borrow spans of the source, copying no name or literal before a value is built from it.
 
 #### Scenario: Nesting past 64 levels is refused
 - **WHEN** a `derive` body is an expression nested in 65 pairs of parentheses

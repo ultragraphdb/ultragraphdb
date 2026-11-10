@@ -28,8 +28,9 @@ each entry self-contained, a body of its own with its own strings; entries order
 bytes, every field present. Its fixed part SHALL hold a format version and an XXH3-64 of the bytes after it. Its
 decoder SHALL check the checksum, then every rule of the encoding, and SHALL refuse every byte sequence that is not
 the canonical encoding of some version, naming the offset, without a panic. Encoding a decoded version SHALL give the
-bytes decoded. A version SHALL hold an index from type prefix to Type entry, and a role SHALL hold a version decoded
-as views over its bytes, built once. An instance check, a `@limit` condition and a computed derivation SHALL be
+bytes decoded. A version SHALL hold an index from type prefix to Type entry and a predicate index from a declared
+predicate's sequence to its Predicate entry, holding the sequences the metadata group allocated, which no entry holds,
+and a role SHALL hold a version decoded as views over its bytes, built once. An instance check, a `@limit` condition and a computed derivation SHALL be
 stored as typed postfix programs of fixed-width instructions, whose stack discipline, operand bounds and depth, at
 most 64, the decoder SHALL verify, and SHALL be evaluated without recursion and without allocation. A function's body
 and a path derivation's SHALL be stored as their text. A
@@ -43,6 +44,12 @@ bytes as opaque.
 #### Scenario: Entries out of order are refused
 - **WHEN** the bytes of a catalog version are altered so that two Type entries swap places
 - **THEN** the decoder refuses them, naming the offset of the second entry
+
+#### Scenario: A declared predicate's ID is the version's and stays in the database
+- **WHEN** the aviation schema is installed into an empty tenant and a client sends Describe
+- **THEN** the version's predicate index holds one record per Predicate entry, the sequences from 2^63 in the entries'
+  order, each predicate's ID the `Resource` prefix, that sequence and its IRI's bucket, and Describe's body holds none
+  of those sequences
 
 #### Scenario: The hand-encoded example decodes
 - **WHEN** the bytes `CATALOG.md` works by hand for its schema of one entity with one attribute are decoded
@@ -80,8 +87,14 @@ an Install changes the version. Recording a default entry SHALL keep it.
 
 ### Requirement: Install compiles a tenant's sources into a new version
 An Install SHALL name a tenant, the catalog version it builds on and one or more sources, each a name and a text. The
-metadata group's owner SHALL compile the sources the tenant holds together with those sent, through every phase of
-`SCHEMA.md` section 10.1, allocate prefixes for the new types, and commit the catalog version as pending. The reply
+frontend SHALL compile the sources the tenant holds together with those sent, through every phase of `SCHEMA.md`
+section 10.1, on a compile thread it starts at startup and hands work to over a bounded queue, never on the metadata
+group's owner or a connection's core, from the tenant's base version, its next free prefix and its next free predicate
+sequence. It SHALL decode the version it compiled by `CATALOG.md` section 6 and encode it back to the same bytes, and
+a version failing either SHALL refuse the Install with code 7, the message naming the decoder's step and offset, with
+nothing allocated or committed. The metadata group's owner SHALL commit the version as pending, with the prefixes and
+predicate sequences it allocates, while the base, the next free prefix and the next free predicate sequence are still
+the tenant's, and SHALL compile nothing. The reply
 SHALL carry the version's number, the epoch it takes effect at, the report and the warnings. A diagnostic of kind
 error SHALL refuse the Install whole with code 28 (SchemaRefused), `detail` the count of diagnostics of kind error, the message
 holding each diagnostic with its code and location, and the tenant's catalog SHALL be unchanged. An Install SHALL take
@@ -101,6 +114,17 @@ restart of the frontend, and the check SHALL wait for the tenant's commits in fl
 - **WHEN** a client installs two sources, the aviation schema and a schema with one field typed `Strng`
 - **THEN** the Install is refused with code 28, `detail` 1, the message holding `UGS0201` with its file, line and
   column, and the tenant holds no catalog version
+
+#### Scenario: A compiled version that does not decode is refused
+- **WHEN** the compiler's output for the aviation schema is corrupted through the test utilities before its decode, and
+  the schema is installed into an empty tenant
+- **THEN** the Install is refused with code 7, the message naming the decoder's step and offset, the tenant holds no
+  catalog version, and its next free prefix and next free predicate sequence are unchanged
+
+#### Scenario: A compile does not hold the owner
+- **WHEN** an Install's compile is held on the compile thread by the test utilities
+- **THEN** the sequencer goes on closing epochs and the owner answers every ask, and the Install is answered once the
+  compile is released
 
 #### Scenario: A first schema fences its tenant until it takes effect
 - **WHEN** Gen5's Install is answered with effective epoch `e`, and a client writes a `Company` before `e` and again at
@@ -162,8 +186,9 @@ continuation Catalog frames.
 - **THEN** the partition holds the version whole, and its decoded entries equal the metadata group's
 
 ### Requirement: Describe answers the sources and the entries
-The frontend SHALL answer Describe from the metadata group, asking no other role, with the catalog version in effect
-at the latest closed epoch: the installed sources byte for byte, and every catalog entry by its record kind, in the
+The frontend SHALL answer Describe on the connection's core from the catalog version in effect at the latest closed
+epoch as that core holds it, writing slices of the version's bytes, decoding nothing on the metadata group's owner and
+asking no other role: the installed sources byte for byte, and every catalog entry by its record kind, in the
 canonical order, as far as the principal may read them, across continuation frames where the answer passes one frame.
 A tenant with no schema SHALL be described as stage 5.5 describes it.
 
@@ -242,6 +267,11 @@ kind in a tenant with no schema, with code 7, `detail` 0. A predicate `@open` ad
 
 ### Requirement: Every role reads the version in effect
 A partition, compute and the frontend SHALL each load the catalog version in effect for a tenant and decode it once.
+A process SHALL hold a version's bytes as one immutable buffer that every thread reading the version shares; each
+partition and each of the frontend's endpoint cores SHALL hold the version in effect per tenant, refreshed when a close
+announces a new one, and an execution SHALL hold the version, never a copy of it. A partition SHALL compile a version's
+`@pattern`s when it loads the version, each with a matching cache of its own, so a match takes no lock and allocates
+nothing.
 A commit SHALL be validated against the version in effect at its epoch, and a read-write transaction that executed
 against another version than the one in effect at its commit SHALL abort with code 2 (Conflict), kind 5 (Catalog). A
 prepared statement SHALL go stale when its tenant's schema id changes.
