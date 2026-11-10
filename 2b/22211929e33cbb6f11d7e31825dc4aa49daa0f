@@ -1,0 +1,121 @@
+openspec/changes/stage-6-5-tile-store/tasks.md
+  s_6eb57b3c609e2f::t_5f05079e196daf 1-108
+  s_6eb57b3c609e2f::t_53e55907fc7b91 109-115
+openspec/changes/stage-6-5-tile-store/proposal.md
+  s_6eb57b3c609e2f::t_f1216082f8357e 1-27,31-119
+  s_6eb57b3c609e2f::t_561b453e9f291d 28-30
+  s_6eb57b3c609e2f::t_aa58de54688299 120
+openspec/changes/stage-6-5-tile-store/specs/quad-reads/spec.md
+  s_6eb57b3c609e2f::t_fd27e1e900eac5 1-593
+openspec/changes/stage-6-5-tile-store/specs/key-encoding/spec.md
+  s_6eb57b3c609e2f::t_9aee75363c9baf 1-96
+  s_6eb57b3c609e2f::t_6ef415e61292ab 97
+openspec/changes/stage-6-5-tile-store/specs/vector-index/spec.md
+  s_6eb57b3c609e2f::t_8837af2d716a93 1-28
+openspec/changes/stage-6-5-tile-store/specs/posting-cache/spec.md
+  s_6eb57b3c609e2f::t_1655cbbb459f71 1-22
+openspec/changes/stage-6-5-tile-store/specs/storage-lanes/spec.md
+  s_6eb57b3c609e2f::t_1c7481dd9e81ed 1-283
+  s_6eb57b3c609e2f::t_faa2f74cae0afa 284-306
+openspec/changes/stage-6-5-tile-store/specs/tile-grid/spec.md
+  s_6eb57b3c609e2f::t_9ff372976ad72e 1-255,259-362
+  s_6eb57b3c609e2f::t_4ef5e9434164d9 256-258
+  s_6eb57b3c609e2f::t_f6dedfc3720798 363-370
+openspec/changes/stage-6-5-tile-store/specs/quad-storage/spec.md
+  s_6eb57b3c609e2f::t_bafc41df957967 1-152
+  s_6eb57b3c609e2f::t_cab2f8ede782de 153-154
+openspec/changes/stage-6-5-tile-store/specs/term-dictionary/spec.md
+  s_6eb57b3c609e2f::t_d26f5cc91420cd 40-41
+  s_6eb57b3c609e2f::t_2a2342981c1ebc 1-39,42-153
+openspec/changes/stage-6-5-tile-store/design.md
+  s_6eb57b3c609e2f::t_eba922fefa78a2 1-136
+  s_6eb57b3c609e2f::t_5c7a85c39804a4 137-139
+openspec/changes/stage-6-5-tile-store/specs/uid-lists/spec.md
+  s_6eb57b3c609e2f::t_1a00c1e861436f 1-26
+openspec/changes/stage-6-5-tile-store/specs/commit-rounds/spec.md
+  s_6eb57b3c609e2f::t_57df75ee046038 1-228
+specification/conformance/storage/generate_vectors.py
+  s_6eb57b3c609e2f::t_c75090f005100a 1446-1453
+  s_6eb57b3c609e2f::t_7e164613954299 472-598
+  s_6eb57b3c609e2f::t_29b29f1a8ffc9a 23,26,1147,1152-1153,2387-2389,2437-2459,2489-2490
+openspec/changes/stage-6-5-tile-store/specs/kv-store/spec.md
+  s_6eb57b3c609e2f::t_37a411fa89b313 1-42
+specification/storage/STORAGE.md
+  s_6eb57b3c609e2f::t_8a62ffe8c16e24 1012-1015
+  s_6eb57b3c609e2f::t_2bd005154b1fae 320,323-330,413-414,434-435,475,555,607,648,814,816-818,867,959,1000-1005,1025-1026,1033-1034,1137-1138,1144-1145,1153-1154,1173-1181,1188-1193,1273-1276,1290-1291,1345,1386,1389
+openspec/changes/stage-6-5-tile-store/specs/tile-engine/spec.md
+  s_6eb57b3c609e2f::t_cf553a018f7624 1-325
+  s_6eb57b3c609e2f::t_9f89029843dc0a 326-345
+openspec/changes/stage-6-5-tile-store/specs/storage-simulation/spec.md
+  s_6eb57b3c609e2f::t_a329d0262e67d1 1-86
+openspec/changes/stage-6-5-tile-store/specs/write-ahead-log/spec.md
+  s_6eb57b3c609e2f::t_af1fa4cea112b5 1-118
+openspec/changes/stage-6-5-tile-store/specs/role-binaries/spec.md
+  s_6eb57b3c609e2f::t_87766c57e2d90e 1-93
+  s_6eb57b3c609e2f::t_28f98fed649b85 94
+openspec/changes/stage-6-5-tile-store/specs/tile-format/spec.md
+  s_6eb57b3c609e2f::t_9bd6fbc5496fd6 1-397
+  s_6eb57b3c609e2f::t_be906ceee5348c 398-400
+openspec/changes/stage-6-5-tile-store/specs/ingest/spec.md
+  s_6eb57b3c609e2f::t_f5e32b2d3859e5 1-236
+openspec/changes/stage-6-5-tile-store/specs/transactions/spec.md
+  s_6eb57b3c609e2f::t_add08820eca796 1-265
+openspec/changes/stage-6-5-tile-store/specs/partitions/spec.md
+  s_6eb57b3c609e2f::t_c6f2f5185e884b 1-219
+  s_6eb57b3c609e2f::t_86d6db7210b2dd 220
+openspec/changes/stage-6-5-tile-store/specs/schema-changes/spec.md
+  s_6eb57b3c609e2f::t_d3d597b250bc85 1-207
+  s_6eb57b3c609e2f::t_99449c8d0c70c3 208-216
+openspec/changes/stage-6-5-tile-store/specs/local-commit/spec.md
+  s_6eb57b3c609e2f::t_e8f76f843e27de 1-138
+  s_6eb57b3c609e2f::t_82e913390d19c0 139-142
+openspec/changes/stage-6-ugs-data-definition/specs/tokenizers/spec.md
+  s_6eb57b3c609e2f::t_949ec11b4e23e9 10-17,27-34,44,46-47,50-52
+openspec/changes/stage-6-5-tile-store/specs/tokenizers/spec.md
+  s_6eb57b3c609e2f::t_91416decca0f57 1-117
+  s_6eb57b3c609e2f::t_199f2801f672ea 118-146
+openspec/changes/stage-6-5-tile-store/specs/tile-simulation/spec.md
+  s_6eb57b3c609e2f::t_142fe340a9431d 1-213
+openspec/changes/stage-6-5-tile-store/specs/posting-lists/spec.md
+  s_6eb57b3c609e2f::t_20a8d56a483091 1-32
+ROADMAP.md
+  s_6eb57b3c609e2f::t_b37657a48d904e 14
+openspec/changes/stage-6-5-tile-store/.openspec.yaml
+  s_6eb57b3c609e2f::t_8679b7a7504470 1-2
+openspec/changes/stage-6-5-tile-store/specs/wire-protocol/spec.md
+  s_6eb57b3c609e2f::t_10d64e977f1541 1-338
+openspec/changes/stage-6-ugs-data-definition/specs/schema-changes/spec.md
+  s_6eb57b3c609e2f::t_599bb6ecc09fbd 5-28,30,32-34,38,46,51-52
+openspec/changes/stage-6-ugs-data-definition/specs/term-dictionary/spec.md
+  s_6eb57b3c609e2f::t_250d17d2274c7b 57-74,78,84-105,108-109
+openspec/changes/stage-6-ugs-data-definition/specs/wire-protocol/spec.md
+  s_6eb57b3c609e2f::t_3fc4704b65df30 17-18,61-64,128-141,167-169,224-240,257-258
+specification/binary_protocol/PROTOCOL.md
+  s_6eb57b3c609e2f::t_5b7e2e37ce0901 1585,2221-2222,2405-2408,2949-2953,3428-3444,3896,3930-3932,3942-3943,3951-3952,3964-3965,4010
+specification/conformance/storage/README.md
+  s_6eb57b3c609e2f::t_39d685308a36be 25-27,39-42,45-46,90-93,101-102,109
+specification/conformance/storage/vectors/kinds.json
+  s_6eb57b3c609e2f::t_9f64ea8950b97c 994-1029
+specification/conformance/storage/vectors/refusals.json
+  s_6eb57b3c609e2f::t_98d9e6b80bb417 2,130-160
+specification/conformance/storage/vectors/sortable.json
+  s_6eb57b3c609e2f::t_eeb2d49610265a 637-1164,1167-1260
+specification/schema/SCHEMA.md
+  s_6eb57b3c609e2f::t_b92553a15b2348 1999,2224
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2b22211929e33cbb6f11d7e31825dc4aa49daa0f",
+  "prompts": {},
+  "sessions": {
+    "s_6eb57b3c609e2f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cc067d49-3ba9-4433-9576-7836ad1ea881",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
