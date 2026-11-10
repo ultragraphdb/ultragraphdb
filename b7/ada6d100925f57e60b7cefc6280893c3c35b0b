@@ -1,0 +1,3160 @@
+specification/schema/SCHEMA.md
+  s_6c9dcf457e80d9::t_2a0d19f099f6ec 175
+  s_6c9dcf457e80d9::t_238ad4ca1a9248 147-150
+  s_6c9dcf457e80d9::t_0512edf99addb4 195
+  s_6c9dcf457e80d9::t_ddf2275f07fadd 396-398
+  s_6c9dcf457e80d9::t_01dbb60a1e5169 597
+  s_6c9dcf457e80d9::t_41bb4865a08c37 260
+  s_6c9dcf457e80d9::t_9cb34be9161341 386
+  s_6c9dcf457e80d9::t_8454ff03fad104 582-586
+  s_6c9dcf457e80d9::t_b37402cdbcc85b 694
+  s_6c9dcf457e80d9::t_d61db8aed4ec27 222
+  s_6c9dcf457e80d9::t_d0e4f0e6cf583f 1047-1049,1051-1052
+  s_6c9dcf457e80d9::t_ace9deac19dbe7 1310-1314
+  s_6c9dcf457e80d9::t_a63dc18654369e 857-858
+  s_6c9dcf457e80d9::t_dd010b3b5c2d50 1702-1706
+  s_6c9dcf457e80d9::t_7c1622359162e8 96-97
+  s_6c9dcf457e80d9::t_f7b9eaf90a0086 157
+  s_6c9dcf457e80d9::t_a0df8fd5b68d5b 598-599
+  s_6c9dcf457e80d9::t_31ec31783ca406 528
+  s_6c9dcf457e80d9::t_1a11de006f9869 833,836-837
+  s_6c9dcf457e80d9::t_7997fa1dacc744 962-964
+  s_6c9dcf457e80d9::t_cac15337bd316d 589
+  s_6c9dcf457e80d9::t_5a1812b14182b8 256
+  s_6c9dcf457e80d9::t_42c1146a0f125d 212
+  s_6c9dcf457e80d9::t_d2d729cdf84f6e 306-307
+  s_6c9dcf457e80d9::t_5c29ae0b5a74ff 200
+  s_6c9dcf457e80d9::t_9445acda7b43cc 172-174
+  s_6c9dcf457e80d9::t_a47d2ea6b22499 228
+  s_6c9dcf457e80d9::t_256b7fb1466445 176,213,338,526-527,626-627,643,660,669,677,713,717,719,796,985-987,991-999,1007,1009-1010,1012-1014,1017-1020,1024,1028,1066,1144,1149-1151,1205-1206,1212,1222,1228,1259-1260,1283,1291,1302,1309,1322-1323,1337,1341,1457-1458,1486,1488,1493,1496-1505,1542,1544,1547,1574,1579,1588,1612,1627-1629,1760-1761,1794-1795,1871,1878,2092,2150
+ultragraphdb/ultragraphdb_tests/testdata/instances/README.md
+  s_6c9dcf457e80d9::t_3fddaf5b33867e 1-50
+  s_6c9dcf457e80d9::t_918e6e27f76d9a 51
+specification/conformance/ugs/README.md
+  s_6c9dcf457e80d9::t_a06aea452d7957 1-95
+  s_6c9dcf457e80d9::t_e6bedc227c80be 96-104
+lean/schema/ApgModel/Oracle/Check.lean
+  s_6c9dcf457e80d9::t_1a8aa0d5535a3a 12-24,69-200,225-229,245-261
+lean/schema/ApgModel/Oracle/Gen5.lean
+  s_6c9dcf457e80d9::t_cb73199d347d08 16-19,23-30,113,115,117-118,123,145-147,151-152,190,208-211,221,226-232,238-239
+lean/schema/ApgModel/Oracle/Main.lean
+  s_6c9dcf457e80d9::t_0eb18d5a708742 10-25,52-62
+lean/schema/ApgModel/Oracle/NQuads.lean
+  s_6c9dcf457e80d9::t_4ad2a2c18dcf10 17-19,23-26,41-43,102,155-177
+lean/schema/ApgModel/Oracle/Parse.lean
+  s_6c9dcf457e80d9::t_83ff2efd250255 10,14-17,317
+openspec/changes/stage-6-ugs-data-definition/design.md
+  s_6c9dcf457e80d9::t_a189ff575e48fb 121-123,206-211,350-356
+openspec/changes/stage-6-ugs-data-definition/notes/corpus-readings.md
+  s_6c9dcf457e80d9::t_faa45d7faba185 1-117
+openspec/changes/stage-6-ugs-data-definition/specs/ugs-enforcement/spec.md
+  s_6c9dcf457e80d9::t_17d103d57b4eff 10-13,305-306,316-318,346-349,468-470,485-488,504
+openspec/changes/stage-6-ugs-data-definition/specs/ugs-identity/spec.md
+  s_6c9dcf457e80d9::t_cbb2a89eae78ec 8-9,30
+openspec/changes/stage-6-ugs-data-definition/specs/ugs-semantics/spec.md
+  s_6c9dcf457e80d9::t_40dc8fd5be4933 55,233
+openspec/changes/stage-6-ugs-data-definition/specs/ugs-views/spec.md
+  s_6c9dcf457e80d9::t_87876fb7a7b0d4 134-135,143-144,149-150
+openspec/changes/stage-6-ugs-data-definition/tasks.md
+  s_6c9dcf457e80d9::t_fc8ad82c6be716 30-32,45,64,72,79,128-129,132,136
+specification/binary_protocol/PROTOCOL.md
+  s_6c9dcf457e80d9::t_41274f6071d8a4 1440,2637-2638
+specification/conformance/ugs/BUILD.bazel
+  s_6c9dcf457e80d9::t_6a955d490631a7 1-12
+specification/conformance/ugs/catalog/aviation.json
+  s_6c9dcf457e80d9::t_6036233224668e 1-3946
+specification/conformance/ugs/diagnostics/UGS0001/accept_byte_in_comment.ugs
+  s_6c9dcf457e80d9::t_b53875cb5dc33d 1-8
+specification/conformance/ugs/diagnostics/UGS0001/accept_latin1_string.ugs
+  s_6c9dcf457e80d9::t_5a0da38e5a7a2b 1-7
+specification/conformance/ugs/diagnostics/UGS0001/accept_non_ascii_letter.ugs
+  s_6c9dcf457e80d9::t_160b00cdbf02fb 1-7
+specification/conformance/ugs/diagnostics/UGS0001/accept_semicolon.ugs
+  s_6c9dcf457e80d9::t_22ac6d4775375d 1-7
+specification/conformance/ugs/diagnostics/UGS0001/expect.json
+  s_6c9dcf457e80d9::t_12fe97382b6f49 1-98
+specification/conformance/ugs/diagnostics/UGS0001/reject_byte_in_comment.ugs
+  s_6c9dcf457e80d9::t_340ed2aea72d5e 1-8
+specification/conformance/ugs/diagnostics/UGS0001/reject_latin1_string.ugs
+  s_6c9dcf457e80d9::t_ec004e141e85fe 1-7
+specification/conformance/ugs/diagnostics/UGS0001/reject_non_ascii_letter.ugs
+  s_6c9dcf457e80d9::t_101a1cf0fd6c88 1-7
+specification/conformance/ugs/diagnostics/UGS0001/reject_semicolon.ugs
+  s_6c9dcf457e80d9::t_74290251a6c8de 1-7
+specification/conformance/ugs/diagnostics/UGS0002/accept_comment.ugs
+  s_6c9dcf457e80d9::t_5f17f6314b009c 1-8
+specification/conformance/ugs/diagnostics/UGS0002/accept_iri.ugs
+  s_6c9dcf457e80d9::t_84154aa9463b95 1-7
+specification/conformance/ugs/diagnostics/UGS0002/accept_nested_comment.ugs
+  s_6c9dcf457e80d9::t_064d6492614897 1-8
+specification/conformance/ugs/diagnostics/UGS0002/accept_string.ugs
+  s_6c9dcf457e80d9::t_a810c1625d05ab 1-7
+specification/conformance/ugs/diagnostics/UGS0002/expect.json
+  s_6c9dcf457e80d9::t_8b7936f22a65e3 1-98
+specification/conformance/ugs/diagnostics/UGS0002/reject_comment.ugs
+  s_6c9dcf457e80d9::t_7d361b477f3863 1-8
+specification/conformance/ugs/diagnostics/UGS0002/reject_iri.ugs
+  s_6c9dcf457e80d9::t_ac9907a47d5e3d 1-7
+specification/conformance/ugs/diagnostics/UGS0002/reject_nested_comment.ugs
+  s_6c9dcf457e80d9::t_3e4a40a0d6f245 1-8
+specification/conformance/ugs/diagnostics/UGS0002/reject_string.ugs
+  s_6c9dcf457e80d9::t_abe7d343c40b97 1-7
+specification/conformance/ugs/diagnostics/UGS0003/accept_beyond_max.ugs
+  s_6c9dcf457e80d9::t_459bd6df42d39f 1-7
+specification/conformance/ugs/diagnostics/UGS0003/accept_no_digits.ugs
+  s_6c9dcf457e80d9::t_db1d8593d2ab7f 1-7
+specification/conformance/ugs/diagnostics/UGS0003/accept_seven_digits.ugs
+  s_6c9dcf457e80d9::t_9e137856afd07e 1-7
+specification/conformance/ugs/diagnostics/UGS0003/accept_surrogate.ugs
+  s_6c9dcf457e80d9::t_0aff0ab21a417a 1-7
+specification/conformance/ugs/diagnostics/UGS0003/accept_unknown_escape.ugs
+  s_6c9dcf457e80d9::t_7c67a127578fa7 1-7
+specification/conformance/ugs/diagnostics/UGS0003/expect.json
+  s_6c9dcf457e80d9::t_78ef1815f3c41d 1-121
+specification/conformance/ugs/diagnostics/UGS0003/reject_beyond_max.ugs
+  s_6c9dcf457e80d9::t_924707bd7ee621 1-7
+specification/conformance/ugs/diagnostics/UGS0003/reject_no_digits.ugs
+  s_6c9dcf457e80d9::t_60c15fd1ba9b9a 1-7
+specification/conformance/ugs/diagnostics/UGS0003/reject_seven_digits.ugs
+  s_6c9dcf457e80d9::t_cccc84b28f3e73 1-7
+specification/conformance/ugs/diagnostics/UGS0003/reject_surrogate.ugs
+  s_6c9dcf457e80d9::t_35ee1959846eb3 1-7
+specification/conformance/ugs/diagnostics/UGS0003/reject_unknown_escape.ugs
+  s_6c9dcf457e80d9::t_7fa71b983e6afb 1-7
+specification/conformance/ugs/diagnostics/UGS0004/accept_adjacent_separators.ugs
+  s_6c9dcf457e80d9::t_a67e0ae268f6b8 1-7
+specification/conformance/ugs/diagnostics/UGS0004/accept_exponent_without_digits.ugs
+  s_6c9dcf457e80d9::t_7fc6ce8c6feb08 1-7
+specification/conformance/ugs/diagnostics/UGS0004/accept_trailing_separator.ugs
+  s_6c9dcf457e80d9::t_1d3e8755605e7b 1-7
+specification/conformance/ugs/diagnostics/UGS0004/expect.json
+  s_6c9dcf457e80d9::t_de78907eae64b8 1-75
+specification/conformance/ugs/diagnostics/UGS0004/reject_adjacent_separators.ugs
+  s_6c9dcf457e80d9::t_fb3a686cfb4347 1-7
+specification/conformance/ugs/diagnostics/UGS0004/reject_exponent_without_digits.ugs
+  s_6c9dcf457e80d9::t_2960ebe03a5155 1-7
+specification/conformance/ugs/diagnostics/UGS0004/reject_trailing_separator.ugs
+  s_6c9dcf457e80d9::t_02ea2cb98408a3 1-7
+specification/conformance/ugs/diagnostics/UGS0005/accept_date.ugs
+  s_6c9dcf457e80d9::t_27abbad72a751e 1-7
+specification/conformance/ugs/diagnostics/UGS0005/accept_datetime.ugs
+  s_6c9dcf457e80d9::t_d64ae2e3d4173e 1-7
+specification/conformance/ugs/diagnostics/UGS0005/accept_duration.ugs
+  s_6c9dcf457e80d9::t_717e5ed13b7993 1-7
+specification/conformance/ugs/diagnostics/UGS0005/accept_time.ugs
+  s_6c9dcf457e80d9::t_437c62f1692a82 1-7
+specification/conformance/ugs/diagnostics/UGS0005/expect.json
+  s_6c9dcf457e80d9::t_b27778996a3945 1-98
+specification/conformance/ugs/diagnostics/UGS0005/reject_date.ugs
+  s_6c9dcf457e80d9::t_bc86fbb2008956 1-7
+specification/conformance/ugs/diagnostics/UGS0005/reject_datetime.ugs
+  s_6c9dcf457e80d9::t_98673cc792f497 1-7
+specification/conformance/ugs/diagnostics/UGS0005/reject_duration.ugs
+  s_6c9dcf457e80d9::t_aef448236be3f0 1-7
+specification/conformance/ugs/diagnostics/UGS0005/reject_time.ugs
+  s_6c9dcf457e80d9::t_e9bfc62df455c3 1-7
+specification/conformance/ugs/diagnostics/UGS0006/accept_comma.ugs
+  s_6c9dcf457e80d9::t_be145299b6f30d 1-8
+specification/conformance/ugs/diagnostics/UGS0006/accept_entity.ugs
+  s_6c9dcf457e80d9::t_27365a929ae181 1-7
+specification/conformance/ugs/diagnostics/UGS0006/accept_optional.ugs
+  s_6c9dcf457e80d9::t_725aa2de1b8d6b 1-8
+specification/conformance/ugs/diagnostics/UGS0006/expect.json
+  s_6c9dcf457e80d9::t_85bc9c591e2bea 1-91
+specification/conformance/ugs/diagnostics/UGS0006/reject_comma.ugs
+  s_6c9dcf457e80d9::t_f11724f5cffc2c 1-8
+specification/conformance/ugs/diagnostics/UGS0006/reject_entity.ugs
+  s_6c9dcf457e80d9::t_30142cb16d1709 1-7
+specification/conformance/ugs/diagnostics/UGS0006/reject_optional.ugs
+  s_6c9dcf457e80d9::t_a78824fccdc8b9 1-8
+specification/conformance/ugs/diagnostics/UGS0007/accept_attribute.ugs
+  s_6c9dcf457e80d9::t_260bfb425aefb8 1-7
+specification/conformance/ugs/diagnostics/UGS0007/accept_enum_member.ugs
+  s_6c9dcf457e80d9::t_b8709b749d2906 1-5
+specification/conformance/ugs/diagnostics/UGS0007/accept_navigation.ugs
+  s_6c9dcf457e80d9::t_2dd33caad1470c 1-15
+specification/conformance/ugs/diagnostics/UGS0007/expect.json
+  s_6c9dcf457e80d9::t_d01e9c12ae1561 1-75
+specification/conformance/ugs/diagnostics/UGS0007/reject_attribute.ugs
+  s_6c9dcf457e80d9::t_c8b3272fad00bd 1-7
+specification/conformance/ugs/diagnostics/UGS0007/reject_enum_member.ugs
+  s_6c9dcf457e80d9::t_a3058cddbe0983 1-5
+specification/conformance/ugs/diagnostics/UGS0007/reject_navigation.ugs
+  s_6c9dcf457e80d9::t_1e594fa68b9707 1-15
+specification/conformance/ugs/diagnostics/UGS0008/accept_field.ugs
+  s_6c9dcf457e80d9::t_f97df14a9a38ae 1-7
+specification/conformance/ugs/diagnostics/UGS0008/accept_type.ugs
+  s_6c9dcf457e80d9::t_4872da7a758bd3 1-7
+specification/conformance/ugs/diagnostics/UGS0008/expect.json
+  s_6c9dcf457e80d9::t_ecee5a26537564 1-52
+specification/conformance/ugs/diagnostics/UGS0008/reject_field.ugs
+  s_6c9dcf457e80d9::t_ef411bf165261d 1-7
+specification/conformance/ugs/diagnostics/UGS0008/reject_type.ugs
+  s_6c9dcf457e80d9::t_ae47aad0c0109d 1-7
+specification/conformance/ugs/diagnostics/UGS0009/accept_base_relative.ugs
+  s_6c9dcf457e80d9::t_fc641e2710d135 1-7
+specification/conformance/ugs/diagnostics/UGS0009/accept_base_suffix.ugs
+  s_6c9dcf457e80d9::t_05a06757c97e49 1-7
+specification/conformance/ugs/diagnostics/UGS0009/accept_too_few.ugs
+  s_6c9dcf457e80d9::t_b6cffe5c2aba36 1-7
+specification/conformance/ugs/diagnostics/UGS0009/accept_too_many.ugs
+  s_6c9dcf457e80d9::t_67574908bcf332 1-7
+specification/conformance/ugs/diagnostics/UGS0009/accept_wrong_type.ugs
+  s_6c9dcf457e80d9::t_ba96ab415256b8 1-7
+specification/conformance/ugs/diagnostics/UGS0009/expect.json
+  s_6c9dcf457e80d9::t_ec20b6746b1549 1-121
+specification/conformance/ugs/diagnostics/UGS0009/reject_base_relative.ugs
+  s_6c9dcf457e80d9::t_63bb0ed94cdc39 1-7
+specification/conformance/ugs/diagnostics/UGS0009/reject_base_suffix.ugs
+  s_6c9dcf457e80d9::t_bd2d216eda1f52 1-7
+specification/conformance/ugs/diagnostics/UGS0009/reject_too_few.ugs
+  s_6c9dcf457e80d9::t_8aa18d3c69822c 1-7
+specification/conformance/ugs/diagnostics/UGS0009/reject_too_many.ugs
+  s_6c9dcf457e80d9::t_93ac9d8f01aaff 1-7
+specification/conformance/ugs/diagnostics/UGS0009/reject_wrong_type.ugs
+  s_6c9dcf457e80d9::t_4f2524d53f7388 1-7
+specification/conformance/ugs/diagnostics/UGS0010/accept_field.ugs
+  s_6c9dcf457e80d9::t_17756a013809b6 1-7
+specification/conformance/ugs/diagnostics/UGS0010/accept_index_kind.ugs
+  s_6c9dcf457e80d9::t_aaf4bba37ad728 1-7
+specification/conformance/ugs/diagnostics/UGS0010/accept_maps_to_term.ugs
+  s_6c9dcf457e80d9::t_f6601fdedf04f3 1-8
+specification/conformance/ugs/diagnostics/UGS0010/accept_two_positions.ugs
+  s_6c9dcf457e80d9::t_05a4ec098c90ef 1-7
+specification/conformance/ugs/diagnostics/UGS0010/expect.json
+  s_6c9dcf457e80d9::t_bdeb99a2e71b99 1-98
+specification/conformance/ugs/diagnostics/UGS0010/reject_field.ugs
+  s_6c9dcf457e80d9::t_fcd2a677326c54 1-7
+specification/conformance/ugs/diagnostics/UGS0010/reject_index_kind.ugs
+  s_6c9dcf457e80d9::t_d42a0dcf7c8bc8 1-7
+specification/conformance/ugs/diagnostics/UGS0010/reject_maps_to_term.ugs
+  s_6c9dcf457e80d9::t_50ad28dee8888c 1-8
+specification/conformance/ugs/diagnostics/UGS0010/reject_two_positions.ugs
+  s_6c9dcf457e80d9::t_ddc482864ea044 1-7
+specification/conformance/ugs/diagnostics/UGS0011/accept_immutable_on_type.ugs
+  s_6c9dcf457e80d9::t_bd60fc4325b879 1-7
+specification/conformance/ugs/diagnostics/UGS0011/accept_index_on_record_field.ugs
+  s_6c9dcf457e80d9::t_c58c5ad97df29d 1-8
+specification/conformance/ugs/diagnostics/UGS0011/accept_multi_on_entity.ugs
+  s_6c9dcf457e80d9::t_a6f647d000c3b8 1-7
+specification/conformance/ugs/diagnostics/UGS0011/expect.json
+  s_6c9dcf457e80d9::t_f274d7ee54f8a0 1-75
+specification/conformance/ugs/diagnostics/UGS0011/reject_immutable_on_type.ugs
+  s_6c9dcf457e80d9::t_3b00e699ce90eb 1-7
+specification/conformance/ugs/diagnostics/UGS0011/reject_index_on_record_field.ugs
+  s_6c9dcf457e80d9::t_e499b59b44def1 1-8
+specification/conformance/ugs/diagnostics/UGS0011/reject_multi_on_entity.ugs
+  s_6c9dcf457e80d9::t_ab6f8e1d6ed8e1 1-7
+specification/conformance/ugs/diagnostics/UGS0013/accept_enum.ugs
+  s_6c9dcf457e80d9::t_b0b10feafc11c4 1-4102
+specification/conformance/ugs/diagnostics/UGS0013/accept_fields.ugs
+  s_6c9dcf457e80d9::t_b9ee694adbc905 1-4102
+specification/conformance/ugs/diagnostics/UGS0013/accept_identifier.ugs
+  s_6c9dcf457e80d9::t_a875b9d440965f 1-7
+specification/conformance/ugs/diagnostics/UGS0013/accept_key.ugs
+  s_6c9dcf457e80d9::t_1878582fea8400 1-15
+specification/conformance/ugs/diagnostics/UGS0013/accept_line.ugs
+  s_6c9dcf457e80d9::t_dcd52269840f7b 1-8
+specification/conformance/ugs/diagnostics/UGS0013/accept_nesting.ugs
+  s_6c9dcf457e80d9::t_fb8cad87adada9 1-7
+specification/conformance/ugs/diagnostics/UGS0013/accept_parameters.ugs
+  s_6c9dcf457e80d9::t_7f28d7c444569b 1-9
+specification/conformance/ugs/diagnostics/UGS0013/accept_path.ugs
+  s_6c9dcf457e80d9::t_4897fcb617f75f 1-14
+specification/conformance/ugs/diagnostics/UGS0013/accept_roles.ugs
+  s_6c9dcf457e80d9::t_767409b649872d 1-74
+specification/conformance/ugs/diagnostics/UGS0013/accept_string.ugs
+  s_6c9dcf457e80d9::t_7673332460e212 1-7
+specification/conformance/ugs/diagnostics/UGS0013/accept_union.ugs
+  s_6c9dcf457e80d9::t_fcf8fdd4b17200 1-111
+specification/conformance/ugs/diagnostics/UGS0013/expect.json
+  s_6c9dcf457e80d9::t_1bed080e248b14 1-279
+specification/conformance/ugs/diagnostics/UGS0013/reject_enum.ugs
+  s_6c9dcf457e80d9::t_d53c4cba6e2dbe 1-4103
+specification/conformance/ugs/diagnostics/UGS0013/reject_fields.ugs
+  s_6c9dcf457e80d9::t_2992b9bcdaa0ce 1-4103
+specification/conformance/ugs/diagnostics/UGS0013/reject_identifier.ugs
+  s_6c9dcf457e80d9::t_b4959bc3cff371 1-7
+specification/conformance/ugs/diagnostics/UGS0013/reject_key.ugs
+  s_6c9dcf457e80d9::t_2051b853bcdfd3 1-15
+specification/conformance/ugs/diagnostics/UGS0013/reject_line.ugs
+  s_6c9dcf457e80d9::t_92577ddcb7febc 1-8
+specification/conformance/ugs/diagnostics/UGS0013/reject_nesting.ugs
+  s_6c9dcf457e80d9::t_aecbb127ca8596 1-7
+specification/conformance/ugs/diagnostics/UGS0013/reject_parameters.ugs
+  s_6c9dcf457e80d9::t_429c374a352930 1-9
+specification/conformance/ugs/diagnostics/UGS0013/reject_path.ugs
+  s_6c9dcf457e80d9::t_2d5ce87588e19a 1-14
+specification/conformance/ugs/diagnostics/UGS0013/reject_roles.ugs
+  s_6c9dcf457e80d9::t_3c08757ba7ada8 1-75
+specification/conformance/ugs/diagnostics/UGS0013/reject_string.ugs
+  s_6c9dcf457e80d9::t_f4158a1392714b 1-7
+specification/conformance/ugs/diagnostics/UGS0013/reject_union.ugs
+  s_6c9dcf457e80d9::t_0f8e572cfe6359 1-111
+specification/conformance/ugs/diagnostics/UGS0101/accept_computed_field.ugs
+  s_6c9dcf457e80d9::t_41bc0cf18cc787 1-9
+specification/conformance/ugs/diagnostics/UGS0101/accept_extends.ugs
+  s_6c9dcf457e80d9::t_c87abe175c560b 1-5
+specification/conformance/ugs/diagnostics/UGS0101/accept_path_step.ugs
+  s_6c9dcf457e80d9::t_2f88a0194620e1 1-14
+specification/conformance/ugs/diagnostics/UGS0101/core.ugs
+  s_6c9dcf457e80d9::t_690f4a3573c398 1-7
+specification/conformance/ugs/diagnostics/UGS0101/expect.json
+  s_6c9dcf457e80d9::t_2e931af1085e55 1-87
+specification/conformance/ugs/diagnostics/UGS0101/reject_computed_field.ugs
+  s_6c9dcf457e80d9::t_e73cb37ac8f462 1-9
+specification/conformance/ugs/diagnostics/UGS0101/reject_extends.ugs
+  s_6c9dcf457e80d9::t_f977a58d1b33fa 1-5
+specification/conformance/ugs/diagnostics/UGS0101/reject_path_step.ugs
+  s_6c9dcf457e80d9::t_f2a1e1c7353ee3 1-14
+specification/conformance/ugs/diagnostics/UGS0102/accept_attribute.ugs
+  s_6c9dcf457e80d9::t_831bd2880675a7 1-8
+specification/conformance/ugs/diagnostics/UGS0102/accept_builtin.ugs
+  s_6c9dcf457e80d9::t_5c93fe92eee367 1-8
+specification/conformance/ugs/diagnostics/UGS0102/accept_default_graph.ugs
+  s_6c9dcf457e80d9::t_83afca3a397d3a 1-10
+specification/conformance/ugs/diagnostics/UGS0102/accept_free_function.ugs
+  s_6c9dcf457e80d9::t_95914044dbc4ce 1-10
+specification/conformance/ugs/diagnostics/UGS0102/accept_import_prefix.ugs
+  s_6c9dcf457e80d9::t_420073431fc5e2 1-9
+specification/conformance/ugs/diagnostics/UGS0102/accept_prefix.ugs
+  s_6c9dcf457e80d9::t_7f614622b9ee13 1-7
+specification/conformance/ugs/diagnostics/UGS0102/accept_type.ugs
+  s_6c9dcf457e80d9::t_a0271705173b42 1-10
+specification/conformance/ugs/diagnostics/UGS0102/accept_unit.ugs
+  s_6c9dcf457e80d9::t_1c334bf887d1ed 1-8
+specification/conformance/ugs/diagnostics/UGS0102/expect.json
+  s_6c9dcf457e80d9::t_528b5a9ee73165 1-209
+specification/conformance/ugs/diagnostics/UGS0102/reject_attribute.ugs
+  s_6c9dcf457e80d9::t_dae672898b4340 1-8
+specification/conformance/ugs/diagnostics/UGS0102/reject_builtin.ugs
+  s_6c9dcf457e80d9::t_ead0ce17d4b2a7 1-8
+specification/conformance/ugs/diagnostics/UGS0102/reject_default_graph.ugs
+  s_6c9dcf457e80d9::t_8ab1358fa0cb0d 1-10
+specification/conformance/ugs/diagnostics/UGS0102/reject_free_function.ugs
+  s_6c9dcf457e80d9::t_83916beb1ab1b6 1-10
+specification/conformance/ugs/diagnostics/UGS0102/reject_import_prefix.ugs
+  s_6c9dcf457e80d9::t_a82e6af2c4e1c4 1-9
+specification/conformance/ugs/diagnostics/UGS0102/reject_prefix.ugs
+  s_6c9dcf457e80d9::t_caddc43fae0a8a 1-8
+specification/conformance/ugs/diagnostics/UGS0102/reject_type.ugs
+  s_6c9dcf457e80d9::t_34828257e8369f 1-10
+specification/conformance/ugs/diagnostics/UGS0102/reject_unit.ugs
+  s_6c9dcf457e80d9::t_f61884d078d22d 1-8
+specification/conformance/ugs/diagnostics/UGS0103/accept.ugs
+  s_6c9dcf457e80d9::t_cda0ed10adabbc 1-8
+specification/conformance/ugs/diagnostics/UGS0103/calendar.ugs
+  s_6c9dcf457e80d9::t_cd70143c891bd4 1-7
+specification/conformance/ugs/diagnostics/UGS0103/expect.json
+  s_6c9dcf457e80d9::t_eefa3c3bae8e86 1-30
+specification/conformance/ugs/diagnostics/UGS0103/reject.ugs
+  s_6c9dcf457e80d9::t_43bab7ec6f133d 1-8
+specification/conformance/ugs/diagnostics/UGS0104/accept_own_prefix.ugs
+  s_6c9dcf457e80d9::t_169b163f77ac14 1-8
+specification/conformance/ugs/diagnostics/UGS0104/accept_undeclared.ugs
+  s_6c9dcf457e80d9::t_888a018d421b0e 1-8
+specification/conformance/ugs/diagnostics/UGS0104/expect.json
+  s_6c9dcf457e80d9::t_6381258fec1416 1-52
+specification/conformance/ugs/diagnostics/UGS0104/reject_own_prefix.ugs
+  s_6c9dcf457e80d9::t_66a62a1fdd1405 1-7
+specification/conformance/ugs/diagnostics/UGS0104/reject_undeclared.ugs
+  s_6c9dcf457e80d9::t_99fe2f0a8c3947 1-7
+specification/conformance/ugs/diagnostics/UGS0105/accept_pair.ugs
+  s_6c9dcf457e80d9::t_768361fea827bb 1-9
+specification/conformance/ugs/diagnostics/UGS0105/accept_self.ugs
+  s_6c9dcf457e80d9::t_13a8fc771d4b81 1-7
+specification/conformance/ugs/diagnostics/UGS0105/expect.json
+  s_6c9dcf457e80d9::t_30f2753c46e97d 1-52
+specification/conformance/ugs/diagnostics/UGS0105/reject_pair.ugs
+  s_6c9dcf457e80d9::t_cfe76e54ae7c59 1-9
+specification/conformance/ugs/diagnostics/UGS0105/reject_self.ugs
+  s_6c9dcf457e80d9::t_7c5322d466c7cc 1-7
+specification/conformance/ugs/diagnostics/UGS0106/accept_entity_of_relation.ugs
+  s_6c9dcf457e80d9::t_bf5f04e8de8083 1-19
+specification/conformance/ugs/diagnostics/UGS0106/accept_module_root.ugs
+  s_6c9dcf457e80d9::t_d7ce5e62791985 1-7
+specification/conformance/ugs/diagnostics/UGS0106/accept_relation_of_entity.ugs
+  s_6c9dcf457e80d9::t_739c76f002b56b 1-15
+specification/conformance/ugs/diagnostics/UGS0106/accept_statement_of_entity.ugs
+  s_6c9dcf457e80d9::t_05848a97a9a181 1-11
+specification/conformance/ugs/diagnostics/UGS0106/core.ugs
+  s_6c9dcf457e80d9::t_573db6f973350e 1-7
+specification/conformance/ugs/diagnostics/UGS0106/expect.json
+  s_6c9dcf457e80d9::t_d6c90ad6695aa5 1-100
+specification/conformance/ugs/diagnostics/UGS0106/reject_entity_of_relation.ugs
+  s_6c9dcf457e80d9::t_8e9a425ed4f128 1-19
+specification/conformance/ugs/diagnostics/UGS0106/reject_module_root.ugs
+  s_6c9dcf457e80d9::t_48e3dd18bb63cf 1-7
+specification/conformance/ugs/diagnostics/UGS0106/reject_relation_of_entity.ugs
+  s_6c9dcf457e80d9::t_d52aa949f6e18c 1-15
+specification/conformance/ugs/diagnostics/UGS0106/reject_statement_of_entity.ugs
+  s_6c9dcf457e80d9::t_9796c51c4a10e9 1-11
+specification/conformance/ugs/diagnostics/UGS0109/accept_import.ugs
+  s_6c9dcf457e80d9::t_39fe64d6b97c6b 1-8
+specification/conformance/ugs/diagnostics/UGS0109/accept_module.ugs
+  s_6c9dcf457e80d9::t_873c144c91a908 1-7
+specification/conformance/ugs/diagnostics/UGS0109/calendar.ugs
+  s_6c9dcf457e80d9::t_7ef40a464a7ef3 1-7
+specification/conformance/ugs/diagnostics/UGS0109/core.ugs
+  s_6c9dcf457e80d9::t_8a3e58cf74cb87 1-7
+specification/conformance/ugs/diagnostics/UGS0109/expect.json
+  s_6c9dcf457e80d9::t_585cd3edc5e156 1-56
+specification/conformance/ugs/diagnostics/UGS0109/reject_import.ugs
+  s_6c9dcf457e80d9::t_7c7d629217fcb2 1-8
+specification/conformance/ugs/diagnostics/UGS0109/reject_module.ugs
+  s_6c9dcf457e80d9::t_a159d9d5fa9a9d 1-7
+specification/conformance/ugs/diagnostics/UGS0110/accept_import_schema.ugs
+  s_6c9dcf457e80d9::t_53fd68edd91d15 1-8
+specification/conformance/ugs/diagnostics/UGS0110/accept_prefix_schema.ugs
+  s_6c9dcf457e80d9::t_a96207e0470976 1-7
+specification/conformance/ugs/diagnostics/UGS0110/accept_reserved.ugs
+  s_6c9dcf457e80d9::t_1d6b9579123e5b 1-7
+specification/conformance/ugs/diagnostics/UGS0110/expect.json
+  s_6c9dcf457e80d9::t_2c1080462b5e7f 1-77
+specification/conformance/ugs/diagnostics/UGS0110/reject_import_schema.ugs
+  s_6c9dcf457e80d9::t_4db9bc44fb2284 1-8
+specification/conformance/ugs/diagnostics/UGS0110/reject_prefix_schema.ugs
+  s_6c9dcf457e80d9::t_9b6c1e04fe4c26 1-7
+specification/conformance/ugs/diagnostics/UGS0110/reject_reserved.ugs
+  s_6c9dcf457e80d9::t_3adc0b5763c8e1 1-7
+specification/conformance/ugs/diagnostics/UGS0110/reserving_core.ugs
+  s_6c9dcf457e80d9::t_c1467d4c22666c 1-8
+specification/conformance/ugs/diagnostics/UGS0111/accept_soaring.ugs
+  s_6c9dcf457e80d9::t_c999ded2f70265 1-7
+specification/conformance/ugs/diagnostics/UGS0111/core.ugs
+  s_6c9dcf457e80d9::t_cd387910f4bad8 1-7
+specification/conformance/ugs/diagnostics/UGS0111/expect.json
+  s_6c9dcf457e80d9::t_c92fea77595cda 1-33
+specification/conformance/ugs/diagnostics/UGS0111/gliders.ugs
+  s_6c9dcf457e80d9::t_160fd05403ab3e 1-7
+specification/conformance/ugs/diagnostics/UGS0111/reject_soaring.ugs
+  s_6c9dcf457e80d9::t_a302b4b3c66c63 1-7
+specification/conformance/ugs/diagnostics/UGS0112/accept_check_literal.ugs
+  s_6c9dcf457e80d9::t_776666b32753d8 1-9
+specification/conformance/ugs/diagnostics/UGS0112/accept_default.ugs
+  s_6c9dcf457e80d9::t_357f747ed5f895 1-9
+specification/conformance/ugs/diagnostics/UGS0112/expect.json
+  s_6c9dcf457e80d9::t_c5f9f530cd2c7c 1-52
+specification/conformance/ugs/diagnostics/UGS0112/reject_check_literal.ugs
+  s_6c9dcf457e80d9::t_b256d80bab4cb2 1-9
+specification/conformance/ugs/diagnostics/UGS0112/reject_default.ugs
+  s_6c9dcf457e80d9::t_89ea1a784180be 1-9
+specification/conformance/ugs/diagnostics/UGS0113/accept_canonical_multiplier.ugs
+  s_6c9dcf457e80d9::t_0779e07f866d34 1-7
+specification/conformance/ugs/diagnostics/UGS0113/accept_canonical_other_kind.ugs
+  s_6c9dcf457e80d9::t_33c4360394084e 1-9
+specification/conformance/ugs/diagnostics/UGS0113/accept_measure_kind.ugs
+  s_6c9dcf457e80d9::t_1aaa0643cd1fc6 1-11
+specification/conformance/ugs/diagnostics/UGS0113/accept_measure_unit.ugs
+  s_6c9dcf457e80d9::t_5d26e50325fa9a 1-11
+specification/conformance/ugs/diagnostics/UGS0113/accept_missing_canonical.ugs
+  s_6c9dcf457e80d9::t_d36bfb23c7ef21 1-7
+specification/conformance/ugs/diagnostics/UGS0113/accept_unknown_kind.ugs
+  s_6c9dcf457e80d9::t_fb0a9a27ea5dcb 1-8
+specification/conformance/ugs/diagnostics/UGS0113/expect.json
+  s_6c9dcf457e80d9::t_a72ce4a18c6718 1-144
+specification/conformance/ugs/diagnostics/UGS0113/reject_canonical_multiplier.ugs
+  s_6c9dcf457e80d9::t_09eb61abbf0fdf 1-7
+specification/conformance/ugs/diagnostics/UGS0113/reject_canonical_other_kind.ugs
+  s_6c9dcf457e80d9::t_519dea29aa2ab3 1-9
+specification/conformance/ugs/diagnostics/UGS0113/reject_measure_kind.ugs
+  s_6c9dcf457e80d9::t_bf8ddd37092a92 1-11
+specification/conformance/ugs/diagnostics/UGS0113/reject_measure_unit.ugs
+  s_6c9dcf457e80d9::t_018db38ddda8ee 1-11
+specification/conformance/ugs/diagnostics/UGS0113/reject_missing_canonical.ugs
+  s_6c9dcf457e80d9::t_f952affee69074 1-7
+specification/conformance/ugs/diagnostics/UGS0113/reject_unknown_kind.ugs
+  s_6c9dcf457e80d9::t_4ee1d56b868208 1-8
+specification/conformance/ugs/diagnostics/UGS0114/accept_limit_per.ugs
+  s_6c9dcf457e80d9::t_0266aeffc3a934 1-15
+specification/conformance/ugs/diagnostics/UGS0114/accept_on_delete.ugs
+  s_6c9dcf457e80d9::t_c03f4a13ed7c31 1-15
+specification/conformance/ugs/diagnostics/UGS0114/expect.json
+  s_6c9dcf457e80d9::t_09802c35c2b6f0 1-52
+specification/conformance/ugs/diagnostics/UGS0114/reject_limit_per.ugs
+  s_6c9dcf457e80d9::t_01b1195f5c023f 1-15
+specification/conformance/ugs/diagnostics/UGS0114/reject_on_delete.ugs
+  s_6c9dcf457e80d9::t_3d1766ddc46fb1 1-15
+specification/conformance/ugs/diagnostics/UGS0115/accept_bitemporal.ugs
+  s_6c9dcf457e80d9::t_a058e576ca7cb3 1-8
+specification/conformance/ugs/diagnostics/UGS0115/accept_limit_sum.ugs
+  s_6c9dcf457e80d9::t_a9421801eb684d 1-16
+specification/conformance/ugs/diagnostics/UGS0115/accept_valid.ugs
+  s_6c9dcf457e80d9::t_9fbc410b9d6079 1-8
+specification/conformance/ugs/diagnostics/UGS0115/expect.json
+  s_6c9dcf457e80d9::t_f375cd810d2e88 1-75
+specification/conformance/ugs/diagnostics/UGS0115/reject_bitemporal.ugs
+  s_6c9dcf457e80d9::t_727243b4a57a71 1-8
+specification/conformance/ugs/diagnostics/UGS0115/reject_limit_sum.ugs
+  s_6c9dcf457e80d9::t_c6d6cf966f07e0 1-16
+specification/conformance/ugs/diagnostics/UGS0115/reject_valid.ugs
+  s_6c9dcf457e80d9::t_908526728f088d 1-8
+specification/conformance/ugs/diagnostics/UGS0116/accept.ugs
+  s_6c9dcf457e80d9::t_25fbad4486c1be 1-9
+specification/conformance/ugs/diagnostics/UGS0116/expect.json
+  s_6c9dcf457e80d9::t_38d0c513325228 1-29
+specification/conformance/ugs/diagnostics/UGS0116/reject.ugs
+  s_6c9dcf457e80d9::t_0b1c8768a4d5b3 1-9
+specification/conformance/ugs/diagnostics/UGS0117/accept.ugs
+  s_6c9dcf457e80d9::t_d20031cf76eda2 1-10
+specification/conformance/ugs/diagnostics/UGS0117/expect.json
+  s_6c9dcf457e80d9::t_d10292e8ae08ef 1-48
+specification/conformance/ugs/diagnostics/UGS0117/reject.ugs
+  s_6c9dcf457e80d9::t_31f9b962d63c0d 1-10
+specification/conformance/ugs/diagnostics/UGS0118/accept_pair.ugs
+  s_6c9dcf457e80d9::t_1eb7c83e893aef 1-10
+specification/conformance/ugs/diagnostics/UGS0118/accept_self.ugs
+  s_6c9dcf457e80d9::t_8b40ea9d1903cf 1-9
+specification/conformance/ugs/diagnostics/UGS0118/expect.json
+  s_6c9dcf457e80d9::t_c4c199a969fab1 1-81
+specification/conformance/ugs/diagnostics/UGS0118/reject_pair.ugs
+  s_6c9dcf457e80d9::t_509db87c8bb81a 1-10
+specification/conformance/ugs/diagnostics/UGS0118/reject_self.ugs
+  s_6c9dcf457e80d9::t_5c26592fca2a91 1-9
+specification/conformance/ugs/diagnostics/UGS0119/accept_field.ugs
+  s_6c9dcf457e80d9::t_ce0858d940a582 1-9
+specification/conformance/ugs/diagnostics/UGS0119/accept_subtype_field.ugs
+  s_6c9dcf457e80d9::t_acf1f50d0b3e4b 1-20
+specification/conformance/ugs/diagnostics/UGS0119/expect.json
+  s_6c9dcf457e80d9::t_0123b56a4de062 1-72
+specification/conformance/ugs/diagnostics/UGS0119/reject_field.ugs
+  s_6c9dcf457e80d9::t_f79202f5feb32a 1-9
+specification/conformance/ugs/diagnostics/UGS0119/reject_subtype_field.ugs
+  s_6c9dcf457e80d9::t_2d8073cb9e0d72 1-20
+specification/conformance/ugs/diagnostics/UGS0120/accept_measure_kinds.ugs
+  s_6c9dcf457e80d9::t_69704c1d446eb2 1-14
+specification/conformance/ugs/diagnostics/UGS0120/accept_measure_product.ugs
+  s_6c9dcf457e80d9::t_eaf03044baa7e1 1-12
+specification/conformance/ugs/diagnostics/UGS0120/accept_missing_operand.ugs
+  s_6c9dcf457e80d9::t_5786b07e9400e8 1-7
+specification/conformance/ugs/diagnostics/UGS0120/expect.json
+  s_6c9dcf457e80d9::t_738b266e7631f6 1-75
+specification/conformance/ugs/diagnostics/UGS0120/reject_measure_kinds.ugs
+  s_6c9dcf457e80d9::t_454bd2db386992 1-14
+specification/conformance/ugs/diagnostics/UGS0120/reject_measure_product.ugs
+  s_6c9dcf457e80d9::t_ead7326a9d724f 1-12
+specification/conformance/ugs/diagnostics/UGS0120/reject_missing_operand.ugs
+  s_6c9dcf457e80d9::t_6316c907695936 1-7
+specification/conformance/ugs/diagnostics/UGS0201/accept_argument.ugs
+  s_6c9dcf457e80d9::t_4617138a1434c2 1-7
+specification/conformance/ugs/diagnostics/UGS0201/accept_case.ugs
+  s_6c9dcf457e80d9::t_cfb87608aed24f 1-7
+specification/conformance/ugs/diagnostics/UGS0201/accept_derivation.ugs
+  s_6c9dcf457e80d9::t_a839794bc20e62 1-9
+specification/conformance/ugs/diagnostics/UGS0201/accept_named.ugs
+  s_6c9dcf457e80d9::t_dc0df5a4fb7671 1-9
+specification/conformance/ugs/diagnostics/UGS0201/accept_parent.ugs
+  s_6c9dcf457e80d9::t_86e6c4ea222e61 1-7
+specification/conformance/ugs/diagnostics/UGS0201/accept_participant.ugs
+  s_6c9dcf457e80d9::t_a1007904c4bd2c 1-11
+specification/conformance/ugs/diagnostics/UGS0201/expect.json
+  s_6c9dcf457e80d9::t_f1590d30ab58e9 1-152
+specification/conformance/ugs/diagnostics/UGS0201/reject_argument.ugs
+  s_6c9dcf457e80d9::t_56e63052dcf4bf 1-7
+specification/conformance/ugs/diagnostics/UGS0201/reject_case.ugs
+  s_6c9dcf457e80d9::t_1c00e3913ed947 1-7
+specification/conformance/ugs/diagnostics/UGS0201/reject_derivation.ugs
+  s_6c9dcf457e80d9::t_0cfef1db61f1f2 1-9
+specification/conformance/ugs/diagnostics/UGS0201/reject_named.ugs
+  s_6c9dcf457e80d9::t_3968b27a7203a0 1-9
+specification/conformance/ugs/diagnostics/UGS0201/reject_parent.ugs
+  s_6c9dcf457e80d9::t_158680a1a54d54 1-7
+specification/conformance/ugs/diagnostics/UGS0201/reject_participant.ugs
+  s_6c9dcf457e80d9::t_bb15a6d1d62eb2 1-10
+specification/conformance/ugs/diagnostics/UGS0202/accept_extra.ugs
+  s_6c9dcf457e80d9::t_8d923e4dff6423 1-7
+specification/conformance/ugs/diagnostics/UGS0202/accept_kind.ugs
+  s_6c9dcf457e80d9::t_0c4a789d4357f4 1-7
+specification/conformance/ugs/diagnostics/UGS0202/accept_missing.ugs
+  s_6c9dcf457e80d9::t_a88001ecdb3c68 1-7
+specification/conformance/ugs/diagnostics/UGS0202/accept_precision.ugs
+  s_6c9dcf457e80d9::t_8c4a221317fb7b 1-7
+specification/conformance/ugs/diagnostics/UGS0202/expect.json
+  s_6c9dcf457e80d9::t_7dce7f22170730 1-106
+specification/conformance/ugs/diagnostics/UGS0202/reject_extra.ugs
+  s_6c9dcf457e80d9::t_02ddf891a7ee2b 1-7
+specification/conformance/ugs/diagnostics/UGS0202/reject_kind.ugs
+  s_6c9dcf457e80d9::t_e9cf21d3bcd21b 1-7
+specification/conformance/ugs/diagnostics/UGS0202/reject_missing.ugs
+  s_6c9dcf457e80d9::t_68c09f5bce0e81 1-7
+specification/conformance/ugs/diagnostics/UGS0202/reject_precision.ugs
+  s_6c9dcf457e80d9::t_b75291ccbaf1bb 1-7
+specification/conformance/ugs/diagnostics/UGS0203/accept_integer_digits.ugs
+  s_6c9dcf457e80d9::t_d9329ea432f965 1-7
+specification/conformance/ugs/diagnostics/UGS0203/accept_precision_high.ugs
+  s_6c9dcf457e80d9::t_56e24e3000ba15 1-7
+specification/conformance/ugs/diagnostics/UGS0203/accept_precision_low.ugs
+  s_6c9dcf457e80d9::t_8c6d68d19cd3b5 1-7
+specification/conformance/ugs/diagnostics/UGS0203/accept_scale.ugs
+  s_6c9dcf457e80d9::t_93f7c70a87b00f 1-7
+specification/conformance/ugs/diagnostics/UGS0203/expect.json
+  s_6c9dcf457e80d9::t_efc52413c8702f 1-98
+specification/conformance/ugs/diagnostics/UGS0203/reject_integer_digits.ugs
+  s_6c9dcf457e80d9::t_2d25cae32d4b8f 1-7
+specification/conformance/ugs/diagnostics/UGS0203/reject_precision_high.ugs
+  s_6c9dcf457e80d9::t_c993f3cc8ae2c0 1-7
+specification/conformance/ugs/diagnostics/UGS0203/reject_precision_low.ugs
+  s_6c9dcf457e80d9::t_f16810a35061e8 1-7
+specification/conformance/ugs/diagnostics/UGS0203/reject_scale.ugs
+  s_6c9dcf457e80d9::t_fa846f03fcaa08 1-7
+specification/conformance/ugs/diagnostics/UGS0204/accept_large.ugs
+  s_6c9dcf457e80d9::t_28dabf8cd71b0f 1-7
+specification/conformance/ugs/diagnostics/UGS0204/accept_zero.ugs
+  s_6c9dcf457e80d9::t_465d0722cce6c4 1-7
+specification/conformance/ugs/diagnostics/UGS0204/expect.json
+  s_6c9dcf457e80d9::t_999926fe97176d 1-52
+specification/conformance/ugs/diagnostics/UGS0204/reject_large.ugs
+  s_6c9dcf457e80d9::t_12ef5b857af595 1-7
+specification/conformance/ugs/diagnostics/UGS0204/reject_zero.ugs
+  s_6c9dcf457e80d9::t_b39cefc6fb3379 1-7
+specification/conformance/ugs/diagnostics/UGS0205/accept_cycle.ugs
+  s_6c9dcf457e80d9::t_f7084969dd4ca3 1-7
+specification/conformance/ugs/diagnostics/UGS0205/accept_nested.ugs
+  s_6c9dcf457e80d9::t_59cfb35d93bc20 1-7
+specification/conformance/ugs/diagnostics/UGS0205/accept_record_field.ugs
+  s_6c9dcf457e80d9::t_801b294191fd09 1-7
+specification/conformance/ugs/diagnostics/UGS0205/accept_set_record.ugs
+  s_6c9dcf457e80d9::t_1d7ae34a118a36 1-12
+specification/conformance/ugs/diagnostics/UGS0205/expect.json
+  s_6c9dcf457e80d9::t_066ccb8d6324f9 1-98
+specification/conformance/ugs/diagnostics/UGS0205/reject_cycle.ugs
+  s_6c9dcf457e80d9::t_c4e3972bb9abc8 1-7
+specification/conformance/ugs/diagnostics/UGS0205/reject_nested.ugs
+  s_6c9dcf457e80d9::t_a9d5a89f6d5253 1-7
+specification/conformance/ugs/diagnostics/UGS0205/reject_record_field.ugs
+  s_6c9dcf457e80d9::t_4650fd00657ea3 1-7
+specification/conformance/ugs/diagnostics/UGS0205/reject_set_record.ugs
+  s_6c9dcf457e80d9::t_42ff4b45a812ca 1-12
+specification/conformance/ugs/diagnostics/UGS0206/accept_float.ugs
+  s_6c9dcf457e80d9::t_f7da83412dfea9 1-7
+specification/conformance/ugs/diagnostics/UGS0206/accept_string.ugs
+  s_6c9dcf457e80d9::t_be67fa15cb7029 1-7
+specification/conformance/ugs/diagnostics/UGS0206/expect.json
+  s_6c9dcf457e80d9::t_676633a5522ae8 1-52
+specification/conformance/ugs/diagnostics/UGS0206/reject_float.ugs
+  s_6c9dcf457e80d9::t_3e51cf573dee6d 1-7
+specification/conformance/ugs/diagnostics/UGS0206/reject_string.ugs
+  s_6c9dcf457e80d9::t_48741bbbbabeb0 1-7
+specification/conformance/ugs/diagnostics/UGS0207/accept_default.ugs
+  s_6c9dcf457e80d9::t_365a76b101d845 1-7
+specification/conformance/ugs/diagnostics/UGS0207/accept_derivation.ugs
+  s_6c9dcf457e80d9::t_bda7b7cdda7998 1-9
+specification/conformance/ugs/diagnostics/UGS0207/accept_expression.ugs
+  s_6c9dcf457e80d9::t_e0c3dbedbfd294 1-7
+specification/conformance/ugs/diagnostics/UGS0207/accept_function.ugs
+  s_6c9dcf457e80d9::t_a04d540c0ffff6 1-9
+specification/conformance/ugs/diagnostics/UGS0207/accept_non_finite.ugs
+  s_6c9dcf457e80d9::t_0ba05ffed3178e 1-7
+specification/conformance/ugs/diagnostics/UGS0207/accept_range.ugs
+  s_6c9dcf457e80d9::t_56a9e509e8393e 1-7
+specification/conformance/ugs/diagnostics/UGS0207/expect.json
+  s_6c9dcf457e80d9::t_13e69f944ea028 1-162
+specification/conformance/ugs/diagnostics/UGS0207/reject_default.ugs
+  s_6c9dcf457e80d9::t_244faa4099dbd4 1-7
+specification/conformance/ugs/diagnostics/UGS0207/reject_derivation.ugs
+  s_6c9dcf457e80d9::t_2d8605694fbf88 1-9
+specification/conformance/ugs/diagnostics/UGS0207/reject_expression.ugs
+  s_6c9dcf457e80d9::t_90691bcbe4da26 1-7
+specification/conformance/ugs/diagnostics/UGS0207/reject_function.ugs
+  s_6c9dcf457e80d9::t_4e7a8c778995e7 1-9
+specification/conformance/ugs/diagnostics/UGS0207/reject_non_finite.ugs
+  s_6c9dcf457e80d9::t_46574e13a010f6 1-7
+specification/conformance/ugs/diagnostics/UGS0207/reject_range.ugs
+  s_6c9dcf457e80d9::t_b7aa47fe5fd14b 1-7
+specification/conformance/ugs/diagnostics/UGS0209/accept.ugs
+  s_6c9dcf457e80d9::t_a6d33b757dfd54 1-7
+specification/conformance/ugs/diagnostics/UGS0209/expect.json
+  s_6c9dcf457e80d9::t_cba6127bf9a690 1-37
+specification/conformance/ugs/diagnostics/UGS0209/reject.ugs
+  s_6c9dcf457e80d9::t_ea0fa8f1752479 1-7
+specification/conformance/ugs/diagnostics/UGS0211/accept_attribute.ugs
+  s_6c9dcf457e80d9::t_9dac7ee6ecbf24 1-7
+specification/conformance/ugs/diagnostics/UGS0211/accept_named.ugs
+  s_6c9dcf457e80d9::t_6fe7d262c3e4b2 1-9
+specification/conformance/ugs/diagnostics/UGS0211/accept_record_field.ugs
+  s_6c9dcf457e80d9::t_900344eaac0d3c 1-7
+specification/conformance/ugs/diagnostics/UGS0211/expect.json
+  s_6c9dcf457e80d9::t_4d03bc6e6b942e 1-75
+specification/conformance/ugs/diagnostics/UGS0211/reject_attribute.ugs
+  s_6c9dcf457e80d9::t_7f9687246cb457 1-7
+specification/conformance/ugs/diagnostics/UGS0211/reject_named.ugs
+  s_6c9dcf457e80d9::t_2746927f6dbe7a 1-9
+specification/conformance/ugs/diagnostics/UGS0211/reject_record_field.ugs
+  s_6c9dcf457e80d9::t_6eeb240206c33a 1-7
+specification/conformance/ugs/diagnostics/UGS0212/accept_date.ugs
+  s_6c9dcf457e80d9::t_a6070b7ade5f8f 1-7
+specification/conformance/ugs/diagnostics/UGS0212/accept_integer.ugs
+  s_6c9dcf457e80d9::t_069a0068c79f9a 1-7
+specification/conformance/ugs/diagnostics/UGS0212/accept_unordered.ugs
+  s_6c9dcf457e80d9::t_2ce576695340c8 1-7
+specification/conformance/ugs/diagnostics/UGS0212/expect.json
+  s_6c9dcf457e80d9::t_860a274da39427 1-75
+specification/conformance/ugs/diagnostics/UGS0212/reject_date.ugs
+  s_6c9dcf457e80d9::t_8d963395dcc453 1-7
+specification/conformance/ugs/diagnostics/UGS0212/reject_integer.ugs
+  s_6c9dcf457e80d9::t_31fb6c9b81c11d 1-7
+specification/conformance/ugs/diagnostics/UGS0212/reject_unordered.ugs
+  s_6c9dcf457e80d9::t_151d46d2107121 1-7
+specification/conformance/ugs/diagnostics/UGS0213/accept_entity.ugs
+  s_6c9dcf457e80d9::t_de73c383837c83 1-11
+specification/conformance/ugs/diagnostics/UGS0213/accept_relation.ugs
+  s_6c9dcf457e80d9::t_ee40012f18d542 1-17
+specification/conformance/ugs/diagnostics/UGS0213/expect.json
+  s_6c9dcf457e80d9::t_3cdb5c64eec943 1-68
+specification/conformance/ugs/diagnostics/UGS0213/reject_entity.ugs
+  s_6c9dcf457e80d9::t_21b5e14d546b6f 1-11
+specification/conformance/ugs/diagnostics/UGS0213/reject_relation.ugs
+  s_6c9dcf457e80d9::t_1fc2bdb71c1491 1-17
+specification/conformance/ugs/diagnostics/UGS0214/accept_module.ugs
+  s_6c9dcf457e80d9::t_9b3f7b290014ce 1-7
+specification/conformance/ugs/diagnostics/UGS0214/accept_named.ugs
+  s_6c9dcf457e80d9::t_67032bac9375fb 1-9
+specification/conformance/ugs/diagnostics/UGS0214/accept_optional.ugs
+  s_6c9dcf457e80d9::t_1f096801b9e86a 1-11
+specification/conformance/ugs/diagnostics/UGS0214/accept_range.ugs
+  s_6c9dcf457e80d9::t_a86cfa7ae6941c 1-11
+specification/conformance/ugs/diagnostics/UGS0214/expect.json
+  s_6c9dcf457e80d9::t_8e6897542f053d 1-116
+specification/conformance/ugs/diagnostics/UGS0214/module_core.ugs
+  s_6c9dcf457e80d9::t_1958f8778a44df 1-7
+specification/conformance/ugs/diagnostics/UGS0214/reject_module.ugs
+  s_6c9dcf457e80d9::t_e8778e0ad993ef 1-7
+specification/conformance/ugs/diagnostics/UGS0214/reject_named.ugs
+  s_6c9dcf457e80d9::t_bcfbb3b8decf3a 1-9
+specification/conformance/ugs/diagnostics/UGS0214/reject_optional.ugs
+  s_6c9dcf457e80d9::t_0ed722b5e079db 1-11
+specification/conformance/ugs/diagnostics/UGS0214/reject_range.ugs
+  s_6c9dcf457e80d9::t_22e0afe92e35e6 1-11
+specification/conformance/ugs/diagnostics/UGS0215/accept_immutable.ugs
+  s_6c9dcf457e80d9::t_33c12e35bb27e7 1-11
+specification/conformance/ugs/diagnostics/UGS0215/accept_index.ugs
+  s_6c9dcf457e80d9::t_b045f9e5d91603 1-11
+specification/conformance/ugs/diagnostics/UGS0215/accept_mapping.ugs
+  s_6c9dcf457e80d9::t_da083dc22817ba 1-12
+specification/conformance/ugs/diagnostics/UGS0215/accept_type.ugs
+  s_6c9dcf457e80d9::t_bab012e38ebb8a 1-11
+specification/conformance/ugs/diagnostics/UGS0215/expect.json
+  s_6c9dcf457e80d9::t_e57ebbe218eaaa 1-98
+specification/conformance/ugs/diagnostics/UGS0215/reject_immutable.ugs
+  s_6c9dcf457e80d9::t_3e2aaaef6ffd3e 1-11
+specification/conformance/ugs/diagnostics/UGS0215/reject_index.ugs
+  s_6c9dcf457e80d9::t_8d162be2b7ce05 1-11
+specification/conformance/ugs/diagnostics/UGS0215/reject_mapping.ugs
+  s_6c9dcf457e80d9::t_38f9460029141e 1-12
+specification/conformance/ugs/diagnostics/UGS0215/reject_type.ugs
+  s_6c9dcf457e80d9::t_63d0cc67ca946e 1-11
+specification/conformance/ugs/diagnostics/UGS0216/accept_key.ugs
+  s_6c9dcf457e80d9::t_7d193c0dc0f4ec 1-11
+specification/conformance/ugs/diagnostics/UGS0216/accept_unique.ugs
+  s_6c9dcf457e80d9::t_3d1c8c2cf5cbf1 1-11
+specification/conformance/ugs/diagnostics/UGS0216/expect.json
+  s_6c9dcf457e80d9::t_52f45cc3585f90 1-52
+specification/conformance/ugs/diagnostics/UGS0216/reject_key.ugs
+  s_6c9dcf457e80d9::t_56f4e91a98f4b3 1-11
+specification/conformance/ugs/diagnostics/UGS0216/reject_unique.ugs
+  s_6c9dcf457e80d9::t_53bd2136db758a 1-11
+specification/conformance/ugs/diagnostics/UGS0218/accept.ugs
+  s_6c9dcf457e80d9::t_b0df4697985121 1-14
+specification/conformance/ugs/diagnostics/UGS0218/expect.json
+  s_6c9dcf457e80d9::t_f3b15b60d77b14 1-29
+specification/conformance/ugs/diagnostics/UGS0218/reject.ugs
+  s_6c9dcf457e80d9::t_81b7e2cc80a20d 1-14
+specification/conformance/ugs/diagnostics/UGS0221/accept.ugs
+  s_6c9dcf457e80d9::t_df3b591a521abf 1-9
+specification/conformance/ugs/diagnostics/UGS0221/expect.json
+  s_6c9dcf457e80d9::t_346c2cd804007c 1-37
+specification/conformance/ugs/diagnostics/UGS0221/reject.ugs
+  s_6c9dcf457e80d9::t_3a9c5e9bf27d6a 1-9
+specification/conformance/ugs/diagnostics/UGS0222/accept.ugs
+  s_6c9dcf457e80d9::t_692120c3b614a5 1-9
+specification/conformance/ugs/diagnostics/UGS0222/expect.json
+  s_6c9dcf457e80d9::t_98df95e433269d 1-29
+specification/conformance/ugs/diagnostics/UGS0222/reject.ugs
+  s_6c9dcf457e80d9::t_d268a1bc583709 1-9
+specification/conformance/ugs/diagnostics/UGS0223/accept_combined.ugs
+  s_6c9dcf457e80d9::t_5e130ee74b924e 1-8
+specification/conformance/ugs/diagnostics/UGS0223/accept_compared.ugs
+  s_6c9dcf457e80d9::t_d256c5960e99ff 1-8
+specification/conformance/ugs/diagnostics/UGS0223/expect.json
+  s_6c9dcf457e80d9::t_9e42bcae7253f4 1-52
+specification/conformance/ugs/diagnostics/UGS0223/reject_combined.ugs
+  s_6c9dcf457e80d9::t_c7d887dcf5230c 1-8
+specification/conformance/ugs/diagnostics/UGS0223/reject_compared.ugs
+  s_6c9dcf457e80d9::t_e306f2fd0cc6f7 1-8
+specification/conformance/ugs/diagnostics/UGS0224/accept_combined.ugs
+  s_6c9dcf457e80d9::t_a7083f7ceb27e9 1-8
+specification/conformance/ugs/diagnostics/UGS0224/accept_compared.ugs
+  s_6c9dcf457e80d9::t_361bd184267c47 1-8
+specification/conformance/ugs/diagnostics/UGS0224/expect.json
+  s_6c9dcf457e80d9::t_7210bcfbea78b8 1-52
+specification/conformance/ugs/diagnostics/UGS0224/reject_combined.ugs
+  s_6c9dcf457e80d9::t_e6e3816546f34b 1-8
+specification/conformance/ugs/diagnostics/UGS0224/reject_compared.ugs
+  s_6c9dcf457e80d9::t_30fcf2697969f7 1-8
+specification/conformance/ugs/diagnostics/UGS0225/accept_check.ugs
+  s_6c9dcf457e80d9::t_7308751db20a69 1-8
+specification/conformance/ugs/diagnostics/UGS0225/accept_derivation.ugs
+  s_6c9dcf457e80d9::t_9c20062f99e25d 1-10
+specification/conformance/ugs/diagnostics/UGS0225/accept_function.ugs
+  s_6c9dcf457e80d9::t_76ccefe5b70ffc 1-9
+specification/conformance/ugs/diagnostics/UGS0225/accept_limit.ugs
+  s_6c9dcf457e80d9::t_86bb254be501ca 1-17
+specification/conformance/ugs/diagnostics/UGS0225/expect.json
+  s_6c9dcf457e80d9::t_ae4f1aeb06e8a7 1-108
+specification/conformance/ugs/diagnostics/UGS0225/reject_check.ugs
+  s_6c9dcf457e80d9::t_e695aa4a5e838f 1-8
+specification/conformance/ugs/diagnostics/UGS0225/reject_derivation.ugs
+  s_6c9dcf457e80d9::t_e810861b40b66a 1-10
+specification/conformance/ugs/diagnostics/UGS0225/reject_function.ugs
+  s_6c9dcf457e80d9::t_bb5b588b858bc5 1-9
+specification/conformance/ugs/diagnostics/UGS0225/reject_limit.ugs
+  s_6c9dcf457e80d9::t_56ba6134079e78 1-17
+specification/conformance/ugs/diagnostics/UGS0226/accept_navigation.ugs
+  s_6c9dcf457e80d9::t_8797be75e10751 1-16
+specification/conformance/ugs/diagnostics/UGS0226/accept_participant.ugs
+  s_6c9dcf457e80d9::t_85de53b7066d14 1-17
+specification/conformance/ugs/diagnostics/UGS0226/expect.json
+  s_6c9dcf457e80d9::t_69a2dc3e50c9ab 1-52
+specification/conformance/ugs/diagnostics/UGS0226/reject_navigation.ugs
+  s_6c9dcf457e80d9::t_15c510fd542032 1-16
+specification/conformance/ugs/diagnostics/UGS0226/reject_participant.ugs
+  s_6c9dcf457e80d9::t_03130a0ed89ea4 1-17
+specification/conformance/ugs/diagnostics/UGS0227/accept_function.ugs
+  s_6c9dcf457e80d9::t_3ef4f9cf4b137c 1-21
+specification/conformance/ugs/diagnostics/UGS0227/accept_instances.ugs
+  s_6c9dcf457e80d9::t_301b6efc9a8ba4 1-10
+specification/conformance/ugs/diagnostics/UGS0227/accept_navigation.ugs
+  s_6c9dcf457e80d9::t_5440b459b3cf07 1-19
+specification/conformance/ugs/diagnostics/UGS0227/accept_role.ugs
+  s_6c9dcf457e80d9::t_a1b5f1e722e1e4 1-20
+specification/conformance/ugs/diagnostics/UGS0227/expect.json
+  s_6c9dcf457e80d9::t_5bcdca56e5e497 1-108
+specification/conformance/ugs/diagnostics/UGS0227/reject_function.ugs
+  s_6c9dcf457e80d9::t_1fbf43e7930ed9 1-21
+specification/conformance/ugs/diagnostics/UGS0227/reject_instances.ugs
+  s_6c9dcf457e80d9::t_5171ecb4b3c223 1-10
+specification/conformance/ugs/diagnostics/UGS0227/reject_navigation.ugs
+  s_6c9dcf457e80d9::t_741816f45bf13b 1-19
+specification/conformance/ugs/diagnostics/UGS0227/reject_role.ugs
+  s_6c9dcf457e80d9::t_12d3b7c8b259a2 1-20
+specification/conformance/ugs/diagnostics/UGS0228/accept_check.ugs
+  s_6c9dcf457e80d9::t_b5dbcd56a742b7 1-7
+specification/conformance/ugs/diagnostics/UGS0228/accept_derivation.ugs
+  s_6c9dcf457e80d9::t_dcadd660be7aa3 1-9
+specification/conformance/ugs/diagnostics/UGS0228/accept_limit.ugs
+  s_6c9dcf457e80d9::t_736d1b9f7607f3 1-17
+specification/conformance/ugs/diagnostics/UGS0228/expect.json
+  s_6c9dcf457e80d9::t_8184c703283b13 1-75
+specification/conformance/ugs/diagnostics/UGS0228/reject_check.ugs
+  s_6c9dcf457e80d9::t_db8c7ebd8bbc1b 1-7
+specification/conformance/ugs/diagnostics/UGS0228/reject_derivation.ugs
+  s_6c9dcf457e80d9::t_eeda6030e63b9b 1-9
+specification/conformance/ugs/diagnostics/UGS0228/reject_limit.ugs
+  s_6c9dcf457e80d9::t_9b71ef6f417547 1-17
+specification/conformance/ugs/diagnostics/UGS0301/accept_inherited.ugs
+  s_6c9dcf457e80d9::t_7327bf5a52ec19 1-11
+specification/conformance/ugs/diagnostics/UGS0301/accept_own.ugs
+  s_6c9dcf457e80d9::t_ca291e33fb1f86 1-7
+specification/conformance/ugs/diagnostics/UGS0301/expect.json
+  s_6c9dcf457e80d9::t_9e7664ebfe5462 1-60
+specification/conformance/ugs/diagnostics/UGS0301/reject_inherited.ugs
+  s_6c9dcf457e80d9::t_1969888d46a003 1-9
+specification/conformance/ugs/diagnostics/UGS0301/reject_own.ugs
+  s_6c9dcf457e80d9::t_75ee7cc8b73663 1-7
+specification/conformance/ugs/diagnostics/UGS0302/accept_child.ugs
+  s_6c9dcf457e80d9::t_8961be0e07dc43 1-11
+specification/conformance/ugs/diagnostics/UGS0302/accept_grandchild.ugs
+  s_6c9dcf457e80d9::t_68036bf7fca699 1-15
+specification/conformance/ugs/diagnostics/UGS0302/expect.json
+  s_6c9dcf457e80d9::t_92651f868d6ef9 1-52
+specification/conformance/ugs/diagnostics/UGS0302/reject_child.ugs
+  s_6c9dcf457e80d9::t_1665d4b9bd1a9e 1-11
+specification/conformance/ugs/diagnostics/UGS0302/reject_grandchild.ugs
+  s_6c9dcf457e80d9::t_2c2d1bde9c25cd 1-15
+specification/conformance/ugs/diagnostics/UGS0304/accept_adjacent.ugs
+  s_6c9dcf457e80d9::t_c0b6066e898fbc 1-8
+specification/conformance/ugs/diagnostics/UGS0304/accept_not_key.ugs
+  s_6c9dcf457e80d9::t_ede97086fe0c54 1-9
+specification/conformance/ugs/diagnostics/UGS0304/accept_omitted.ugs
+  s_6c9dcf457e80d9::t_bff54d8387ac39 1-8
+specification/conformance/ugs/diagnostics/UGS0304/accept_relative.ugs
+  s_6c9dcf457e80d9::t_a7396281d236ea 1-8
+specification/conformance/ugs/diagnostics/UGS0304/accept_repeated.ugs
+  s_6c9dcf457e80d9::t_fff4e95727316f 1-8
+specification/conformance/ugs/diagnostics/UGS0304/accept_unreserved.ugs
+  s_6c9dcf457e80d9::t_8626b0751743dd 1-8
+specification/conformance/ugs/diagnostics/UGS0304/expect.json
+  s_6c9dcf457e80d9::t_989ec727f58231 1-144
+specification/conformance/ugs/diagnostics/UGS0304/reject_adjacent.ugs
+  s_6c9dcf457e80d9::t_dddec2ed7dc4b2 1-8
+specification/conformance/ugs/diagnostics/UGS0304/reject_not_key.ugs
+  s_6c9dcf457e80d9::t_651065fdc99963 1-9
+specification/conformance/ugs/diagnostics/UGS0304/reject_omitted.ugs
+  s_6c9dcf457e80d9::t_a10adcdfe9bbe2 1-8
+specification/conformance/ugs/diagnostics/UGS0304/reject_relative.ugs
+  s_6c9dcf457e80d9::t_df51431f40daf3 1-8
+specification/conformance/ugs/diagnostics/UGS0304/reject_repeated.ugs
+  s_6c9dcf457e80d9::t_bc00520640d081 1-8
+specification/conformance/ugs/diagnostics/UGS0304/reject_unreserved.ugs
+  s_6c9dcf457e80d9::t_040972213398db 1-8
+specification/conformance/ugs/diagnostics/UGS0305/accept_equal.ugs
+  s_6c9dcf457e80d9::t_a5c08f47d9529d 1-11
+specification/conformance/ugs/diagnostics/UGS0305/accept_prefix.ugs
+  s_6c9dcf457e80d9::t_b345e469111374 1-12
+specification/conformance/ugs/diagnostics/UGS0305/expect.json
+  s_6c9dcf457e80d9::t_04d9fd34dc59ba 1-52
+specification/conformance/ugs/diagnostics/UGS0305/reject_equal.ugs
+  s_6c9dcf457e80d9::t_a45cafddb96b9f 1-11
+specification/conformance/ugs/diagnostics/UGS0305/reject_prefix.ugs
+  s_6c9dcf457e80d9::t_02cec1854e07e1 1-12
+specification/conformance/ugs/diagnostics/UGS0306/accept_collection.ugs
+  s_6c9dcf457e80d9::t_b29736ca2a32de 1-7
+specification/conformance/ugs/diagnostics/UGS0306/accept_float.ugs
+  s_6c9dcf457e80d9::t_3e15fa36b42ad9 1-7
+specification/conformance/ugs/diagnostics/UGS0306/accept_text.ugs
+  s_6c9dcf457e80d9::t_41792373ce45f9 1-7
+specification/conformance/ugs/diagnostics/UGS0306/expect.json
+  s_6c9dcf457e80d9::t_2d5f5ef7f23ff6 1-75
+specification/conformance/ugs/diagnostics/UGS0306/reject_collection.ugs
+  s_6c9dcf457e80d9::t_4df9eee7175178 1-7
+specification/conformance/ugs/diagnostics/UGS0306/reject_float.ugs
+  s_6c9dcf457e80d9::t_477bff4c037b7e 1-7
+specification/conformance/ugs/diagnostics/UGS0306/reject_text.ugs
+  s_6c9dcf457e80d9::t_aac91d03d7e596 1-7
+specification/conformance/ugs/diagnostics/UGS0307/accept_role.ugs
+  s_6c9dcf457e80d9::t_4d961ed8e87d54 1-17
+specification/conformance/ugs/diagnostics/UGS0307/accept_undeclared.ugs
+  s_6c9dcf457e80d9::t_29b9cf687aac6f 1-7
+specification/conformance/ugs/diagnostics/UGS0307/expect.json
+  s_6c9dcf457e80d9::t_552c31df3ddf25 1-52
+specification/conformance/ugs/diagnostics/UGS0307/reject_role.ugs
+  s_6c9dcf457e80d9::t_41ee1fb9847d4a 1-17
+specification/conformance/ugs/diagnostics/UGS0307/reject_undeclared.ugs
+  s_6c9dcf457e80d9::t_053bceca70ff24 1-7
+specification/conformance/ugs/diagnostics/UGS0308/accept_collection.ugs
+  s_6c9dcf457e80d9::t_118c8e21129ad2 1-7
+specification/conformance/ugs/diagnostics/UGS0308/accept_geometry.ugs
+  s_6c9dcf457e80d9::t_5d956f9263803a 1-7
+specification/conformance/ugs/diagnostics/UGS0308/accept_measure.ugs
+  s_6c9dcf457e80d9::t_74342ee53460ad 1-11
+specification/conformance/ugs/diagnostics/UGS0308/accept_record.ugs
+  s_6c9dcf457e80d9::t_26bf425c9066da 1-12
+specification/conformance/ugs/diagnostics/UGS0308/accept_vector.ugs
+  s_6c9dcf457e80d9::t_d5de8ee20b1a37 1-7
+specification/conformance/ugs/diagnostics/UGS0308/expect.json
+  s_6c9dcf457e80d9::t_6cbf3b6d1668b8 1-121
+specification/conformance/ugs/diagnostics/UGS0308/reject_collection.ugs
+  s_6c9dcf457e80d9::t_023322e3be3d76 1-7
+specification/conformance/ugs/diagnostics/UGS0308/reject_geometry.ugs
+  s_6c9dcf457e80d9::t_687c1dec0e4a6c 1-7
+specification/conformance/ugs/diagnostics/UGS0308/reject_measure.ugs
+  s_6c9dcf457e80d9::t_50d793f0d02891 1-11
+specification/conformance/ugs/diagnostics/UGS0308/reject_record.ugs
+  s_6c9dcf457e80d9::t_e2c62a609559c3 1-12
+specification/conformance/ugs/diagnostics/UGS0308/reject_vector.ugs
+  s_6c9dcf457e80d9::t_db5d226362ca2d 1-7
+specification/conformance/ugs/diagnostics/UGS0309/accept_graph_bases.ugs
+  s_6c9dcf457e80d9::t_62faa8560ad5e4 1-10
+specification/conformance/ugs/diagnostics/UGS0309/accept_graphs.ugs
+  s_6c9dcf457e80d9::t_4bebe2376adc15 1-10
+specification/conformance/ugs/diagnostics/UGS0309/accept_schemas_beta.ugs
+  s_6c9dcf457e80d9::t_9905fd05a38149 1-7
+specification/conformance/ugs/diagnostics/UGS0309/expect.json
+  s_6c9dcf457e80d9::t_601e504f252896 1-77
+specification/conformance/ugs/diagnostics/UGS0309/reject_graph_bases.ugs
+  s_6c9dcf457e80d9::t_27aab49564b6c5 1-10
+specification/conformance/ugs/diagnostics/UGS0309/reject_graphs.ugs
+  s_6c9dcf457e80d9::t_62216e37336802 1-10
+specification/conformance/ugs/diagnostics/UGS0309/reject_schemas_beta.ugs
+  s_6c9dcf457e80d9::t_79eb3e12a2a11c 1-7
+specification/conformance/ugs/diagnostics/UGS0309/schemas_alpha.ugs
+  s_6c9dcf457e80d9::t_97d2788cf1f5a5 1-7
+specification/conformance/ugs/diagnostics/UGS0401/accept_no_role.ugs
+  s_6c9dcf457e80d9::t_fa02b57e381758 1-11
+specification/conformance/ugs/diagnostics/UGS0401/accept_one_role.ugs
+  s_6c9dcf457e80d9::t_6cd2f384693756 1-10
+specification/conformance/ugs/diagnostics/UGS0401/expect.json
+  s_6c9dcf457e80d9::t_25d616b820d28a 1-30
+specification/conformance/ugs/diagnostics/UGS0401/reject_no_role.ugs
+  s_6c9dcf457e80d9::t_655abcec658aec 1-9
+specification/conformance/ugs/diagnostics/UGS0401/reject_one_role.ugs
+  s_6c9dcf457e80d9::t_b448f7beaa842c 1-9
+specification/conformance/ugs/diagnostics/UGS0402/accept_enum.ugs
+  s_6c9dcf457e80d9::t_d70d0d049c0397 1-12
+specification/conformance/ugs/diagnostics/UGS0402/accept_nested_member.ugs
+  s_6c9dcf457e80d9::t_2b53b1fd388b6b 1-12
+specification/conformance/ugs/diagnostics/UGS0402/accept_repeated_member.ugs
+  s_6c9dcf457e80d9::t_6eb4cfb4353a5c 1-11
+specification/conformance/ugs/diagnostics/UGS0402/accept_scalar.ugs
+  s_6c9dcf457e80d9::t_c108bc830c8534 1-11
+specification/conformance/ugs/diagnostics/UGS0402/expect.json
+  s_6c9dcf457e80d9::t_357bd96f3026bd 1-58
+specification/conformance/ugs/diagnostics/UGS0402/reject_enum.ugs
+  s_6c9dcf457e80d9::t_757f8e3ea754df 1-12
+specification/conformance/ugs/diagnostics/UGS0402/reject_nested_member.ugs
+  s_6c9dcf457e80d9::t_296ba6a154269f 1-12
+specification/conformance/ugs/diagnostics/UGS0402/reject_repeated_member.ugs
+  s_6c9dcf457e80d9::t_106972afb99917 1-11
+specification/conformance/ugs/diagnostics/UGS0402/reject_scalar.ugs
+  s_6c9dcf457e80d9::t_d0987c47eadb98 1-10
+specification/conformance/ugs/diagnostics/UGS0403/accept_before_brace.ugs
+  s_6c9dcf457e80d9::t_a098d7fc8c8111 1-10
+specification/conformance/ugs/diagnostics/UGS0403/accept_before_role.ugs
+  s_6c9dcf457e80d9::t_5b325010355a21 1-10
+specification/conformance/ugs/diagnostics/UGS0403/expect.json
+  s_6c9dcf457e80d9::t_00ff6e9d06f80f 1-30
+specification/conformance/ugs/diagnostics/UGS0403/reject_before_brace.ugs
+  s_6c9dcf457e80d9::t_751bdc3aa1c50c 1-10
+specification/conformance/ugs/diagnostics/UGS0403/reject_before_role.ugs
+  s_6c9dcf457e80d9::t_cafc60efa373c5 1-10
+specification/conformance/ugs/diagnostics/UGS0404/accept_attribute.ugs
+  s_6c9dcf457e80d9::t_394cd77c587590 1-13
+specification/conformance/ugs/diagnostics/UGS0404/accept_builtin.ugs
+  s_6c9dcf457e80d9::t_cd03acd1585a89 1-11
+specification/conformance/ugs/diagnostics/UGS0404/accept_derived.ugs
+  s_6c9dcf457e80d9::t_ba958a7a5a1a46 1-10
+specification/conformance/ugs/diagnostics/UGS0404/accept_function.ugs
+  s_6c9dcf457e80d9::t_c832080c3e3ead 1-10
+specification/conformance/ugs/diagnostics/UGS0404/accept_inherited_attribute.ugs
+  s_6c9dcf457e80d9::t_e2354ca27190f2 1-12
+specification/conformance/ugs/diagnostics/UGS0404/accept_navigation.ugs
+  s_6c9dcf457e80d9::t_e304dc3941bc08 1-17
+specification/conformance/ugs/diagnostics/UGS0404/accept_same_relation.ugs
+  s_6c9dcf457e80d9::t_c02dbb3f3547ac 1-10
+specification/conformance/ugs/diagnostics/UGS0404/expect.json
+  s_6c9dcf457e80d9::t_663bcc9ca48924 1-99
+specification/conformance/ugs/diagnostics/UGS0404/reject_attribute.ugs
+  s_6c9dcf457e80d9::t_929e19843d8f06 1-13
+specification/conformance/ugs/diagnostics/UGS0404/reject_builtin.ugs
+  s_6c9dcf457e80d9::t_e6fe4fc065fc97 1-11
+specification/conformance/ugs/diagnostics/UGS0404/reject_derived.ugs
+  s_6c9dcf457e80d9::t_a6e283b45e0d74 1-10
+specification/conformance/ugs/diagnostics/UGS0404/reject_function.ugs
+  s_6c9dcf457e80d9::t_ead22111bfcbd5 1-10
+specification/conformance/ugs/diagnostics/UGS0404/reject_inherited_attribute.ugs
+  s_6c9dcf457e80d9::t_a12400392fe8f5 1-12
+specification/conformance/ugs/diagnostics/UGS0404/reject_navigation.ugs
+  s_6c9dcf457e80d9::t_5d94071944163d 1-17
+specification/conformance/ugs/diagnostics/UGS0404/reject_same_relation.ugs
+  s_6c9dcf457e80d9::t_c341bbb205a157 1-10
+specification/conformance/ugs/diagnostics/UGS0405/accept_attribute.ugs
+  s_6c9dcf457e80d9::t_fd5138e03f48b1 1-17
+specification/conformance/ugs/diagnostics/UGS0405/accept_no_supertype.ugs
+  s_6c9dcf457e80d9::t_3593dd6f6fe264 1-10
+specification/conformance/ugs/diagnostics/UGS0405/accept_unknown_role.ugs
+  s_6c9dcf457e80d9::t_5eb0658b9876cd 1-16
+specification/conformance/ugs/diagnostics/UGS0405/expect.json
+  s_6c9dcf457e80d9::t_09adec58906c87 1-44
+specification/conformance/ugs/diagnostics/UGS0405/reject_attribute.ugs
+  s_6c9dcf457e80d9::t_d150e9cd5154c9 1-17
+specification/conformance/ugs/diagnostics/UGS0405/reject_no_supertype.ugs
+  s_6c9dcf457e80d9::t_b5dc35d10a26b4 1-10
+specification/conformance/ugs/diagnostics/UGS0405/reject_unknown_role.ugs
+  s_6c9dcf457e80d9::t_c8ec024b547069 1-16
+specification/conformance/ugs/diagnostics/UGS0406/accept.ugs
+  s_6c9dcf457e80d9::t_1c7061a0a9e792 1-17
+specification/conformance/ugs/diagnostics/UGS0406/expect.json
+  s_6c9dcf457e80d9::t_3e8a50069507e9 1-18
+specification/conformance/ugs/diagnostics/UGS0406/reject.ugs
+  s_6c9dcf457e80d9::t_e9d0188a25d22d 1-18
+specification/conformance/ugs/diagnostics/UGS0407/accept_optionality.ugs
+  s_6c9dcf457e80d9::t_32ffcc4824f37f 1-16
+specification/conformance/ugs/diagnostics/UGS0407/accept_set_valued.ugs
+  s_6c9dcf457e80d9::t_f002968bf4b84e 1-16
+specification/conformance/ugs/diagnostics/UGS0407/accept_unrelated.ugs
+  s_6c9dcf457e80d9::t_50663ee1a2da7d 1-17
+specification/conformance/ugs/diagnostics/UGS0407/accept_wider.ugs
+  s_6c9dcf457e80d9::t_be350d9b076f01 1-17
+specification/conformance/ugs/diagnostics/UGS0407/expect.json
+  s_6c9dcf457e80d9::t_f342bea3430ffd 1-58
+specification/conformance/ugs/diagnostics/UGS0407/reject_optionality.ugs
+  s_6c9dcf457e80d9::t_ddef80cfa03aef 1-16
+specification/conformance/ugs/diagnostics/UGS0407/reject_set_valued.ugs
+  s_6c9dcf457e80d9::t_a56c666d5e1565 1-16
+specification/conformance/ugs/diagnostics/UGS0407/reject_unrelated.ugs
+  s_6c9dcf457e80d9::t_f11d9829435c2a 1-17
+specification/conformance/ugs/diagnostics/UGS0407/reject_wider.ugs
+  s_6c9dcf457e80d9::t_34736b00ce162c 1-17
+specification/conformance/ugs/diagnostics/UGS0408/accept_not_binary.ugs
+  s_6c9dcf457e80d9::t_c357d1a2793c81 1-11
+specification/conformance/ugs/diagnostics/UGS0408/accept_two_navigations.ugs
+  s_6c9dcf457e80d9::t_524627bb78ba34 1-10
+specification/conformance/ugs/diagnostics/UGS0408/accept_two_types.ugs
+  s_6c9dcf457e80d9::t_84f745385f3972 1-11
+specification/conformance/ugs/diagnostics/UGS0408/expect.json
+  s_6c9dcf457e80d9::t_61e0ce47f594c6 1-42
+specification/conformance/ugs/diagnostics/UGS0408/reject_not_binary.ugs
+  s_6c9dcf457e80d9::t_c4094a6f38cbcd 1-12
+specification/conformance/ugs/diagnostics/UGS0408/reject_two_navigations.ugs
+  s_6c9dcf457e80d9::t_abbf4565d62b03 1-10
+specification/conformance/ugs/diagnostics/UGS0408/reject_two_types.ugs
+  s_6c9dcf457e80d9::t_ab690a506cbe6b 1-11
+specification/conformance/ugs/diagnostics/UGS0409/accept_multi_below_set.ugs
+  s_6c9dcf457e80d9::t_45192978a23927 1-12
+specification/conformance/ugs/diagnostics/UGS0409/accept_set_below_multi.ugs
+  s_6c9dcf457e80d9::t_0059d8586458d8 1-12
+specification/conformance/ugs/diagnostics/UGS0409/expect.json
+  s_6c9dcf457e80d9::t_0afd58bdf7ec2d 1-34
+specification/conformance/ugs/diagnostics/UGS0409/reject_multi_below_set.ugs
+  s_6c9dcf457e80d9::t_ac82046e79264a 1-12
+specification/conformance/ugs/diagnostics/UGS0409/reject_set_below_multi.ugs
+  s_6c9dcf457e80d9::t_e4934b6068d5fc 1-12
+specification/conformance/ugs/diagnostics/UGS0410/accept.ugs
+  s_6c9dcf457e80d9::t_fcc8529e868872 1-18
+specification/conformance/ugs/diagnostics/UGS0410/expect.json
+  s_6c9dcf457e80d9::t_8333248c7744ca 1-18
+specification/conformance/ugs/diagnostics/UGS0410/reject.ugs
+  s_6c9dcf457e80d9::t_554c44e2d4910d 1-18
+specification/conformance/ugs/diagnostics/UGS0411/accept_cardinality.ugs
+  s_6c9dcf457e80d9::t_44f2dac4fcb2d0 1-11
+specification/conformance/ugs/diagnostics/UGS0411/accept_limit.ugs
+  s_6c9dcf457e80d9::t_0e801342e00e78 1-11
+specification/conformance/ugs/diagnostics/UGS0411/expect.json
+  s_6c9dcf457e80d9::t_0c4b49b4f3133d 1-32
+specification/conformance/ugs/diagnostics/UGS0411/reject_cardinality.ugs
+  s_6c9dcf457e80d9::t_8504afd4e0633e 1-11
+specification/conformance/ugs/diagnostics/UGS0411/reject_limit.ugs
+  s_6c9dcf457e80d9::t_4d9dee8835b194 1-11
+specification/conformance/ugs/diagnostics/UGS0412/accept_entity_as_relation.ugs
+  s_6c9dcf457e80d9::t_7e67b2f59889c1 1-10
+specification/conformance/ugs/diagnostics/UGS0412/accept_enum.ugs
+  s_6c9dcf457e80d9::t_2b9bef76923b6c 1-12
+specification/conformance/ugs/diagnostics/UGS0412/accept_relation_as_entity.ugs
+  s_6c9dcf457e80d9::t_017f9e236cf224 1-15
+specification/conformance/ugs/diagnostics/UGS0412/expect.json
+  s_6c9dcf457e80d9::t_f8b9a9520a34f6 1-46
+specification/conformance/ugs/diagnostics/UGS0412/reject_entity_as_relation.ugs
+  s_6c9dcf457e80d9::t_026ffd36555bcb 1-10
+specification/conformance/ugs/diagnostics/UGS0412/reject_enum.ugs
+  s_6c9dcf457e80d9::t_91343e18b1787f 1-12
+specification/conformance/ugs/diagnostics/UGS0412/reject_relation_as_entity.ugs
+  s_6c9dcf457e80d9::t_0db09da9e7c447 1-15
+specification/conformance/ugs/diagnostics/UGS0413/accept.ugs
+  s_6c9dcf457e80d9::t_4df94dbe8889aa 1-10
+specification/conformance/ugs/diagnostics/UGS0413/expect.json
+  s_6c9dcf457e80d9::t_8bf34a7ed4c32f 1-20
+specification/conformance/ugs/diagnostics/UGS0413/reject.ugs
+  s_6c9dcf457e80d9::t_26f14b871eedd4 1-10
+specification/conformance/ugs/diagnostics/UGS0417/accept_attribute.ugs
+  s_6c9dcf457e80d9::t_5455babb54decf 1-12
+specification/conformance/ugs/diagnostics/UGS0417/accept_builtin.ugs
+  s_6c9dcf457e80d9::t_4d0d612e6a4440 1-11
+specification/conformance/ugs/diagnostics/UGS0417/accept_inherited_attribute.ugs
+  s_6c9dcf457e80d9::t_50bc747669e253 1-16
+specification/conformance/ugs/diagnostics/UGS0417/accept_role.ugs
+  s_6c9dcf457e80d9::t_5e1e0d77449945 1-10
+specification/conformance/ugs/diagnostics/UGS0417/expect.json
+  s_6c9dcf457e80d9::t_cc41e1877eedbf 1-54
+specification/conformance/ugs/diagnostics/UGS0417/reject_attribute.ugs
+  s_6c9dcf457e80d9::t_cad0f050869ca1 1-12
+specification/conformance/ugs/diagnostics/UGS0417/reject_builtin.ugs
+  s_6c9dcf457e80d9::t_b0904eb698d8f0 1-11
+specification/conformance/ugs/diagnostics/UGS0417/reject_inherited_attribute.ugs
+  s_6c9dcf457e80d9::t_045fae88b1ee20 1-16
+specification/conformance/ugs/diagnostics/UGS0417/reject_role.ugs
+  s_6c9dcf457e80d9::t_315e48dce65f76 1-10
+specification/conformance/ugs/diagnostics/UGS0418/accept_colocate.ugs
+  s_6c9dcf457e80d9::t_feca28c5e41b11 1-11
+specification/conformance/ugs/diagnostics/UGS0418/accept_first_role.ugs
+  s_6c9dcf457e80d9::t_bfce905b76e4ad 1-11
+specification/conformance/ugs/diagnostics/UGS0418/expect.json
+  s_6c9dcf457e80d9::t_5d6ca57f0d060e 1-30
+specification/conformance/ugs/diagnostics/UGS0418/reject_colocate.ugs
+  s_6c9dcf457e80d9::t_9d170264ca8206 1-11
+specification/conformance/ugs/diagnostics/UGS0418/reject_first_role.ugs
+  s_6c9dcf457e80d9::t_6a43cdae0b22b5 1-11
+specification/conformance/ugs/diagnostics/UGS0501/accept_required.ugs
+  s_6c9dcf457e80d9::t_98887c6b21c258 1-11
+specification/conformance/ugs/diagnostics/UGS0501/accept_set_valued.ugs
+  s_6c9dcf457e80d9::t_2d36e85f9c2411 1-11
+specification/conformance/ugs/diagnostics/UGS0501/expect.json
+  s_6c9dcf457e80d9::t_f74678653399a4 1-30
+specification/conformance/ugs/diagnostics/UGS0501/reject_required.ugs
+  s_6c9dcf457e80d9::t_76981fdbd10cc4 1-11
+specification/conformance/ugs/diagnostics/UGS0501/reject_set_valued.ugs
+  s_6c9dcf457e80d9::t_7720074777b186 1-11
+specification/conformance/ugs/diagnostics/UGS0502/accept_reversed.ugs
+  s_6c9dcf457e80d9::t_36b4353b849fe5 1-11
+specification/conformance/ugs/diagnostics/UGS0502/accept_zero.ugs
+  s_6c9dcf457e80d9::t_c2541d7f1799f4 1-11
+specification/conformance/ugs/diagnostics/UGS0502/expect.json
+  s_6c9dcf457e80d9::t_491e85ef2c976b 1-30
+specification/conformance/ugs/diagnostics/UGS0502/reject_reversed.ugs
+  s_6c9dcf457e80d9::t_26ecf973811f9b 1-11
+specification/conformance/ugs/diagnostics/UGS0502/reject_zero.ugs
+  s_6c9dcf457e80d9::t_024af1d247c693 1-11
+specification/conformance/ugs/diagnostics/UGS0503/accept_no_common_supertype.ugs
+  s_6c9dcf457e80d9::t_d81b8443e1831e 1-12
+specification/conformance/ugs/diagnostics/UGS0503/accept_not_binary.ugs
+  s_6c9dcf457e80d9::t_1630a655d6fff0 1-10
+specification/conformance/ugs/diagnostics/UGS0503/expect.json
+  s_6c9dcf457e80d9::t_82c4cbc89a8170 1-30
+specification/conformance/ugs/diagnostics/UGS0503/reject_no_common_supertype.ugs
+  s_6c9dcf457e80d9::t_b75cbfd8f2e955 1-12
+specification/conformance/ugs/diagnostics/UGS0503/reject_not_binary.ugs
+  s_6c9dcf457e80d9::t_ee0e8a61df9195 1-11
+specification/conformance/ugs/diagnostics/UGS0504/accept_above.ugs
+  s_6c9dcf457e80d9::t_b7221d7c586f08 1-10
+specification/conformance/ugs/diagnostics/UGS0504/accept_zero.ugs
+  s_6c9dcf457e80d9::t_c6ff5c7d5cfecf 1-10
+specification/conformance/ugs/diagnostics/UGS0504/expect.json
+  s_6c9dcf457e80d9::t_6e137744bf5098 1-30
+specification/conformance/ugs/diagnostics/UGS0504/reject_above.ugs
+  s_6c9dcf457e80d9::t_9d75908bb20989 1-10
+specification/conformance/ugs/diagnostics/UGS0504/reject_zero.ugs
+  s_6c9dcf457e80d9::t_ec045fd54f6a65 1-10
+specification/conformance/ugs/diagnostics/UGS0505/accept_aggregate.ugs
+  s_6c9dcf457e80d9::t_f715972a37ffb0 1-12
+specification/conformance/ugs/diagnostics/UGS0505/accept_not_numeric.ugs
+  s_6c9dcf457e80d9::t_ab72a8a15834bc 1-12
+specification/conformance/ugs/diagnostics/UGS0505/accept_open_range.ugs
+  s_6c9dcf457e80d9::t_e3fd9fa798dfd6 1-12
+specification/conformance/ugs/diagnostics/UGS0505/accept_unbounded.ugs
+  s_6c9dcf457e80d9::t_20df87e3ef12e5 1-12
+specification/conformance/ugs/diagnostics/UGS0505/expect.json
+  s_6c9dcf457e80d9::t_2e378e63f4aac1 1-54
+specification/conformance/ugs/diagnostics/UGS0505/reject_aggregate.ugs
+  s_6c9dcf457e80d9::t_68c3cb74710b5d 1-12
+specification/conformance/ugs/diagnostics/UGS0505/reject_not_numeric.ugs
+  s_6c9dcf457e80d9::t_d753d20fee5727 1-12
+specification/conformance/ugs/diagnostics/UGS0505/reject_open_range.ugs
+  s_6c9dcf457e80d9::t_a60053af400596 1-12
+specification/conformance/ugs/diagnostics/UGS0505/reject_unbounded.ugs
+  s_6c9dcf457e80d9::t_3ba70d9e3a1c44 1-12
+specification/conformance/ugs/diagnostics/UGS0506/accept_count_decimal.ugs
+  s_6c9dcf457e80d9::t_86368dd5c1a0f9 1-11
+specification/conformance/ugs/diagnostics/UGS0506/accept_count_string.ugs
+  s_6c9dcf457e80d9::t_c6c2972447c540 1-11
+specification/conformance/ugs/diagnostics/UGS0506/accept_sum_decimal.ugs
+  s_6c9dcf457e80d9::t_fec489f1156c9d 1-12
+specification/conformance/ugs/diagnostics/UGS0506/expect.json
+  s_6c9dcf457e80d9::t_45d94f82315b0a 1-42
+specification/conformance/ugs/diagnostics/UGS0506/reject_count_decimal.ugs
+  s_6c9dcf457e80d9::t_55fca945a1ea3d 1-11
+specification/conformance/ugs/diagnostics/UGS0506/reject_count_string.ugs
+  s_6c9dcf457e80d9::t_61057154631965 1-11
+specification/conformance/ugs/diagnostics/UGS0506/reject_sum_decimal.ugs
+  s_6c9dcf457e80d9::t_687c37aedb82fd 1-12
+specification/conformance/ugs/diagnostics/UGS0507/accept_participant_attribute.ugs
+  s_6c9dcf457e80d9::t_ef4aa3a4424151 1-12
+specification/conformance/ugs/diagnostics/UGS0507/accept_participant_navigation.ugs
+  s_6c9dcf457e80d9::t_aff1909d4876ea 1-12
+specification/conformance/ugs/diagnostics/UGS0507/expect.json
+  s_6c9dcf457e80d9::t_4bec72c2a74271 1-30
+specification/conformance/ugs/diagnostics/UGS0507/reject_participant_attribute.ugs
+  s_6c9dcf457e80d9::t_3b4e8ec4e82688 1-12
+specification/conformance/ugs/diagnostics/UGS0507/reject_participant_navigation.ugs
+  s_6c9dcf457e80d9::t_618a1b0ac0b08f 1-12
+specification/conformance/ugs/diagnostics/UGS0508/accept_acyclic_open.ugs
+  s_6c9dcf457e80d9::t_55c8fbc406a84c 1-11
+specification/conformance/ugs/diagnostics/UGS0508/accept_no_overlap.ugs
+  s_6c9dcf457e80d9::t_df56705db1c192 1-12
+specification/conformance/ugs/diagnostics/UGS0508/expect.json
+  s_6c9dcf457e80d9::t_b4371a7bf36b2d 1-30
+specification/conformance/ugs/diagnostics/UGS0508/reject_acyclic_open.ugs
+  s_6c9dcf457e80d9::t_00b8271ee69b36 1-11
+specification/conformance/ugs/diagnostics/UGS0508/reject_no_overlap.ugs
+  s_6c9dcf457e80d9::t_af1e602c712d33 1-12
+specification/conformance/ugs/diagnostics/UGS0509/accept_bitemporal_integer_interval.ugs
+  s_6c9dcf457e80d9::t_a121f20b2999e2 1-7
+specification/conformance/ugs/diagnostics/UGS0509/accept_bitemporal_not_interval.ugs
+  s_6c9dcf457e80d9::t_538cee2c882479 1-7
+specification/conformance/ugs/diagnostics/UGS0509/accept_valid_not_interval.ugs
+  s_6c9dcf457e80d9::t_4b27efe23ea6b8 1-7
+specification/conformance/ugs/diagnostics/UGS0509/expect.json
+  s_6c9dcf457e80d9::t_67b19598a35e5f 1-42
+specification/conformance/ugs/diagnostics/UGS0509/reject_bitemporal_integer_interval.ugs
+  s_6c9dcf457e80d9::t_83545651a40157 1-7
+specification/conformance/ugs/diagnostics/UGS0509/reject_bitemporal_not_interval.ugs
+  s_6c9dcf457e80d9::t_5b34ab75b5580f 1-7
+specification/conformance/ugs/diagnostics/UGS0509/reject_valid_not_interval.ugs
+  s_6c9dcf457e80d9::t_e55bfe0215a104 1-7
+specification/conformance/ugs/diagnostics/UGS0510/accept_other_attribute.ugs
+  s_6c9dcf457e80d9::t_73a743bef98aea 1-8
+specification/conformance/ugs/diagnostics/UGS0510/accept_same_attribute.ugs
+  s_6c9dcf457e80d9::t_86e66e34226804 1-7
+specification/conformance/ugs/diagnostics/UGS0510/accept_subtype.ugs
+  s_6c9dcf457e80d9::t_ceaa1b7c8358e0 1-11
+specification/conformance/ugs/diagnostics/UGS0510/expect.json
+  s_6c9dcf457e80d9::t_0f1fc68bea6d2d 1-46
+specification/conformance/ugs/diagnostics/UGS0510/reject_other_attribute.ugs
+  s_6c9dcf457e80d9::t_e606e21de13368 1-8
+specification/conformance/ugs/diagnostics/UGS0510/reject_same_attribute.ugs
+  s_6c9dcf457e80d9::t_2b274f93f6eae5 1-7
+specification/conformance/ugs/diagnostics/UGS0510/reject_subtype.ugs
+  s_6c9dcf457e80d9::t_34cc0a74d965e0 1-11
+specification/conformance/ugs/diagnostics/UGS0512/accept_ends.ugs
+  s_6c9dcf457e80d9::t_14e141794a159b 1-16
+specification/conformance/ugs/diagnostics/UGS0512/accept_ends_without_interval.ugs
+  s_6c9dcf457e80d9::t_787cc32c0aaa75 1-14
+specification/conformance/ugs/diagnostics/UGS0512/accept_retracts.ugs
+  s_6c9dcf457e80d9::t_49c612bbf1cddb 1-18
+specification/conformance/ugs/diagnostics/UGS0512/accept_retracts_union.ugs
+  s_6c9dcf457e80d9::t_175d8adcf06cde 1-18
+specification/conformance/ugs/diagnostics/UGS0512/expect.json
+  s_6c9dcf457e80d9::t_d87e3180891568 1-54
+specification/conformance/ugs/diagnostics/UGS0512/reject_ends.ugs
+  s_6c9dcf457e80d9::t_a657cc2ec53cc2 1-16
+specification/conformance/ugs/diagnostics/UGS0512/reject_ends_without_interval.ugs
+  s_6c9dcf457e80d9::t_2714037f30d172 1-13
+specification/conformance/ugs/diagnostics/UGS0512/reject_retracts.ugs
+  s_6c9dcf457e80d9::t_fb71f76a67350f 1-18
+specification/conformance/ugs/diagnostics/UGS0512/reject_retracts_union.ugs
+  s_6c9dcf457e80d9::t_7e507128e53b27 1-18
+specification/conformance/ugs/diagnostics/UGS0513/accept.ugs
+  s_6c9dcf457e80d9::t_5523875e1340d2 1-11
+specification/conformance/ugs/diagnostics/UGS0513/expect.json
+  s_6c9dcf457e80d9::t_893a138e55ead8 1-20
+specification/conformance/ugs/diagnostics/UGS0513/reject.ugs
+  s_6c9dcf457e80d9::t_e947419335c06b 1-11
+specification/conformance/ugs/diagnostics/UGS0514/accept_declared.ugs
+  s_6c9dcf457e80d9::t_0d36664b9e27b5 1-14
+specification/conformance/ugs/diagnostics/UGS0514/accept_inherited.ugs
+  s_6c9dcf457e80d9::t_23f091df99826d 1-16
+specification/conformance/ugs/diagnostics/UGS0514/expect.json
+  s_6c9dcf457e80d9::t_7b734a70921a11 1-34
+specification/conformance/ugs/diagnostics/UGS0514/reject_declared.ugs
+  s_6c9dcf457e80d9::t_6824c61ee09773 1-14
+specification/conformance/ugs/diagnostics/UGS0514/reject_inherited.ugs
+  s_6c9dcf457e80d9::t_395ed0985b9a47 1-16
+specification/conformance/ugs/diagnostics/UGS0515/accept_delete_restrict_open.ugs
+  s_6c9dcf457e80d9::t_a692cb179eb15a 1-11
+specification/conformance/ugs/diagnostics/UGS0515/accept_retract_orphan.ugs
+  s_6c9dcf457e80d9::t_ffac9c79774d2e 1-14
+specification/conformance/ugs/diagnostics/UGS0515/accept_role_twice.ugs
+  s_6c9dcf457e80d9::t_a72f4df7ad463b 1-11
+specification/conformance/ugs/diagnostics/UGS0515/accept_unknown_action.ugs
+  s_6c9dcf457e80d9::t_9c076c9b68476c 1-11
+specification/conformance/ugs/diagnostics/UGS0515/expect.json
+  s_6c9dcf457e80d9::t_4c714205bed459 1-54
+specification/conformance/ugs/diagnostics/UGS0515/reject_delete_restrict_open.ugs
+  s_6c9dcf457e80d9::t_3de8f761d53ddc 1-11
+specification/conformance/ugs/diagnostics/UGS0515/reject_retract_orphan.ugs
+  s_6c9dcf457e80d9::t_1441b1141e8841 1-14
+specification/conformance/ugs/diagnostics/UGS0515/reject_role_twice.ugs
+  s_6c9dcf457e80d9::t_045badab76bb6b 1-11
+specification/conformance/ugs/diagnostics/UGS0515/reject_unknown_action.ugs
+  s_6c9dcf457e80d9::t_fd4c0f1888a1d4 1-11
+specification/conformance/ugs/diagnostics/UGS0516/accept_on_delete.ugs
+  s_6c9dcf457e80d9::t_a634079bba6e38 1-11
+specification/conformance/ugs/diagnostics/UGS0516/accept_on_retract.ugs
+  s_6c9dcf457e80d9::t_7237ec840cf01f 1-19
+specification/conformance/ugs/diagnostics/UGS0516/expect.json
+  s_6c9dcf457e80d9::t_903dc1ce676475 1-30
+specification/conformance/ugs/diagnostics/UGS0516/reject_on_delete.ugs
+  s_6c9dcf457e80d9::t_7d2915a810f7f5 1-11
+specification/conformance/ugs/diagnostics/UGS0516/reject_on_retract.ugs
+  s_6c9dcf457e80d9::t_fa8f309be18dad 1-19
+specification/conformance/ugs/diagnostics/UGS0518/accept.ugs
+  s_6c9dcf457e80d9::t_fc8778039fbffa 1-11
+specification/conformance/ugs/diagnostics/UGS0518/expect.json
+  s_6c9dcf457e80d9::t_049657e38450c5 1-20
+specification/conformance/ugs/diagnostics/UGS0518/reject.ugs
+  s_6c9dcf457e80d9::t_2e74006ed84266 1-11
+specification/conformance/ugs/diagnostics/UGS0519/accept_cascade.ugs
+  s_6c9dcf457e80d9::t_ab8e7690d300bf 1-13
+specification/conformance/ugs/diagnostics/UGS0519/accept_orphan.ugs
+  s_6c9dcf457e80d9::t_25a7e289a2f6b6 1-13
+specification/conformance/ugs/diagnostics/UGS0519/expect.json
+  s_6c9dcf457e80d9::t_3ab9029d44af15 1-34
+specification/conformance/ugs/diagnostics/UGS0519/reject_cascade.ugs
+  s_6c9dcf457e80d9::t_3966bbb0427694 1-13
+specification/conformance/ugs/diagnostics/UGS0519/reject_orphan.ugs
+  s_6c9dcf457e80d9::t_7f2ab9b2a08c65 1-13
+specification/conformance/ugs/diagnostics/UGS0522/accept.ugs
+  s_6c9dcf457e80d9::t_6cea1ec51126f2 1-7
+specification/conformance/ugs/diagnostics/UGS0522/expect.json
+  s_6c9dcf457e80d9::t_1b2f4cba788f8d 1-18
+specification/conformance/ugs/diagnostics/UGS0522/reject.ugs
+  s_6c9dcf457e80d9::t_0f27f366148c06 1-7
+specification/conformance/ugs/diagnostics/UGS0523/accept.ugs
+  s_6c9dcf457e80d9::t_b699eb51aaada2 1-7
+specification/conformance/ugs/diagnostics/UGS0523/expect.json
+  s_6c9dcf457e80d9::t_52594fafe7fc18 1-18
+specification/conformance/ugs/diagnostics/UGS0523/reject.ugs
+  s_6c9dcf457e80d9::t_80ffb238000d3b 1-7
+specification/conformance/ugs/diagnostics/UGS0524/accept_not_vector.ugs
+  s_6c9dcf457e80d9::t_22ad2146225d89 1-7
+specification/conformance/ugs/diagnostics/UGS0524/accept_search_parameter.ugs
+  s_6c9dcf457e80d9::t_7aeeac3204f496 1-7
+specification/conformance/ugs/diagnostics/UGS0524/accept_unknown_metric.ugs
+  s_6c9dcf457e80d9::t_f2cd83470e9ef4 1-7
+specification/conformance/ugs/diagnostics/UGS0524/accept_unknown_quantization.ugs
+  s_6c9dcf457e80d9::t_1a4ea9fa77e1ac 1-7
+specification/conformance/ugs/diagnostics/UGS0524/expect.json
+  s_6c9dcf457e80d9::t_e38e7ec839ebd5 1-92
+specification/conformance/ugs/diagnostics/UGS0524/reject_not_vector.ugs
+  s_6c9dcf457e80d9::t_a822a299b6ff3e 1-7
+specification/conformance/ugs/diagnostics/UGS0524/reject_search_parameter.ugs
+  s_6c9dcf457e80d9::t_c44c1a42661e27 1-7
+specification/conformance/ugs/diagnostics/UGS0524/reject_unknown_metric.ugs
+  s_6c9dcf457e80d9::t_9af8681d889dee 1-7
+specification/conformance/ugs/diagnostics/UGS0524/reject_unknown_quantization.ugs
+  s_6c9dcf457e80d9::t_e39220a6a65d10 1-7
+specification/conformance/ugs/diagnostics/UGS0525/accept.ugs
+  s_6c9dcf457e80d9::t_a8fc22995fb9f1 1-7
+specification/conformance/ugs/diagnostics/UGS0525/expect.json
+  s_6c9dcf457e80d9::t_bd846ffe34e9d9 1-20
+specification/conformance/ugs/diagnostics/UGS0525/reject.ugs
+  s_6c9dcf457e80d9::t_3ba9fe5b85ee13 1-7
+specification/conformance/ugs/diagnostics/UGS0526/accept_geo.ugs
+  s_6c9dcf457e80d9::t_3c145669d33907 1-7
+specification/conformance/ugs/diagnostics/UGS0526/accept_list.ugs
+  s_6c9dcf457e80d9::t_910c03be99c11a 1-7
+specification/conformance/ugs/diagnostics/UGS0526/accept_record.ugs
+  s_6c9dcf457e80d9::t_f512680779c123 1-12
+specification/conformance/ugs/diagnostics/UGS0526/expect.json
+  s_6c9dcf457e80d9::t_5033cad963ce46 1-42
+specification/conformance/ugs/diagnostics/UGS0526/reject_geo.ugs
+  s_6c9dcf457e80d9::t_fbcbd370506584 1-7
+specification/conformance/ugs/diagnostics/UGS0526/reject_list.ugs
+  s_6c9dcf457e80d9::t_4a6f5bf9413df2 1-7
+specification/conformance/ugs/diagnostics/UGS0526/reject_record.ugs
+  s_6c9dcf457e80d9::t_804a180d07aa59 1-12
+specification/conformance/ugs/diagnostics/UGS0528/accept_integer_field.ugs
+  s_6c9dcf457e80d9::t_a7b9c3bd9e404a 1-7
+specification/conformance/ugs/diagnostics/UGS0528/accept_string_field.ugs
+  s_6c9dcf457e80d9::t_24dea5c86144e1 1-7
+specification/conformance/ugs/diagnostics/UGS0528/expect.json
+  s_6c9dcf457e80d9::t_cf52dd75015813 1-30
+specification/conformance/ugs/diagnostics/UGS0528/reject_integer_field.ugs
+  s_6c9dcf457e80d9::t_3cf1c259bd8435 1-7
+specification/conformance/ugs/diagnostics/UGS0528/reject_string_field.ugs
+  s_6c9dcf457e80d9::t_09683a7a5083f5 1-7
+specification/conformance/ugs/diagnostics/UGS0529/accept_equal.ugs
+  s_6c9dcf457e80d9::t_b693932f8ae4ba 1-11
+specification/conformance/ugs/diagnostics/UGS0529/accept_two_roles.ugs
+  s_6c9dcf457e80d9::t_9688e964e6e785 1-11
+specification/conformance/ugs/diagnostics/UGS0529/accept_type.ugs
+  s_6c9dcf457e80d9::t_27cabd72a37613 1-11
+specification/conformance/ugs/diagnostics/UGS0529/expect.json
+  s_6c9dcf457e80d9::t_30a8d28aea2c45 1-42
+specification/conformance/ugs/diagnostics/UGS0529/reject_equal.ugs
+  s_6c9dcf457e80d9::t_f90e72d8f4c1f7 1-11
+specification/conformance/ugs/diagnostics/UGS0529/reject_two_roles.ugs
+  s_6c9dcf457e80d9::t_dd5dc775cd38a5 1-11
+specification/conformance/ugs/diagnostics/UGS0529/reject_type.ugs
+  s_6c9dcf457e80d9::t_d89854063e8775 1-11
+specification/conformance/ugs/diagnostics/UGS0601/accept_declared_cascade.ugs
+  s_6c9dcf457e80d9::t_257205383c04ae 1-11
+specification/conformance/ugs/diagnostics/UGS0601/accept_default_cascade.ugs
+  s_6c9dcf457e80d9::t_440e17cded6864 1-11
+specification/conformance/ugs/diagnostics/UGS0601/accept_mutable_relation.ugs
+  s_6c9dcf457e80d9::t_5605e7416c25a4 1-15
+specification/conformance/ugs/diagnostics/UGS0601/accept_orphan.ugs
+  s_6c9dcf457e80d9::t_17eb3d00f6d373 1-11
+specification/conformance/ugs/diagnostics/UGS0601/accept_union_member.ugs
+  s_6c9dcf457e80d9::t_3b8418fbb1e7e8 1-12
+specification/conformance/ugs/diagnostics/UGS0601/expect.json
+  s_6c9dcf457e80d9::t_fac1e93698ca1f 1-76
+specification/conformance/ugs/diagnostics/UGS0601/reject_declared_cascade.ugs
+  s_6c9dcf457e80d9::t_99304a26a0b898 1-11
+specification/conformance/ugs/diagnostics/UGS0601/reject_default_cascade.ugs
+  s_6c9dcf457e80d9::t_7a60034f441ca3 1-11
+specification/conformance/ugs/diagnostics/UGS0601/reject_mutable_relation.ugs
+  s_6c9dcf457e80d9::t_25f3adcf21723e 1-15
+specification/conformance/ugs/diagnostics/UGS0601/reject_orphan.ugs
+  s_6c9dcf457e80d9::t_b4ea76683be1b7 1-11
+specification/conformance/ugs/diagnostics/UGS0601/reject_union_member.ugs
+  s_6c9dcf457e80d9::t_92492e95ad989e 1-12
+specification/conformance/ugs/diagnostics/UGS0602/accept_append_only_relation.ugs
+  s_6c9dcf457e80d9::t_cd1712c9b49a46 1-22
+specification/conformance/ugs/diagnostics/UGS0602/accept_mutable_entity.ugs
+  s_6c9dcf457e80d9::t_e9f1e0894c7f77 1-16
+specification/conformance/ugs/diagnostics/UGS0602/accept_union_member.ugs
+  s_6c9dcf457e80d9::t_7c9f1ff4d7fd57 1-17
+specification/conformance/ugs/diagnostics/UGS0602/expect.json
+  s_6c9dcf457e80d9::t_164a77210605bf 1-42
+specification/conformance/ugs/diagnostics/UGS0602/reject_append_only_relation.ugs
+  s_6c9dcf457e80d9::t_c7f7955dfa1b4e 1-21
+specification/conformance/ugs/diagnostics/UGS0602/reject_mutable_entity.ugs
+  s_6c9dcf457e80d9::t_3f09d4599ca4f0 1-16
+specification/conformance/ugs/diagnostics/UGS0602/reject_union_member.ugs
+  s_6c9dcf457e80d9::t_3cc18a87e31761 1-17
+specification/conformance/ugs/diagnostics/UGS0701/accept_attribute.ugs
+  s_6c9dcf457e80d9::t_2119095ea5d5b6 1-11
+specification/conformance/ugs/diagnostics/UGS0701/accept_unknown_role.ugs
+  s_6c9dcf457e80d9::t_e7cda026caef97 1-10
+specification/conformance/ugs/diagnostics/UGS0701/expect.json
+  s_6c9dcf457e80d9::t_4f0ace404ac0a0 1-52
+specification/conformance/ugs/diagnostics/UGS0701/reject_attribute.ugs
+  s_6c9dcf457e80d9::t_abb3574faa114e 1-11
+specification/conformance/ugs/diagnostics/UGS0701/reject_unknown_role.ugs
+  s_6c9dcf457e80d9::t_4fba8dd1866344 1-10
+specification/conformance/ugs/diagnostics/UGS0702/accept.ugs
+  s_6c9dcf457e80d9::t_fd828f7602463e 1-11
+specification/conformance/ugs/diagnostics/UGS0702/expect.json
+  s_6c9dcf457e80d9::t_e7a8beb8e66842 1-37
+specification/conformance/ugs/diagnostics/UGS0702/reject.ugs
+  s_6c9dcf457e80d9::t_54f718b80ededb 1-11
+specification/conformance/ugs/diagnostics/UGS0704/accept_reverse_step.ugs
+  s_6c9dcf457e80d9::t_7f31b5c679fec7 1-12
+specification/conformance/ugs/diagnostics/UGS0704/accept_second_step.ugs
+  s_6c9dcf457e80d9::t_a0c1acd9251b09 1-12
+specification/conformance/ugs/diagnostics/UGS0704/expect.json
+  s_6c9dcf457e80d9::t_21ab3df1eefaa9 1-70
+specification/conformance/ugs/diagnostics/UGS0704/reject_reverse_step.ugs
+  s_6c9dcf457e80d9::t_e08f2588f7b819 1-12
+specification/conformance/ugs/diagnostics/UGS0704/reject_second_step.ugs
+  s_6c9dcf457e80d9::t_5c49bda8dac7e6 1-12
+specification/conformance/ugs/diagnostics/UGS0801/accept_interval_bound.ugs
+  s_6c9dcf457e80d9::t_01b5623bdf466a 1-10
+specification/conformance/ugs/diagnostics/UGS0801/accept_navigation.ugs
+  s_6c9dcf457e80d9::t_704350c0722f83 1-12
+specification/conformance/ugs/diagnostics/UGS0801/expect.json
+  s_6c9dcf457e80d9::t_90e687895d5398 1-52
+specification/conformance/ugs/diagnostics/UGS0801/reject_interval_bound.ugs
+  s_6c9dcf457e80d9::t_b697202b01b296 1-10
+specification/conformance/ugs/diagnostics/UGS0801/reject_navigation.ugs
+  s_6c9dcf457e80d9::t_918e6bde5dd6b3 1-12
+specification/conformance/ugs/diagnostics/UGS0802/accept.ugs
+  s_6c9dcf457e80d9::t_80b0ef9c4b2a6f 1-10
+specification/conformance/ugs/diagnostics/UGS0802/expect.json
+  s_6c9dcf457e80d9::t_3646b44d08db64 1-31
+specification/conformance/ugs/diagnostics/UGS0802/reject.ugs
+  s_6c9dcf457e80d9::t_09f6739af7fe8e 1-10
+specification/conformance/ugs/diagnostics/UGS0802/shared.ugs
+  s_6c9dcf457e80d9::t_ae4c432fb1684e 1-5
+specification/conformance/ugs/diagnostics/UGS0803/accept_local_part.ugs
+  s_6c9dcf457e80d9::t_15b790cc5f1ba1 1-8
+specification/conformance/ugs/diagnostics/UGS0803/accept_relative_iri.ugs
+  s_6c9dcf457e80d9::t_e3cdab88ee56c3 1-7
+specification/conformance/ugs/diagnostics/UGS0803/expect.json
+  s_6c9dcf457e80d9::t_8a3a1a5fe3cde4 1-52
+specification/conformance/ugs/diagnostics/UGS0803/reject_local_part.ugs
+  s_6c9dcf457e80d9::t_4b03dbc38f403f 1-8
+specification/conformance/ugs/diagnostics/UGS0803/reject_relative_iri.ugs
+  s_6c9dcf457e80d9::t_11a9ef8ee81a2f 1-7
+specification/conformance/ugs/diagnostics/UGS0804/accept_before_brace.ugs
+  s_6c9dcf457e80d9::t_13501c7f3264ab 1-8
+specification/conformance/ugs/diagnostics/UGS0804/accept_before_prefix.ugs
+  s_6c9dcf457e80d9::t_e25e5e761cf0dc 1-6
+specification/conformance/ugs/diagnostics/UGS0804/expect.json
+  s_6c9dcf457e80d9::t_25b81215a074f2 1-68
+specification/conformance/ugs/diagnostics/UGS0804/reject_before_brace.ugs
+  s_6c9dcf457e80d9::t_fdc543171d9411 1-8
+specification/conformance/ugs/diagnostics/UGS0804/reject_before_prefix.ugs
+  s_6c9dcf457e80d9::t_14ad0c13b7acd1 1-6
+specification/conformance/ugs/diagnostics/UGS0805/accept_attribute.ugs
+  s_6c9dcf457e80d9::t_0266b162ddcb0f 1-7
+specification/conformance/ugs/diagnostics/UGS0805/accept_type.ugs
+  s_6c9dcf457e80d9::t_473d993fabaa9c 1-5
+specification/conformance/ugs/diagnostics/UGS0805/expect.json
+  s_6c9dcf457e80d9::t_fb9dd57570d21f 1-68
+specification/conformance/ugs/diagnostics/UGS0805/reject_attribute.ugs
+  s_6c9dcf457e80d9::t_b38b9eaf8de232 1-7
+specification/conformance/ugs/diagnostics/UGS0805/reject_type.ugs
+  s_6c9dcf457e80d9::t_0ff98f574f4365 1-5
+specification/conformance/ugs/diagnostics/UGS0806/accept_module.ugs
+  s_6c9dcf457e80d9::t_41bbbd1acaee2f 1-5
+specification/conformance/ugs/diagnostics/UGS0806/core.ugs
+  s_6c9dcf457e80d9::t_ed2c0a34547c03 1-6
+specification/conformance/ugs/diagnostics/UGS0806/expect.json
+  s_6c9dcf457e80d9::t_558d3cafbd7e8e 1-39
+specification/conformance/ugs/diagnostics/UGS0806/reject_module.ugs
+  s_6c9dcf457e80d9::t_502b2b7e57d52c 1-5
+specification/conformance/ugs/diagnostics/UGS0807/accept.ugs
+  s_6c9dcf457e80d9::t_7dd7152d61b040 1-7
+specification/conformance/ugs/diagnostics/UGS0807/expect.json
+  s_6c9dcf457e80d9::t_f2e02cebc19066 1-37
+specification/conformance/ugs/diagnostics/UGS0807/reject.ugs
+  s_6c9dcf457e80d9::t_f9611fecdad2bc 1-7
+specification/conformance/ugs/diagnostics/UGS0901/bitemporal.ugs
+  s_6c9dcf457e80d9::t_1e99fc6ac9eaac 1-8
+specification/conformance/ugs/diagnostics/UGS0901/expect.json
+  s_6c9dcf457e80d9::t_45683633bb795d 1-85
+specification/conformance/ugs/diagnostics/UGS0901/keyed_entity.ugs
+  s_6c9dcf457e80d9::t_d3fb620825251e 1-8
+specification/conformance/ugs/diagnostics/UGS0901/relation.ugs
+  s_6c9dcf457e80d9::t_615070b4074104 1-11
+specification/conformance/ugs/diagnostics/UGS0901/role_change.ugs
+  s_6c9dcf457e80d9::t_989755a34db56a 1-13
+specification/conformance/ugs/diagnostics/UGS0901/unique_attribute.ugs
+  s_6c9dcf457e80d9::t_65ddc9804dfe37 1-8
+specification/conformance/ugs/diagnostics/UGS0902/accept_ann_index.ugs
+  s_6c9dcf457e80d9::t_53e921405bd2a9 1-7
+specification/conformance/ugs/diagnostics/UGS0902/accept_function.ugs
+  s_6c9dcf457e80d9::t_e53088435bdf02 1-7
+specification/conformance/ugs/diagnostics/UGS0902/accept_virtual_derivation.ugs
+  s_6c9dcf457e80d9::t_d1f02bf0cd4f11 1-12
+specification/conformance/ugs/diagnostics/UGS0902/expect.json
+  s_6c9dcf457e80d9::t_b816f1b4b6ffd4 1-75
+specification/conformance/ugs/diagnostics/UGS0902/reject_ann_index.ugs
+  s_6c9dcf457e80d9::t_d4fa043a5baef1 1-7
+specification/conformance/ugs/diagnostics/UGS0902/reject_function.ugs
+  s_6c9dcf457e80d9::t_9b84507e3561a8 1-9
+specification/conformance/ugs/diagnostics/UGS0902/reject_virtual_derivation.ugs
+  s_6c9dcf457e80d9::t_c431f358c03fed 1-12
+specification/conformance/ugs/diagnostics/UGS0903/accept.ugs
+  s_6c9dcf457e80d9::t_1efc7f58b039d4 1-10
+specification/conformance/ugs/diagnostics/UGS0903/expect.json
+  s_6c9dcf457e80d9::t_64e777f9aca110 1-37
+specification/conformance/ugs/diagnostics/UGS0903/reject.ugs
+  s_6c9dcf457e80d9::t_ece174ed6c86dc 1-10
+specification/conformance/ugs/diagnostics/UGS0904/accept.ugs
+  s_6c9dcf457e80d9::t_0800dec9a6f184 1-10
+specification/conformance/ugs/diagnostics/UGS0904/expect.json
+  s_6c9dcf457e80d9::t_f25d724742545b 1-29
+specification/conformance/ugs/diagnostics/UGS0904/reject.ugs
+  s_6c9dcf457e80d9::t_bb28d48db77487 1-10
+specification/conformance/ugs/diagnostics/UGS0905/derivation.ugs
+  s_6c9dcf457e80d9::t_e58cfdeafc08b2 1-11
+specification/conformance/ugs/diagnostics/UGS0905/expect.json
+  s_6c9dcf457e80d9::t_be75a3ca136d76 1-46
+specification/conformance/ugs/diagnostics/UGS0905/navigation.ugs
+  s_6c9dcf457e80d9::t_d29ec59f311a63 1-9
+specification/conformance/ugs/diagnostics/UGS0906/expect.json
+  s_6c9dcf457e80d9::t_eaa0c03d19115c 1-52
+specification/conformance/ugs/diagnostics/UGS0906/ranks.ugs
+  s_6c9dcf457e80d9::t_e12a17cd871a86 1-19
+specification/conformance/ugs/diagnostics/UGS0906/top_ten.ugs
+  s_6c9dcf457e80d9::t_a28fcbe9b8ec79 1-15
+specification/conformance/ugs/diagnostics/UGS2005/accept_abstract.ugs
+  s_6c9dcf457e80d9::t_5a9397abc3f03a 1-5
+specification/conformance/ugs/diagnostics/UGS2005/accept_two_types.ugs
+  s_6c9dcf457e80d9::t_96f2777da5f187 1-5
+specification/conformance/ugs/diagnostics/UGS2005/core.ugs
+  s_6c9dcf457e80d9::t_7db901ba4a6592 1-5
+specification/conformance/ugs/diagnostics/UGS2005/expect.json
+  s_6c9dcf457e80d9::t_051ad1224ec570 1-88
+specification/conformance/ugs/diagnostics/UGS2005/reject_abstract.ugs
+  s_6c9dcf457e80d9::t_4f1f3e17938d39 1-6
+specification/conformance/ugs/diagnostics/UGS2005/reject_module.ugs
+  s_6c9dcf457e80d9::t_48704faefb241a 1-5
+specification/conformance/ugs/diagnostics/UGS2005/reject_two_types.ugs
+  s_6c9dcf457e80d9::t_d14cd8b2db37d7 1-6
+specification/conformance/ugs/valid/access/access.ugs
+  s_6c9dcf457e80d9::t_d9c364a0ac7c37 1-11
+specification/conformance/ugs/valid/access/expect.json
+  s_6c9dcf457e80d9::t_23c824fc5b98cb 1-25
+specification/conformance/ugs/valid/acyclic/acyclic.ugs
+  s_6c9dcf457e80d9::t_61e4c610eed546 1-10
+specification/conformance/ugs/valid/acyclic/expect.json
+  s_6c9dcf457e80d9::t_42f6f26aafd8e1 1-24
+specification/conformance/ugs/valid/append-only/append_only.ugs
+  s_6c9dcf457e80d9::t_b058e9f25a753a 1-12
+specification/conformance/ugs/valid/append-only/expect.json
+  s_6c9dcf457e80d9::t_039b1458555900 1-20
+specification/conformance/ugs/valid/attribute-iri/attribute_iris.ugs
+  s_6c9dcf457e80d9::t_8e84d24fe69ca6 1-7
+specification/conformance/ugs/valid/attribute-iri/expect.json
+  s_6c9dcf457e80d9::t_f65a6d1e08b6b0 1-19
+specification/conformance/ugs/valid/aviation/aviation.ugs
+  s_6c9dcf457e80d9::t_06bd4c2746abf5 1-75
+specification/conformance/ugs/valid/aviation/expect.json
+  s_6c9dcf457e80d9::t_30b5eef86013ea 1-205
+specification/conformance/ugs/valid/bitemporal/bitemporal.ugs
+  s_6c9dcf457e80d9::t_8b892a2dfad1e5 1-8
+specification/conformance/ugs/valid/bitemporal/expect.json
+  s_6c9dcf457e80d9::t_b347fe33073c14 1-20
+specification/conformance/ugs/valid/cardinality-at-least-one/cardinality_at_least_one.ugs
+  s_6c9dcf457e80d9::t_eca6d224e78d39 1-11
+specification/conformance/ugs/valid/cardinality-at-least-one/expect.json
+  s_6c9dcf457e80d9::t_a709eac4ab7961 1-27
+specification/conformance/ugs/valid/cardinality-at-most-one/cardinality_at_most_one.ugs
+  s_6c9dcf457e80d9::t_29d02a0e1a8a6e 1-11
+specification/conformance/ugs/valid/cardinality-at-most-one/expect.json
+  s_6c9dcf457e80d9::t_a36508efba98bb 1-27
+specification/conformance/ugs/valid/cardinality-range/cardinality_range.ugs
+  s_6c9dcf457e80d9::t_99d9c22586c13b 1-11
+specification/conformance/ugs/valid/cardinality-range/expect.json
+  s_6c9dcf457e80d9::t_1606ad05f33ae0 1-27
+specification/conformance/ugs/valid/catalog-type/catalog_types.ugs
+  s_6c9dcf457e80d9::t_6f11cefe354e5c 1-16
+specification/conformance/ugs/valid/catalog-type/expect.json
+  s_6c9dcf457e80d9::t_27b580bab83f24 1-26
+specification/conformance/ugs/valid/check/checks.ugs
+  s_6c9dcf457e80d9::t_9cc2ca35246425 1-9
+specification/conformance/ugs/valid/check/expect.json
+  s_6c9dcf457e80d9::t_f85df906457ee3 1-21
+specification/conformance/ugs/valid/colocate/colocate.ugs
+  s_6c9dcf457e80d9::t_85a07b4bf042aa 1-11
+specification/conformance/ugs/valid/colocate/expect.json
+  s_6c9dcf457e80d9::t_93b18af79f88e6 1-27
+specification/conformance/ugs/valid/comments/comments.ugs
+  s_6c9dcf457e80d9::t_78d05973e99739 1-11
+specification/conformance/ugs/valid/comments/expect.json
+  s_6c9dcf457e80d9::t_c7f41001d8194a 1-19
+specification/conformance/ugs/valid/composite-key/composite_keys.ugs
+  s_6c9dcf457e80d9::t_4a4da85c60c0ff 1-9
+specification/conformance/ugs/valid/composite-key/expect.json
+  s_6c9dcf457e80d9::t_dd04f96b91482c 1-18
+specification/conformance/ugs/valid/default/defaults.ugs
+  s_6c9dcf457e80d9::t_e5b3024b27b08c 1-9
+specification/conformance/ugs/valid/default/expect.json
+  s_6c9dcf457e80d9::t_0cfd1c093b8257 1-21
+specification/conformance/ugs/valid/deprecated/deprecations.ugs
+  s_6c9dcf457e80d9::t_46d94d227f1043 1-8
+specification/conformance/ugs/valid/deprecated/expect.json
+  s_6c9dcf457e80d9::t_1f0c5554468791 1-20
+specification/conformance/ugs/valid/derive-computed/derive_computed.ugs
+  s_6c9dcf457e80d9::t_6f56ca6da8884c 1-10
+specification/conformance/ugs/valid/derive-computed/expect.json
+  s_6c9dcf457e80d9::t_c29739c85e6b4a 1-20
+specification/conformance/ugs/valid/derive-materialized/derive_materialized.ugs
+  s_6c9dcf457e80d9::t_5455fb726c0077 1-13
+specification/conformance/ugs/valid/derive-materialized/expect.json
+  s_6c9dcf457e80d9::t_f507d65ce08c49 1-25
+specification/conformance/ugs/valid/derive-virtual/derive_virtual.ugs
+  s_6c9dcf457e80d9::t_9fa72862057dc0 1-13
+specification/conformance/ugs/valid/derive-virtual/expect.json
+  s_6c9dcf457e80d9::t_9c8b04a94849c3 1-37
+specification/conformance/ugs/valid/ends/ends.ugs
+  s_6c9dcf457e80d9::t_17ad6118bb1137 1-13
+specification/conformance/ugs/valid/ends/expect.json
+  s_6c9dcf457e80d9::t_00855bd402321b 1-24
+specification/conformance/ugs/valid/entity-inheritance/entity_inheritance.ugs
+  s_6c9dcf457e80d9::t_71c5fb615dda2e 1-15
+specification/conformance/ugs/valid/entity-inheritance/expect.json
+  s_6c9dcf457e80d9::t_366feed3e5d546 1-27
+specification/conformance/ugs/valid/entity/entity_basic.ugs
+  s_6c9dcf457e80d9::t_ed3bda8098b66b 1-7
+specification/conformance/ugs/valid/entity/expect.json
+  s_6c9dcf457e80d9::t_17f0babbff102a 1-19
+specification/conformance/ugs/valid/enum/enums.ugs
+  s_6c9dcf457e80d9::t_07f72b745b84e8 1-9
+specification/conformance/ugs/valid/enum/expect.json
+  s_6c9dcf457e80d9::t_d19aa6cc7d87f9 1-19
+specification/conformance/ugs/valid/function/expect.json
+  s_6c9dcf457e80d9::t_d0fd0d717a00db 1-40
+specification/conformance/ugs/valid/function/functions.ugs
+  s_6c9dcf457e80d9::t_86d46866285cc1 1-10
+specification/conformance/ugs/valid/gen5/expect.json
+  s_6c9dcf457e80d9::t_8f1c6366d5febd 1-2090
+specification/conformance/ugs/valid/geo/expect.json
+  s_6c9dcf457e80d9::t_9554577fa47702 1-19
+specification/conformance/ugs/valid/geo/geometry.ugs
+  s_6c9dcf457e80d9::t_fe605b8037c8a2 1-7
+specification/conformance/ugs/valid/graph/expect.json
+  s_6c9dcf457e80d9::t_b9b21cfafb1e5c 1-19
+specification/conformance/ugs/valid/graph/graphs.ugs
+  s_6c9dcf457e80d9::t_f586cb0ea4c23a 1-10
+specification/conformance/ugs/valid/immutable/expect.json
+  s_6c9dcf457e80d9::t_52d50dcf0ad0f1 1-20
+specification/conformance/ugs/valid/immutable/immutables.ugs
+  s_6c9dcf457e80d9::t_712d8aa2703b0e 1-8
+specification/conformance/ugs/valid/import-schema/app.ugs
+  s_6c9dcf457e80d9::t_9c50a6c874eacd 1-13
+specification/conformance/ugs/valid/import-schema/core.ugs
+  s_6c9dcf457e80d9::t_2f81dc603bdc88 1-7
+specification/conformance/ugs/valid/import-schema/expect.json
+  s_6c9dcf457e80d9::t_b43ff7b18bc810 1-28
+specification/conformance/ugs/valid/index-ann/expect.json
+  s_6c9dcf457e80d9::t_0c246c7ea072b4 1-30
+specification/conformance/ugs/valid/index-ann/index_ann.ugs
+  s_6c9dcf457e80d9::t_cb2ccedea6a649 1-7
+specification/conformance/ugs/valid/index-fulltext/expect.json
+  s_6c9dcf457e80d9::t_483b8fd6c0f231 1-22
+specification/conformance/ugs/valid/index-fulltext/index_fulltext.ugs
+  s_6c9dcf457e80d9::t_8cf2f42fe986e5 1-7
+specification/conformance/ugs/valid/index-geo/expect.json
+  s_6c9dcf457e80d9::t_d1f414f59ec198 1-22
+specification/conformance/ugs/valid/index-geo/index_geo.ugs
+  s_6c9dcf457e80d9::t_f899adcca91faf 1-7
+specification/conformance/ugs/valid/index-interval/expect.json
+  s_6c9dcf457e80d9::t_c6a63f1f994b6b 1-22
+specification/conformance/ugs/valid/index-interval/index_interval.ugs
+  s_6c9dcf457e80d9::t_965b9f6671f118 1-7
+specification/conformance/ugs/valid/index-range/expect.json
+  s_6c9dcf457e80d9::t_f51d01bdc5d627 1-24
+specification/conformance/ugs/valid/index-range/index_range.ugs
+  s_6c9dcf457e80d9::t_c1ee0d9e709e15 1-8
+specification/conformance/ugs/valid/interval/expect.json
+  s_6c9dcf457e80d9::t_850640cb7ec2b1 1-21
+specification/conformance/ugs/valid/interval/intervals.ugs
+  s_6c9dcf457e80d9::t_c22349fde84a1d 1-9
+specification/conformance/ugs/valid/iri-template/expect.json
+  s_6c9dcf457e80d9::t_7021476d5507d1 1-18
+specification/conformance/ugs/valid/iri-template/iri_templates.ugs
+  s_6c9dcf457e80d9::t_cf3614fd81644e 1-7
+specification/conformance/ugs/valid/key/expect.json
+  s_6c9dcf457e80d9::t_c7ed0d9bef7bde 1-19
+specification/conformance/ugs/valid/key/keys.ugs
+  s_6c9dcf457e80d9::t_1ceacf3f9cea76 1-8
+specification/conformance/ugs/valid/limit/expect.json
+  s_6c9dcf457e80d9::t_c5dbe6f5ffb421 1-26
+specification/conformance/ugs/valid/limit/limits.ugs
+  s_6c9dcf457e80d9::t_6575050e65f499 1-12
+specification/conformance/ugs/valid/list-set/collections.ugs
+  s_6c9dcf457e80d9::t_fb02d687e3b507 1-8
+specification/conformance/ugs/valid/list-set/expect.json
+  s_6c9dcf457e80d9::t_8ed4926b6da91a 1-20
+specification/conformance/ugs/valid/literals/expect.json
+  s_6c9dcf457e80d9::t_1646274b521823 1-32
+specification/conformance/ugs/valid/literals/literals.ugs
+  s_6c9dcf457e80d9::t_31ccfaaaf2b8a8 1-20
+specification/conformance/ugs/valid/maps-to/expect.json
+  s_6c9dcf457e80d9::t_2db2c25d546e2a 1-20
+specification/conformance/ugs/valid/maps-to/maps_to.ugs
+  s_6c9dcf457e80d9::t_054b93d2c1ef3b 1-9
+specification/conformance/ugs/valid/measure/expect.json
+  s_6c9dcf457e80d9::t_ea53b22e359004 1-22
+specification/conformance/ugs/valid/measure/measures.ugs
+  s_6c9dcf457e80d9::t_e93cd78cc3f157 1-14
+specification/conformance/ugs/valid/modules/arrears.ugs
+  s_6c9dcf457e80d9::t_564e796789bbf2 1-10
+specification/conformance/ugs/valid/modules/audio.ugs
+  s_6c9dcf457e80d9::t_39c2928097ba1d 1-11
+specification/conformance/ugs/valid/modules/expect.json
+  s_6c9dcf457e80d9::t_a81c52406a09f9 1-59
+specification/conformance/ugs/valid/modules/library.ugs
+  s_6c9dcf457e80d9::t_baa81b28c4c35c 1-31
+specification/conformance/ugs/valid/modules/loans.ugs
+  s_6c9dcf457e80d9::t_6a51d9983a04b4 1-14
+specification/conformance/ugs/valid/multi/expect.json
+  s_6c9dcf457e80d9::t_390a0378463733 1-25
+specification/conformance/ugs/valid/multi/multi_semantics.ugs
+  s_6c9dcf457e80d9::t_390e7ed29e1c82 1-11
+specification/conformance/ugs/valid/named-attribute-type/expect.json
+  s_6c9dcf457e80d9::t_cfd98516805446 1-22
+specification/conformance/ugs/valid/named-attribute-type/named_types.ugs
+  s_6c9dcf457e80d9::t_1b46a9b2dc64fe 1-9
+specification/conformance/ugs/valid/no-overlap/expect.json
+  s_6c9dcf457e80d9::t_4ec77057cd5cc3 1-26
+specification/conformance/ugs/valid/no-overlap/no_overlap.ugs
+  s_6c9dcf457e80d9::t_8f73cbfb75c39e 1-12
+specification/conformance/ugs/valid/on-delete/expect.json
+  s_6c9dcf457e80d9::t_018db9a6bc167a 1-26
+specification/conformance/ugs/valid/on-delete/on_delete.ugs
+  s_6c9dcf457e80d9::t_daa0c68d7ea7b3 1-11
+specification/conformance/ugs/valid/on-retract/expect.json
+  s_6c9dcf457e80d9::t_222cc69afa2ce0 1-28
+specification/conformance/ugs/valid/on-retract/on_retract.ugs
+  s_6c9dcf457e80d9::t_d0d98126d1a658 1-17
+specification/conformance/ugs/valid/open-enum/expect.json
+  s_6c9dcf457e80d9::t_ab5c66a6e2f57b 1-19
+specification/conformance/ugs/valid/open-enum/open_enum.ugs
+  s_6c9dcf457e80d9::t_ce10c8cb37fab0 1-9
+specification/conformance/ugs/valid/open-schema/expect.json
+  s_6c9dcf457e80d9::t_9a2fbebde18ec9 1-19
+specification/conformance/ugs/valid/open-schema/open_schema.ugs
+  s_6c9dcf457e80d9::t_1195b7009a8c7e 1-7
+specification/conformance/ugs/valid/open-type/expect.json
+  s_6c9dcf457e80d9::t_9cf81720b136dc 1-19
+specification/conformance/ugs/valid/open-type/open_type.ugs
+  s_6c9dcf457e80d9::t_f8dbe643e46a6b 1-7
+specification/conformance/ugs/valid/pattern/expect.json
+  s_6c9dcf457e80d9::t_b51dbab3ffcc0f 1-19
+specification/conformance/ugs/valid/pattern/patterns.ugs
+  s_6c9dcf457e80d9::t_9e9a0e1b443022 1-7
+specification/conformance/ugs/valid/range/expect.json
+  s_6c9dcf457e80d9::t_d2197af0831617 1-20
+specification/conformance/ugs/valid/range/ranges.ugs
+  s_6c9dcf457e80d9::t_0482da12c854b0 1-8
+specification/conformance/ugs/valid/record/expect.json
+  s_6c9dcf457e80d9::t_fdb0379d6d169f 1-20
+specification/conformance/ugs/valid/record/records.ugs
+  s_6c9dcf457e80d9::t_567649123d25e5 1-14
+specification/conformance/ugs/valid/relation-attribute/expect.json
+  s_6c9dcf457e80d9::t_4e1a74000c9be9 1-26
+specification/conformance/ugs/valid/relation-attribute/relation_attribute.ugs
+  s_6c9dcf457e80d9::t_02ff70b4944252 1-12
+specification/conformance/ugs/valid/relation-binary/expect.json
+  s_6c9dcf457e80d9::t_c8864a5a2b3a49 1-25
+specification/conformance/ugs/valid/relation-binary/relation_binary.ugs
+  s_6c9dcf457e80d9::t_55a1fbee3a2698 1-11
+specification/conformance/ugs/valid/relation-inheritance/expect.json
+  s_6c9dcf457e80d9::t_05fc77e89fa48a 1-30
+specification/conformance/ugs/valid/relation-inheritance/relation_inheritance.ugs
+  s_6c9dcf457e80d9::t_b2633e0c239a74 1-18
+specification/conformance/ugs/valid/relation-key/expect.json
+  s_6c9dcf457e80d9::t_891c213daf5457 1-26
+specification/conformance/ugs/valid/relation-key/relation_key.ugs
+  s_6c9dcf457e80d9::t_a66205e09e7935 1-12
+specification/conformance/ugs/valid/relation-nary/expect.json
+  s_6c9dcf457e80d9::t_8fd8a46770345f 1-29
+specification/conformance/ugs/valid/relation-nary/relation_nary.ugs
+  s_6c9dcf457e80d9::t_b9b8ad66170ec4 1-13
+specification/conformance/ugs/valid/relation-over-relation/expect.json
+  s_6c9dcf457e80d9::t_2bef17a671d6ca 1-29
+specification/conformance/ugs/valid/relation-over-relation/relation_over_relation.ugs
+  s_6c9dcf457e80d9::t_fd343c515db967 1-16
+specification/conformance/ugs/valid/required-optional/expect.json
+  s_6c9dcf457e80d9::t_100f85284032b5 1-20
+specification/conformance/ugs/valid/required-optional/required_optional.ugs
+  s_6c9dcf457e80d9::t_ba34e0b32df390 1-8
+specification/conformance/ugs/valid/retracts/expect.json
+  s_6c9dcf457e80d9::t_2104527b6454ee 1-24
+specification/conformance/ugs/valid/retracts/retracts.ugs
+  s_6c9dcf457e80d9::t_65da466e93483c 1-13
+specification/conformance/ugs/valid/role-optional/expect.json
+  s_6c9dcf457e80d9::t_115566f1380958 1-26
+specification/conformance/ugs/valid/role-optional/role_optional.ugs
+  s_6c9dcf457e80d9::t_8c57a43db94a31 1-11
+specification/conformance/ugs/valid/role-set-valued/expect.json
+  s_6c9dcf457e80d9::t_c741847dd48969 1-26
+specification/conformance/ugs/valid/role-set-valued/role_set_valued.ugs
+  s_6c9dcf457e80d9::t_8da9b6c346e079 1-11
+specification/conformance/ugs/valid/role-union/expect.json
+  s_6c9dcf457e80d9::t_de98e5741814ca 1-29
+specification/conformance/ugs/valid/role-union/role_union.ugs
+  s_6c9dcf457e80d9::t_730cfb31ff3290 1-12
+specification/conformance/ugs/valid/scalar-types/expect.json
+  s_6c9dcf457e80d9::t_cdbabe0252d55b 1-40
+specification/conformance/ugs/valid/scalar-types/scalar_types.ugs
+  s_6c9dcf457e80d9::t_c624ad68e8e5d4 1-28
+specification/conformance/ugs/valid/schema-header/expect.json
+  s_6c9dcf457e80d9::t_09a2fc8003ae8e 1-19
+specification/conformance/ugs/valid/schema-header/schema_header.ugs
+  s_6c9dcf457e80d9::t_26a2cd1bddc843 1-8
+specification/conformance/ugs/valid/set/expect.json
+  s_6c9dcf457e80d9::t_51ca32b0b0c510 1-25
+specification/conformance/ugs/valid/set/set_semantics.ugs
+  s_6c9dcf457e80d9::t_9088405c0a6db3 1-11
+specification/conformance/ugs/valid/statement/expect.json
+  s_6c9dcf457e80d9::t_6e5e52e250891f 1-26
+specification/conformance/ugs/valid/statement/statement_types.ugs
+  s_6c9dcf457e80d9::t_cbc3308979257e 1-16
+specification/conformance/ugs/valid/symmetric/expect.json
+  s_6c9dcf457e80d9::t_78a745f08baea6 1-22
+specification/conformance/ugs/valid/symmetric/symmetric.ugs
+  s_6c9dcf457e80d9::t_6b0243f2827372 1-10
+specification/conformance/ugs/valid/unique/expect.json
+  s_6c9dcf457e80d9::t_f6c7fb711299eb 1-19
+specification/conformance/ugs/valid/unique/uniques.ugs
+  s_6c9dcf457e80d9::t_75a00eaa0ee9c9 1-7
+specification/conformance/ugs/valid/valid/expect.json
+  s_6c9dcf457e80d9::t_4714880e284e2e 1-19
+specification/conformance/ugs/valid/valid/valid_time.ugs
+  s_6c9dcf457e80d9::t_23846cbb4bc83b 1-7
+specification/conformance/ugs/valid/values/expect.json
+  s_6c9dcf457e80d9::t_155636c1322789 1-19
+specification/conformance/ugs/valid/values/value_lists.ugs
+  s_6c9dcf457e80d9::t_ddce2f32add5b0 1-7
+specification/conformance/ugs/valid/vector/expect.json
+  s_6c9dcf457e80d9::t_e211b56f2080c0 1-20
+specification/conformance/ugs/valid/vector/vectors.ugs
+  s_6c9dcf457e80d9::t_0ade5a66dbc669 1-8
+specification/query/QUERY-SPARQL-CORE.md
+  s_6c9dcf457e80d9::t_89f5447e0bea42 287-290,294-300,561
+specification/schema/CATALOG.md
+  s_6c9dcf457e80d9::t_032dcc4b5e15b9 58,491-514,524-525,528-529
+specification/schema/SCHEMA-APG.md
+  s_6c9dcf457e80d9::t_5f4c5e07c438df 950-954
+ultragraphdb/ultragraphdb_tests/testdata/apg/MANIFEST
+  s_6c9dcf457e80d9::t_4ebf38034beb73 1,3,5,7,9,11,13-14,16-17,19-20
+ultragraphdb/ultragraphdb_tests/testdata/apg/aviation/0.write.nq
+  s_6c9dcf457e80d9::t_91799e517594fb 1-50
+ultragraphdb/ultragraphdb_tests/testdata/apg/aviation/1.write.nq
+  s_6c9dcf457e80d9::t_dc12c80535b628 1-95
+ultragraphdb/ultragraphdb_tests/testdata/apg/aviation/2.write.nq
+  s_6c9dcf457e80d9::t_c3c70607b6d78a 1-140
+ultragraphdb/ultragraphdb_tests/testdata/apg/aviation/3.write.nq
+  s_6c9dcf457e80d9::t_5628ea389a553b 1-185
+ultragraphdb/ultragraphdb_tests/testdata/apg/gen5/0.nq
+  s_6c9dcf457e80d9::t_db1c320955f5a9 1-198
+ultragraphdb/ultragraphdb_tests/testdata/apg/gen5/0.write.nq
+  s_6c9dcf457e80d9::t_cfaa3baa038be5 1-107
+ultragraphdb/ultragraphdb_tests/testdata/apg/gen5/1.nq
+  s_6c9dcf457e80d9::t_3e55e9e057489a 1-284
+ultragraphdb/ultragraphdb_tests/testdata/apg/gen5/1.retract
+  s_6c9dcf457e80d9::t_74df7489b8efc0 1
+ultragraphdb/ultragraphdb_tests/testdata/apg/gen5/1.write.nq
+  s_6c9dcf457e80d9::t_731473480d8c98 1-153
+ultragraphdb/ultragraphdb_tests/testdata/apg/gen5/2.nq
+  s_6c9dcf457e80d9::t_2cd78ded1a089e 1-370
+ultragraphdb/ultragraphdb_tests/testdata/apg/gen5/2.retract
+  s_6c9dcf457e80d9::t_f2a55d88e3b8e9 1
+ultragraphdb/ultragraphdb_tests/testdata/apg/gen5/2.write.nq
+  s_6c9dcf457e80d9::t_afc5489e676835 1-201
+ultragraphdb/ultragraphdb_tests/testdata/apg/gen5/3.nq
+  s_6c9dcf457e80d9::t_05df4a92a35529 1-454
+ultragraphdb/ultragraphdb_tests/testdata/apg/gen5/3.retract
+  s_6c9dcf457e80d9::t_b90a5eedd72ea8 1
+ultragraphdb/ultragraphdb_tests/testdata/apg/gen5/3.write.nq
+  s_6c9dcf457e80d9::t_13c39176cb307f 1-247
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1001-attribute-of-another-type/case.json
+  s_6c9dcf457e80d9::t_dad1d0c895b8d0 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1001-attribute-of-another-type/create.nq
+  s_6c9dcf457e80d9::t_7ef610cd96a342 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1001-undeclared-predicate/break.nq
+  s_6c9dcf457e80d9::t_da8ece99a00e33 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1001-undeclared-predicate/case.json
+  s_6c9dcf457e80d9::t_6fc58231a83799 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1001-undeclared-predicate/setup.nq
+  s_6c9dcf457e80d9::t_8b75191532818c 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1001-undeclared-predicate/view.nq
+  s_6c9dcf457e80d9::t_935201a822dc86 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1002-no-type/case.json
+  s_6c9dcf457e80d9::t_e767584d1a4719 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1002-no-type/create.nq
+  s_6c9dcf457e80d9::t_2fe79ff9898bfe 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1002-undeclared-type/case.json
+  s_6c9dcf457e80d9::t_fe1d3f56f7682b 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1002-undeclared-type/create.nq
+  s_6c9dcf457e80d9::t_970a8304ae250a 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1003-abstract-agreement/break.nq
+  s_6c9dcf457e80d9::t_38e11cec5e03f6 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1003-abstract-agreement/case.json
+  s_6c9dcf457e80d9::t_4db81e3097c490 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1003-abstract-agreement/setup.nq
+  s_6c9dcf457e80d9::t_45cd44df395547 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1003-abstract-agreement/view.nq
+  s_6c9dcf457e80d9::t_21d30671851a64 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1003-abstract-asset/case.json
+  s_6c9dcf457e80d9::t_8d5dff047b29f7 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1003-abstract-asset/create.nq
+  s_6c9dcf457e80d9::t_6326e6fe6f4331 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1004-two-concrete-types/case.json
+  s_6c9dcf457e80d9::t_4eb70b3b51553b 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1004-two-concrete-types/create.nq
+  s_6c9dcf457e80d9::t_85d7f706808446 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1004-type-on-existing-lease/break.nq
+  s_6c9dcf457e80d9::t_8e363fbd19d4ac 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1004-type-on-existing-lease/case.json
+  s_6c9dcf457e80d9::t_db57359af37740 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1004-type-on-existing-lease/setup.nq
+  s_6c9dcf457e80d9::t_addcfc4f56c06f 1-17
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1004-type-on-existing-lease/view.nq
+  s_6c9dcf457e80d9::t_26779398653e43 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1005-required-attribute-missing/case.json
+  s_6c9dcf457e80d9::t_fcc743c721b8a9 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1005-required-attribute-missing/create.nq
+  s_6c9dcf457e80d9::t_bdec62f4eabdcf 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1005-required-set-empty/case.json
+  s_6c9dcf457e80d9::t_54b81e7dce5423 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1005-required-set-empty/create.nq
+  s_6c9dcf457e80d9::t_05dfae81e34c38 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1005-required-value-removed/break-delete.nq
+  s_6c9dcf457e80d9::t_9829cdd17565d7 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1005-required-value-removed/case.json
+  s_6c9dcf457e80d9::t_79a5c424501f8a 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1005-required-value-removed/setup.nq
+  s_6c9dcf457e80d9::t_50c4b4a5a2bfb9 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1005-required-value-removed/view.nq
+  s_6c9dcf457e80d9::t_f5c594b6255ccf 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1006-key-missing/case.json
+  s_6c9dcf457e80d9::t_bd115275d9b2ff 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1006-key-missing/create.nq
+  s_6c9dcf457e80d9::t_962877a63061eb 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1007-key-rewritten/break-delete.nq
+  s_6c9dcf457e80d9::t_b321891b35a47f 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1007-key-rewritten/break.nq
+  s_6c9dcf457e80d9::t_67e8ad6fe2384e 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1007-key-rewritten/case.json
+  s_6c9dcf457e80d9::t_332a7074cbbe98 1-25
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1007-key-rewritten/setup.nq
+  s_6c9dcf457e80d9::t_9c4f711b88fc05 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1007-key-rewritten/view.nq
+  s_6c9dcf457e80d9::t_86d95f61427d2f 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1008-key-held-by-other-type/break.nq
+  s_6c9dcf457e80d9::t_17aaf8da2abf03 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1008-key-held-by-other-type/case.json
+  s_6c9dcf457e80d9::t_5688b490e38e01 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1008-key-held-by-other-type/setup.nq
+  s_6c9dcf457e80d9::t_d502d0b6d31248 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1008-key-held-by-other-type/view.nq
+  s_6c9dcf457e80d9::t_2fc06719eaafee 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1008-key-held-same-type/break.nq
+  s_6c9dcf457e80d9::t_c836052ca790ae 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1008-key-held-same-type/case.json
+  s_6c9dcf457e80d9::t_8770ae0067eb37 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1008-key-held-same-type/setup.nq
+  s_6c9dcf457e80d9::t_1ada563b5aff24 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1008-key-held-same-type/view.nq
+  s_6c9dcf457e80d9::t_c4155e0f2766da 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1009-tail-number-held/break.nq
+  s_6c9dcf457e80d9::t_eca25d1db8c6e6 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1009-tail-number-held/case.json
+  s_6c9dcf457e80d9::t_1d911683bb365e 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1009-tail-number-held/setup.nq
+  s_6c9dcf457e80d9::t_7aac2c2ba1b023 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1009-tail-number-held/view.nq
+  s_6c9dcf457e80d9::t_ab9caa43bbef01 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1010-check-supply-value/break.nq
+  s_6c9dcf457e80d9::t_7ed615bad888e7 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1010-check-supply-value/case.json
+  s_6c9dcf457e80d9::t_8aea78dbfcdfa8 1-26
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1010-check-supply-value/setup.nq
+  s_6c9dcf457e80d9::t_80185943acd19a 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1010-check-supply-value/view.nq
+  s_6c9dcf457e80d9::t_5f1276f1e4d9ae 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1010-pattern-serial/case.json
+  s_6c9dcf457e80d9::t_62b363aaec6740 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1010-pattern-serial/create.nq
+  s_6c9dcf457e80d9::t_f7496f80d73b64 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1010-range-thrust/case.json
+  s_6c9dcf457e80d9::t_8c4e50bb3dc2b1 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1010-range-thrust/create.nq
+  s_6c9dcf457e80d9::t_a2e973944334b6 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1010-values-jurisdiction/case.json
+  s_6c9dcf457e80d9::t_dc2966414088b0 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1010-values-jurisdiction/create.nq
+  s_6c9dcf457e80d9::t_317f1065db20ca 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1011-datatype-mismatch/case.json
+  s_6c9dcf457e80d9::t_4cc652b3d3d1de 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1011-datatype-mismatch/create.nq
+  s_6c9dcf457e80d9::t_6360fa51dc3f29 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1011-interval-reversed/break.nq
+  s_6c9dcf457e80d9::t_8968bcc2813fc0 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1011-interval-reversed/case.json
+  s_6c9dcf457e80d9::t_65783a61461aa3 1-26
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1011-interval-reversed/setup.nq
+  s_6c9dcf457e80d9::t_72ecf0304651e1 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1011-interval-reversed/view.nq
+  s_6c9dcf457e80d9::t_b2be856f2169fc 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1011-non-finite-float/case.json
+  s_6c9dcf457e80d9::t_27516ce327ccc9 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1011-non-finite-float/create.nq
+  s_6c9dcf457e80d9::t_24a2bc2692a80b 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1013-supply-deleted/case.json
+  s_6c9dcf457e80d9::t_e5dbd2e664230e 1-32
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1013-supply-deleted/setup.nq
+  s_6c9dcf457e80d9::t_cd53becd4e374c 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1013-supply-deleted/view.nq
+  s_6c9dcf457e80d9::t_1e33ca49184ba3 1-20
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1013-supply-updated/break-delete.nq
+  s_6c9dcf457e80d9::t_6dbe76749160a1 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1013-supply-updated/break.nq
+  s_6c9dcf457e80d9::t_50dfc7a4599948 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1013-supply-updated/case.json
+  s_6c9dcf457e80d9::t_60522a193d3ab9 1-25
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1013-supply-updated/setup.nq
+  s_6c9dcf457e80d9::t_cd8345d308c54f 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1013-supply-updated/view.nq
+  s_6c9dcf457e80d9::t_f497bc7aa1a725 1-20
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1014-second-assembly/break.nq
+  s_6c9dcf457e80d9::t_928ae07ef4232e 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1014-second-assembly/case.json
+  s_6c9dcf457e80d9::t_de411cffeb5079 1-27
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1014-second-assembly/setup.nq
+  s_6c9dcf457e80d9::t_02faabbc49638c 1-19
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1014-second-assembly/view.nq
+  s_6c9dcf457e80d9::t_cee127fe353f1d 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1014-second-owner/break.nq
+  s_6c9dcf457e80d9::t_05af40e9af1a36 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1014-second-owner/case.json
+  s_6c9dcf457e80d9::t_2ce975f42ae102 1-27
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1014-second-owner/setup.nq
+  s_6c9dcf457e80d9::t_70551eed7b5b43 1-14
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1014-second-owner/view.nq
+  s_6c9dcf457e80d9::t_1191643b53571f 1-17
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1015-lease-without-asset/break.nq
+  s_6c9dcf457e80d9::t_bb2f6db8d02c7d 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1015-lease-without-asset/case.json
+  s_6c9dcf457e80d9::t_dd8805a69ae603 1-25
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1015-lease-without-asset/setup.nq
+  s_6c9dcf457e80d9::t_732b60f87621ef 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1015-lease-without-asset/view.nq
+  s_6c9dcf457e80d9::t_acb4d950fa8d5d 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1017-owner-missing/break.nq
+  s_6c9dcf457e80d9::t_e7ce9a98091383 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1017-owner-missing/case.json
+  s_6c9dcf457e80d9::t_8c203a4d3238ea 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1017-owner-missing/setup.nq
+  s_6c9dcf457e80d9::t_b578f16f79fa07 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1017-owner-missing/view.nq
+  s_6c9dcf457e80d9::t_4082a5b23afff2 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1018-certified-by-company/break.nq
+  s_6c9dcf457e80d9::t_eb2fac31b87015 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1018-certified-by-company/case.json
+  s_6c9dcf457e80d9::t_cbe1073086e740 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1018-certified-by-company/setup.nq
+  s_6c9dcf457e80d9::t_1a6478f2c90032 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1018-certified-by-company/view.nq
+  s_6c9dcf457e80d9::t_49255410f64b41 1-20
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1018-lease-of-engine/break.nq
+  s_6c9dcf457e80d9::t_c5babee0308989 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1018-lease-of-engine/case.json
+  s_6c9dcf457e80d9::t_e9cd56a694b0f5 1-26
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1018-lease-of-engine/setup.nq
+  s_6c9dcf457e80d9::t_30f2fc753a1f5d 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1018-lease-of-engine/view.nq
+  s_6c9dcf457e80d9::t_c5e62d92881e38 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1019-owner-deleted/break.nq
+  s_6c9dcf457e80d9::t_db5d01de8c3e9f 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1019-owner-deleted/case.json
+  s_6c9dcf457e80d9::t_0ee06dca623ffa 1-38
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1019-owner-deleted/setup.nq
+  s_6c9dcf457e80d9::t_9799573ed29370 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1019-owner-deleted/view.nq
+  s_6c9dcf457e80d9::t_17dd1cc8c33023 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1020-buyer-deleted/case.json
+  s_6c9dcf457e80d9::t_4cdbf19f371efe 1-32
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1020-buyer-deleted/setup.nq
+  s_6c9dcf457e80d9::t_d330413b93889c 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1020-buyer-deleted/view.nq
+  s_6c9dcf457e80d9::t_11b7a0f6d612e4 1-20
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1020-whole-deleted/case.json
+  s_6c9dcf457e80d9::t_62460f07cd1759 1-31
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1020-whole-deleted/setup.nq
+  s_6c9dcf457e80d9::t_5d8553a071bb71 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1020-whole-deleted/view.nq
+  s_6c9dcf457e80d9::t_82ad87245183dc 1-15
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1021-partof-cycle/case.json
+  s_6c9dcf457e80d9::t_34534d4b1d9bf0 1-28
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1021-partof-cycle/close-cycle.nq
+  s_6c9dcf457e80d9::t_1fcad4170740cb 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1021-partof-cycle/setup.nq
+  s_6c9dcf457e80d9::t_246cbe72ca3199 1-17
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1021-partof-cycle/view.nq
+  s_6c9dcf457e80d9::t_7af431dafeb438 1-20
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1022-partof-past-max-depth/append.nq
+  s_6c9dcf457e80d9::t_c8de92564266cd 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1022-partof-past-max-depth/case.json
+  s_6c9dcf457e80d9::t_4d30bc738191e6 1-66
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1022-partof-past-max-depth/chain-line.nq
+  s_6c9dcf457e80d9::t_310f83ace0dca0 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1022-partof-past-max-depth/root.nq
+  s_6c9dcf457e80d9::t_8e88901f2f8c0d 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1023-supply-sum-past-limit/case.json
+  s_6c9dcf457e80d9::t_54d660f33e3f56 1-27
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1023-supply-sum-past-limit/setup.nq
+  s_6c9dcf457e80d9::t_f1c79da97afe13 1-15
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1023-supply-sum-past-limit/supply.nq
+  s_6c9dcf457e80d9::t_f21f56afc601ca 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1023-supply-sum-past-limit/view.nq
+  s_6c9dcf457e80d9::t_eb1acca08754c9 1-19
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1025-lease-lessee-replaced/case.json
+  s_6c9dcf457e80d9::t_3f6ed3c48a03d5 1-29
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1025-lease-lessee-replaced/replace-lessee-old.nq
+  s_6c9dcf457e80d9::t_0c83a8cebde3d2 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1025-lease-lessee-replaced/replace-lessee.nq
+  s_6c9dcf457e80d9::t_b1b425e1b2d1e3 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1025-lease-lessee-replaced/setup.nq
+  s_6c9dcf457e80d9::t_c41208aea7fa2e 1-19
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1025-lease-lessee-replaced/view.nq
+  s_6c9dcf457e80d9::t_6bc82451560116 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1026-retract-mutable-engine/case.json
+  s_6c9dcf457e80d9::t_4e4c01a2c62efb 1-27
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1026-retract-mutable-engine/setup.nq
+  s_6c9dcf457e80d9::t_4acd5893a49a37 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1026-retract-mutable-engine/view.nq
+  s_6c9dcf457e80d9::t_65de2eb6c60d4d 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1028-embedding-767-elements/case.json
+  s_6c9dcf457e80d9::t_21f474f76de336 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1028-embedding-767-elements/embedding.nq
+  s_6c9dcf457e80d9::t_c15f9a2b734506 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1028-embedding-767-elements/setup.nq
+  s_6c9dcf457e80d9::t_cab6d67e416d78 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1028-embedding-767-elements/view.nq
+  s_6c9dcf457e80d9::t_e5a7dd7eacb89e 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1029-derived-all-parts-written/case.json
+  s_6c9dcf457e80d9::t_65f77b21dac96b 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1029-derived-all-parts-written/derived.nq
+  s_6c9dcf457e80d9::t_66cc6045668117 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1029-derived-all-parts-written/setup.nq
+  s_6c9dcf457e80d9::t_0d0cae8a580338 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1029-derived-all-parts-written/view.nq
+  s_6c9dcf457e80d9::t_f7b36d5a18fb12 1-12
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1029-inverse-parts-written/case.json
+  s_6c9dcf457e80d9::t_802f3b6ec569f1 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1029-inverse-parts-written/inverse.nq
+  s_6c9dcf457e80d9::t_09b811b4c4d000 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1029-inverse-parts-written/setup.nq
+  s_6c9dcf457e80d9::t_e0a67c3d5a4c3f 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1029-inverse-parts-written/view.nq
+  s_6c9dcf457e80d9::t_466477643fc14e 1-12
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1030-status-undeclared-member/case.json
+  s_6c9dcf457e80d9::t_5e6143563065e3 1-23
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1030-status-undeclared-member/setup.nq
+  s_6c9dcf457e80d9::t_a758f13ac6a284 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1030-status-undeclared-member/status-old.nq
+  s_6c9dcf457e80d9::t_44121114b5349c 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1030-status-undeclared-member/status.nq
+  s_6c9dcf457e80d9::t_eafc304d6c74c1 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1030-status-undeclared-member/view.nq
+  s_6c9dcf457e80d9::t_533f2ea87e32f9 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1031-undeclared-graph/case.json
+  s_6c9dcf457e80d9::t_0ba8f0d0f11dd5 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1031-undeclared-graph/create.nq
+  s_6c9dcf457e80d9::t_f0ee194f6fb21d 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1031-undeclared-graph/setup.nq
+  s_6c9dcf457e80d9::t_a7a8ae17f6f332 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1031-undeclared-graph/view.nq
+  s_6c9dcf457e80d9::t_d6914cf0689976 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1034-owns-reifier-without-triple/case.json
+  s_6c9dcf457e80d9::t_cebe8d15c57867 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1034-owns-reifier-without-triple/reifier.nq
+  s_6c9dcf457e80d9::t_1751b5f952877e 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1034-owns-reifier-without-triple/setup.nq
+  s_6c9dcf457e80d9::t_8f27888fbc8a03 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1034-owns-reifier-without-triple/view.nq
+  s_6c9dcf457e80d9::t_95fbb50d054392 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1034-role-triple-without-type/case.json
+  s_6c9dcf457e80d9::t_95b5896833b7e7 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1034-role-triple-without-type/role-triple.nq
+  s_6c9dcf457e80d9::t_6f78739089e5d9 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1034-role-triple-without-type/setup.nq
+  s_6c9dcf457e80d9::t_472a5bd9ed8ecf 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1034-role-triple-without-type/view.nq
+  s_6c9dcf457e80d9::t_1c7272e8475acb 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1036-second-commissioned-value/case.json
+  s_6c9dcf457e80d9::t_787dcfe569df15 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1036-second-commissioned-value/second-value.nq
+  s_6c9dcf457e80d9::t_a985f1ac335a7c 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1036-second-commissioned-value/setup.nq
+  s_6c9dcf457e80d9::t_83aff90521362f 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1036-second-commissioned-value/view.nq
+  s_6c9dcf457e80d9::t_7e45acfc1903d9 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1038-engine-under-other-key/case.json
+  s_6c9dcf457e80d9::t_51d4c03c1e494a 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1038-engine-under-other-key/create.nq
+  s_6c9dcf457e80d9::t_098aa13c04a308 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1038-engine-under-other-key/setup.nq
+  s_6c9dcf457e80d9::t_9c9ad133de27cf 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1038-engine-under-other-key/view.nq
+  s_6c9dcf457e80d9::t_39466e2d68d643 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1038-keyless-supply-under-iri/case.json
+  s_6c9dcf457e80d9::t_4eee4b5845fb9b 1-23
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1038-keyless-supply-under-iri/setup.nq
+  s_6c9dcf457e80d9::t_2c0216bad4c70f 1-9
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1038-keyless-supply-under-iri/supply.nq
+  s_6c9dcf457e80d9::t_6e34091950095c 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1038-keyless-supply-under-iri/view.nq
+  s_6c9dcf457e80d9::t_ab9f544931b898 1-12
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1038-type-name-in-place-of-key-space/case.json
+  s_6c9dcf457e80d9::t_5336ee5e39d1e8 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1038-type-name-in-place-of-key-space/create.nq
+  s_6c9dcf457e80d9::t_2c8058b1a9c206 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1038-type-name-in-place-of-key-space/setup.nq
+  s_6c9dcf457e80d9::t_4ecb5d9c539f28 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1038-type-name-in-place-of-key-space/view.nq
+  s_6c9dcf457e80d9::t_b90c8d1dd22c2f 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1040-partof-walk-past-read-bound/attach.nq
+  s_6c9dcf457e80d9::t_f97c881a3239ac 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1040-partof-walk-past-read-bound/case.json
+  s_6c9dcf457e80d9::t_62d5afdd69854b 1-32
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1040-partof-walk-past-read-bound/part-line.nq
+  s_6c9dcf457e80d9::t_be10733bf04e54 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/UGS1040-partof-walk-past-read-bound/setup.nq
+  s_6c9dcf457e80d9::t_d4494118affd2e 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-commissioned-replaced/case.json
+  s_6c9dcf457e80d9::t_a9b8235e3a6df1 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-commissioned-replaced/replace-old.nq
+  s_6c9dcf457e80d9::t_4e62ef44bbefb6 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-commissioned-replaced/replace.nq
+  s_6c9dcf457e80d9::t_7217ab4d139306 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-commissioned-replaced/setup.nq
+  s_6c9dcf457e80d9::t_83edde7a90a8d1 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-commissioned-replaced/view.nq
+  s_6c9dcf457e80d9::t_c1225356aff8cc 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-declared-instances/case.json
+  s_6c9dcf457e80d9::t_0c1303c8970f52 1-20
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-declared-instances/create.nq
+  s_6c9dcf457e80d9::t_1d6b25f0036ce4 1-27
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-declared-instances/view.nq
+  s_6c9dcf457e80d9::t_b1a8bc57163d3a 1-33
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-default-graph-write/case.json
+  s_6c9dcf457e80d9::t_e46d2030e35b7d 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-default-graph-write/create.nq
+  s_6c9dcf457e80d9::t_25f8ce49f01c8e 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-default-graph-write/setup.nq
+  s_6c9dcf457e80d9::t_dee0d3d03f50cc 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-default-graph-write/view.nq
+  s_6c9dcf457e80d9::t_27fda8582b0910 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-embedding-768-elements/case.json
+  s_6c9dcf457e80d9::t_6712f6032b2a89 1-20
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-embedding-768-elements/embedding.nq
+  s_6c9dcf457e80d9::t_74d0ebda4252ba 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-embedding-768-elements/setup.nq
+  s_6c9dcf457e80d9::t_595dc61e13e16a 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-embedding-768-elements/view.nq
+  s_6c9dcf457e80d9::t_31cdec830fb2ee 1-11
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-key-created-again-after-delete/case.json
+  s_6c9dcf457e80d9::t_41aeaf1c106339 1-34
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-key-created-again-after-delete/step1.nq
+  s_6c9dcf457e80d9::t_84f055b4401687 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-key-created-again-after-delete/step3.nq
+  s_6c9dcf457e80d9::t_2dbc423e438837 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-key-created-again-after-delete/view.nq
+  s_6c9dcf457e80d9::t_16c472d2089891 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-lease-replaced-by-new-instance/case.json
+  s_6c9dcf457e80d9::t_23d5bdfffd54e8 1-33
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-lease-replaced-by-new-instance/new-lease.nq
+  s_6c9dcf457e80d9::t_95d72f6c9427b6 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-lease-replaced-by-new-instance/setup.nq
+  s_6c9dcf457e80d9::t_ced385126436f4 1-19
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-lease-replaced-by-new-instance/view.nq
+  s_6c9dcf457e80d9::t_ab0fe78d74b805 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-mutable-engine-deleted/case.json
+  s_6c9dcf457e80d9::t_7b4e3f0de29fbe 1-28
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-mutable-engine-deleted/setup.nq
+  s_6c9dcf457e80d9::t_fb8056ef2124c9 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-mutable-engine-deleted/view.nq
+  s_6c9dcf457e80d9::t_84cf5388b0f172 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-mutable-updates/case.json
+  s_6c9dcf457e80d9::t_b36ccc1e178d18 1-27
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-mutable-updates/step1.nq
+  s_6c9dcf457e80d9::t_4a8e44177857fc 1-17
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-mutable-updates/step2-delete.nq
+  s_6c9dcf457e80d9::t_3967cec8848960 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-mutable-updates/step2.nq
+  s_6c9dcf457e80d9::t_bcf90f9fde2faf 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-mutable-updates/view.nq
+  s_6c9dcf457e80d9::t_c149c8432feefc 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-owns-with-triple/case.json
+  s_6c9dcf457e80d9::t_3e79b72eee1ef9 1-23
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-owns-with-triple/owns.nq
+  s_6c9dcf457e80d9::t_3dab9cd3144b7f 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-owns-with-triple/setup.nq
+  s_6c9dcf457e80d9::t_76395cc6b807c9 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-owns-with-triple/view.nq
+  s_6c9dcf457e80d9::t_6bb90853bf5672 1-14
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-part-deleted-cascades/case.json
+  s_6c9dcf457e80d9::t_6bf031842823ad 1-29
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-part-deleted-cascades/step1.nq
+  s_6c9dcf457e80d9::t_1707db4921fccc 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-part-deleted-cascades/view.nq
+  s_6c9dcf457e80d9::t_44f40f119d3e5d 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-part-moved/case.json
+  s_6c9dcf457e80d9::t_2aed8367a28f87 1-27
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-part-moved/step1.nq
+  s_6c9dcf457e80d9::t_1683c1c217c09d 1-19
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-part-moved/step2-delete.nq
+  s_6c9dcf457e80d9::t_585de0989ffed3 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-part-moved/step2.nq
+  s_6c9dcf457e80d9::t_e118a736cdf855 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-part-moved/view.nq
+  s_6c9dcf457e80d9::t_7f7bfe425ca04a 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-participant-created-again/case.json
+  s_6c9dcf457e80d9::t_f86791f2cc7f1f 1-37
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-participant-created-again/step1.nq
+  s_6c9dcf457e80d9::t_bca3365e8120d8 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-participant-created-again/step3.nq
+  s_6c9dcf457e80d9::t_b98503051ce547 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-participant-created-again/view.nq
+  s_6c9dcf457e80d9::t_77945a35ea53db 1-17
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-at-max-depth/case.json
+  s_6c9dcf457e80d9::t_a8b6fb1355c43c 1-64
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-at-max-depth/chain-line.nq
+  s_6c9dcf457e80d9::t_a16ba8d53fa882 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-at-max-depth/root.nq
+  s_6c9dcf457e80d9::t_7254c69f5366c0 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-at-max-depth/sibling.nq
+  s_6c9dcf457e80d9::t_704d2ad59164fa 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-reversed-in-one-transaction/case.json
+  s_6c9dcf457e80d9::t_2886db64edadf6 1-28
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-reversed-in-one-transaction/reverse-old.nq
+  s_6c9dcf457e80d9::t_e4aeb23b0bbeca 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-reversed-in-one-transaction/reverse.nq
+  s_6c9dcf457e80d9::t_8f5a93e11d616d 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-reversed-in-one-transaction/setup.nq
+  s_6c9dcf457e80d9::t_6cb51dffe93053 1-17
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-reversed-in-one-transaction/view.nq
+  s_6c9dcf457e80d9::t_731697df14de93 1-20
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-stored-triple/case.json
+  s_6c9dcf457e80d9::t_1a94de522301e6 1-23
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-stored-triple/partof.nq
+  s_6c9dcf457e80d9::t_b2413a71e5dc64 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-stored-triple/setup.nq
+  s_6c9dcf457e80d9::t_2521fc420d1598 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-stored-triple/view.nq
+  s_6c9dcf457e80d9::t_0641cf1b5df8fe 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-walk-within-read-bound/attach.nq
+  s_6c9dcf457e80d9::t_84b68e527667c3 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-walk-within-read-bound/case.json
+  s_6c9dcf457e80d9::t_00df3f7cd14c4e 1-31
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-walk-within-read-bound/setup.nq
+  s_6c9dcf457e80d9::t_1d2b1fa4fe332e 1-34
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-partof-walk-within-read-bound/view.nq
+  s_6c9dcf457e80d9::t_2516bd5751b2db 1-41
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-relations-of-their-types/case.json
+  s_6c9dcf457e80d9::t_ff90b9b0bc67a8 1-12
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-relations-of-their-types/create.nq
+  s_6c9dcf457e80d9::t_2eb112dbeccd91 1-41
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-relations-of-their-types/view.nq
+  s_6c9dcf457e80d9::t_2392f08d9c2b7b 1-48
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-status-declared-member/case.json
+  s_6c9dcf457e80d9::t_75a25bb9e1acc0 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-status-declared-member/setup.nq
+  s_6c9dcf457e80d9::t_d72639bfadf1b9 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-status-declared-member/status-old.nq
+  s_6c9dcf457e80d9::t_617a9225a5ef40 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-status-declared-member/status.nq
+  s_6c9dcf457e80d9::t_03b6bb586be787 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-status-declared-member/view.nq
+  s_6c9dcf457e80d9::t_7cf13ee14768a4 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-subject-is-minted-iri/case.json
+  s_6c9dcf457e80d9::t_e15954254efb45 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-subject-is-minted-iri/create.nq
+  s_6c9dcf457e80d9::t_4191312992273f 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-subject-is-minted-iri/setup.nq
+  s_6c9dcf457e80d9::t_e4f7def4699453 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-subject-is-minted-iri/view.nq
+  s_6c9dcf457e80d9::t_6f1cf95cfbee3a 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-supply-sum-at-limit/case.json
+  s_6c9dcf457e80d9::t_8bc36cb0c55639 1-25
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-supply-sum-at-limit/setup.nq
+  s_6c9dcf457e80d9::t_2f9287d432e966 1-15
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-supply-sum-at-limit/supply.nq
+  s_6c9dcf457e80d9::t_2af52296cf9eeb 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-supply-sum-at-limit/view.nq
+  s_6c9dcf457e80d9::t_a979aca2d9a0cb 1-26
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-unique-released-after-delete/case.json
+  s_6c9dcf457e80d9::t_af53aef037c4be 1-34
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-unique-released-after-delete/step1.nq
+  s_6c9dcf457e80d9::t_2504d1c0926c6b 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-unique-released-after-delete/step3.nq
+  s_6c9dcf457e80d9::t_25f5c0899ba8bb 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-unique-released-after-delete/view.nq
+  s_6c9dcf457e80d9::t_ccd3735111d3d2 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-value-checks-at-bounds/case.json
+  s_6c9dcf457e80d9::t_efa5be98be85f6 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-value-checks-at-bounds/create.nq
+  s_6c9dcf457e80d9::t_c2f9602d8fdfa9 1-35
+ultragraphdb/ultragraphdb_tests/testdata/instances/aviation/holds-value-checks-at-bounds/view.nq
+  s_6c9dcf457e80d9::t_58a274c7765d47 1-43
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1001-attribute-of-another-type/case.json
+  s_6c9dcf457e80d9::t_6e62f1980d3c82 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1001-attribute-of-another-type/create.nq
+  s_6c9dcf457e80d9::t_745b8245bcdebc 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1001-undeclared-predicate-on-revision/break.nq
+  s_6c9dcf457e80d9::t_c5cc043a580455 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1001-undeclared-predicate-on-revision/case.json
+  s_6c9dcf457e80d9::t_ebf60372521ef6 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1001-undeclared-predicate-on-revision/setup.nq
+  s_6c9dcf457e80d9::t_832382541b6bf0 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1001-undeclared-predicate-on-revision/view.nq
+  s_6c9dcf457e80d9::t_9a47f1e6581d2c 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1002-no-type/case.json
+  s_6c9dcf457e80d9::t_2c5c81e3f82f37 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1002-no-type/create.nq
+  s_6c9dcf457e80d9::t_8ce27847799e56 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1002-undeclared-type/case.json
+  s_6c9dcf457e80d9::t_4882353838da8a 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1002-undeclared-type/create.nq
+  s_6c9dcf457e80d9::t_b94ee73da2b5bf 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1003-abstract-agent/case.json
+  s_6c9dcf457e80d9::t_5661ba599c269e 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1003-abstract-agent/create.nq
+  s_6c9dcf457e80d9::t_465de700a9d717 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1003-abstract-node/case.json
+  s_6c9dcf457e80d9::t_d90ab2fd3414b1 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1003-abstract-node/create.nq
+  s_6c9dcf457e80d9::t_941f814ac7b4fa 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1004-two-concrete-types/case.json
+  s_6c9dcf457e80d9::t_9506b8d42cc76e 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1004-two-concrete-types/create.nq
+  s_6c9dcf457e80d9::t_6329093f327fe0 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1004-type-on-existing-membership/break.nq
+  s_6c9dcf457e80d9::t_e2caade8dc2bb7 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1004-type-on-existing-membership/case.json
+  s_6c9dcf457e80d9::t_742be7bb34cebc 1-23
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1004-type-on-existing-membership/setup.nq
+  s_6c9dcf457e80d9::t_151c53f7515e09 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1004-type-on-existing-membership/view.nq
+  s_6c9dcf457e80d9::t_25fc99fb0e1100 1-26
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1005-claim-statement-missing/case.json
+  s_6c9dcf457e80d9::t_8267ba6d37e107 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1005-claim-statement-missing/create.nq
+  s_6c9dcf457e80d9::t_514c5ef0157bbc 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1005-required-removed-on-revision/break-delete.nq
+  s_6c9dcf457e80d9::t_143dc10ba2e40e 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1005-required-removed-on-revision/case.json
+  s_6c9dcf457e80d9::t_1d1f2cbbb86c26 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1005-required-removed-on-revision/setup.nq
+  s_6c9dcf457e80d9::t_ee8d7259e3723d 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1005-required-removed-on-revision/view.nq
+  s_6c9dcf457e80d9::t_f4608e3abfcea5 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1006-id-missing/case.json
+  s_6c9dcf457e80d9::t_a68ff7195b967a 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1006-id-missing/create.nq
+  s_6c9dcf457e80d9::t_95d129e4243476 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1007-id-revised/break-delete.nq
+  s_6c9dcf457e80d9::t_0fc53b2a00521d 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1007-id-revised/break.nq
+  s_6c9dcf457e80d9::t_817cddd868c2e6 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1007-id-revised/case.json
+  s_6c9dcf457e80d9::t_b535589438184a 1-25
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1007-id-revised/setup.nq
+  s_6c9dcf457e80d9::t_0284ad591a0ac8 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1007-id-revised/view.nq
+  s_6c9dcf457e80d9::t_b412ce42310c0e 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1008-id-held-by-other-type/break.nq
+  s_6c9dcf457e80d9::t_bb15c4dbadd9c5 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1008-id-held-by-other-type/case.json
+  s_6c9dcf457e80d9::t_c6aebcb303b654 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1008-id-held-by-other-type/setup.nq
+  s_6c9dcf457e80d9::t_2de390249ad82a 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1008-id-held-by-other-type/view.nq
+  s_6c9dcf457e80d9::t_133c34e7065320 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1008-id-held-by-retracted/break.nq
+  s_6c9dcf457e80d9::t_e221e837e10279 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1008-id-held-by-retracted/case.json
+  s_6c9dcf457e80d9::t_90450a710ab7cd 1-35
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1008-id-held-by-retracted/step1.nq
+  s_6c9dcf457e80d9::t_60ab030fee075a 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1009-context-id-held-by-retracted/break.nq
+  s_6c9dcf457e80d9::t_63bbb37d21c388 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1009-context-id-held-by-retracted/case.json
+  s_6c9dcf457e80d9::t_053fd6d1ccccc7 1-35
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1009-context-id-held-by-retracted/step1.nq
+  s_6c9dcf457e80d9::t_a30a473f88aae3 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1009-contextoid-across-tree/break.nq
+  s_6c9dcf457e80d9::t_ab0c6b1cfe72c1 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1009-contextoid-across-tree/case.json
+  s_6c9dcf457e80d9::t_764848544c1e00 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1009-contextoid-across-tree/setup.nq
+  s_6c9dcf457e80d9::t_50c2bd7a369106 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1009-contextoid-across-tree/view.nq
+  s_6c9dcf457e80d9::t_1b4a0255df3e9a 1-9
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1010-check-person-label/case.json
+  s_6c9dcf457e80d9::t_f1882a78c6a481 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1010-check-person-label/create.nq
+  s_6c9dcf457e80d9::t_c86e15b43e8b86 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1010-check-precedes-types/break.nq
+  s_6c9dcf457e80d9::t_4dad092dbe8d97 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1010-check-precedes-types/case.json
+  s_6c9dcf457e80d9::t_4270b54ca4c53a 1-25
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1010-check-precedes-types/setup.nq
+  s_6c9dcf457e80d9::t_cd895bcc39be86 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1010-check-precedes-types/view.nq
+  s_6c9dcf457e80d9::t_d03185b09e1eb7 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1010-check-quantity-kind/case.json
+  s_6c9dcf457e80d9::t_d2b291b33dae53 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1010-check-quantity-kind/create.nq
+  s_6c9dcf457e80d9::t_361702a5909cac 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1010-pattern-identifier/case.json
+  s_6c9dcf457e80d9::t_ce4a2c76518f01 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1010-pattern-identifier/create.nq
+  s_6c9dcf457e80d9::t_2eb21ca101b5b4 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1010-range-confidence/case.json
+  s_6c9dcf457e80d9::t_ce1f5eb4cbb2d0 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1010-range-confidence/create.nq
+  s_6c9dcf457e80d9::t_007444a335c025 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1011-entity-type-outside-node/case.json
+  s_6c9dcf457e80d9::t_dfc0ff3716d65e 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1011-entity-type-outside-node/create.nq
+  s_6c9dcf457e80d9::t_c18693d08971d1 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1011-geometry-not-admitted/case.json
+  s_6c9dcf457e80d9::t_fdee9b4b83ef97 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1011-geometry-not-admitted/create.nq
+  s_6c9dcf457e80d9::t_84e6b85cc843d7 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1011-integer-out-of-range/case.json
+  s_6c9dcf457e80d9::t_9a944fadfaeda2 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1011-integer-out-of-range/create.nq
+  s_6c9dcf457e80d9::t_fa9338ca6f053a 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1011-valid-reversed/case.json
+  s_6c9dcf457e80d9::t_3fdd4cd75b2ba7 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1011-valid-reversed/create.nq
+  s_6c9dcf457e80d9::t_ff0e8652606ff7 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1012-supertype-revised/break-delete.nq
+  s_6c9dcf457e80d9::t_1e372d3858b58e 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1012-supertype-revised/break.nq
+  s_6c9dcf457e80d9::t_ef5d6ff8fc3de2 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1012-supertype-revised/case.json
+  s_6c9dcf457e80d9::t_a49126f3bb8c90 1-19
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1012-supertype-revised/setup.nq
+  s_6c9dcf457e80d9::t_de3c975cd36d52 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1012-supertype-revised/view.nq
+  s_6c9dcf457e80d9::t_00b9ca384ad5cd 1-11
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1013-asserted-by-deleted/break-delete.nq
+  s_6c9dcf457e80d9::t_75664e72666013 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1013-asserted-by-deleted/case.json
+  s_6c9dcf457e80d9::t_f4ee173f48ddaf 1-26
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1013-asserted-by-deleted/setup.nq
+  s_6c9dcf457e80d9::t_1faabbcdf5b388 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1013-asserted-by-deleted/view.nq
+  s_6c9dcf457e80d9::t_bdc438cc0d3b74 1-18
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1013-verdict-retracted/case.json
+  s_6c9dcf457e80d9::t_860f87d7e8264c 1-29
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1013-verdict-retracted/setup.nq
+  s_6c9dcf457e80d9::t_c93f2b2d262fd7 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1013-verdict-retracted/view.nq
+  s_6c9dcf457e80d9::t_8c8e00d3709c4e 1-12
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1013-verdict-revised/break-delete.nq
+  s_6c9dcf457e80d9::t_39fa95c4be6035 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1013-verdict-revised/break.nq
+  s_6c9dcf457e80d9::t_9843b79aa48caa 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1013-verdict-revised/case.json
+  s_6c9dcf457e80d9::t_15db7215388b71 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1013-verdict-revised/setup.nq
+  s_6c9dcf457e80d9::t_226a539a67712a 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1013-verdict-revised/view.nq
+  s_6c9dcf457e80d9::t_e8ab88e9aacaf4 1-12
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1014-post-without-organisation/case.json
+  s_6c9dcf457e80d9::t_c63a0a8c07b85b 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1014-post-without-organisation/create.nq
+  s_6c9dcf457e80d9::t_982bd38c721483 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1014-second-asserter/break.nq
+  s_6c9dcf457e80d9::t_cf275b4458e5cf 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1014-second-asserter/case.json
+  s_6c9dcf457e80d9::t_c167c14e53354b 1-27
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1014-second-asserter/setup.nq
+  s_6c9dcf457e80d9::t_745cb7b2549aa3 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1014-second-asserter/view.nq
+  s_6c9dcf457e80d9::t_1f2fa1dbdafc40 1-27
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1015-participation-without-event/break.nq
+  s_6c9dcf457e80d9::t_8301d9170a14ae 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1015-participation-without-event/case.json
+  s_6c9dcf457e80d9::t_b0f9bf225047a5 1-25
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1015-participation-without-event/setup.nq
+  s_6c9dcf457e80d9::t_2d5b4eeb3137cc 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1015-participation-without-event/view.nq
+  s_6c9dcf457e80d9::t_060d8930e15a76 1-17
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1016-alternatives-emptied/break-delete.nq
+  s_6c9dcf457e80d9::t_1d79da544dc955 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1016-alternatives-emptied/case.json
+  s_6c9dcf457e80d9::t_e8ddb5d0766ea5 1-18
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1016-alternatives-emptied/setup.nq
+  s_6c9dcf457e80d9::t_6a5b67e59f34cb 1-14
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1016-alternatives-emptied/view.nq
+  s_6c9dcf457e80d9::t_740f963dd8b72d 1-41
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1017-scheme-missing/break.nq
+  s_6c9dcf457e80d9::t_c53a2161eee9e1 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1017-scheme-missing/case.json
+  s_6c9dcf457e80d9::t_ca3ae3dae55011 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1017-scheme-missing/setup.nq
+  s_6c9dcf457e80d9::t_bb8f1224334bae 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1017-scheme-missing/view.nq
+  s_6c9dcf457e80d9::t_6959f950aa6aac 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1018-classifies-type-outside-node/break.nq
+  s_6c9dcf457e80d9::t_b2d360952495da 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1018-classifies-type-outside-node/case.json
+  s_6c9dcf457e80d9::t_01024cfdb57ec7 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1018-classifies-type-outside-node/setup.nq
+  s_6c9dcf457e80d9::t_b2a371f5c72b04 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1018-classifies-type-outside-node/view.nq
+  s_6c9dcf457e80d9::t_712cde807bfd75 1-9
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1018-scheme-is-a-concept/break.nq
+  s_6c9dcf457e80d9::t_fed6b1d3b99a69 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1018-scheme-is-a-concept/case.json
+  s_6c9dcf457e80d9::t_5a56131639f968 1-25
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1018-scheme-is-a-concept/setup.nq
+  s_6c9dcf457e80d9::t_51fac5e3b70dab 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1018-scheme-is-a-concept/view.nq
+  s_6c9dcf457e80d9::t_e63c74cbe27245 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1019-scheme-retracted/break.nq
+  s_6c9dcf457e80d9::t_b71eeb7d7d38f9 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1019-scheme-retracted/case.json
+  s_6c9dcf457e80d9::t_05919aba646b25 1-36
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1019-scheme-retracted/step1.nq
+  s_6c9dcf457e80d9::t_0141be1b618721 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1019-superseding-retracted/break.nq
+  s_6c9dcf457e80d9::t_68c64e86004928 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1019-superseding-retracted/case.json
+  s_6c9dcf457e80d9::t_f272469e71a03b 1-36
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1019-superseding-retracted/step1.nq
+  s_6c9dcf457e80d9::t_05ddf94671fd0e 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1020-collection-with-open-membership/case.json
+  s_6c9dcf457e80d9::t_ca1f1ad247c773 1-31
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1020-collection-with-open-membership/setup.nq
+  s_6c9dcf457e80d9::t_b8e43754b1c4fc 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1020-collection-with-open-membership/view.nq
+  s_6c9dcf457e80d9::t_cce0fec7a3a1db 1-26
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1020-parent-with-open-unit/case.json
+  s_6c9dcf457e80d9::t_e996952a633c53 1-31
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1020-parent-with-open-unit/setup.nq
+  s_6c9dcf457e80d9::t_7f3eb0e46c4f3e 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1020-parent-with-open-unit/view.nq
+  s_6c9dcf457e80d9::t_e8d791ba6d531c 1-28
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1021-reopened-instance-closes-cycle/case.json
+  s_6c9dcf457e80d9::t_531fdb1a5c73de 1-36
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1021-reopened-instance-closes-cycle/close-and-reverse.nq
+  s_6c9dcf457e80d9::t_6e8366f2a64009 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1021-reopened-instance-closes-cycle/reopen.nq
+  s_6c9dcf457e80d9::t_fce7bc667c7ae2 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1021-reopened-instance-closes-cycle/setup.nq
+  s_6c9dcf457e80d9::t_eab6a1bfb29498 1-14
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1021-reopened-instance-closes-cycle/view.nq
+  s_6c9dcf457e80d9::t_0b05d134538ffc 1-55
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1021-suborganization-cycle/case.json
+  s_6c9dcf457e80d9::t_be7c34d046480a 1-28
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1021-suborganization-cycle/close-cycle.nq
+  s_6c9dcf457e80d9::t_474509fb74c10e 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1021-suborganization-cycle/setup.nq
+  s_6c9dcf457e80d9::t_edaaddfb4a6480 1-14
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1021-suborganization-cycle/view.nq
+  s_6c9dcf457e80d9::t_34c9487ef239c0 1-45
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1022-suborganization-past-max-depth/append.nq
+  s_6c9dcf457e80d9::t_7f92f89d77fbd3 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1022-suborganization-past-max-depth/case.json
+  s_6c9dcf457e80d9::t_66972d15ce9205 1-98
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1022-suborganization-past-max-depth/chain-line.nq
+  s_6c9dcf457e80d9::t_49b14e987a5a3a 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1022-suborganization-past-max-depth/root.nq
+  s_6c9dcf457e80d9::t_2a614cfbe10459 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1023-insert-of-second-preferred/case.json
+  s_6c9dcf457e80d9::t_fa8ac132cb7d55 1-29
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1023-insert-of-second-preferred/isabout.nq
+  s_6c9dcf457e80d9::t_7d4ced14d1e3bb 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1023-insert-of-second-preferred/setup.nq
+  s_6c9dcf457e80d9::t_5e5a11acb259e3 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1023-insert-of-second-preferred/view.nq
+  s_6c9dcf457e80d9::t_bfb63d5a168911 1-48
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1023-reading-without-generated-by/case.json
+  s_6c9dcf457e80d9::t_a5889c0c512668 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1023-reading-without-generated-by/reading.nq
+  s_6c9dcf457e80d9::t_984f3fc310b838 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1023-reading-without-generated-by/setup.nq
+  s_6c9dcf457e80d9::t_b0becadb123b1d 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1023-reading-without-generated-by/view.nq
+  s_6c9dcf457e80d9::t_6de96053b7d1c0 1-9
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1023-revision-to-second-preferred/case.json
+  s_6c9dcf457e80d9::t_24c6d7760f0fa0 1-29
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1023-revision-to-second-preferred/revise-old.nq
+  s_6c9dcf457e80d9::t_09b1fad5e33a04 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1023-revision-to-second-preferred/revise.nq
+  s_6c9dcf457e80d9::t_ddbeff5a78ddb5 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1023-revision-to-second-preferred/setup.nq
+  s_6c9dcf457e80d9::t_82ec2c1dbb7276 1-14
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1023-revision-to-second-preferred/view.nq
+  s_6c9dcf457e80d9::t_2ddc60944a9375 1-40
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1024-second-open-holder-of-post/case.json
+  s_6c9dcf457e80d9::t_9edcd751ff8534 1-29
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1024-second-open-holder-of-post/second-holder.nq
+  s_6c9dcf457e80d9::t_e7bbf3cf4a557a 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1024-second-open-holder-of-post/setup.nq
+  s_6c9dcf457e80d9::t_e042cfbf85afce 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1024-second-open-holder-of-post/view.nq
+  s_6c9dcf457e80d9::t_508cf19664e5c4 1-46
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1025-memberof-member-replaced/case.json
+  s_6c9dcf457e80d9::t_be8995e537c232 1-30
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1025-memberof-member-replaced/replace-member-old.nq
+  s_6c9dcf457e80d9::t_becbc12d11ba73 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1025-memberof-member-replaced/replace-member.nq
+  s_6c9dcf457e80d9::t_8da36995d43c04 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1025-memberof-member-replaced/setup.nq
+  s_6c9dcf457e80d9::t_0e6a81cc9a5c57 1-14
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1025-memberof-member-replaced/view.nq
+  s_6c9dcf457e80d9::t_f663e70540dd48 1-54
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1027-altitude-in-speed-unit/altitude.nq
+  s_6c9dcf457e80d9::t_a0ba96f4d24864 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1027-altitude-in-speed-unit/case.json
+  s_6c9dcf457e80d9::t_07a64eef54427d 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1027-altitude-in-speed-unit/setup.nq
+  s_6c9dcf457e80d9::t_e5b6686623e9f1 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1027-altitude-in-speed-unit/view.nq
+  s_6c9dcf457e80d9::t_84c0c714a9672d 1-8
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1029-derived-closed-written/case.json
+  s_6c9dcf457e80d9::t_5381842a87a858 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1029-derived-closed-written/closed.nq
+  s_6c9dcf457e80d9::t_bd3d97b4432e6b 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1029-derived-closed-written/setup.nq
+  s_6c9dcf457e80d9::t_c16bc69b99abd0 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1029-derived-closed-written/view.nq
+  s_6c9dcf457e80d9::t_7f06cc0886abad 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1029-inverse-grounds-written/case.json
+  s_6c9dcf457e80d9::t_a1aae4f3477f7c 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1029-inverse-grounds-written/inverse.nq
+  s_6c9dcf457e80d9::t_32a33b3d8da46e 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1029-inverse-grounds-written/setup.nq
+  s_6c9dcf457e80d9::t_0b4216f5730f48 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1029-inverse-grounds-written/view.nq
+  s_6c9dcf457e80d9::t_e016e71ac80cc3 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1030-rank-undeclared-member/case.json
+  s_6c9dcf457e80d9::t_9b9556800cdc23 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1030-rank-undeclared-member/create.nq
+  s_6c9dcf457e80d9::t_6ef96133af8871 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1030-rank-undeclared-member/setup.nq
+  s_6c9dcf457e80d9::t_1afc6286232951 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1030-rank-undeclared-member/view.nq
+  s_6c9dcf457e80d9::t_965f09dbbba61c 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1031-undeclared-graph/case.json
+  s_6c9dcf457e80d9::t_680a33298332ce 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1031-undeclared-graph/create.nq
+  s_6c9dcf457e80d9::t_6dbaa22e5f6ffc 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1031-undeclared-graph/setup.nq
+  s_6c9dcf457e80d9::t_9b5a9c13c936dc 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1031-undeclared-graph/view.nq
+  s_6c9dcf457e80d9::t_00d6c31c0ff95a 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1034-reifier-without-triple/case.json
+  s_6c9dcf457e80d9::t_eb1962b8d0d9de 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1034-reifier-without-triple/reifier.nq
+  s_6c9dcf457e80d9::t_e92921a0bcaed9 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1034-reifier-without-triple/setup.nq
+  s_6c9dcf457e80d9::t_8917ecc17bf4a2 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1034-reifier-without-triple/view.nq
+  s_6c9dcf457e80d9::t_06165ed5260cef 1-16
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1035-replaces-without-valid-start/case.json
+  s_6c9dcf457e80d9::t_048c6a39cc9a0b 1-25
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1035-replaces-without-valid-start/replaces.nq
+  s_6c9dcf457e80d9::t_80f962f488d692 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1035-replaces-without-valid-start/setup.nq
+  s_6c9dcf457e80d9::t_ce32882156a09c 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1035-replaces-without-valid-start/view.nq
+  s_6c9dcf457e80d9::t_123bb006c14e54 1-17
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1036-second-confidence-value/case.json
+  s_6c9dcf457e80d9::t_87726843395b6c 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1036-second-confidence-value/second-value.nq
+  s_6c9dcf457e80d9::t_ecd5fb45b363cb 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1036-second-confidence-value/setup.nq
+  s_6c9dcf457e80d9::t_ecd05ca1204069 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1036-second-confidence-value/view.nq
+  s_6c9dcf457e80d9::t_1beed8f34e906e 1-11
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-key-not-percent-encoded/case.json
+  s_6c9dcf457e80d9::t_aaae46fac6a7e8 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-key-not-percent-encoded/create.nq
+  s_6c9dcf457e80d9::t_92d9c3a0cd5d55 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-key-not-percent-encoded/setup.nq
+  s_6c9dcf457e80d9::t_d7217ef6fd7176 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-key-not-percent-encoded/view.nq
+  s_6c9dcf457e80d9::t_295604514f7247 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-keyed-under-blank-node/case.json
+  s_6c9dcf457e80d9::t_83afd80757eb6b 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-keyed-under-blank-node/create.nq
+  s_6c9dcf457e80d9::t_c3d600f237ea63 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-keyed-under-blank-node/setup.nq
+  s_6c9dcf457e80d9::t_d38f840b8f21ba 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-keyed-under-blank-node/view.nq
+  s_6c9dcf457e80d9::t_b8749466763916 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-keyless-reading-under-iri/case.json
+  s_6c9dcf457e80d9::t_702f296f1d150c 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-keyless-reading-under-iri/reading.nq
+  s_6c9dcf457e80d9::t_d762190edf2989 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-keyless-reading-under-iri/setup.nq
+  s_6c9dcf457e80d9::t_329e43a55e972b 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-keyless-reading-under-iri/view.nq
+  s_6c9dcf457e80d9::t_f568842cd1596a 1-9
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-type-name-in-place-of-key-space/case.json
+  s_6c9dcf457e80d9::t_593ce88610e7ce 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-type-name-in-place-of-key-space/create.nq
+  s_6c9dcf457e80d9::t_ae36cbedb3f9bf 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-type-name-in-place-of-key-space/setup.nq
+  s_6c9dcf457e80d9::t_63e60ebd17fdaa 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1038-type-name-in-place-of-key-space/view.nq
+  s_6c9dcf457e80d9::t_2acdfe642c3694 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1040-no-overlap-group-past-read-bound/case.json
+  s_6c9dcf457e80d9::t_f0a4f526c49db2 1-35
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1040-no-overlap-group-past-read-bound/holds-line.nq
+  s_6c9dcf457e80d9::t_3c1f10bfc0b859 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1040-no-overlap-group-past-read-bound/setup.nq
+  s_6c9dcf457e80d9::t_00cd1eb88e68a0 1-7
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1040-suborganization-walk-past-read-bound/attach.nq
+  s_6c9dcf457e80d9::t_536750c5214857 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1040-suborganization-walk-past-read-bound/case.json
+  s_6c9dcf457e80d9::t_b570b4bbcb62f9 1-32
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1040-suborganization-walk-past-read-bound/setup.nq
+  s_6c9dcf457e80d9::t_fb6425afc1d8dc 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/UGS1040-suborganization-walk-past-read-bound/unit-line.nq
+  s_6c9dcf457e80d9::t_67a5cb46003a08 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-alternatives-member-replaced/case.json
+  s_6c9dcf457e80d9::t_2357de72b2e3ed 1-17
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-alternatives-member-replaced/step1.nq
+  s_6c9dcf457e80d9::t_f249451c365adb 1-21
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-alternatives-member-replaced/step2-delete.nq
+  s_6c9dcf457e80d9::t_ee053fb1fdbc9c 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-alternatives-member-replaced/step2.nq
+  s_6c9dcf457e80d9::t_d0eb1f23048285 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-alternatives-member-replaced/view.nq
+  s_6c9dcf457e80d9::t_b7d4081c2b0d5b 1-62
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-altitude-in-feet/altitude.nq
+  s_6c9dcf457e80d9::t_0bc67a4297724e 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-altitude-in-feet/case.json
+  s_6c9dcf457e80d9::t_1798f80be811bf 1-19
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-altitude-in-feet/setup.nq
+  s_6c9dcf457e80d9::t_aabe8d04ee2775 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-altitude-in-feet/view.nq
+  s_6c9dcf457e80d9::t_4994ccbe1c145a 1-9
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-append-only-created/case.json
+  s_6c9dcf457e80d9::t_ad7a40a9a49cb8 1-12
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-append-only-created/create.nq
+  s_6c9dcf457e80d9::t_e177b730c34ae7 1-11
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-append-only-created/view.nq
+  s_6c9dcf457e80d9::t_6bdf7cf0f8d2ab 1-27
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-confidence-replaced/case.json
+  s_6c9dcf457e80d9::t_5acc194a7a5eb2 1-23
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-confidence-replaced/replace-old.nq
+  s_6c9dcf457e80d9::t_24f15c97b9bff4 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-confidence-replaced/replace.nq
+  s_6c9dcf457e80d9::t_39e28df8b821ae 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-confidence-replaced/setup.nq
+  s_6c9dcf457e80d9::t_03d7ef7036bb81 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-confidence-replaced/view.nq
+  s_6c9dcf457e80d9::t_7c8ce6acf9f015 1-11
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-declared-instances/case.json
+  s_6c9dcf457e80d9::t_d5511fa52e5d39 1-27
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-declared-instances/create.nq
+  s_6c9dcf457e80d9::t_99e226fb199732 1-33
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-declared-instances/view.nq
+  s_6c9dcf457e80d9::t_0060c6331cee6d 1-93
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-default-graph-write/case.json
+  s_6c9dcf457e80d9::t_2d4134a24cb6d4 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-default-graph-write/create.nq
+  s_6c9dcf457e80d9::t_334ebc045e89b4 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-default-graph-write/setup.nq
+  s_6c9dcf457e80d9::t_f400b4a8340c42 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-default-graph-write/view.nq
+  s_6c9dcf457e80d9::t_8f760a9105d4d9 1-20
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-distinct-ids/case.json
+  s_6c9dcf457e80d9::t_be49aa6a81a77c 1-23
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-distinct-ids/step1.nq
+  s_6c9dcf457e80d9::t_b42a6c58ca1267 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-distinct-ids/step2.nq
+  s_6c9dcf457e80d9::t_017ba37f485770 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-distinct-ids/view.nq
+  s_6c9dcf457e80d9::t_bdf63ce1c5c06d 1-17
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-grounded-in-stored-triple/case.json
+  s_6c9dcf457e80d9::t_920e9eb61382fb 1-23
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-grounded-in-stored-triple/grounded-in.nq
+  s_6c9dcf457e80d9::t_744fcc79c38911 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-grounded-in-stored-triple/setup.nq
+  s_6c9dcf457e80d9::t_6ce8067bf652f4 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-grounded-in-stored-triple/view.nq
+  s_6c9dcf457e80d9::t_8ab996efd2462b 1-17
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-holder-succession-on-post/case.json
+  s_6c9dcf457e80d9::t_3b0d7c0c082645 1-28
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-holder-succession-on-post/setup.nq
+  s_6c9dcf457e80d9::t_bf49f220973541 1-13
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-holder-succession-on-post/succession.nq
+  s_6c9dcf457e80d9::t_ee70e8e70c994c 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-holder-succession-on-post/view.nq
+  s_6c9dcf457e80d9::t_9bb4514c51c77f 1-56
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-memberof-optional-role-replaced/case.json
+  s_6c9dcf457e80d9::t_98a1099581680e 1-28
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-memberof-optional-role-replaced/replace-role-old.nq
+  s_6c9dcf457e80d9::t_341dec5fe65845 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-memberof-optional-role-replaced/replace-role.nq
+  s_6c9dcf457e80d9::t_77f2ef438e4cf0 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-memberof-optional-role-replaced/setup.nq
+  s_6c9dcf457e80d9::t_95a6d19c795bff 1-14
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-memberof-optional-role-replaced/view.nq
+  s_6c9dcf457e80d9::t_6b7d1b30238978 1-54
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-mutable-attribute-revised/case.json
+  s_6c9dcf457e80d9::t_d60fff21f3ba5a 1-17
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-mutable-attribute-revised/step1.nq
+  s_6c9dcf457e80d9::t_f7d2c386cbddb7 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-mutable-attribute-revised/step2-delete.nq
+  s_6c9dcf457e80d9::t_888ae69b532b5d 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-mutable-attribute-revised/step2.nq
+  s_6c9dcf457e80d9::t_48188c6412e79c 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-mutable-attribute-revised/view.nq
+  s_6c9dcf457e80d9::t_700e263e77579b 1-11
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-preferred-moves-in-one-transaction/case.json
+  s_6c9dcf457e80d9::t_d6fa66398f7377 1-28
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-preferred-moves-in-one-transaction/revise-old.nq
+  s_6c9dcf457e80d9::t_499f8c670dae9c 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-preferred-moves-in-one-transaction/revise.nq
+  s_6c9dcf457e80d9::t_259204157eb96c 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-preferred-moves-in-one-transaction/setup.nq
+  s_6c9dcf457e80d9::t_3fda1500fb4d4a 1-14
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-preferred-moves-in-one-transaction/view.nq
+  s_6c9dcf457e80d9::t_8df28f979d29cd 1-40
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-preferred-per-relation-type/case.json
+  s_6c9dcf457e80d9::t_e08ef319991887 1-27
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-preferred-per-relation-type/realizes.nq
+  s_6c9dcf457e80d9::t_54b5be3b29ad39 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-preferred-per-relation-type/setup.nq
+  s_6c9dcf457e80d9::t_61a2f4eeb19807 1-17
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-preferred-per-relation-type/view.nq
+  s_6c9dcf457e80d9::t_0b23016e30ba09 1-58
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-rank-declared-member/case.json
+  s_6c9dcf457e80d9::t_be0866c3d0ebd4 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-rank-declared-member/create.nq
+  s_6c9dcf457e80d9::t_3d190c5030cd25 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-rank-declared-member/setup.nq
+  s_6c9dcf457e80d9::t_e241efac0a1798 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-rank-declared-member/view.nq
+  s_6c9dcf457e80d9::t_8567fc7a984479 1-20
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-rank-deprecated-written/case.json
+  s_6c9dcf457e80d9::t_13464ed00703c3 1-23
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-rank-deprecated-written/rank-old.nq
+  s_6c9dcf457e80d9::t_3a6c7fe5703432 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-rank-deprecated-written/rank.nq
+  s_6c9dcf457e80d9::t_80e0ee9e2bbc67 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-rank-deprecated-written/setup.nq
+  s_6c9dcf457e80d9::t_6c2bed80b6807b 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-rank-deprecated-written/view.nq
+  s_6c9dcf457e80d9::t_9bbc940fefed7c 1-10
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-ranking-replaced/case.json
+  s_6c9dcf457e80d9::t_73b20bb2b3e5ef 1-30
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-ranking-replaced/step1.nq
+  s_6c9dcf457e80d9::t_8b18305246cc0e 1-12
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-ranking-replaced/step2-delete.nq
+  s_6c9dcf457e80d9::t_c24ba5d12ecf48 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-ranking-replaced/step2.nq
+  s_6c9dcf457e80d9::t_aa2d694dd6bbf7 1
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-ranking-replaced/view.nq
+  s_6c9dcf457e80d9::t_debe5d469af664 1-46
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-reading-with-generated-by/case.json
+  s_6c9dcf457e80d9::t_35e24e1dad6dd7 1-19
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-reading-with-generated-by/reading.nq
+  s_6c9dcf457e80d9::t_9071aefde80814 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-reading-with-generated-by/setup.nq
+  s_6c9dcf457e80d9::t_4ec17bb4172780 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-reading-with-generated-by/view.nq
+  s_6c9dcf457e80d9::t_8766e45e289bd2 1-15
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-reifier-with-triple/case.json
+  s_6c9dcf457e80d9::t_7af54326c854cf 1-23
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-reifier-with-triple/isabout.nq
+  s_6c9dcf457e80d9::t_db3dcd32e79561 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-reifier-with-triple/setup.nq
+  s_6c9dcf457e80d9::t_1b8d9ce4de5f5f 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-reifier-with-triple/view.nq
+  s_6c9dcf457e80d9::t_3effa8ce780114 1-24
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-relation-participants/case.json
+  s_6c9dcf457e80d9::t_e1967dcc15ff28 1-12
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-relation-participants/create.nq
+  s_6c9dcf457e80d9::t_40b375f665bed7 1-25
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-relation-participants/view.nq
+  s_6c9dcf457e80d9::t_11a71b3b1aae90 1-84
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-replaces-ends-old-validity/case.json
+  s_6c9dcf457e80d9::t_5e8fe2a525bde6 1-20
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-replaces-ends-old-validity/replaces.nq
+  s_6c9dcf457e80d9::t_b82cdcd0930c1e 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-replaces-ends-old-validity/setup.nq
+  s_6c9dcf457e80d9::t_d3f169ffd6d84a 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-replaces-ends-old-validity/view.nq
+  s_6c9dcf457e80d9::t_52bc32a375a35a 1-29
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-retract-closed-membership/case.json
+  s_6c9dcf457e80d9::t_9ee8f84cf3f57a 1-28
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-retract-closed-membership/step1.nq
+  s_6c9dcf457e80d9::t_7ba87ae8b43c04 1-9
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-subject-is-minted-iri/case.json
+  s_6c9dcf457e80d9::t_096aa6d66193d3 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-subject-is-minted-iri/create.nq
+  s_6c9dcf457e80d9::t_f198fe21414052 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-subject-is-minted-iri/setup.nq
+  s_6c9dcf457e80d9::t_ec81edd5988223 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-subject-is-minted-iri/view.nq
+  s_6c9dcf457e80d9::t_d9f5c902986b96 1-20
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-suborganization-at-max-depth/case.json
+  s_6c9dcf457e80d9::t_f44d1d4b39f22e 1-96
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-suborganization-at-max-depth/chain-line.nq
+  s_6c9dcf457e80d9::t_06c24ce87842a1 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-suborganization-at-max-depth/root.nq
+  s_6c9dcf457e80d9::t_cac534fc12726d 1-2
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-suborganization-at-max-depth/sibling.nq
+  s_6c9dcf457e80d9::t_67ac41b2ada074 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-suborganization-cycle-through-closed-instance/case.json
+  s_6c9dcf457e80d9::t_9f0522c4bd6990 1-27
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-suborganization-cycle-through-closed-instance/close-and-reverse.nq
+  s_6c9dcf457e80d9::t_5f16a4a9d135eb 1-5
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-suborganization-cycle-through-closed-instance/setup.nq
+  s_6c9dcf457e80d9::t_5c39644f62e0b4 1-14
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-suborganization-cycle-through-closed-instance/view.nq
+  s_6c9dcf457e80d9::t_dd94084937cb80 1-55
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-suborganization-walk-within-read-bound/attach.nq
+  s_6c9dcf457e80d9::t_9825f5ea5ab045 1-4
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-suborganization-walk-within-read-bound/case.json
+  s_6c9dcf457e80d9::t_1dae5ea817bdc1 1-31
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-suborganization-walk-within-read-bound/setup.nq
+  s_6c9dcf457e80d9::t_3dc621ba5e227f 1-28
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-suborganization-walk-within-read-bound/view.nq
+  s_6c9dcf457e80d9::t_014c3137db7f44 1-99
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-supersede-live/case.json
+  s_6c9dcf457e80d9::t_7a0548f04e842a 1-22
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-supersede-live/step1.nq
+  s_6c9dcf457e80d9::t_1b8f725ea5081d 1-3
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-supersede-live/step2.nq
+  s_6c9dcf457e80d9::t_4b4b3849c17b7d 1-6
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-unique-distinct-values/case.json
+  s_6c9dcf457e80d9::t_1d430641135ec5 1-18
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-unique-distinct-values/create.nq
+  s_6c9dcf457e80d9::t_93b9c4dfd0fb45 1-12
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-unique-distinct-values/view.nq
+  s_6c9dcf457e80d9::t_59e2bb3e6f7a02 1-34
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-value-checks/case.json
+  s_6c9dcf457e80d9::t_155cfab8473a36 1-12
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-value-checks/create.nq
+  s_6c9dcf457e80d9::t_ce383e83fba0c4 1-25
+ultragraphdb/ultragraphdb_tests/testdata/instances/gen5/holds-value-checks/view.nq
+  s_6c9dcf457e80d9::t_24c01fb45941c3 1-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b7ada6d100925f57e60b7cefc6280893c3c35b0b",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
