@@ -1,0 +1,25 @@
+openspec/protocols/tdd-protocol.md
+  s_d14a54f3ee4b57::t_844c74e3734e79 227-229
+  s_d14a54f3ee4b57::t_4f267863bcfb43 224-226
+  s_d14a54f3ee4b57::t_67a9807d857dae 218-223,241-249
+openspec/notes/Loom-List.md
+  s_d14a54f3ee4b57::t_0566e1b8cb1819 3-6,27,54-61,66,68-69,73-86,90-91,96-98,100,102-104,124,130
+ROADMAP.md
+  s_d14a54f3ee4b57::t_98ea10cf819db8 32-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d457fc715d7a9a625ce30cf719a7169bcabb02ca",
+  "prompts": {},
+  "sessions": {
+    "s_d14a54f3ee4b57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "763dd999-2deb-442f-8d19-3d08b11dfa90",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
