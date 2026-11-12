@@ -1,0 +1,87 @@
+AGENTS.md
+  s_5d1c8e4faaa326::t_48294cf09be18c 284,311,411-420
+Cargo.lock
+  s_5d1c8e4faaa326::t_8deab1a9537224 5-10,1139-1144,1151-1190,1447-1452,1567-1575,1780,1808,2073-2082,2092,2104-2109,2390-2398,2801-2830,3414,4546-4551
+MODULE.bazel.lock
+  s_5d1c8e4faaa326::t_090db6c6dec95c 820-822,885,991,996,1048,1109-1111,1212
+ROADMAP.md
+  s_5d1c8e4faaa326::t_84b6ea438e42e6 14
+openspec/changes/stage-5-8-system-group/design.md
+  s_5d1c8e4faaa326::t_511f392f2dcefc 162
+openspec/changes/stage-5-8-system-group/tasks.md
+  s_5d1c8e4faaa326::t_711cb3eb4cfca9 4,26-27,36,44-45,54-55,70-72
+openspec/changes/stage-5-9-compute-role/.openspec.yaml
+  s_5d1c8e4faaa326::t_7c674b3f904a26 1-2
+openspec/changes/stage-5-9-compute-role/design.md
+  s_5d1c8e4faaa326::t_bb806a23862c7f 1-130
+openspec/changes/stage-5-9-compute-role/proposal.md
+  s_5d1c8e4faaa326::t_c4916ea6697d3a 1-101
+openspec/changes/stage-5-9-compute-role/specs/client-endpoint/spec.md
+  s_5d1c8e4faaa326::t_b7d3fbc69f3587 1-417
+openspec/changes/stage-5-9-compute-role/specs/commit-rounds/spec.md
+  s_5d1c8e4faaa326::t_9b518744c6ac28 1-32
+openspec/changes/stage-5-9-compute-role/specs/config-service/spec.md
+  s_5d1c8e4faaa326::t_7114c03eb5ca52 1-121
+openspec/changes/stage-5-9-compute-role/specs/kubernetes-deployment/spec.md
+  s_5d1c8e4faaa326::t_72983db971ff01 1-90
+openspec/changes/stage-5-9-compute-role/specs/metadata-group/spec.md
+  s_5d1c8e4faaa326::t_b63c35100b33ec 1-121
+openspec/changes/stage-5-9-compute-role/specs/node-discovery/spec.md
+  s_5d1c8e4faaa326::t_7944d93580ae7a 1-145
+openspec/changes/stage-5-9-compute-role/specs/partitions/spec.md
+  s_5d1c8e4faaa326::t_9b6aa53faac157 1-69
+openspec/changes/stage-5-9-compute-role/specs/quad-reads/spec.md
+  s_5d1c8e4faaa326::t_57b3fde01c72a1 1-433
+openspec/changes/stage-5-9-compute-role/specs/role-binaries/spec.md
+  s_5d1c8e4faaa326::t_e7953b5d7a1526 1-211
+openspec/changes/stage-5-9-compute-role/specs/schema-changes/spec.md
+  s_5d1c8e4faaa326::t_1e08302b79858f 1-136
+openspec/changes/stage-5-9-compute-role/specs/schema-storage/spec.md
+  s_5d1c8e4faaa326::t_b9283c6d162bb9 1-19
+openspec/changes/stage-5-9-compute-role/specs/sequencer/spec.md
+  s_5d1c8e4faaa326::t_70914e702eb9a1 1-101
+openspec/changes/stage-5-9-compute-role/specs/system-group/spec.md
+  s_5d1c8e4faaa326::t_90a357522d9def 1-112
+openspec/changes/stage-5-9-compute-role/specs/term-dictionary/spec.md
+  s_5d1c8e4faaa326::t_8b96ec34f7a1cb 1-44
+openspec/changes/stage-5-9-compute-role/specs/transactions/spec.md
+  s_5d1c8e4faaa326::t_3f0abaeb01dbb9 1-236
+openspec/changes/stage-5-9-compute-role/specs/wire-protocol/spec.md
+  s_5d1c8e4faaa326::t_80110a0d8750ae 1-511
+openspec/changes/stage-5-9-compute-role/tasks.md
+  s_5d1c8e4faaa326::t_11ed01e39cb9df 1-104
+openspec/changes/stage-6-5-tile-store/tasks.md
+  s_5d1c8e4faaa326::t_1a45c5ab92ba3a 12
+openspec/changes/stage-6-6-ugs-data-definition/tasks.md
+  s_5d1c8e4faaa326::t_8f36485a33ef2a 5
+openspec/protocols/tdd-protocol.md
+  s_5d1c8e4faaa326::t_ff21634a5d6d27 160-215
+scripts/test.sh
+  s_5d1c8e4faaa326::t_6a3387a89f0bcd 32-35,37,61
+ultragraphdb_core/ultragraphdb_core_ids/BUILD.bazel
+  s_5d1c8e4faaa326::t_65779a58b34244 35-38,50-66
+ultragraphdb_core/ultragraphdb_core_ids/Cargo.toml
+  s_5d1c8e4faaa326::t_10ad4dba4c6a0a 28,35-38
+ultragraphdb_core/ultragraphdb_core_ids/tests/property/mod.rs
+  s_5d1c8e4faaa326::t_4e88604a31f35e 1-9
+ultragraphdb_core/ultragraphdb_core_ids/tests/property/types/mod.rs
+  s_5d1c8e4faaa326::t_ae6341adbfe5b3 1-7
+ultragraphdb_core/ultragraphdb_core_ids/tests/property/types/version_property_tests.rs
+  s_5d1c8e4faaa326::t_3217e9e3b22e80 1-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5ecf8597496023d9602a4310e91a8e3fd90cb246",
+  "prompts": {},
+  "sessions": {
+    "s_5d1c8e4faaa326": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "27074499-0862-404a-bdfb-e7cd321ff5bc",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
