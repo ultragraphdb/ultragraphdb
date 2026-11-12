@@ -1,7 +1,9 @@
 # Loom List
 
-The types that need a Loom model under `tdd-protocol.md`, *A type sharing atomics or locks across threads has a Loom
-model*, found by an import sweep of every crate's `src/` on 2026-11-12, and their status.
+The types that need a Loom model under `tdd-protocol.md`, *A type sharing state across threads has a Loom model*,
+found by an import sweep of every crate's `src/` on 2026-11-12, and their status. The rule covers atomics, locks and
+condition variables shared across threads, and state passed between threads through `std::sync::mpsc` or threads a type
+spawns. Simulators, test doubles and benchmark tools take a model once a test drives them from more than one thread.
 
 ## How the list was made
 
@@ -22,7 +24,7 @@ grep -rlE 'std::sync|sync::atomic|\bAtomic[A-Z][a-z0-9]*\b|\b(Mutex|RwLock|Condv
 A model is shown to bite before it is trusted: the operation it guards, made non-atomic or reordered by a temporary
 edit, fails it.
 
-## Required: production types sharing atomics or locks across threads
+## Required: production types sharing state across threads
 
 Ordered by the harm a race would do: a lock and a condition variable together first, then several locks in one type,
 then a flag or a count.
@@ -49,63 +51,57 @@ then a flag or a count.
 | 18 | `ultragraphdb_supervisor` | `Signals` | `ultragraphdb/ultragraphdb_supervisor/src/service.rs` | `term`, `int: Arc<AtomicBool>` set from a signal | A signal's flag is seen by the supervising loop | To do |
 | 19 | `ultragraphdb_common_role` | `ConnectionBound`, `HeldConnection` | `src/types/connection_bound.rs`, `src/types/held_connection.rs`, through `src/utils/sync.rs` | `held: Arc<AtomicUsize>` | Racing connections admit exactly the bound; a leaving connection frees its place; the count ends at zero | Done: `tests/loom/types/connection_bound_tests.rs` |
 
+| 20 | `ultragraphdb_store_kv` | `Syncer` | `src/types/syncer/mod.rs` | `std::sync::mpsc` to a thread it spawns with `thread::Builder` | Every sync requested is performed and acknowledged once, in order; the thread ends when the store drops its sender | To do |
+| 21 | `ultragraphdb_store_kv` | `ThreadExecutor` | `src/types/thread_executor/thread_executor_executor.rs` | `thread::scope`, `thread::spawn` | Every task handed to it runs once, and the executor returns only after every task has ended | To do |
+| 22 | `ultragraphdb_cluster_partition` | `PartitionMailbox` | `src/types/partition_mailbox.rs` | `std::sync::mpsc` | Each message reaches the partition once, in the order each sender sent it; a closed mailbox refuses rather than loses | To do |
+| 23 | `ultragraphdb_common_storage` | `PartitionCore`, `CoreChannels` | `src/types/partition_core/mod.rs` | `std::sync::mpsc` from the partition's host, beside `futures::channel::mpsc` to its sessions | Frames from the host are taken once and in order; the core ends when the host's sender is dropped | To do |
+| 24 | `ultragraphdb_storage` | the storage service's threads | `ultragraphdb/ultragraphdb_storage/src/service.rs` | `std::sync::mpsc`, `futures::channel`, `thread::Builder` | Startup hands each partition thread its work once; a stop reaches every thread and each is joined | To do |
+| 25 | `ultragraphdb_compute`, `ultragraphdb_frontend` | the services' core threads | `ultragraphdb/ultragraphdb_compute/src/service.rs`, `ultragraphdb/ultragraphdb_frontend/src/service.rs` | `thread::Builder` | A stop reaches every core thread and each is joined | To do |
+| 26 | `ultragraphdb_core_algo` | `merge_sorted`, `merge_sorted_more_mem` | `src/uidlist.rs` | `thread::scope` over disjoint chunks | The merged list equals the sequential merge whichever thread finishes first | To do |
+
 `src/utils/lock.rs` in `ultragraphdb_store_apply`, `ultragraphdb_store_kv`, `ultragraphdb_store_posting`,
 `ultragraphdb_store_quads` and `ultragraphdb_store_sim` holds the poison-handling `lock` (and in store_posting `wait`)
 helpers the types above call; their models cover them.
 
-## Required: simulators, test doubles and tools
+## Required once a test shares them: simulators, test doubles and tools
 
-The same rule, for types that never ship. A simulator's lock matters where its `Store` is `Send + Sync` and a test
-drives it from more than one thread; each model first confirms that it is.
+Types that never ship take a model once a test drives them from more than one thread; until then the status says
+which. A simulator's `Store` is `Send + Sync`, so whether a test shares it is a fact to check, not one to assume.
 
 | # | Crate | Type | File | Shared state | Status |
 |---|---|---|---|---|---|
-| 20 | `ultragraphdb_store_sim` | `SimStore` | `src/types/sim_store/mod.rs` (with `sim_store_store.rs`, `temporaries.rs`) | `shared: Arc<Mutex<Inner>>` | To do |
-| 21 | `ultragraphdb_store_sim` | `SimSnapshot` | `src/types/sim_snapshot/mod.rs` | `shared: Arc<Mutex<Inner>>` | To do |
-| 22 | `ultragraphdb_store_sim` | `SteppedExecutor` | `src/types/stepped_executor/mod.rs` | `shared: Arc<Mutex<Shared>>` | To do |
-| 23 | `ultragraphdb_store_sim` | `SimListCache<V>` | `src/types/sim_list_cache/mod.rs` | `shared: Mutex<Shared<V>>` | To do |
-| 24 | `ultragraphdb_store_sim` | `LogCapture` | `src/types/log_capture/mod.rs` | `events: Arc<Mutex<Vec<CapturedEvent>>>` | To do |
-| 25 | `ultragraphdb_store_sim` | `SimClock` | `src/types/sim_clock.rs` | `nanos: Arc<AtomicU64>` | To do |
-| 26 | `ultragraphdb_client_core` | `TestServer`, `TestAuthenticator`, `TestExchange` | `src/utils_test/test_server/mod.rs`, `src/utils_test/test_authenticator/mod.rs`, `src/utils_test/test_exchange/mod.rs` | `clock: Arc<AtomicU64>` | To do |
-| 27 | `ultragraphdb_traits_blocks` | `TestBlockSource` | `src/utils_test/test_block_source.rs` | `state: Arc<Mutex<State>>` | To do |
-| 28 | `ultragraphdb_traits_catalog` | `TestCatalogSource` | `src/utils_test/test_catalog_source.rs` | `state: Arc<Mutex<State>>` | To do |
-| 29 | `ultragraphdb_tool_bench` | `ReadCounts` | `src/types/read_counts.rs` | five `AtomicU64` counters | To do |
-| 30 | `ultragraphdb_tool_bench` | `TimedStore` | `src/types/timed_store/mod.rs` (with `timed_store_store.rs`) | `calls: Mutex<Vec<WriteCall>>`; `other_calls`, `other_nanos: AtomicU64` | To do |
-| 31 | `ultragraphdb_tool_bench` | run state of `apply_run`, `partitions_run`, `pipeline_run` | `src/utils/apply_run.rs`, `src/utils/partitions_run.rs`, `src/utils/pipeline_run.rs` | `applied`, `replied: Arc<AtomicU64>`; `stop: Arc<AtomicBool>`; `Shared { writers: AtomicUsize, last_close: AtomicU64 }` | To do |
+| 27 | `ultragraphdb_store_sim` | `SimStore` | `src/types/sim_store/mod.rs` (with `sim_store_store.rs`, `temporaries.rs`) | `shared: Arc<Mutex<Inner>>` | Not yet shared by a test |
+| 28 | `ultragraphdb_store_sim` | `SimSnapshot` | `src/types/sim_snapshot/mod.rs` | `shared: Arc<Mutex<Inner>>` | Not yet shared by a test |
+| 29 | `ultragraphdb_store_sim` | `SteppedExecutor` | `src/types/stepped_executor/mod.rs` | `shared: Arc<Mutex<Shared>>` | Not yet shared by a test |
+| 30 | `ultragraphdb_store_sim` | `SimListCache<V>` | `src/types/sim_list_cache/mod.rs` | `shared: Mutex<Shared<V>>` | Not yet shared by a test |
+| 31 | `ultragraphdb_store_sim` | `LogCapture` | `src/types/log_capture/mod.rs` | `events: Arc<Mutex<Vec<CapturedEvent>>>` | Not yet shared by a test |
+| 32 | `ultragraphdb_store_sim` | `SimClock` | `src/types/sim_clock.rs` | `nanos: Arc<AtomicU64>` | Not yet shared by a test |
+| 33 | `ultragraphdb_client_core` | `TestServer`, `TestAuthenticator`, `TestExchange` | `src/utils_test/test_server/mod.rs`, `src/utils_test/test_authenticator/mod.rs`, `src/utils_test/test_exchange/mod.rs` | `clock: Arc<AtomicU64>` | Not yet shared by a test |
+| 34 | `ultragraphdb_traits_blocks` | `TestBlockSource` | `src/utils_test/test_block_source.rs` | `state: Arc<Mutex<State>>` | Not yet shared by a test |
+| 35 | `ultragraphdb_traits_catalog` | `TestCatalogSource` | `src/utils_test/test_catalog_source.rs` | `state: Arc<Mutex<State>>` | Not yet shared by a test |
+| 36 | `ultragraphdb_tool_bench` | `ReadCounts` | `src/types/read_counts.rs` | five `AtomicU64` counters | Not yet shared by a test |
+| 37 | `ultragraphdb_tool_bench` | `TimedStore` | `src/types/timed_store/mod.rs` (with `timed_store_store.rs`) | `calls: Mutex<Vec<WriteCall>>`; `other_calls`, `other_nanos: AtomicU64` | Not yet shared by a test |
+| 38 | `ultragraphdb_tool_bench` | run state of `apply_run`, `partitions_run`, `pipeline_run` | `src/utils/apply_run.rs`, `src/utils/partitions_run.rs`, `src/utils/pipeline_run.rs` | `applied`, `replied: Arc<AtomicU64>`; `stop: Arc<AtomicBool>`; `Shared { writers: AtomicUsize, last_close: AtomicU64 }` | Not yet shared by a test |
+| 39 | `ultragraphdb_tool_bench` | run start and its parties, the bound run | `src/types/run_start/mod.rs`, `src/types/run_start_party/mod.rs`, `src/utils/bound_run.rs` | `std::sync::mpsc` | Not yet shared by a test |
+| 40 | `ultragraphdb_tool_test` | `PartitionWorkload` | `src/types/partition_workload/mod.rs` | `std::sync::mpsc` | Not yet shared by a test |
 
 ## Required: static counters
 
-A `static` atomic hands out distinct numbers by one `fetch_add`. Loom's atomics have no `const` constructor, so a model
+A `static` atomic hands out distinct numbers by one `fetch_add`. These three serve tests, which the test harness runs
+on several threads of one process, so a test already shares each. Loom's atomics have no `const` constructor, so a model
 of these takes the counter through `loom::lazy_static!` or moves it into a value the model owns.
 
 | # | Crate | Static | File | Status |
 |---|---|---|---|---|
-| 32 | `ultragraphdb_tests` | `DIRECTORIES: AtomicU32` | `ultragraphdb/ultragraphdb_tests/src/utils/harness.rs` | To do |
-| 33 | `ultragraphdb_tool_test` | `NEXT: AtomicU64` in `TestDir` | `src/types/test_dir/mod.rs` | To do |
-| 34 | `ultragraphdb_transport_tls` | `NEXT_CA: AtomicU64` in `TestPki` | `src/utils_test/test_pki.rs` | To do |
+| 41 | `ultragraphdb_tests` | `DIRECTORIES: AtomicU32` | `ultragraphdb/ultragraphdb_tests/src/utils/harness.rs` | To do |
+| 42 | `ultragraphdb_tool_test` | `NEXT: AtomicU64` in `TestDir` | `src/types/test_dir/mod.rs` | To do |
+| 43 | `ultragraphdb_transport_tls` | `NEXT_CA: AtomicU64` in `TestPki` | `src/utils_test/test_pki.rs` | To do |
 
-## Message passing and threads
+## Message passing through `futures::channel`
 
-These files share state by sending it, through channels and spawned threads, and hold no atomic or lock of their own,
-so the rule as written does not reach them. Loom models `std::sync::mpsc` and its own threads; `futures::channel` is
-opaque to it, since its atomics are not Loom's. Ordering races between the two ends of a `futures` channel, as between
-a client and a server, are the simulators' and the ordering tests'.
-
-`std::sync::mpsc` and threads, which Loom can model:
-
-| Crate | File | Uses |
-|---|---|---|
-| `ultragraphdb_store_kv` | `src/types/syncer/mod.rs` | `std::sync::mpsc`, `thread::Builder` |
-| `ultragraphdb_store_kv` | `src/types/thread_executor/thread_executor_executor.rs` | `thread::scope`, `thread::spawn` |
-| `ultragraphdb_cluster_partition` | `src/types/partition_mailbox.rs` | `std::sync::mpsc` |
-| `ultragraphdb_common_storage` | `src/types/partition_core/mod.rs` | `std::sync::mpsc`, `futures::channel::mpsc` |
-| `ultragraphdb_storage` | `ultragraphdb/ultragraphdb_storage/src/service.rs` | `std::sync::mpsc`, `futures::channel`, `thread::Builder` |
-| `ultragraphdb_core_algo` | `src/uidlist.rs` | `thread::scope` over disjoint chunks |
-| `ultragraphdb_compute`, `ultragraphdb_frontend` | `ultragraphdb/*/src/service.rs` | `thread::Builder` |
-| `ultragraphdb_tool_bench` | `src/types/run_start/mod.rs`, `src/types/run_start_party/mod.rs`, `src/utils/bound_run.rs` | `std::sync::mpsc` |
-| `ultragraphdb_tool_test` | `src/types/partition_workload/mod.rs` | `std::sync::mpsc` |
-
-`futures::channel`, which Loom cannot see into:
+These files pass state between threads and tasks through `futures::channel`, which Loom cannot see into: its atomics are
+not Loom's. Ordering races between the two ends of a `futures` channel, as between a client and a server, are the
+simulators' and the ordering tests' to check.
 
 | Crate | Files |
 |---|---|
@@ -125,13 +121,13 @@ files of a type listed above, whose model covers them.
 | `ultragraphdb_store_posting` | `src/types/cached_list/mod.rs`, `list/mod.rs`, `list/list_read.rs`, `mutable_layer/mod.rs`; `lists/` impl files (row 1) |
 | `ultragraphdb_store_quads` | `src/types/description/mod.rs`, `kernel_scan.rs`, `page.rs`, `page_walk.rs` |
 | `ultragraphdb_store_apply` | `src/types/changeset_applier/mod.rs`; `changeset_core/` impl files (row 2) |
-| `ultragraphdb_store_sim` | `src/types/store_model/mod.rs`, `model_reads.rs`, `model_recovery.rs`, `model_writes.rs`; `sim_store/` impl files (row 20) |
+| `ultragraphdb_store_sim` | `src/types/store_model/mod.rs`, `model_reads.rs`, `model_recovery.rs`, `model_writes.rs`; `sim_store/` impl files (row 27) |
 | `ultragraphdb_common_storage` | `src/types/open_scan/mod.rs` |
 | `ultragraphdb_core_text` | `src/types/collator/mod.rs`, `src/types/tag/tag_compact.rs` |
 | `ultragraphdb_core_types` | `src/s2/loop/mod.rs` |
 | `ultragraphdb_transport_tls` | `src/types/tls_acceptor/mod.rs`, `tls_connector/mod.rs`, `tls_trust/mod.rs` |
 | `ultragraphdb_client_core` | `src/utils_test/test_authenticator/test_authenticator_authenticator.rs` |
-| `ultragraphdb_tool_bench` | `src/types/counted_snapshot/mod.rs`, `counted_snapshot_store_snapshot.rs`, `counting_cache/mod.rs`, `timed_store/timed_store_store.rs` (row 30), `src/utils/inbound_run.rs`, `rollup_run.rs`, `setup.rs` |
+| `ultragraphdb_tool_bench` | `src/types/counted_snapshot/mod.rs`, `counted_snapshot_store_snapshot.rs`, `counting_cache/mod.rs`, `timed_store/timed_store_store.rs` (row 37), `src/utils/inbound_run.rs`, `rollup_run.rs`, `setup.rs` |
 | `ultragraphdb_tool_test` | `src/types/changeset_workload/mod.rs` |
 
 ## No shared state
@@ -147,10 +143,3 @@ The text `sync` inside compio's `AsyncRead` and `AsyncWrite` matched in these, w
 `compio_file/compio_file_durable_file.rs`, `compio_storage/compio_storage_durable_storage.rs`;
 `ultragraphdb_transport_http_client` `src/types/http_client.rs`; `ultragraphdb_transport_http_server`
 `src/utils/serve_http.rs`.
-
-## Open questions
-
-- Do the `std::sync::mpsc` and thread files in *Message passing and threads*, which Loom can model, come under the
-  rule, so that `syncer`, `thread_executor`, `partition_mailbox` and `partition_core` get models too?
-- Do the simulators, test doubles and benchmark tools in rows 20 to 31 need models now, or once a test drives them from
-  more than one thread?

@@ -29,3 +29,9 @@ starts before the one above it is complete.
 
 No stage is numbered 6. UGS was stage 6 until 2026-11-12 and is stage 6.6. The architecture these stages build is
 `openspec/designs/UltraGraphDB Distribution Architecture.md`.
+
+
+Next
+- Replace remaining go semantics with Rust natives
+- Add loom tests to test identified concurrency code for race conditions 
+- verify and implement stage 5.8

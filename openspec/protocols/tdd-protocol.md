@@ -215,15 +215,18 @@ is not committed, since it is tied to one version of the engine.
 - **WHEN** a group changes only a binary's wiring
 - **THEN** its notes say that it holds no law, and its crates gain no `property` target
 
-### Requirement: A type sharing atomics or locks across threads has a Loom model
+### Requirement: A type sharing state across threads has a Loom model
 
-A type that shares an atomic, a `Mutex`, an `RwLock` or a `Condvar` across threads SHALL have a Loom model: a test that
-runs its operations on two or more threads inside `loom::model` and asserts the invariants its documentation states
-(a count never past its bound, a flag seen once set, a waiter woken, no deadlock), so every interleaving and every
-ordering its atomics allow is checked. The crate takes those types from `src/utils/sync.rs`, std's or Loom's under
-`--cfg loom`, and its `BUILD.bazel` builds the library again as `<crate>_loom` with `--cfg loom` and runs the models
-under `tests/loom/`, rooted at `tests/loom/mod.rs` and mirroring `src/`, as one `rust_test` named `loom` tagged
-`loom-test`, the tag `scripts/test.sh` selects after the property tests. The unit test target excludes `tests/loom/**`.
+A type that shares an atomic, a `Mutex`, an `RwLock` or a `Condvar` across threads, or passes state between threads
+through `std::sync::mpsc` or threads it spawns, SHALL have a Loom model: a test that runs its operations on two or more
+threads inside `loom::model` and asserts the invariants its documentation states (a count never past its bound, a flag
+seen once set, a waiter woken, a message delivered once and in order, no deadlock), so every interleaving and every
+ordering its atomics allow is checked. A simulator, a test double or a benchmark tool takes a model once a test drives
+it from more than one thread. A `futures::channel` is opaque to Loom, whose models see only Loom's own types: the
+ordering of its two ends is the simulators' and the ordering tests' to check. The crate takes those types from
+`src/utils/sync.rs`, std's or Loom's under `--cfg loom`, and its `BUILD.bazel` builds the library again as
+`<crate>_loom` with `--cfg loom` and runs the models under `tests/loom/`, rooted at `tests/loom/mod.rs` and mirroring
+`src/`, as one `rust_test` named `loom` tagged `loom-test`, the tag `scripts/test.sh` selects after the property tests. The unit test target excludes `tests/loom/**`.
 A model SHALL be small enough to finish in seconds: two or three threads and the fewest operations that reach the
 invariant.
 
@@ -234,6 +237,15 @@ edit, fails it.
 - **WHEN** a type's count is shared by an `Arc` of an atomic across cores
 - **THEN** its crate's `loom` target runs a model in which threads race on the count and its bound holds in every
   interleaving
+
+#### Scenario: A channel between threads is modelled
+- **WHEN** a type hands work from one thread to another through `std::sync::mpsc`
+- **THEN** its crate's `loom` target runs a model in which the sender and the receiver race, and each message is
+  received once, in the order sent, and the receiver ends when every sender is dropped
+
+#### Scenario: A test double takes a model when a test shares it
+- **WHEN** a test first drives a test double holding a `Mutex` from two threads
+- **THEN** the double gains a Loom model in the same change
 
 #### Scenario: A model fails on a broken operation
 - **WHEN** the atomic read-modify-write a model guards is replaced by a load and a store
