@@ -1,0 +1,35 @@
+openspec/changes/stage-6-5-tile-store/tasks.md
+  s_5d1c8e4faaa326::t_c62dfde5bb14f1 25-27
+"openspec/designs/UltraGraphDB Distribution Architecture.md"
+  s_5d1c8e4faaa326::t_46e6da1a77a350 145-146,162-164,173-174,450,463-469,474-475,478-483,488-489,549,697-700,767-768,771-773,851-855,860
+"openspec/notes/UltraGraphDB Specification Update.md"
+  s_5d1c8e4faaa326::t_b28d09ad8bdabd 1-115
+specification/binary_protocol/PROTOCOL.md
+  s_5d1c8e4faaa326::t_8851a5cba9fec6 14-22,29,36-37,41,182-184,227,251-258,269-274,635-683,1687,2675-2765,2876-2906,3246-3247,3273-3292,3377-3380,4007-4009,4256-4386
+specification/query/QUERY-GQL-CORE.md
+  s_5d1c8e4faaa326::t_4b157902336a21 431
+specification/query/QUERY-SPARQL-CORE.md
+  s_5d1c8e4faaa326::t_ec5a3db5651909 363
+specification/schema/SCHEMA.md
+  s_5d1c8e4faaa326::t_dec79decd25a77 1378,1434-1439,2224
+specification/storage/STORAGE.md
+  s_5d1c8e4faaa326::t_75c8b43f6c90e8 103-106,140-146,582,596,631-632,700-702,745-746,757,768,789-790,811-878,911-913,1023-1027,1244-1245,1248,1271-1272,1306-1310,1322-1338,1343-1344,1421-1423,1496-1500,1525-1527,1533-1534,1546-1548
+ROADMAP.md
+  s_5d1c8e4faaa326::t_1ffca9d77ab6f7 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1e9b6d32098f070a9b6f81a8ae14232086333b2f",
+  "prompts": {},
+  "sessions": {
+    "s_5d1c8e4faaa326": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "27074499-0862-404a-bdfb-e7cd321ff5bc",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
