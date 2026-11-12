@@ -215,6 +215,30 @@ is not committed, since it is tied to one version of the engine.
 - **WHEN** a group changes only a binary's wiring
 - **THEN** its notes say that it holds no law, and its crates gain no `property` target
 
+### Requirement: A type sharing atomics or locks across threads has a Loom model
+
+A type that shares an atomic, a `Mutex`, an `RwLock` or a `Condvar` across threads SHALL have a Loom model: a test that
+runs its operations on two or more threads inside `loom::model` and asserts the invariants its documentation states
+(a count never past its bound, a flag seen once set, a waiter woken, no deadlock), so every interleaving and every
+ordering its atomics allow is checked. The crate takes those types from `src/utils/sync.rs`, std's or Loom's under
+`--cfg loom`, and its `BUILD.bazel` builds the library again as `<crate>_loom` with `--cfg loom` and runs the models
+under `tests/loom/`, rooted at `tests/loom/mod.rs` and mirroring `src/`, as one `rust_test` named `loom` tagged
+`loom-test`, the tag `scripts/test.sh` selects after the property tests. The unit test target excludes `tests/loom/**`.
+A model SHALL be small enough to finish in seconds: two or three threads and the fewest operations that reach the
+invariant.
+
+A model is shown to bite before it is trusted: the operation it guards, made non-atomic or reordered by a temporary
+edit, fails it.
+
+#### Scenario: A shared count is modelled
+- **WHEN** a type's count is shared by an `Arc` of an atomic across cores
+- **THEN** its crate's `loom` target runs a model in which threads race on the count and its bound holds in every
+  interleaving
+
+#### Scenario: A model fails on a broken operation
+- **WHEN** the atomic read-modify-write a model guards is replaced by a load and a store
+- **THEN** the model fails, naming the interleaving in which the invariant breaks
+
 ### Requirement: Phase 3 audits the suite's input variety before the suite is trusted
 
 Each stage SHALL, before implementing, review its suite's inputs against the corner-case enumeration, so that no
