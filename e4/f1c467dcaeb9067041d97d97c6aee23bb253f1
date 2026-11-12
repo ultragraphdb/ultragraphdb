@@ -1,0 +1,67 @@
+AGENTS.md
+  s_5d1c8e4faaa326::t_b1d61a350fad35 413-420
+openspec/changes/stage-5-8-system-group/design.md
+  s_5d1c8e4faaa326::t_d9a708af38dc9e 110-120,177-181,194-209
+openspec/changes/stage-5-8-system-group/proposal.md
+  s_5d1c8e4faaa326::t_4306fc77c33dfd 35-37
+openspec/changes/stage-5-8-system-group/specs/client-endpoint/spec.md
+  s_5d1c8e4faaa326::t_e5d56273cbb908 49,75-79
+openspec/changes/stage-5-8-system-group/specs/config-service/spec.md
+  s_5d1c8e4faaa326::t_fd1112fa4f97ef 14,23,55-58
+openspec/changes/stage-5-8-system-group/specs/metadata-group/spec.md
+  s_5d1c8e4faaa326::t_7290494cb58f44 102
+openspec/changes/stage-5-8-system-group/specs/system-group/spec.md
+  s_5d1c8e4faaa326::t_0573d3c928a091 120,122-123,129,141-142,235,252-257
+openspec/changes/stage-5-8-system-group/specs/transactions/spec.md
+  s_5d1c8e4faaa326::t_b46ea3f3e9c2cb 34
+openspec/changes/stage-5-8-system-group/tasks.md
+  s_5d1c8e4faaa326::t_a174925aa53c2f 10,24-28,45,54-55,97,99
+openspec/changes/stage-5-9-compute-role/design.md
+  s_5d1c8e4faaa326::t_e93bafd9829b70 68-70,72-73,77-80,89-91,122-127,135-151
+openspec/changes/stage-5-9-compute-role/proposal.md
+  s_5d1c8e4faaa326::t_3ce737ce2fe23b 51-53
+openspec/changes/stage-5-9-compute-role/specs/client-endpoint/spec.md
+  s_5d1c8e4faaa326::t_203204a516342b 18-20,333-340,364-368
+openspec/changes/stage-5-9-compute-role/specs/config-service/spec.md
+  s_5d1c8e4faaa326::t_abb977859603f6 15,24,68-71
+openspec/changes/stage-5-9-compute-role/specs/kubernetes-deployment/spec.md
+  s_5d1c8e4faaa326::t_e26467d068a41a 6-11
+openspec/changes/stage-5-9-compute-role/specs/node-discovery/spec.md
+  s_5d1c8e4faaa326::t_70e1003bba2d3b 7-11,25-34,44-46,51,54-55,59-63,129-132,149-158,163-175,178-180,189-193
+openspec/changes/stage-5-9-compute-role/specs/quad-reads/spec.md
+  s_5d1c8e4faaa326::t_78aacd9d5ef72b 8-10,24-39
+openspec/changes/stage-5-9-compute-role/specs/system-group/spec.md
+  s_5d1c8e4faaa326::t_eb624f33669648 5,11-12,91-97,114-119
+openspec/changes/stage-5-9-compute-role/specs/transactions/spec.md
+  s_5d1c8e4faaa326::t_03b30c26b89940 48-51
+openspec/changes/stage-5-9-compute-role/tasks.md
+  s_5d1c8e4faaa326::t_ae355f250123dc 24,27-29,51-52,78,94-95,101
+"openspec/designs/UltraGraphDB Distribution Architecture.md"
+  s_5d1c8e4faaa326::t_2aba80cce764b5 29,865,884
+"openspec/notes/Stage 5.8 and 5.9 Open Questions.md"
+  s_5d1c8e4faaa326::t_06e848a6689c86 1-198
+"openspec/notes/UltraGraphDB Spec Consistency Review 2026-11-12.md"
+  s_5d1c8e4faaa326::t_f049aeaccda973 31-35
+openspec/protocols/tdd-protocol.md
+  s_5d1c8e4faaa326::t_34dc094719a3e1 163-169
+specification/binary_protocol/PROTOCOL.md
+  s_5d1c8e4faaa326::t_32a66c798b1e68 2724-2729,2758-2764,2787-2789,2968-2979,2983-2985,2987-2989,2991-3003,4410
+README.md
+  s_5d1c8e4faaa326::t_1fc96661913b98 29-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e4f1c467dcaeb9067041d97d97c6aee23bb253f1",
+  "prompts": {},
+  "sessions": {
+    "s_5d1c8e4faaa326": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "27074499-0862-404a-bdfb-e7cd321ff5bc",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
