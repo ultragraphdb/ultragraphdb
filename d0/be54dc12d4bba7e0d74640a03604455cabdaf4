@@ -1,0 +1,153 @@
+openspec/changes/archive/2026-11-09-stage-5-5-three-role-refactor/design.md
+  s_5d1c8e4faaa326::t_856eb812220a03 4
+openspec/notes/archive/review-stages-5.5-and-6.md
+  s_5d1c8e4faaa326::t_856eb812220a03 1-564
+AGENTS.md
+  s_5d1c8e4faaa326::t_856eb812220a03 3-5
+openspec/notes/backlog.md
+  s_5d1c8e4faaa326::t_856eb812220a03 37
+  s_5d1c8e4faaa326::t_f26fafb8c1d389 135,143,150
+openspec/notes/prepare-stage-6.md
+  s_5d1c8e4faaa326::t_856eb812220a03 90
+  s_5d1c8e4faaa326::t_876cffbb34dcc1 1,4,6,8,13,28,35,71,75,80,88,92,94,124,133-134,136,152,176,201,295,392
+openspec/changes/archive/2026-11-09-stage-5-5-three-role-refactor/proposal.md
+  s_5d1c8e4faaa326::t_856eb812220a03 11
+ROADMAP.md
+  s_5d1c8e4faaa326::t_4d082b2cf5db5d 3-31
+lean/schema/ApgModel/Oracle/Main.lean
+  s_5d1c8e4faaa326::t_23424828a776a5 20
+lean/schema/ApgModel/Theorems.lean
+  s_5d1c8e4faaa326::t_b591e5934c3636 70
+openspec/changes/stage-6-5-tile-store/design.md
+  s_5d1c8e4faaa326::t_095488d8e41b04 15,17,32,51,84,93,103,130
+openspec/changes/stage-6-5-tile-store/proposal.md
+  s_5d1c8e4faaa326::t_37c398350960d4 8-9,38,42,119
+openspec/changes/stage-6-5-tile-store/specs/term-dictionary/spec.md
+  s_5d1c8e4faaa326::t_47938cae52ba4f 101
+openspec/changes/stage-6-5-tile-store/tasks.md
+  s_5d1c8e4faaa326::t_19ed55949f39a5 1,23,115
+openspec/changes/stage-6-6-ugs-data-definition/design.md
+  s_5d1c8e4faaa326::t_111ac4e8d091b9 9,13,30,49,51,62,74,76,80,107,175,235,324
+openspec/changes/stage-6-6-ugs-data-definition/notes/core-principles-review.md
+  s_5d1c8e4faaa326::t_7d3a78d000f229 1,145,288
+openspec/changes/stage-6-6-ugs-data-definition/notes/corpus-readings.md
+  s_5d1c8e4faaa326::t_884d96a2097b74 31,78,82,109
+openspec/changes/stage-6-6-ugs-data-definition/notes/group-1.md
+  s_5d1c8e4faaa326::t_46caff2cd22734 154,286,341
+openspec/changes/stage-6-6-ugs-data-definition/notes/review-resolutions.md
+  s_5d1c8e4faaa326::t_64b129367fb49a 1,26,32,307,347,354
+openspec/changes/stage-6-6-ugs-data-definition/notes/specification-gaps.md
+  s_5d1c8e4faaa326::t_3db6817319c868 1,64,95,102,145,212
+openspec/changes/stage-6-6-ugs-data-definition/proposal.md
+  s_5d1c8e4faaa326::t_1b0f2f450cd876 4,6,22,56,63-64,92,129
+openspec/changes/stage-6-6-ugs-data-definition/specs/ugs-semantics/spec.md
+  s_5d1c8e4faaa326::t_b594a00aa03d2a 268
+openspec/changes/stage-6-6-ugs-data-definition/tasks.md
+  s_5d1c8e4faaa326::t_f12591dbc0c819 26,30-31,164
+"openspec/designs/UltraGraphDB Distribution Architecture.md"
+  s_5d1c8e4faaa326::t_960581db7b68a4 3,5-12,14-16,18,20-28,30,32,34-37,39-40,42-46,48,50-56,58-133,135,137,139-141,143-147,149,151-156,158-159,161-162,164-167,169,171,173,175-177,179-181,183-185,187,189,191-247,249,251-291,293,295-296,298,300-305,307,309-312,314-340,342-343,345,347-348,350-355,357-360,362,364,366-408,410,412-416,418,420,422-423,425-435,437,439,441-442,444-512,514-516,518-521,523-525,527-530,532-533,535,537-582,584-588,590-591,593-594,596-601,603,605-614,616,618,620-626,628,630-633,639-641,643-644,648,650-658,660-661,665-830,834-856,860-872,876-878,888-900
+"openspec/designs/UltraGraphDB Shard-per-Core Write Path.md"
+  s_5d1c8e4faaa326::t_a0f10cef087c61 543,958-959,968,1100,1102,1114,1150,1248,1319
+openspec/notes/SECURITY.md
+  s_5d1c8e4faaa326::t_4ce1810e61fcbf 205
+"openspec/notes/UltraGraphDB Tile Store Feasibility.md"
+  s_5d1c8e4faaa326::t_987d9e4c773104 4,8,72,75,77,81-82,85-86,132,233,235,237-238,242,249,261,270,295,328
+openspec/specs/metadata-group/spec.md
+  s_5d1c8e4faaa326::t_ebd36e17e55b9a 183
+openspec/specs/term-dictionary/spec.md
+  s_5d1c8e4faaa326::t_77b8104c392971 69,187
+specification/binary_protocol/PROTOCOL.md
+  s_5d1c8e4faaa326::t_3fa5e838276c76 43,1927,2923
+specification/conformance/ugs/BUILD.bazel
+  s_5d1c8e4faaa326::t_ce97a8a6efea23 2
+specification/conformance/ugs/README.md
+  s_5d1c8e4faaa326::t_815db1bd6e1649 4,14
+specification/query/QUERY-SPARQL-CORE.md
+  s_5d1c8e4faaa326::t_e790aa71215050 547
+specification/query/QUERY-ULTRA-QL.md
+  s_5d1c8e4faaa326::t_b9d1b927a5bc31 3,178,180,506,508-510,515,656,825,851
+specification/schema/BUILD.bazel
+  s_5d1c8e4faaa326::t_3fc3398d091004 1,3
+specification/schema/CATALOG.md
+  s_5d1c8e4faaa326::t_5d16111d1746f4 3,868
+specification/schema/SCHEMA.md
+  s_5d1c8e4faaa326::t_35c4b016be37a4 770,785,1925,1932-1938,1940-1943,1980,2215,2236
+ultragraphdb/ultragraphdb_tests/testdata/instances/README.md
+  s_5d1c8e4faaa326::t_a6c33864cd1170 3
+ultragraphdb_common/ultragraphdb_common_frontend/features/wire-protocol/ugs_streams.feature
+  s_5d1c8e4faaa326::t_a7e11b70278351 4-5
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_requests.rs
+  s_5d1c8e4faaa326::t_e0247ad01e6d85 277
+ultragraphdb_common/ultragraphdb_common_frontend/tests/endpoint_steps.rs
+  s_5d1c8e4faaa326::t_a6cfc86750f8d3 1095
+ultragraphdb_protocol/ultragraphdb_protocol_transport/features/wire-protocol/ugs_streams.feature
+  s_5d1c8e4faaa326::t_9ddf7bd0b104ac 6-7
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/bdd.rs
+  s_5d1c8e4faaa326::t_382eaad2dfdad5 6
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/outbound/outbound_tests.rs
+  s_5d1c8e4faaa326::t_725d342faeb1b1 584
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/server_connection/server_connection_tests.rs
+  s_5d1c8e4faaa326::t_8db90baec5e073 2109
+ultragraphdb_protocol/ultragraphdb_protocol_wire/features/wire-protocol/ugs_frames.feature
+  s_5d1c8e4faaa326::t_cda3332809af56 6-8
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/language.rs
+  s_5d1c8e4faaa326::t_d47924b69a3aad 16
+ultragraphdb_protocol/ultragraphdb_protocol_wire/testdata/seeds.py
+  s_5d1c8e4faaa326::t_939df8fe897adc 6
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/command/command_tests.rs
+  s_5d1c8e4faaa326::t_58487540fe8a91 36
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/conditional_write_view/conditional_write_view_tests.rs
+  s_5d1c8e4faaa326::t_ea7ff9900e1470 708
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/describe/describe_tests.rs
+  s_5d1c8e4faaa326::t_7b960194f7f560 77
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/describe_view/describe_view_tests.rs
+  s_5d1c8e4faaa326::t_44e8982b2746b4 184,464
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/drop_command_view/drop_command_view_tests.rs
+  s_5d1c8e4faaa326::t_2021909bf7157a 285
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/error_code/error_code_tests.rs
+  s_5d1c8e4faaa326::t_93c5fc80be853e 32
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/install/install_tests.rs
+  s_5d1c8e4faaa326::t_a69ab9b400a68a 43
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/install_view/install_view_tests.rs
+  s_5d1c8e4faaa326::t_d57a6db2aee4d4 159
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/operation_view/operation_view_tests.rs
+  s_5d1c8e4faaa326::t_187452da5ccc03 195
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/prepare_view/prepare_view_tests.rs
+  s_5d1c8e4faaa326::t_d35163d282ae25 331
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/query_view/query_view_tests.rs
+  s_5d1c8e4faaa326::t_74b4d986d25793 173
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/reference/reference_tests.rs
+  s_5d1c8e4faaa326::t_94eb7090ebe4ea 103
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/reference_view/reference_view_tests.rs
+  s_5d1c8e4faaa326::t_bfbcd6356e8f6e 346
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/result_view/result_view_tests.rs
+  s_5d1c8e4faaa326::t_37a80712967183 669,697
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/ugs_steps.rs
+  s_5d1c8e4faaa326::t_eb0c042fe81488 6
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/utils/golden_bodies.rs
+  s_5d1c8e4faaa326::t_b565184d18298d 101
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/utils/ugs_frames.rs
+  s_5d1c8e4faaa326::t_616f228416d7f1 6
+"openspec/designs/archive/UltraGraphDB Architecture Reviw.md"
+  s_5d1c8e4faaa326::t_77db7416a4ba54 1-333
+"openspec/designs/archive/UltraGraphDB Distribution Architecture.md"
+  s_5d1c8e4faaa326::t_e0d6a2dbb04302 1-343
+"openspec/designs/archive/UltraGraphDB Role Merge and Availability Feasibility.md"
+  s_5d1c8e4faaa326::t_95f6acdc2bce8b 1-229
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d0be54dc12d4bba7e0d74640a03604455cabdaf4",
+  "prompts": {},
+  "sessions": {
+    "s_5d1c8e4faaa326": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "27074499-0862-404a-bdfb-e7cd321ff5bc",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
