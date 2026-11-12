@@ -152,7 +152,7 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// An Error on a transaction's stream with no request waiting: the refusal of a request with no reply, which ends the
-    /// transaction and its reads and is the answer of its next request.
+    /// transaction and its reads and is the answer of its next request and of each of its reads still open.
     fn stream_refused(&mut self, stream: u64, frame: &ReceivedFrame) -> Result<(), ClientError> {
         let view = match frame.view() {
             Ok(view) => view,
@@ -160,10 +160,10 @@ impl<L: Login> ClientCore<L> {
         };
         match refusal(&view, RefusedRequest::Other) {
             Ok(error) => {
+                self.refuse_reads(stream, &error);
                 if let Some(refused) = self.streams.get_mut(&stream) {
                     refused.failed = Some(error);
                 }
-                self.end_reads(stream);
                 Ok(())
             }
             Err(error) => self.fatal(error),

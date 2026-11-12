@@ -67,8 +67,10 @@ impl<L: Login> ClientCore<L> {
     /// connection up ([`ClientError::protocol`]). A read cut short by its connection's loss, before its last frame
     /// arrived, answers what the connection's requests answered, once: [`ClientError::connection_lost`] with its cause,
     /// or [`ClientError::timed_out`]; it is not retried, as its transaction was aborted with the connection
-    /// (`PROTOCOL.md` §11.4). A read whose last frame had arrived is read to its end. A read whose stream or
-    /// transaction ended, or whose loss was answered, is finished ([`ClientError::stream_finished`]).
+    /// (`PROTOCOL.md` §11.4). A read whose last frame had arrived is read to its end. A read still open when its
+    /// transaction's stream is refused answers that refusal, once, whichever of it and the read's own Error arrives
+    /// first. A read whose stream or transaction ended, or whose loss or refusal was answered, is finished
+    /// ([`ClientError::stream_finished`]).
     pub fn next_batch<T>(
         &mut self,
         stream: &ResultStream,

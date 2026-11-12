@@ -21,7 +21,7 @@ workspace = true
 [dependencies]
 ultragraphdb_protocol_transport = { workspace = true }
 # External crates
-base64 = { workspace = true }
+base64 = { workspace = true, features = ["alloc"] }
 getrandom = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }

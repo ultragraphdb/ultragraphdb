@@ -575,7 +575,8 @@ fn test_a_read_grants_no_credit_before_its_initial_credit_is_spent() -> TestResu
     Ok(())
 }
 
-/// A refusal on a transaction's stream ends the transaction, and its reads with it.
+/// A refusal on a transaction's stream ends the transaction and its reads: a read still open answers that refusal,
+/// once, and the server's Error on the read's own stream, arriving after it, is late.
 #[test]
 fn test_a_refused_transaction_ends_its_reads() -> TestResult {
     use ultragraphdb_protocol_wire::{BodyBuilder, ErrorCode, ErrorReply, FLAG_LAST};
@@ -583,13 +584,32 @@ fn test_a_refused_transaction_ends_its_reads() -> TestResult {
     let tx = begin(&mut h)?;
     let stream = h.core.read(&tx, &read(&tx), h.now)?;
     while h.core.transmit().is_some() {}
-    let refusal = ErrorReply::new(ErrorCode::Refused, "refused").frame(
-        Header::new(CLUSTER, Command::Error)
-            .with_stream(tx.stream())
-            .with_flags(FLAG_LAST),
-    )?;
-    let refusal = h.numbered(&refusal)?;
+    let refused_on = |on: u64| {
+        ErrorReply::new(ErrorCode::Refused, "refused").frame(
+            Header::new(CLUSTER, Command::Error)
+                .with_stream(on)
+                .with_flags(FLAG_LAST),
+        )
+    };
+    let refusal = h.numbered(&refused_on(tx.stream())?)?;
     h.deliver(&refusal)??;
+    let answered = h
+        .core
+        .next_batch(&stream, h.now, |_| ())
+        .err()
+        .context("the refusal")?;
+    assert!(
+        matches!(
+            answered.0,
+            ClientErrorEnum::Refused {
+                code: ErrorCode::Refused,
+                ..
+            }
+        ),
+        "{answered:?}"
+    );
+    let crossing = h.numbered(&refused_on(stream.stream())?)?;
+    h.deliver(&crossing)??;
     assert_eq!(
         h.core
             .next_batch(&stream, h.now, |_| ())

@@ -81,8 +81,8 @@ pub struct ClientCore<L: Login> {
     generation: u64,
     next_stream: u64,
     streams: BTreeMap<u64, StreamState>,
-    /// The reads cut short by a lost connection, by generation and stream, each with what its requests answered, until its
-    /// handle reads that or is dropped.
+    /// The reads cut short by a lost connection or by their transaction's refusal, by generation and stream, each with
+    /// what its requests answered or the refusal, until its handle reads that or is dropped.
     lost_reads: BTreeMap<(u64, u64), (Arc<AtomicBool>, ClientError)>,
     /// The reads whose last frame had arrived when their connection was lost, by generation and stream: read on to
     /// their end, or let go once their handle is dropped. Each frame kept holds one of the client's frame buffers and
@@ -410,6 +410,34 @@ impl<L: Login> ClientCore<L> {
     /// The reads of the transaction of `stream` end with it.
     fn end_reads(&mut self, stream: u64) {
         self.streams.retain(|_, state| state.of != Some(stream));
+    }
+
+    /// The reads of the transaction of `stream` end with its refusal, as a lost connection ends them: a read whose last
+    /// frame had arrived is kept to be read to its end, and any other answers `error` once. The server answers a read
+    /// still open with the same Error on the read's own stream (`PROTOCOL.md`, a read crossing its transaction's Error);
+    /// arriving after this, that frame is late, so the order the two arrive in decides nothing.
+    fn refuse_reads(&mut self, stream: u64, error: &ClientError) {
+        let reads: Vec<u64> = self
+            .streams
+            .iter()
+            .filter(|(_, state)| state.of == Some(stream))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in reads {
+            let Some(state) = self.streams.remove(&id) else {
+                continue;
+            };
+            let ended = state.ended();
+            let Some(handle) = state.handle.filter(handle_held) else {
+                continue;
+            };
+            let key = (self.generation, id);
+            if ended {
+                let _kept = self.kept_reads.insert(key, (handle, state.inbox));
+            } else {
+                let _refused = self.lost_reads.insert(key, (handle, error.clone()));
+            }
+        }
     }
 
     /// A frame of the connection's own on stream 0, at `welcome`'s protocol, refused when larger than it allows.
