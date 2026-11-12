@@ -5,7 +5,9 @@ Compute SHALL run a client's read as a task of the core its connection arrived o
 commits, and SHALL give the core back between any two steps of the read: after it has consumed one Entries or
 Neighbours frame, and after it has built one Result frame. A step SHALL hold at most one frame within the role
 connection's `max_frame`, so no read holds a core longer than one frame's merge, and a Commit arriving on that core
-is relayed before the read's next step. Nothing a read does SHALL outlive a turn but its waits. The read's executor
+is relayed before the read's next step. The bound SHALL hold for every entry of the executor: a merge over several
+partitions, a reverse read over an object's referrers, and the query core's lookups by value index and by reverse
+count. Nothing a read does SHALL outlive a turn but its waits. The read's executor
 SHALL take its work as messages from the connection's session and answer by messages, so that an executor on another
 runtime can serve it later without a change to the session.
 
@@ -18,6 +20,22 @@ runtime can serve it later without a change to the session.
 - **WHEN** a read's partitions each have ten Entries frames ready
 - **THEN** the read consumes one frame, yields, and consumes the next only after every other ready task of the core
   has run a step
+
+### Requirement: Compute times a partition that stops answering
+Compute SHALL treat as hung a partition that leaves a Scan, a Frontier request or a Closed of its unanswered past the
+time the request waits on an epoch, its `deadline_ms`, and twice `scan_stall_ms` beyond, since a partition refuses any
+Scan or Frontier it holds that long: compute SHALL close its role connection to that partition, answer each read the
+connection carried with code 17, send no Scan again for such a read, and dial again for the next read
+(`PROTOCOL.md` section 11.12, *Errors*).
+
+#### Scenario: A silent partition ends its reads with code 17
+- **WHEN** a partition accepts a Scan of `deadline_ms` 50 and sends nothing, and `scan_stall_ms` is 100
+- **THEN** compute closes the connection once 250 ms have passed, the read is answered code 17, and no Scan of it is
+  sent again
+
+#### Scenario: A partition answering within the bound is not hung
+- **WHEN** a partition sends a Scan's frames with gaps below twice `scan_stall_ms`, past the read's deadline
+- **THEN** the connection stays open and the read reaches its `LAST`
 
 ## MODIFIED Requirements
 

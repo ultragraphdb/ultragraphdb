@@ -4,8 +4,11 @@
 A compute node SHALL send the system group, in this order, a Join naming its kind, its state, the address it
 advertises to clients and its tags, a Subscribe and a Roster (`PROTOCOL.md` sections 11.14, 13.1 and 13.26). The
 advertised address SHALL be `[compute] advertised_address`, of the form `tcp://host:port` with a host of at most 253
-bytes, and its tags `[compute] tags`, one to eight, each 1 to 32 bytes of `a` to `z`, `0` to `9` and `_`; a node whose
-settings name no tag SHALL carry `query`. A Join SHALL be answered once it is durable. The system group SHALL refuse,
+bytes, and its tags `[compute] tags`, one to eight, each 1 to 32 bytes of `a` to `z`, `0` to `9` and `_`; a node SHALL
+carry exactly the tags its settings name, and `query` alone when they name none, so a node tagged `gpu` or
+`high_memory` serves `query` clients only when its settings say so. A node SHALL join on one of its connections to the
+system group, and when that connection closes while another of its connections is open it SHALL join again at once on
+an open one, which moves its entry there. A Join SHALL be answered once it is durable. The system group SHALL refuse,
 with code 15 and `detail` the bound, a Join that would take the list past 1,024 nodes or the cluster past 256 distinct
 tags.
 
@@ -19,6 +22,16 @@ tags.
 - **WHEN** a compute node's settings name no `compute.tags`
 - **THEN** its Join names the one tag `query`
 
+#### Scenario: A node tagged for GPUs alone serves no query client
+- **WHEN** a node's settings name the one tag `gpu`, and a client of tag `query` holds a list with that node and one
+  tagged `query`
+- **THEN** the client sends that node nothing
+
+#### Scenario: A node whose joining connection closes stays listed
+- **WHEN** the connection a compute node joined on closes while its other cores' connections to the system group stay
+  open
+- **THEN** the node joins again on an open connection at once, and no close names a change of the list
+
 #### Scenario: A tag past the cluster's bound is refused
 - **WHEN** the list's nodes carry 256 distinct tags and a Join names a 257th
 - **THEN** the Join is refused with code 15, `detail` 256, and the list is unchanged
@@ -28,19 +41,25 @@ The list of compute nodes SHALL be state of the metadata state machine (metadata
 node list"): a Join SHALL add its entry or change it, and an entry SHALL belong to the connection of the latest Join
 for its address, so that a Join for an address another connection holds replaces the entry and the other connection's
 end then changes nothing. An entry SHALL leave by a logged removal, which the system group proposes once the entry's
-connection has been closed for two closes, counted from the later of the connection's close and the system group's
-start to listen. The list's version SHALL be the epoch of the close that announced its latest change, so one version
+connection has been closed for twice `epoch_ms_max` by its own clock, counted from the later of the connection's close
+and the system group's start to listen: a time and not a count of closes, since the shortest epoch is one millisecond
+and a count would drop a live node at every reconnect. The list's version SHALL be the epoch of the close that announced its latest change, so one version
 names one list on every replica and across a restart, and two changes within one epoch share a version.
 
 #### Scenario: A restart of the system group keeps the list
 - **WHEN** two compute nodes are listed at version 12, the system group's host is killed and restarted, and both nodes
-  dial again within two closes
+  dial again within twice `epoch_ms_max`
 - **THEN** the list still holds both nodes, and no close names a change for them
 
-#### Scenario: A node that is gone leaves after two closes
-- **WHEN** a listed compute node is killed, and the sequencer closes two epochs with its connection closed
+#### Scenario: A node that is gone leaves after the grace
+- **WHEN** a listed compute node is killed, and twice `epoch_ms_max` passes with its connection closed
 - **THEN** a removal of its entry is logged, the next close names a change, and the list of that close's version does
   not hold it
+
+#### Scenario: A reconnect within the grace removes nothing
+- **WHEN** `epoch_ms_min` is 1 ms, a listed node's connection closes, twenty epochs close, and the node dials again and
+  joins within twice `epoch_ms_max`
+- **THEN** no removal is logged, and no close names a change of the list
 
 #### Scenario: A second process at one address replaces the first
 - **WHEN** a compute process joins with an address a running process already holds, and the first process's connection
@@ -107,7 +126,10 @@ that can reach no node of its list SHALL return to them, keeping the version it 
 `query` when it names none, and SHALL send its requests to serving nodes that carry it; no request SHALL name a tag. A
 client asked for a tag no serving node of its list carries SHALL refuse the request itself, naming the tags the list
 holds. It SHALL keep the connections a new list still names, dial a newly listed node after a random delay, and skip
-a listed node it cannot reach, trying it again with exponential backoff and jitter.
+a listed node it cannot reach, trying it again with exponential backoff and jitter. A client SHALL verify a node's
+certificate against the host of the address it dialled, a seed's or an advertised one. A session SHALL serve through
+any node; a transaction SHALL stay on the connection it began on; and a prepared statement SHALL belong to its
+connection, so a client prepares again on another node.
 
 #### Scenario: A client spreads over the nodes of its tag
 - **WHEN** a list holds two nodes tagged `query` and one tagged `gpu`, and a client of tag `query` begins 100
@@ -124,13 +146,38 @@ a listed node it cannot reach, trying it again with exponential backoff and jitt
 - **THEN** the client connects to the seed, keeps the version it held, and takes a list of a higher version when the
   seed's node sends one
 
+#### Scenario: A session serves through a second node
+- **WHEN** a client registers a session on one node, commits request 1 there, and commits request 2 through the same
+  session on a connection to another node
+- **THEN** request 2 commits
+
+#### Scenario: A statement is prepared again on another node
+- **WHEN** a client executes on one node's connection a statement it prepared on another's
+- **THEN** the Execute is refused with code 10, and succeeds once the client has prepared the statement on that
+  connection
+
 #### Scenario: A wrong password ends the attempt for every seed
 - **WHEN** a client's first seed refuses its authentication
 - **THEN** the client reports the refusal and dials no further seed
 
+### Requirement: A node's certificate names the address it advertises
+A compute node whose client endpoint speaks TLS SHALL check at start that its certificate names the host of its
+`compute.advertised_address`, and SHALL exit with code 78 otherwise, naming the host and the certificate's names, so an
+entry no client could verify never enters the list.
+
+#### Scenario: A certificate for another host stops the start
+- **WHEN** a compute node advertises `tcp://c1.db.example:7080` with a certificate naming `c2.db.example` alone
+- **THEN** it exits with code 78 naming both, and sends no Join
+
+#### Scenario: A wildcard certificate serves every node of a Service
+- **WHEN** two compute nodes advertise `c1.db.example` and `c2.db.example` with one certificate naming `*.db.example`
+- **THEN** both start, and a client verifies each against the host it dialled
+
 ### Requirement: A draining node is announced before it stops
 A compute node about to stop SHALL join again with `state` 2 and SHALL stop no earlier than after it has sent each of
-its client connections a Nodes frame naming it draining. A client SHALL begin no transaction and send no one-frame
+its client connections a Nodes frame naming it draining. It SHALL then wait for its read-write transactions to end,
+at most `transaction_ms`, which bounds them already, and stop; a commit the stop cuts is in doubt and SHALL be resolved
+by its resend on another node. A client SHALL begin no transaction and send no one-frame
 request on a node its list names draining or names no longer; a transaction open there SHALL run to its end, its reads
 included, and a read-only transaction, which has no limit on its life, ends when the node stops.
 
@@ -138,6 +185,11 @@ included, and a read-only transaction, which has no limit on its life, ends when
 - **WHEN** one of two compute nodes receives SIGTERM while a client holds connections to both
 - **THEN** the client receives a Nodes frame naming that node draining before the node closes its connection, begins
   its next transaction on the other node, and a transaction open on the draining node commits there
+
+#### Scenario: A draining node stops within the transaction limit
+- **WHEN** a node receives SIGTERM while a client holds a read-write transaction open on it and sends nothing more
+- **THEN** the node stops no later than `transaction_ms` after the transaction began, and a read-only transaction
+  open on it ends with its connection
 
 #### Scenario: Two compute nodes serve one cluster
 - **WHEN** two compute processes and one storage process run on one host, and two clients each commit and read through

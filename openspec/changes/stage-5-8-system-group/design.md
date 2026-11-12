@@ -107,16 +107,17 @@ or withdrawn (K17), and reads the default-entry records with Defaults. One conne
 connections only a token carries the floor, which is the user's to confirm (review U2).
 
 **D7. Sessions, the owner check and the mark travel as Session, Check and Ended.** A core sends the Endeds of one turn
-in one frame and then its Checks in one frame, one check per session (section 11.12a). The group decides each check
-as the owner did, in the order 12, 21, 14, and a check of kind 1 naming a marked session answers 14, as the owner's
-`begin_recall` does today: the mark is the one place that knows a resend's original is still on its way, whichever
-core the resend arrives at. A passed check of kind 2 marks the session against the connection that sent it. The mark
-ends by an Ended; when its connection closes it is kept for `transaction_ms` and then ends, and an Ended from any
-connection ends a mark whose connection has closed. For `transaction_ms` after it begins to listen the group evicts
-nothing and answers every check of kind 1 with 14, since a restart loses the marks of requests still on their way.
-A Session is never sent again: a lost answer is the client's to repeat under a new identity (review K1, K2, K8 to
-K10). *Alternative:* ending a mark with its connection, which the update first wrote, lets a resend be told "not
-committed" while its original is on its way whenever the two connections fail apart.
+in one frame and then its Checks in one frame, one check per session (section 11.12a). The group decides each check as
+the owner did, in the order 12, 21, 14, and a check of kind 1 naming a marked session answers 14, as the owner's
+`begin_recall` does today: the mark is the one place that knows a resend's original is still on its way, whichever core
+the resend arrives at. A passed check of kind 2 marks the session against the connection that sent it. The mark ends by
+an Ended; when its connection closes it is kept for twice `transaction_ms` and then ends, since a checked request may
+wait one limit in the endpoint's queue and one more parked at its partition, and an Ended from any connection ends a
+mark whose connection has closed. For twice `transaction_ms` after it begins to listen the group evicts nothing and
+answers every check of kind 1 with 14, since a restart loses the marks of requests still on their way. A Session is
+never sent again: a lost answer is the client's to repeat under a new identity (review K1, K2, K8 to K10).
+*Alternative:* ending a mark with its connection, which the update first wrote, lets a resend be told "not committed"
+while its original is on its way whenever the two connections fail apart.
 
 **D8. Authentication is relayed, and the throttle stays.** For each client exchange a core sends Challenge with the
 name and Verify with the AuthMessage and the proof, and passes the group's salt, iteration count and ServerSignature
@@ -173,9 +174,11 @@ written before this change is read after it.
   half millisecond one hop between two virtual machines cost on 2026-11-09; answered for good by backlog item 13.
 - **Two round trips per authentication** → an authentication happens once per connection, and the stored key stays
   in one process.
-- **A closed connection's marks hold their sessions for `transaction_ms`, and a restarted group answers no resend
-  for as long** → a session answers 14 for up to ten seconds after its endpoint's connection or the group was lost;
-  nothing is paid while connections stand, and stage 8 revisits it with backlog item 13.
+- **A closed connection's marks hold their sessions for twice `transaction_ms`, and a restarted group answers no
+  resend for as long** → a session answers 14 for up to twenty seconds after its endpoint's connection or the group
+  was lost; nothing is paid while connections stand. Accepted for stages 5.8 to 7 (decided 2026-11-12); at stage 8 a
+  change of the group's primary would trigger it, so stage 8 decides whether marks join the replicated state, with
+  backlog item 13.
 - **The frontend's view lags** → nothing is decided from it (D6).
 - **A tenant created at stage 7 is unknown to a frontend's view until it reads Placement again** → stage 7's command
   announces a tenant with a close, as a catalog version is; recorded for that change.
@@ -188,7 +191,19 @@ No data migrates: a development cluster starts fresh on the new layout, and no o
 in the order of `tasks.md`; the tree builds and `make test` passes after each. Rolling back is reverting the group's
 commit.
 
-## Open Questions
+## Resolved before implementation
 
-- Does a storage instance that hosts the group but no partition make sense before stage 8, or does the config service
-  refuse it?
+Decided on 2026-11-12 (`openspec/notes/Stage 5.8 and 5.9 Open Questions.md`):
+
+- A storage instance hosts the system group only beside at least one partition; the config service refuses any other
+  until stage 8 (B2). `system.data_dir` shares no path with a partition's `data_dir` (B3).
+- One connection's snapshots never go back; across connections only a token carries the floor (A1).
+- A mark outlives its connection by twice `transaction_ms`, and the group is quiet for as long after it begins to
+  listen (A3, A4).
+- A Describe's two reads may be at two log positions (B5).
+- A storage process that does not host the group commits in its open epoch until that is full (B4).
+- The round trip of a commit's Check is acceptable when throughput at saturation stays within the baseline's spread
+  and a commit's latency rises by at most one hop between the frontend and the system group, as measured in the same
+  run (B10).
+- A property test asserts and returns nothing, since `#[hegel::test]` refuses a return type (B1).
+- The rewritten sections of `PROTOCOL.md` are reviewed against section 11.12a before group 1 starts (B13).

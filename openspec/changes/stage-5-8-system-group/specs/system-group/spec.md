@@ -117,18 +117,16 @@ with no mark (metadata-group, "The metadata group registers sessions").
 - **WHEN** an Ended names a marked session twice in two frames
 - **THEN** the first takes the mark away, the second is passed over, and neither is answered
 
-### Requirement: A mark outlives its connection by the transaction limit
+### Requirement: A mark outlives its connection by twice the transaction limit
 The system group SHALL hold each mark against the role connection whose Check began it. An Ended SHALL end a mark
-begun on its own connection, or one whose connection has closed, and SHALL pass over any other. When a connection
-closes, the group SHALL keep its marks for `transaction_ms`, the longest a request no endpoint speaks for can still
-reach a commit step, and end them then, so a session whose request is still on its way is neither evicted nor told
-"not committed". For `transaction_ms` after the group begins to listen, when it holds no mark of the requests then on
+begun on its own connection, or one whose connection has closed, and SHALL pass over any other. When a connection closes, the group SHALL keep its marks for twice `transaction_ms` and end them then, since a checked request may wait one limit in the endpoint's queue before it leaves and one more parked at its partition, so a session whose request is still on its way is neither evicted nor told
+"not committed". For twice `transaction_ms` after the group begins to listen, when it holds no mark of the requests then on
 their way, it SHALL evict no session, refusing a Session that would need an eviction with code 14, and SHALL answer
 every check of kind 1 with 14.
 
 #### Scenario: A closed connection's marks hold for the limit
 - **WHEN** a connection marks a session and closes, and a check of kind 1 names the session on another connection
-  before `transaction_ms` has passed, and again after it
+    before twice `transaction_ms` has passed, and again after it
 - **THEN** the first check's outcome is 14 and the second passes
 
 #### Scenario: An orphaned mark is ended from another connection
@@ -140,8 +138,8 @@ every check of kind 1 with 14.
 - **THEN** the session stays marked
 
 #### Scenario: A restarted group answers no resend at once
-- **WHEN** the system group's host restarts, and a check of kind 1 arrives before `transaction_ms` has passed since it
-  began to listen
+- **WHEN** the system group's host restarts, and a check of kind 1 arrives before twice `transaction_ms` has passed since
+  it began to listen
 - **THEN** the check's outcome is 14, a check of kind 2 naming an unmarked session passes, and a Session that would
   evict is refused with code 14
 
@@ -234,9 +232,7 @@ are synced. The hosting process SHALL exit for no lost peer; a failed log of the
 - **THEN** the hosting process shuts down through its ordinary path and exits with code 74
 
 ### Requirement: A lost system group is waited for until the deadline
-A process that dials the system group, a storage process not hosting it, a compute process or the frontend, SHALL
-dial again when its connection closes, and SHALL exit with code 69 once the group has been gone for
-`[cluster] join_deadline_ms`, naming the address. Until then the frontend SHALL refuse what needs the group with code 17 (Unavailable): a request through a session, cancelling the Bind stream of a transaction whose Check went unanswered, a Register, a declaring Commit and a Describe; and SHALL answer an authentication it cannot relay with Error 17 on stream 0, closing the connection and counting no failure, so an outage bans no source. A Begin, a read and a commit through no session SHALL go on from its view.
+A process that dials the system group, a storage process not hosting it, a compute process or the frontend, SHALL dial again when its connection closes, and SHALL exit with code 69 once the group has been gone for `[cluster] join_deadline_ms`, naming the address. Until then a partition of a storage process that does not host the group SHALL go on committing in its open epoch, SHALL refuse with code 5 once that epoch is full and its close request has gone unanswered for `close_request_ms`, and SHALL let its snapshot reads wait within their deadlines. Until then the frontend SHALL refuse what needs the group with code 17 (Unavailable): a request through a session, cancelling the Bind stream of a transaction whose Check went unanswered, a Register, a declaring Commit and a Describe; and SHALL answer an authentication it cannot relay with Error 17 on stream 0, closing the connection and counting no failure, so an outage bans no source. A Begin, a read and a commit through no session SHALL go on from its view.
 
 #### Scenario: A frontend started before storage waits
 - **WHEN** the frontend starts while no process listens at `cluster.system_address`, and the hosting storage process
@@ -252,6 +248,12 @@ dial again when its connection closes, and SHALL exit with code 69 once the grou
 - **WHEN** the frontend's connection to the group is closed and a client commits through its session
 - **THEN** the Commit is answered code 17 and reaches no partition, and the same Commit succeeds once the group answers
   again
+
+#### Scenario: A partition without closes commits until its epoch is full
+- **WHEN** the hosting storage process is killed, and a client commits through a session-less write to a partition of
+  another storage process until that partition's open epoch is full
+- **THEN** each commit before that is acknowledged, and the first past it is refused with code 5 once
+  `close_request_ms` has passed with no close
 
 #### Scenario: An outage bans no source
 - **WHEN** one address authenticates 80 times while the system group cannot be reached, and once after it answers again

@@ -28,6 +28,11 @@ end.
 
 ## Decisions for the user
 
+*U2 and U3 were decided on 2026-11-12 as recommended, and K2 and K46 were amended, by
+`Stage 5.8 and 5.9 Open Questions.md` (A1 to A5): a mark outlives its connection by twice `transaction_ms`, and a
+node leaves the list once its connection has been closed for twice `epoch_ms_max`. U1 and U4 remain open.*
+
+
 Four findings change what a client or an operator is promised. Each has a default written into the specification so
 that the text is consistent, and each is the user's to confirm or overturn.
 

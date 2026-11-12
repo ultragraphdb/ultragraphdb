@@ -32,7 +32,9 @@ ask the system group by role command afterwards, so every client-facing suite co
    frontend running, and a frontend or compute process that loses the system group retries until its deadline.
 5. **The round trip is measured.** Reads are recorded on the stage 5.7 cluster before the move, since the benchmark
    record of 2026-11-09 holds writes alone, and the whole benchmark is rerun after it, so what a commit's Check costs
-   is known before stage 5.9 removes a read's hop.
+   is known before stage 5.9 removes a read's hop. It is acceptable when throughput at saturation stays within the
+   baseline's spread and a commit's latency rises by at most one hop between the frontend and the system group as
+   measured in the same run; a larger gap is a defect and is root-caused.
 
 ## What Changes
 

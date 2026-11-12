@@ -15,7 +15,9 @@ Compute's client endpoint SHALL speak TLS 1.3 from the first byte when its `[end
 `plaintext = true`; naming neither, or both a certificate and `plaintext = true`, SHALL stop the start with code 78. The
 `dev` profile SHALL set `plaintext = true`. The client shells SHALL connect with TLS when their configuration names a
 trust source, verifying the server's certificate for the host they dial before the handshake of the wire protocol
-begins. Inside TLS, authentication SHALL be SCRAM-SHA-256 as on a clear-text connection.
+begins. Inside TLS, authentication SHALL be SCRAM-SHA-256 as on a clear-text connection. The certificate SHALL name the
+host of the node's `compute.advertised_address`, which the node checks at start (node-discovery, "A node's certificate
+names the address it advertises").
 
 #### Scenario: A TLS client reaches the endpoint
 - **WHEN** compute holds the test CA's certificate for `localhost` and a client trusting the CA connects and
@@ -328,13 +330,14 @@ keep a view: the latest closed and the open epoch, the placement in effect with 
 with Placement when a close assigns a placement version, each tenant's latest catalog version as the closes and its own
 Declare replies name it, the versions it read with Catalog, and each version's schema id, which it computes from the
 version's bytes. A Begin and the gate's question whether a tenant exists SHALL be answered from the view, asking no
-other process, so one connection's snapshots never go back while two connections may answer at an epoch and then the one
-before. A token whose epoch is above the core's open epoch SHALL not be refused: a Begin naming it SHALL be held until
-the core's stream delivers the close before the token's epoch and refused with code 24 at its deadline, and a one-frame
-write naming it SHALL go to its partition. A Describe SHALL ask the system group which version to report, by a Catalog
-request of `version` 0 naming the latest closed epoch. Nothing SHALL be decided from the view alone: a declaring Commit
-built on a version the view holds is refused by the system group when that version is no longer current
-(schema-changes), and compute SHALL pass the refusal on.
+other process, so one connection's snapshots never go back, while two connections may answer at an epoch and then the
+one before and only a token carries the floor from one to the other (decided 2026-11-12). A token whose epoch is above
+the core's open epoch SHALL not be refused: a Begin naming it SHALL be held until the core's stream delivers the close
+before the token's epoch and refused with code 24 at its deadline, and a one-frame write naming it SHALL go to its
+partition. A Describe SHALL ask the system group which version to report, by a Catalog request of `version` 0 naming the
+latest closed epoch. Nothing SHALL be decided from the view alone: a declaring Commit built on a version the view holds
+is refused by the system group when that version is no longer current (schema-changes), and compute SHALL pass the
+refusal on.
 
 #### Scenario: A Begin asks no other process
 - **WHEN** an authenticated client sends a Begin naming tenant 0
@@ -357,6 +360,11 @@ built on a version the view holds is refused by the system group when that versi
   the client sends a Begin naming the token on that core
 - **THEN** the Begin is answered once the close of epoch 8 arrives, and is refused with code 24 only if its deadline
   passes first
+
+#### Scenario: A token carries the floor to another connection
+- **WHEN** a client reads at epoch 9 on one connection, commits there, and begins a transaction naming the commit's
+  token on a connection to a core whose view holds epoch 8
+- **THEN** the second transaction's snapshot is at or above the token's epoch
 
 #### Scenario: Describe never reports a version being checked
 - **WHEN** a tightening of `nick` is being checked, and a client describes the tenant on a core that did not send the

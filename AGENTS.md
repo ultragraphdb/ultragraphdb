@@ -410,13 +410,14 @@ A `rust_test_suite` over `*_tests.rs` fits only when every test file stands alon
 
 Property tests are Hegel's (`hegeltest`), from roadmap stage 5.8 on wherever a crate's surface holds a law
 (`openspec/protocols/tdd-protocol.md`, "Phase 2 states every law as a property test"). They live under
-`tests/property/`, rooted at `tests/property/mod.rs` and mirroring `src/`, each file named
-`<source file>_property_tests.rs`, declared as `[[test]] property`, and run by one `rust_test` named `property`,
-tagged `property-test`, with `HEGEL_DERANDOMIZE = "true"` and `HEGEL_DATABASE = "disabled"` in its `env`, so a run is
-a function of its sources. The unit test target's glob excludes `tests/property/**`. The crate takes
-`hegeltest = { workspace = true, features = ["static-engine"] }` among its dev-dependencies: the engine is then
-compiled into the test binary, and the sandbox loads and fetches nothing. `ultragraphdb_core_ids` is the first, with
-the laws of `Version`.
+`tests/property/`, rooted at `tests/property/mod.rs` and mirroring `src/`, each file named `<source
+file>_property_tests.rs`, declared as `[[test]] property`, and run by one `rust_test` named `property`, tagged
+`property-test`, with `HEGEL_DERANDOMIZE = "true"` and `HEGEL_DATABASE = "disabled"` in its `env`, so a run is a
+function of its sources. The unit test target's glob excludes `tests/property/**`. The crate takes `hegeltest = {
+workspace = true, features = ["static-engine"] }` among its dev-dependencies: the engine is then compiled into the test
+binary, and the sandbox loads and fetches nothing. A property test asserts and returns nothing, since `#[hegel::test]`
+refuses a return type: the one exception to tests returning `TestResult`, with no `unwrap`, `expect` or `panic!` all the
+same. `ultragraphdb_core_ids` is the first, with the laws of `Version`.
 
 The Rust client is three crates in `ultragraphdb_client/`, each with a test root `tests/mod.rs`,
 declared as `[[test]] unit` under `autotests = false` and run by one `rust_test` tagged `unit-test`;

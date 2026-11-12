@@ -65,13 +65,19 @@ Hello and sent under the stream's credit, which starts at the Welcome's `initial
 on the read in the turn they are read. The fields that carried both in ComputeRead go with it.
 
 **D5. The node list is the metadata state machine's.** A Join appends a command that adds or changes an entry, and
-the group proposes a removal once an entry's connection has been closed for two closes (K46). The close record gains
+the group proposes a removal once an entry's connection has been closed for twice `epoch_ms_max` by its own clock
+(K46, as amended: the shortest epoch is one millisecond, so a count of closes would drop a live node at every
+reconnect). The close record gains
 one flag, and the list's version is that close's epoch. A compute node joins once per process, on its first core's
-connection, and every core holds the list its process read. *Why not membership by open stream:* a restart of the
+connection, joins again at once on another open connection when that one closes, and every core holds the list its
+process read. *Why not membership by open stream:* a restart of the
 group would empty the list, and one version would name two lists.
 
 **D6. Compute is told its address and its tags.** `[compute] advertised_address` and `[compute] tags` are settings of
-each compute instance, checked by the config service, and a node without tags carries `query`. `compute.role_address`
+each compute instance, checked by the config service. A node carries exactly the tags its settings name, and `query`
+alone when they name none. One pod is one instance: several compute nodes are several instances, each with its own
+file and its own StatefulSet of one replica, as storage has, and a node checks at start that its certificate names
+the host it advertises. `compute.role_address`
 goes, since nothing dials compute.
 
 **D7. The clients.** `ultragraphdb_client_core` holds the list, its version and the choice of a node: seeds in order,
@@ -80,9 +86,9 @@ transaction begins and for a one-frame request, a draining or unlisted node give
 and the return to the seeds. The shells dial. The core is synchronous and already tested over a simulated network,
 which gains several servers.
 
-**D8. Several compute nodes from this stage,** on the review's default for U3: the config service accepts one or
-more compute instances, and the acceptance battery runs two on one host. Group 7 holds everything that exists only
-for the second node, so the stage's first six groups stand if the user moves several nodes to stage 8.
+**D8. Several compute nodes from this stage** (decided 2026-11-12): the config service accepts one or more compute
+instances, and the acceptance battery runs two on one host. The node list is built by groups 1 and 3 and used by
+group 7, so the three stand together; nothing of them waits for stage 8.
 
 **D9. A partition checks a Drop's catalog version** (K26), as it checks an Ingest share's, and compute's check stays
 as the early refusal.
@@ -113,10 +119,12 @@ live under compute's names, each at a task that waits for the user's approval. T
 - **A rename across many requirements invites drift** → the deltas were generated from the capabilities as stage 5.8
   leaves them and reviewed for every sentence in which the two roles met; group 0 repeats the check after stage 5.8
   is archived.
-- **Clients may see a snapshot go back across nodes** → the review's U2; the default, monotonic per connection with a
-  token carrying the floor, is what this change tests, and a different answer changes the client's Begin.
-- **Compute pods need stable names to advertise** → a StatefulSet without volumes; a Deployment would advertise pod
-  addresses that change with every restart.
+- **Clients may see a snapshot go back across nodes** → decided 2026-11-12: a connection's snapshots never go back,
+  and a token carries the floor across connections and nodes; group 8 tests both.
+- **Compute pods need stable names to advertise** → one StatefulSet of one replica per compute instance, without a
+  volume; a Deployment would advertise pod addresses that change with every restart.
+- **A draining node cuts what outlives the transaction limit** → it waits at most `transaction_ms`; a read-only
+  transaction is cut and read again elsewhere, and a commit in doubt is resolved by its resend.
 
 ## Migration Plan
 
@@ -124,7 +132,20 @@ No data migrates. The groups land in the order of `tasks.md`; the tree builds an
 frontend's files are removed last, after their tests have moved. This change is archived, and stages 6.5 and 6.6 are
 rebased, before stage 6.5 starts.
 
-## Open Questions
+## Resolved before implementation
 
-- Does a compute node tagged `gpu` or `high_memory` also serve `query` clients unless its settings say otherwise, or
-  must it be tagged `query` to do so? This change assumes the tags are exactly what the settings name.
+Decided on 2026-11-12 (`openspec/notes/Stage 5.8 and 5.9 Open Questions.md`):
+
+- Several compute nodes run from this stage (A2), each a compute instance with its own settings file and StatefulSet
+  (A6), whose certificate names the host it advertises (A7).
+- An entry leaves the node list once its connection has been closed for twice `epoch_ms_max` (A5), and a node whose
+  joining connection closes joins again on another (B6).
+- A draining node waits at most `transaction_ms` (A8). A node serves exactly the tags its settings name (A9).
+- A session serves through any node; a transaction and a prepared statement belong to their connection (B9).
+- One frame per step holds for every entry of the executor (B8). A partition silent past a request's deadline and
+  twice `scan_stall_ms` is hung, by the rule `PROTOCOL.md` section 11.12 already holds (B7).
+- A read sharing a core with commits is acceptable when a commit relayed beside a merge waits at most one frame's
+  merge and its latency under a mixed load stays within the spread of its latency without reads; outside it the
+  executor moves to a runtime of its own behind D3's seam (B11).
+- Every delta is read in full against the capabilities as stage 5.8's change is archived, before group 1 starts
+  (B12).

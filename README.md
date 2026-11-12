@@ -22,10 +22,23 @@ Bazel builds and tests the workspace.
 
 ```sh
 make build   # bazel build //...
-make test    # build, then the doc tests and unit tests
 ```
 
 `make help` lists every target.
+
+
+## Test
+
+```sh
+make test    # build, then the doc tests and unit tests
+```
+
+Testing runs:
+-  Doc tests
+-  Unit tests
+-  Property tests
+-  BDD tests
+-  Integration tests
 
 ## Requirements
 

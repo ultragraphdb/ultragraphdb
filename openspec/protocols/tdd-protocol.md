@@ -160,11 +160,13 @@ exactly the case a caller matching on the variant will get wrong.
 ### Requirement: Phase 2 states every law as a property test
 
 From roadmap stage 5.8 on, a group's phase 2 SHALL state as a property test every law its surface has: something that
-holds for all inputs of a stated kind, and not for the examples a unit test picks. A property test SHALL be written
-with Hegel (`hegeltest`, linked with its `static-engine` feature, so the engine is compiled into the test binary and
-nothing is loaded or fetched at run time), SHALL be written in phase 2 against the unimplemented surface and observed
-failing with the rest of the suite, and SHALL compute what it expects from the drawn inputs by a rule independent of
-the code under test.
+holds for all inputs of a stated kind, and not for the examples a unit test picks. A property test SHALL be written with
+Hegel (`hegeltest`, linked with its `static-engine` feature, so the engine is compiled into the test binary and nothing
+is loaded or fetched at run time), SHALL be written in phase 2 against the unimplemented surface and observed failing
+with the rest of the suite, and SHALL compute what it expects from the drawn inputs by a rule independent of the code
+under test. A property test asserts and returns nothing: `#[hegel::test]` refuses a return type, so it is the one kind
+of test that does not return `TestResult`. It SHALL use no `unwrap`, `expect` or `panic!`, and SHALL fold a fallible
+call into an `Option` or a `Result` that an assertion compares.
 
 A law exists, and a property test is therefore sensible, for at least these:
 

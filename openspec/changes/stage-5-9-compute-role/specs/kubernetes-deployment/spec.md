@@ -3,10 +3,12 @@
 ### Requirement: The roles deploy on Kubernetes from the repository's Helm chart
 The repository SHALL hold, at `deploy/helm/ultragraphdb`, the Helm chart that deploys one cluster of the roles in one
 namespace: the config service and each storage instance as a StatefulSet of one replica with a volume of its own for its
-data directory, compute as a StatefulSet with no volume, whose headless Service gives each pod the stable name it
-advertises to clients, a headless Service per StatefulSet, and a Service over every compute pod for a client's seeds.
-The first storage instance SHALL host the system group, its logs on that instance's volume; compute MAY run several
-replicas, each a node of the node list (node-discovery), and the system group holds one replica until stage 8. Every pod
+data directory, each compute instance as a StatefulSet of one replica with no volume, as an instance takes its name and
+its settings file from its pod's environment, under a headless Service that gives its pod the stable name it advertises
+to clients, a headless Service per StatefulSet, and a Service over every compute pod for a client's seeds. The first
+storage instance SHALL host the system group, its logs on that instance's volume; a cluster MAY hold several compute
+instances, each with its own settings file and its own StatefulSet, each a node of the node list (node-discovery), so
+scaling out is adding an instance and a settings revision; the system group holds one replica until stage 8. Every pod
 SHALL run as its image's user, 65532 for a role and 65534 for the config service (`config-service`, "One config service
 holds every role's settings"), with no privilege escalation, every capability dropped and a read-only root filesystem,
 writing only to its volume. Installing the chart into an empty namespace SHALL bring every role to `/ready` with no step

@@ -48,8 +48,9 @@ for a node that drains (`specification/binary_protocol/PROTOCOL.md` sections 5.4
   draining node, backoff to a node that cannot be reached, and a return to the seeds when none can.
 - **A partition checks a Drop's catalog version,** since a node one close behind may pass what one frontend used to
   refuse for the whole cluster.
-- **Deployment.** The supervisor starts the config service, storage and compute. The Helm chart runs compute as a
-  StatefulSet without volumes, each pod advertising its stable name, behind a client Service for seeds.
+- **Deployment.** The supervisor starts the config service, storage and compute. The Helm chart runs each compute
+  instance as a StatefulSet of one replica without a volume, its pod advertising its stable name, behind a client
+  Service for seeds.
 - **Removed, after the user's approval at their tasks:** the `ultragraphdb_frontend` binary and image,
   `ultragraphdb_frontend_tests`, the chart's frontend entries, the `FrontendTable` and the frontend's profiles, once
   their contents live under compute's names.

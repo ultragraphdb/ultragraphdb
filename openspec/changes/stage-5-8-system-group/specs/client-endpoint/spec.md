@@ -46,7 +46,7 @@ gave; and Ended when a checked request ended before reaching a partition, its pa
 Each endpoint core SHALL subscribe to the sequencer's closes on its connection to the system group, with `latest` set since it holds no close of its own, opening a subscription the sequencer ended as no longer held the same way, and SHALL keep a view: the latest closed and the open epoch, the placement in effect with the tenants its runs list, read again with
 Placement when a close assigns a placement version, each tenant's latest catalog version as the closes and its own
 Declare replies name it, the versions it read with Catalog, and each version's schema id, which it computes from the
-version's bytes. A Begin and the gate's question whether a tenant exists SHALL be answered from the view, asking no other process, so one connection's snapshots never go back while two connections may answer at an epoch and then the one before. A token whose epoch is above the core's open epoch SHALL not be refused: a Begin naming it SHALL be held until the core's stream delivers the close before the token's epoch and refused with code 24 at its deadline, and a one-frame write naming it SHALL go to its partition. A Describe SHALL ask the system group which version to report, by a Catalog request of `version` 0 naming the latest closed epoch. Nothing SHALL be decided from the view alone: a declaring Commit built on a version the
+version's bytes. A Begin and the gate's question whether a tenant exists SHALL be answered from the view, asking no other process, so one connection's snapshots never go back, while two connections may answer at an epoch and then the one before and only a token carries the floor from one to the other (decided 2026-11-12). A token whose epoch is above the core's open epoch SHALL not be refused: a Begin naming it SHALL be held until the core's stream delivers the close before the token's epoch and refused with code 24 at its deadline, and a one-frame write naming it SHALL go to its partition. A Describe SHALL ask the system group which version to report, by a Catalog request of `version` 0 naming the latest closed epoch. Nothing SHALL be decided from the view alone: a declaring Commit built on a version the
 view holds is refused by the system group when that version is no longer current (schema-changes), and the frontend
 SHALL pass the refusal on.
 
@@ -71,6 +71,11 @@ SHALL pass the refusal on.
   the client sends a Begin naming the token on that core
 - **THEN** the Begin is answered once the close of epoch 8 arrives, and is refused with code 24 only if its deadline
   passes first
+
+#### Scenario: A token carries the floor to another connection
+- **WHEN** a client reads at epoch 9 on one connection, commits there, and begins a transaction naming the commit's
+  token on a connection to a core whose view holds epoch 8
+- **THEN** the second transaction's snapshot is at or above the token's epoch
 
 #### Scenario: Describe never reports a version being checked
 - **WHEN** a tightening of `nick` is being checked, and a client describes the tenant on a core that did not send the

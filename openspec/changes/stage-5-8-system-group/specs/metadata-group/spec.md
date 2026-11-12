@@ -99,7 +99,7 @@ principal and its sessions kept.
 The metadata group SHALL record each session a Session command registers, its 128-bit identity and its principal, as one
 command, and SHALL decide the owner check a Check asks from the session's principal (system-group, "The registry is
 asked by Session, Check and Ended"). A registration SHALL be durable before it is answered. The registry SHALL hold at
-most `sessions_max` sessions, evicting the least recently registered with no commit in flight, as a passed Check of kind 2 marks them and an Ended ends the mark, or `transaction_ms` after the asking connection's close (transactions, "Exactly-once commits through
+most `sessions_max` sessions, evicting the least recently registered with no commit in flight, as a passed Check of kind 2 marks them and an Ended ends the mark, or twice `transaction_ms` after the asking connection's close (transactions, "Exactly-once commits through
 sessions"), SHALL evict a removed principal's sessions with its removal, and SHALL be the only place a session is
 evicted; the sequencer SHALL carry each eviction to every partition with its next close, recorded in its durable close
 record, so each partition purges the session's entry from its table. A session already registered SHALL be refused,

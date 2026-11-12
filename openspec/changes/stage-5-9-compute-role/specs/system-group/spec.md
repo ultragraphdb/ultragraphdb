@@ -2,13 +2,14 @@
 
 ### Requirement: The system group serves the node list
 The system group SHALL take a compute node's Join, durable before the answer, propose the removal of an entry whose
-connection has been closed for two closes, and serve Roster (node-discovery). It SHALL end a subscription whose frames
+connection has been closed for twice `epoch_ms_max`, and serve Roster (node-discovery). It SHALL end a subscription whose frames
 have gone unacknowledged by the transport for twice `epoch_ms_max`, closing its connection, so a node that fell silent
 does not count as connected.
 
 #### Scenario: A silent node's connection is closed
 - **WHEN** a compute node's machine stops answering without closing its connection, and twice `epoch_ms_max` passes
-- **THEN** the system group closes the connection, and the node's entry leaves the list two closes later
+- **THEN** the system group closes the connection, and the node's entry leaves the list once twice `epoch_ms_max` more
+  has passed with no Join for it
 
 ## MODIFIED Requirements
 
@@ -87,10 +88,13 @@ process SHALL exit for no lost peer; a failed log of the group SHALL stop it wit
 ### Requirement: A lost system group is waited for until the deadline
 A process that dials the system group, a storage process not hosting it or a compute node, SHALL dial again when its
 connection closes, and SHALL exit with code 69 once the group has been gone for `[cluster] join_deadline_ms`, naming the
-address. Until then compute SHALL refuse what needs the group with code 17 (Unavailable): a request through a session,
-cancelling the Bind stream of a transaction whose Check went unanswered, a Register, a declaring Commit and a Describe;
-and SHALL answer an authentication it cannot relay with Error 17 on stream 0, closing the connection and counting no
-failure, so an outage bans no source. A Begin, a read and a commit through no session SHALL go on from its view.
+address. Until then a partition of a storage process that does not host the group SHALL go on committing in its open
+epoch, SHALL refuse with code 5 once that epoch is full and its close request has gone unanswered for
+`close_request_ms`, and SHALL let its snapshot reads wait within their deadlines. Until then compute SHALL refuse what
+needs the group with code 17 (Unavailable): a request through a session, cancelling the Bind stream of a transaction
+whose Check went unanswered, a Register, a declaring Commit and a Describe; and SHALL answer an authentication it cannot
+relay with Error 17 on stream 0, closing the connection and counting no failure, so an outage bans no source. A Begin, a
+read and a commit through no session SHALL go on from its view.
 
 #### Scenario: A compute node started before storage waits
 - **WHEN** compute starts while no process listens at `cluster.system_address`, and the hosting storage process
@@ -106,6 +110,12 @@ failure, so an outage bans no source. A Begin, a read and a commit through no se
 - **WHEN** compute's connection to the group is closed and a client commits through its session
 - **THEN** the Commit is answered code 17 and reaches no partition, and the same Commit succeeds once the group answers
   again
+
+#### Scenario: A partition without closes commits until its epoch is full
+- **WHEN** the hosting storage process is killed, and a client commits through a session-less write to a partition of
+  another storage process until that partition's open epoch is full
+- **THEN** each commit before that is acknowledged, and the first past it is refused with code 5 once
+  `close_request_ms` has passed with no close
 
 #### Scenario: An outage bans no source
 - **WHEN** one address authenticates 80 times while the system group cannot be reached, and once after it answers again

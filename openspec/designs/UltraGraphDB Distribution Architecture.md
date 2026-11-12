@@ -26,7 +26,7 @@ design to this one is in `archive/UltraGraphDB Architecture Reviw.md` and
 | The system group hosted by storage | Decided 2026-11-12; stage 5.8, the next stage. It runs inside the frontend today |
 | Client discovery by seed addresses and a versioned node list; compute tags | Decided 2026-11-12; the protocol with the merge, the drivers when several compute nodes run |
 | Replication of every group | Designed (`UltraGraphDB Distribution Protocol.md`); stage 8, then stage 10 |
-| Several compute nodes | From stage 5.9, with the node list (`PROTOCOL.md` section 11.14); to be confirmed (review of 2026-11-12, U3) |
+| Several compute nodes | From stage 5.9, with the node list (`PROTOCOL.md` section 11.14; decided 2026-11-12) |
 
 ## Cluster architecture
 
@@ -862,6 +862,7 @@ Settle before it is specified:
 | Load control | Credit to send, granted by the node from its queueing delay, with refusal above a threshold; the node's requests in flight and latency on replies and probes for the driver's choice. After Breakwater and Prequal. A direction, proved and simulated before it is built | 2026-11-12 |
 | Client discovery | Seed addresses for the first contact; the node list with tags and a list version sent once the connection authenticated, replaced whole by a higher version | 2026-11-12 |
 | Routing among compute nodes | By tag: the developer picks a tag and the driver spreads over the nodes carrying it. The query classification picks the path on the node and gains no class for routing | 2026-11-12 |
+| A node's tags | A node serves exactly the tags its settings name, and `query` alone when they name none, so a `gpu` or `high_memory` node takes regular queries only when its settings say so | 2026-11-12 |
 | A wrong tag | Refused when the query is compiled, naming the tag the procedure needs; the driver moves it to no other node | 2026-11-12 |
 | The system group's move | Stage 5.8, a change set of its own, before the merge of stage 5.9 | 2026-11-12 |
 | Sequencer and metadata state machine | One group at every cluster size | 2026-11-12 |
@@ -880,7 +881,7 @@ Settle before it is specified:
 - [ ] Does a compute node ever read tiles from the object store itself, with a cache of its own, or does storage alone?
 - [ ] Does the config service fold into the system group, or take replicas of its own?
 - [ ] Do the sequencer and the metadata state machine share one log inside the system group, or keep two?
-- [ ] Does a node tagged `gpu` or `high_memory` also serve regular queries, or refuse them to stay free?
+
 - [ ] How is a quota for a tenant held across the whole cluster, if one is wanted?
 - [ ] Does a group ever change its members, or do new groups and replacement cover every case?
 - [ ] In the object binding, can a partition run on two replicas, with the object store's conditional writes

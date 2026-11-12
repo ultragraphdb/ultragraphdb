@@ -45,10 +45,10 @@ A request of a session the registry has evicted SHALL be refused at the owner ch
 the code the Check gave, so a partition never takes an evicted session for one committing there for the first time. A
 full registry SHALL evict its oldest session with no Commit, Drop or one-frame write in flight, which is from the owner
 check until the request ends before reaching a partition, its partition answers it, its role connection closes, or, the
-connection that asked the check having closed, `transaction_ms` has passed (system-group, "A mark outlives its
-connection by the transaction limit"), whether or not its client stays connected, so a session that passed the owner
-check is never evicted before its request reaches its partition; a Recall holds no session from eviction. A Register
-finding no session the full registry may evict SHALL be refused with code 14, evicting nothing.
+connection that asked the check having closed, twice `transaction_ms` has passed (system-group, "A mark outlives its
+connection by twice the transaction limit"), whether or not its client stays connected, so a session that passed the
+owner check is never evicted before its request reaches its partition; a Recall holds no session from eviction. A
+Register finding no session the full registry may evict SHALL be refused with code 14, evicting nothing.
 
 #### Scenario: A retried commit commits once
 - **WHEN** a client commits request 7 of its session, loses the reply, and sends request 7 again

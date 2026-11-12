@@ -2721,12 +2721,12 @@ longer held is opened again the same way. From the closes the core takes the lat
 Describe answer with, each catalog version's effective epoch, and the placement version in effect, reading the map again
 with Placement when a close assigns one. The latest closed epoch is therefore each core's own: one connection's
 snapshots never go back, and two connections may answer at an epoch and then at the one before, where only a token
-carries the floor from one to the other (section 11.11). A partition may have received a close the core has not, so a
-token whose epoch is above the core's open epoch is not refused as section 4.8 states: a Begin naming it is held until
-the core's stream delivers the close before the token's epoch, and refused with code 24 (TimedOut) at its deadline; a
-DirectWrite, a ConditionalWrite and an Ingest naming it go to their partition, which holds the commit until that close
-(section 11.11). A snapshot read waiting on the open epoch makes it send CloseRequest naming that epoch, with
-`partition` 0 (section 13.16).
+carries the floor from one to the other (section 11.11; decided 2026-11-12). A partition may have received a close the
+core has not, so a token whose epoch is above the core's open epoch is not refused as section 4.8 states: a Begin naming
+it is held until the core's stream delivers the close before the token's epoch, and refused with code 24 (TimedOut) at
+its deadline; a DirectWrite, a ConditionalWrite and an Ingest naming it go to their partition, which holds the commit
+until that close (section 11.11). A snapshot read waiting on the open epoch makes it send CloseRequest naming that
+epoch, with `partition` 0 (section 13.16).
 
 **Authentication.** The system group's endpoint serves Challenge and Verify (sections 13.8 and 13.9), and the frontend
 sends them for each client's exchange, so a principal's stored key and server key never leave the system group. The
@@ -2755,10 +2755,13 @@ frontend asks for each by a role command:
 - **In flight.** A Check of kind 2 that passes marks the session in flight. The frontend sends Ended (section 13.25)
   when the request ended before reaching a partition, when its partition answered it, for an Ingest its last share's, or
   when the role connection carrying it closed. A mark ends by an Ended on the connection that began it. When that
-  connection closes, the system group keeps its marks for `transaction_ms` (section 11.9), the longest a request no
-  endpoint speaks for can still reach a commit step, and ends them then; an Ended on any connection ends a mark whose
-  connection has closed. For `transaction_ms` after the system group begins to listen, when it holds no mark of the
-  requests then on their way, it evicts no session, refusing a Register that would need an eviction with code 14, and
+  connection closes, the system group keeps its marks for twice `transaction_ms` (section 11.9) and ends them then: a
+  checked request may wait one limit in the endpoint's queue before it leaves (section 11.12, *Frames on their way*) and
+  one more parked at its partition (*Parked requests*), which answers a parked one-frame write or Ingest share with code
+  4 once `transaction_ms` has passed since it arrived; an Ended on any connection ends a mark whose
+  connection has closed. For twice `transaction_ms` after the system group begins to listen, when it holds no mark of
+  the requests then on their way, it evicts no session, refusing a Register that would need an eviction with code 14,
+  and
   answers every check of kind 1 with 14.
 
 An endpoint core sends the Endeds of one turn in one frame and then the Checks of that turn in one frame, one check per
@@ -2781,7 +2784,9 @@ Catalog read when a tenant is first used, where code 7 with `detail` 0 says the 
 announcements, and from each Declare's reply. It is never asked per request, and nothing is decided from it: the system
 group checks the version a Declare is built on. Which version a Describe reports is the system group's to say, since
 only it knows a version being checked or withdrawn: the frontend asks with a Catalog request of `version` 0 naming the
-latest closed epoch (section 13.7). What section 11.13 has the frontend do in its own metadata group, the metadata state
+latest closed epoch (section 13.7). It reads the default-entry records with a second request, so the two may be read at
+two log positions: a record is only ever added, creates no version and stales no statement, so such a Describe equals
+one sent a moment later. What section 11.13 has the frontend do in its own metadata group, the metadata state
 machine's host does: committing a version built from a transaction's declarations, the version a Drop calls for, the
 wait of a tightening's check and its restoring version, and the default-entry records a Describe names. The frontend
 asks for them by Declare (section 13.27) and reads the records with Defaults (section 13.28); every rule of section
@@ -2960,29 +2965,42 @@ returns to them, keeping the version it holds: versions only rise within one clu
 
 **The node list.** The list of compute nodes is state of the metadata state machine, so one version names one list on
 every replica and across a restart. A compute node sends, in this order, a Join with the address it advertises to
-clients, its tags and its state (section 13.1), a Subscribe (section 13.3) and a Roster (section 13.26). A Join adds
-its entry or changes it, and the entry belongs to the connection of the latest Join for its address; a Join for an
-address another connection holds replaces that entry, and the other connection's end then changes nothing. An entry
-leaves by a logged removal, which the system group proposes once the entry's connection has been closed for two
-closes, counted from the later of the connection's close and the system group's start to listen. The list's version is
-the epoch of the close that announced its latest change: an EpochClose names a change with `nodes` 1 (section 13.4), a
-compute node receiving one reads the list with Roster, and sends it to each of its authenticated client connections as
-Nodes (section 5.4). A client swaps its list whole for one of a higher version, and never edits its list itself.
+clients, its tags and its state (section 13.1), a Subscribe (section 13.3) and a Roster (section 13.26). A Join adds its
+entry or changes it, and the entry belongs to the connection of the latest Join for its address; a Join for an address
+another connection holds replaces that entry, and the other connection's end then changes nothing. A compute node joins
+on one of its connections to the system group, and when that connection closes while another of its connections is open
+it joins again at once on an open one, which moves the entry there. An entry leaves by a logged removal, which the
+system group proposes once the entry's connection has been closed for twice `epoch_ms_max` by its own clock, counted
+from the later of the connection's close and the system group's start to listen. The grace is a time and not a count of
+closes, since the shortest epoch is one millisecond and a count would drop a live node at every reconnect; the removal
+is a logged command all the same. The list's version is the epoch of the close that announced its latest change: an
+EpochClose names a change with `nodes` 1 (section 13.4), a compute node receiving one reads the list with Roster, and
+sends it to each of its authenticated client connections as Nodes (section 5.4). A client swaps its list whole for one
+of a higher version, and never edits its list itself.
 
 **What a client does with the list.** A client never waits for Nodes: until a list arrives it uses the connection it
 has, and it checks tags only once it holds a list. It keeps the connections a new list still names and dials a newly
-listed node after a random delay. A listed node it cannot reach is skipped and tried again with exponential backoff
-and jitter.
+listed node after a random delay. A listed node it cannot reach is skipped and tried again with exponential backoff and
+jitter. A session is the cluster's and serves through any node; a transaction belongs to the connection it began on; a
+prepared statement belongs to its connection, so a client prepares again on another node.
+
+**Certificates.** A client verifies a node's certificate against the host of the address it dialled, a seed's or an
+advertised one. A compute node whose endpoint speaks TLS checks at start that its certificate names the host of the
+address it advertises, and does not start otherwise, so an entry no client could verify never enters the list.
 
 **Tags.** A tag names a group of compute nodes, and a node carries one to eight. Tags are an open set that an operator
-extends; `query` is the group a client uses when it names none. A client picks a tag and sends its requests to serving
-nodes that carry it. No request names a tag: a node knows its own. Tags choose the node alone, and the classification
-of sections 11.2a and 11.11 chooses a request's path on it as before.
+extends. A node carries exactly the tags its settings name, and `query` alone when they name none, so a node tagged
+`gpu` or `high_memory` serves `query` clients only when its settings say so. `query` is also the group a client uses
+when it names none. A client picks a tag and sends its requests to serving nodes that carry it. No request names a tag:
+a node knows its own. Tags choose the node alone, and the classification of sections 11.2a and 11.11 chooses a request's
+path on it as before.
 
-**Draining.** A compute node about to stop joins again with `state` 2, and stops no earlier than after it has sent
-each of its clients a Nodes naming it draining. A client begins no transaction and sends no one-frame request on a
-node its list names draining or names no longer. A transaction open there runs to its end, its reads included; a
-read-only transaction, which has no limit on its life, ends when the node stops.
+**Draining.** A compute node about to stop joins again with `state` 2, and stops no earlier than after it has sent each
+of its clients a Nodes naming it draining. It then waits for its read-write transactions to end, at most
+`transaction_ms`, which bounds them already, and stops; a commit the stop cuts is in doubt and is resolved by its resend
+on another node (section 11.12a). A client begins no transaction and sends no one-frame request on a node its list names
+draining or names no longer. A transaction open there runs to its end, its reads included; a read-only transaction,
+which has no limit on its life, ends when the node stops.
 
 **A tag a node lacks.** From stage 7 a procedure a query calls declares the tag it needs. A node that does not carry it
 refuses the query when it compiles it, before any work, with code 32 (TagRequired), and a Prepare or an Execute that
@@ -4389,7 +4407,7 @@ is refused with code 7 (Refused), the message naming it.
 
 From stage 5.8. The owner checks of one turn of an endpoint core (section 11.12a): for each, whether the registry holds
 the session and the principal is the one it belongs to. A check of kind 2 that passes marks the session in flight, until
-an Ended names it or, its connection closed, `transaction_ms` has passed (section 11.12a); a check of kind 1 marks
+an Ended names it or, its connection closed, twice `transaction_ms` has passed (section 11.12a); a check of kind 1 marks
 nothing. A frame holds one check per session. The system group decides the checks in their order and answers the frame
 whole, with every field as sent and each `outcome` filled.
 
