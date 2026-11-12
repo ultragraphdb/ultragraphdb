@@ -1,0 +1,30 @@
+ultragraphdb_client/ultragraphdb_client_core/src/types/client_core/client_core_receive.rs
+  s_d14a54f3ee4b57::t_f8e9f66a349a02 155
+  s_d14a54f3ee4b57::t_5dfe8900b54743 163
+ultragraphdb_client/ultragraphdb_client_core/src/types/client_core/client_core_results.rs
+  s_d14a54f3ee4b57::t_153454017f83fe 70-73
+ultragraphdb_client/ultragraphdb_client_core/src/types/client_core/mod.rs
+  s_d14a54f3ee4b57::t_1fc0ba01c5a2ed 84-85
+  s_d14a54f3ee4b57::t_d8cd2418251059 415-429,431-434,436-442
+  s_d14a54f3ee4b57::t_182cfad861f098 430,435
+ultragraphdb_client/ultragraphdb_client_core/tests/types/client_core/client_core_results_tests.rs
+  s_d14a54f3ee4b57::t_56dd040c63fdf1 578-579,587-594,596-612
+ultragraphdb_protocol/ultragraphdb_protocol_scram/Cargo.toml
+  s_d14a54f3ee4b57::t_b8770057ca2081 24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e6365fcad055c8c114a0a0e87dd1d11d3198b0f0",
+  "prompts": {},
+  "sessions": {
+    "s_d14a54f3ee4b57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "763dd999-2deb-442f-8d19-3d08b11dfa90",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
