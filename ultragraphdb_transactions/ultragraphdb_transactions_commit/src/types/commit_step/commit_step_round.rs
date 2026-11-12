@@ -5,6 +5,7 @@
 
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_core_ids::{SessionToken, Version};
+use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_protocol_wire::{
     ABSENT, BodyBuilder, ChunkLayout, Commit, ConflictKind, HEADER_SIZE, MAX_FRAME_FLOOR,
     OperationResult, RecordKind, RecordOperation, RequestTerm, TermTable, WriteSetRecordView,
@@ -47,6 +48,13 @@ fn frame_with(decisions: usize, committed: usize, records: usize, dictionary: us
     let body =
         TABLE + DECISION * decisions + RECORD_ENTRY * committed + align8(records) + dictionary;
     HEADER_SIZE + ChunkLayout::of_data(body).body_len()
+}
+
+/// `n` as the u32 a Round body writes it as; the invariant violated past u32. A round holds at most `bounds.bytes()` of
+/// frame and `bounds.transactions()` decisions, both u32, so every count, offset and length in it fits.
+fn round_u32(n: usize) -> Result<u32, InvariantError> {
+    u32::try_from(n)
+        .map_err(|_| InvariantError::violated("a round's counts, offsets and lengths fit u32"))
 }
 
 /// The bytes the key-value entry of `key` and `value` takes, its padding included.
@@ -362,21 +370,31 @@ impl<P: Proposal> CommitStep<P> {
         self.updates.clear();
         self.sessionless.clear();
         self.gather(out, operator);
+        if self.violated.is_some() {
+            self.stop(out);
+            return;
+        }
         if self.stamp.is_full() && !self.waiting.is_empty() {
             self.ask(open, now_us, out);
         }
         if self.decided.is_empty() {
             return;
         }
-        // Lossless: a round decides at most `bounds.transactions()`, a u32, and its sources are among its decisions.
-        let record = RoundRecord::new(first, self.decided.len() as u32, self.sources.len() as u32);
+        let record = match self.write_round(first, &mut out.body) {
+            Ok(record) => record,
+            Err(violated) => {
+                out.body.clear();
+                self.violated = Some(violated);
+                self.stop(out);
+                return;
+            }
+        };
         debug_assert_eq!(
             self.sources.len(),
             self.decided.iter().filter(|(_, o)| o.is_ok()).count()
         );
         self.position = self.position.saturating_add(1);
         self.in_flight_position = self.position;
-        self.write_body(&mut out.body);
         out.append = Some(record);
         out.position = self.position;
         self.in_flight = Some(record);
@@ -447,7 +465,7 @@ impl<P: Proposal> CommitStep<P> {
                 padded += align8(record_len);
                 dictionary += entries_len;
             }
-            if !more {
+            if !more || self.violated.is_some() {
                 break;
             }
         }
@@ -624,7 +642,9 @@ impl<P: Proposal> CommitStep<P> {
         } else {
             match self.stamp.take() {
                 Some(version) => {
-                    self.resolver.admit(version.to_u64(), &record);
+                    if let Err(violated) = self.resolver.admit(version.to_u64(), &record) {
+                        return self.violate(violated);
+                    }
                     Decided::Admitted(version.to_u64(), None)
                 }
                 None => Decided::Deferred,
@@ -730,7 +750,10 @@ impl<P: Proposal> CommitStep<P> {
             operator.discard(proposal, staged);
             return Decided::Deferred;
         };
-        self.resolver.admit(version.to_u64(), &operated);
+        if let Err(violated) = self.resolver.admit(version.to_u64(), &operated) {
+            operator.discard(proposal, staged);
+            return self.violate(violated);
+        }
         operator.adopt(proposal, staged);
         Decided::Admitted(version.to_u64(), Some((results, terms)))
     }
@@ -743,9 +766,23 @@ impl<P: Proposal> CommitStep<P> {
         }
     }
 
+    /// The record of the round decided from version `first`, its body written into `body`; the invariant violated as
+    /// `write_body` names it.
+    fn write_round(&self, first: u64, body: &mut Vec<u8>) -> Result<RoundRecord, InvariantError> {
+        // A round decides at most `bounds.transactions()`, a u32, and its sources are among its decisions.
+        let record = RoundRecord::new(
+            first,
+            round_u32(self.decided.len())?,
+            round_u32(self.sources.len())?,
+        );
+        self.write_body(body)?;
+        Ok(record)
+    }
+
     /// Writes the round's body into `body` in the Round layout: the section table, the decisions, the record table,
     /// the committed records and the dictionary entries, each section at the end of the one before rounded up to 8.
-    fn write_body(&self, body: &mut Vec<u8>) {
+    /// The invariant violated when a count, an offset or a length passes u32, after which `body` holds part of it.
+    fn write_body(&self, body: &mut Vec<u8>) -> Result<(), InvariantError> {
         body.clear();
         let decisions = DECISION * self.decided.len();
         let table = RECORD_ENTRY * self.sources.len();
@@ -765,10 +802,10 @@ impl<P: Proposal> CommitStep<P> {
         ];
         for (offset, len) in sections {
             // A round is at most the frame, far below u32 offsets.
-            body.extend_from_slice(&(offset as u32).to_le_bytes());
-            body.extend_from_slice(&(len as u32).to_le_bytes());
+            body.extend_from_slice(&round_u32(offset)?.to_le_bytes());
+            body.extend_from_slice(&round_u32(len)?.to_le_bytes());
         }
-        self.write_decisions(body);
+        self.write_decisions(body)?;
         let start = body.len();
         for source in &self.sources {
             body.resize(start + align8(body.len() - start), 0);
@@ -778,8 +815,8 @@ impl<P: Proposal> CommitStep<P> {
         for (key, value) in &self.dictionary {
             // A round's frame, its dictionary entries included, is at most `bounds.bytes()`, a u32, so each length
             // fits.
-            body.extend_from_slice(&(key.len() as u32).to_le_bytes());
-            body.extend_from_slice(&(value.len() as u32).to_le_bytes());
+            body.extend_from_slice(&round_u32(key.len())?.to_le_bytes());
+            body.extend_from_slice(&round_u32(value.len())?.to_le_bytes());
             body.extend_from_slice(key);
             body.extend_from_slice(value);
             body.resize(align8(body.len()), 0);
@@ -787,10 +824,11 @@ impl<P: Proposal> CommitStep<P> {
         // The body is exactly the sections its table names.
         debug_assert_eq!(start, TABLE + decisions + table);
         debug_assert_eq!(body.len(), at_dictionary + dictionary);
+        Ok(())
     }
 
-    /// Writes the round's decisions and its record table into `body`.
-    fn write_decisions(&self, body: &mut Vec<u8>) {
+    /// Writes the round's decisions and its record table into `body`; the invariant violated as `write_body` names it.
+    fn write_decisions(&self, body: &mut Vec<u8>) -> Result<(), InvariantError> {
         let mut committed = 0u32;
         for (_, outcome) in &self.decided {
             let (code, record, detail) = match outcome {
@@ -809,10 +847,17 @@ impl<P: Proposal> CommitStep<P> {
         for source in &self.sources {
             let len = self.record_of(*source).len();
             let at = align8(end);
-            body.extend_from_slice(&(at as u32).to_le_bytes());
-            body.extend_from_slice(&(len as u32).to_le_bytes());
+            body.extend_from_slice(&round_u32(at)?.to_le_bytes());
+            body.extend_from_slice(&round_u32(len)?.to_le_bytes());
             end = at + len;
         }
+        Ok(())
+    }
+
+    /// Records `violated`, which stops the step once the round's gathering ends; the entry is refused unavailable.
+    fn violate(&mut self, violated: InvariantError) -> Decided {
+        self.violated = Some(violated);
+        Decided::Refused(CommitError::unavailable())
     }
 
     /// Stops the step: the round in flight and every entry waiting or held are answered unavailable, and so is every

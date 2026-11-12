@@ -98,7 +98,8 @@ impl<'a> Decoder<'a> {
         let blocks = self.pack.blocks().len();
         // At most one pass per block: each moves block_idx forward, and the loop ends past the last block.
         while self.ids.is_empty() && self.block_idx < blocks {
-            self.block_idx += 1;
+            // Below the block count, so it never saturates.
+            self.block_idx = self.block_idx.saturating_add(1);
             self.unpack();
         }
     }
@@ -129,10 +130,10 @@ impl<'a> Decoder<'a> {
         } else {
             held_block_idx.min(blocks.len())
         };
-        let idx = from
-            + blocks.get(from..).map_or(0, |rest| {
-                rest.partition_point(|b| !whence.reached(b.first().to_u128(), target))
-            });
+        // At most the blocks after `from`, so the sum never saturates.
+        let idx = from.saturating_add(blocks.get(from..).map_or(0, |rest| {
+            rest.partition_point(|b| !whence.reached(b.first().to_u128(), target))
+        }));
         debug_assert!(idx <= blocks.len(), "the search stays within the blocks");
         // The target is a block's first ID, or before the first block: that block, whole.
         if target == 0
@@ -148,8 +149,9 @@ impl<'a> Decoder<'a> {
         }
         // Either idx is past the last block, or it is the first block whose first ID is past the target: in both
         // cases the previous block is where the target would be.
-        // The block is unpacked again even when it is the one held, which a seek may have cut to its tail.
-        self.block_idx = idx - 1;
+        // The block is unpacked again even when it is the one held, which a seek may have cut to its tail. idx is at
+        // least 1 here.
+        self.block_idx = idx.saturating_sub(1);
         self.unpack();
         if self.ids.last().is_some_and(|last| target <= last.to_u128()) {
             return &self.ids;
@@ -176,8 +178,8 @@ impl<'a> Decoder<'a> {
             return &self.ids;
         }
         // Either idx is past the last block, or it is the first block whose first ID is past the target: in both
-        // cases the previous block is where the target would be.
-        self.block_idx = idx - 1;
+        // cases the previous block is where the target would be. idx is at least 1 here.
+        self.block_idx = idx.saturating_sub(1);
         self.unpack();
         // The first ID in the block at or past the target.
         let at = self
@@ -199,7 +201,8 @@ impl<'a> Decoder<'a> {
         while let Some(next) = self.peek_next_first()
             && target >= next.to_u128()
         {
-            self.block_idx += 1;
+            // A next block exists, so it never saturates.
+            self.block_idx = self.block_idx.saturating_add(1);
         }
         self.unpack();
         self.step_over_empty_blocks();

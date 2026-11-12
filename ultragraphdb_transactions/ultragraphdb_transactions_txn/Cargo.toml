@@ -19,8 +19,6 @@ autotests = false
 workspace = true
 
 [dependencies]
-oxilangtag = { workspace = true }
-oxrdf = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
 ultragraphdb_cluster_placement = { workspace = true }
 ultragraphdb_core_catalog = { workspace = true }
@@ -36,10 +34,14 @@ ultragraphdb_store_posting = { workspace = true }
 ultragraphdb_store_quads = { workspace = true }
 ultragraphdb_traits_blocks = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
+# External crates
+oxilangtag = { workspace = true }
+oxrdf = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
+# External crates
 criterion = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }

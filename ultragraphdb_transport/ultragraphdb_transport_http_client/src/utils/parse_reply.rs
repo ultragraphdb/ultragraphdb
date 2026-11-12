@@ -3,6 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+// Arithmetic on decoded wire input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use crate::types::http_reply::{HttpReply, ParsedReply};
 
 const END_OF_HEAD: &[u8] = b"\r\n\r\n";
@@ -72,8 +77,12 @@ pub fn parse_reply(bytes: &[u8], body_max: usize) -> ParsedReply {
     let Some(length) = length.parse::<usize>().ok().filter(|len| *len <= body_max) else {
         return wrong("a body past its bound");
     };
-    let start = end + END_OF_HEAD.len();
-    match bytes.get(start..start + length) {
+    // `end` is where the window `END_OF_HEAD` was found, so the body follows it.
+    let body = bytes
+        .get(end..)
+        .and_then(|rest| rest.strip_prefix(END_OF_HEAD))
+        .and_then(|rest| rest.get(..length));
+    match body {
         Some(body) => ParsedReply::Complete(HttpReply {
             status,
             headers,

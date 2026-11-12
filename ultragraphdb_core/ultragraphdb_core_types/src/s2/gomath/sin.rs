@@ -56,7 +56,11 @@ pub(crate) fn cos(x: f64) -> f64 {
     let mut y: f64;
     let z: f64;
     if x >= REDUCE_THRESHOLD {
-        (j, z) = trig_reduce(x);
+        // A finite x has its digits of 4/Pi in the table, so the reduction never fails.
+        let Some(reduced) = trig_reduce(x) else {
+            return super::NAN;
+        };
+        (j, z) = reduced;
     } else {
         j = (x * FOUR_OVER_PI) as u64; // integer part of x/(Pi/4), as integer for tests on the phase angle
         y = j as f64; // integer part of x/(Pi/4), as float
@@ -115,7 +119,11 @@ pub(crate) fn sin(x: f64) -> f64 {
     let mut y: f64;
     let z: f64;
     if x >= REDUCE_THRESHOLD {
-        (j, z) = trig_reduce(x);
+        // A finite x has its digits of 4/Pi in the table, so the reduction never fails.
+        let Some(reduced) = trig_reduce(x) else {
+            return super::NAN;
+        };
+        (j, z) = reduced;
     } else {
         j = (x * FOUR_OVER_PI) as u64; // integer part of x/(Pi/4), as integer for tests on the phase angle
         y = j as f64; // integer part of x/(Pi/4), as float

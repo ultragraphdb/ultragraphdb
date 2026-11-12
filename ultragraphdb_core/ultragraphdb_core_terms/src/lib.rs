@@ -6,6 +6,11 @@
 //! RDF terms as the store keeps them: the term model on `oxrdf`, `EncodedTerm` with its encoding by content, the
 //! canonical-form test, the 128-bit hash naming a dictionary entry, and the posting fingerprint.
 
+// Arithmetic on decoded store/value text input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 mod errors;
 mod types;
 mod utils;

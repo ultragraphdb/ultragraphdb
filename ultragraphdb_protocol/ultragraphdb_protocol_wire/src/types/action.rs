@@ -48,8 +48,9 @@ impl Action {
     pub fn number(self) -> u64 {
         Action::ALL
             .iter()
-            .position(|a| *a == self)
-            .map_or(0, |i| i as u64 + 1)
+            .zip(1..)
+            .find(|(a, _)| **a == self)
+            .map_or(0, |(_, number)| number)
     }
 
     /// The action numbered `number`; `None` for a number no action has.

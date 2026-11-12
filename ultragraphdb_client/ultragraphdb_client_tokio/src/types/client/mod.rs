@@ -31,7 +31,9 @@ fn now() -> Instant {
 fn unix_micros() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_micros() as u64)
+        .map_or(0, |since| {
+            u64::try_from(since.as_micros()).unwrap_or(u64::MAX)
+        })
 }
 
 /// Reads into `bytes` until it holds `want` bytes: `false` when the peer closed first. What a read took stays in `bytes`

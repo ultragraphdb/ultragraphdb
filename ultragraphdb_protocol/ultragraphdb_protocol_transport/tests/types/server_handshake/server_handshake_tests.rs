@@ -26,10 +26,11 @@ fn server() -> ServerHandshake {
 }
 
 fn hello(min: u16, max: u16) -> TestResult<Vec<u8>> {
-    Ok(
-        ClientHandshake::new(CLUSTER, Hello::new(min, max, 5, MAX_FRAME_SIZE as u32, "c"))
-            .hello_frame()?,
+    Ok(ClientHandshake::new(
+        CLUSTER,
+        Hello::new(min, max, 5, u32::try_from(MAX_FRAME_SIZE)?, "c"),
     )
+    .hello_frame()?)
 }
 
 /// The answer frame's error code.
@@ -45,8 +46,11 @@ fn test_a_hello_is_welcomed_at_the_highest_protocol_both_speak() -> TestResult {
     assert_eq!(welcome.protocol(), 2);
     let frame = answer.frame().context("the Welcome frame")?;
     assert_eq!(
-        ClientHandshake::new(CLUSTER, Hello::new(1, 3, 5, MAX_FRAME_SIZE as u32, "c"))
-            .receive(frame)?,
+        ClientHandshake::new(
+            CLUSTER,
+            Hello::new(1, 3, 5, u32::try_from(MAX_FRAME_SIZE)?, "c")
+        )
+        .receive(frame)?,
         welcome,
         "the client reads the Welcome the server sent"
     );
@@ -109,9 +113,11 @@ fn test_another_command_or_a_damaged_frame_is_answered_with_a_protocol_error() -
         }
     ));
     // Another cluster's Hello (step 5): the server's cluster expected, the client's found.
-    let foreign =
-        ClientHandshake::new(CLUSTER + 1, Hello::new(1, 1, 5, MAX_FRAME_SIZE as u32, "c"))
-            .hello_frame()?;
+    let foreign = ClientHandshake::new(
+        CLUSTER + 1,
+        Hello::new(1, 1, 5, u32::try_from(MAX_FRAME_SIZE)?, "c"),
+    )
+    .hello_frame()?;
     let (foreign_answer, foreign_outcome) = server().receive(&foreign).into_parts();
     assert_eq!(
         code(&foreign_answer.context("the answer frame")?)?,
@@ -130,11 +136,11 @@ fn test_a_hello_breaking_its_bodys_rules_is_answered_with_a_protocol_error() -> 
     // 524,288 to 1,048,576.
     for (hello, refusal) in [
         (
-            Hello::new(0, 1, 5, MAX_FRAME_SIZE as u32, "c"),
+            Hello::new(0, 1, 5, u32::try_from(MAX_FRAME_SIZE)?, "c"),
             ProtocolError::field_value(1, "protocol_min", 0),
         ),
         (
-            Hello::new(2, 1, 5, MAX_FRAME_SIZE as u32, "c"),
+            Hello::new(2, 1, 5, u32::try_from(MAX_FRAME_SIZE)?, "c"),
             ProtocolError::field_value(1, "protocol_max", 1),
         ),
         (
@@ -172,7 +178,7 @@ fn test_a_first_frame_not_numbered_one_or_naming_a_view_or_replica_is_refused() 
     // PROTOCOL.md section 2.5: a client's frame names no view or replica (step 6), and its first is sequence 1
     // (step 13).
     let hello_with = |header: Header| -> TestResult<Vec<u8>> {
-        Ok(Hello::new(1, 1, 5, MAX_FRAME_SIZE as u32, "c").frame(header)?)
+        Ok(Hello::new(1, 1, 5, u32::try_from(MAX_FRAME_SIZE)?, "c").frame(header)?)
     };
     let first = Header::new(CLUSTER, Command::Hello).with_sequence(1);
     for (frame, refusal) in [

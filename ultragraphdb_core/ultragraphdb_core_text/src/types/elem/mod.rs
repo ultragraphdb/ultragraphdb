@@ -110,7 +110,7 @@ impl Elem {
 
     /// The element of an implicit primary weight.
     pub(crate) fn make_implicit(primary: i32) -> Elem {
-        Elem(CE_TYPE1 | (primary << PRIMARY_SHIFT) as u32 | DEFAULT_SECONDARY as u32)
+        Elem(CE_TYPE1 | (primary << PRIMARY_SHIFT).cast_unsigned() | DEFAULT_SECONDARY as u32)
     }
 
     /// Go's `MakeElem`: the element of the given weights, or `None` for an invalid combination.
@@ -126,15 +126,16 @@ impl Elem {
                 if primary >= 1 << COMPACT_PRIMARY_BITS || secondary != DEFAULT_SECONDARY {
                     return None;
                 }
-                let mut ce = (tertiary as u32) << (COMPACT_PRIMARY_BITS + MAX_CCC_BITS);
+                let mut ce = tertiary.cast_unsigned() << (COMPACT_PRIMARY_BITS + MAX_CCC_BITS);
                 ce |= u32::from(ccc) << COMPACT_PRIMARY_BITS;
-                ce |= primary as u32;
+                ce |= primary.cast_unsigned();
                 ce | CE_TYPE3_OR4
             } else if tertiary == DEFAULT_TERTIARY {
                 if secondary >= 1 << MAX_SECONDARY_COMPACT_BITS {
                     return None;
                 }
-                ((primary << (MAX_SECONDARY_COMPACT_BITS + 1)) + secondary) as u32 | CE_TYPE1
+                ((primary << (MAX_SECONDARY_COMPACT_BITS + 1)) + secondary).cast_unsigned()
+                    | CE_TYPE1
             } else {
                 // A bit count, so the bits are the value.
                 let d = secondary - DEFAULT_SECONDARY + MAX_SECONDARY_DIFF_BITS.cast_signed();
@@ -144,11 +145,11 @@ impl Elem {
                 if tertiary >= 1 << MAX_TERTIARY_COMPACT_BITS {
                     return None;
                 }
-                let ce = ((primary << MAX_SECONDARY_DIFF_BITS) + d) as u32;
-                (ce << MAX_TERTIARY_COMPACT_BITS) + tertiary as u32
+                let ce = ((primary << MAX_SECONDARY_DIFF_BITS) + d).cast_unsigned();
+                (ce << MAX_TERTIARY_COMPACT_BITS) + tertiary.cast_unsigned()
             }
         } else {
-            let mut ce = ((secondary << MAX_TERTIARY_BITS) + tertiary) as u32;
+            let mut ce = ((secondary << MAX_TERTIARY_BITS) + tertiary).cast_unsigned();
             ce += u32::from(ccc) << (MAX_SECONDARY_BITS + MAX_TERTIARY_BITS);
             ce | CE_TYPE4
         };
@@ -157,16 +158,18 @@ impl Elem {
 
     /// The element of a quaternary weight.
     pub(crate) fn make_quaternary(v: i32) -> Elem {
-        Elem(CE_TYPE_Q | (v << PRIMARY_SHIFT) as u32)
+        Elem(CE_TYPE_Q | (v << PRIMARY_SHIFT).cast_unsigned())
     }
 
     /// The canonical combining class of the underlying character, or zero.
     pub(crate) fn ccc(self) -> u8 {
         if self.0 & CE_TYPE3_OR4 != 0 {
             if self.0 & CE_TYPE4 == CE_TYPE3_OR4 {
-                return (self.0 >> 16) as u8;
+                let [_, _, ccc, _] = self.0.to_le_bytes();
+                return ccc;
             }
-            return (self.0 >> 20) as u8;
+            let [ccc, ..] = (self.0 >> 20).to_le_bytes();
+            return ccc;
         }
         0
     }
@@ -176,7 +179,8 @@ impl Elem {
             if self.0 > LAST_SPECIAL_PRIMARY {
                 return 0;
             }
-            return i32::from(self.0 as u16);
+            let [low, high, ..] = self.0.to_le_bytes();
+            return i32::from(u16::from_le_bytes([low, high]));
         }
         // Masked and shifted below 31 bits, so the bits are the value.
         ((self.0 & PRIMARY_VALUE_MASK) >> PRIMARY_SHIFT).cast_signed()
@@ -184,7 +188,10 @@ impl Elem {
 
     pub(crate) fn secondary(self) -> i32 {
         match self.0 & CE_TYPE_MASK {
-            CE_TYPE1 => i32::from(self.0 as u8),
+            CE_TYPE1 => {
+                let [low, ..] = self.0.to_le_bytes();
+                i32::from(low)
+            }
             // Four and twelve bits below, so the bits are the value.
             CE_TYPE2 => {
                 MIN_COMPACT_SECONDARY + ((self.0 >> COMPACT_SECONDARY_SHIFT) & 0xF).cast_signed()
@@ -202,14 +209,17 @@ impl Elem {
     pub(crate) fn tertiary(self) -> u8 {
         if self.0 & HAS_TERTIARY_MASK == 0 {
             if self.0 & CE_TYPE3_OR4 == 0 {
-                return (self.0 & 0x1F) as u8;
+                let [low, ..] = self.0.to_le_bytes();
+                return low & 0x1F;
             }
             if self.0 & CE_TYPE4 == CE_TYPE4 {
-                return self.0 as u8;
+                let [low, ..] = self.0.to_le_bytes();
+                return low;
             }
             return ((self.0 >> 24) as u8) & 0x1F; // type 2
         } else if self.0 & CE_TYPE_MASK == CE_TYPE1 {
-            return DEFAULT_TERTIARY as u8;
+            let [default_tertiary, ..] = DEFAULT_TERTIARY.to_le_bytes();
+            return default_tertiary;
         }
         // A quaternary value.
         0
@@ -220,8 +230,8 @@ impl Elem {
         if ce & CE_TYPE_MASK == CE_TYPE1 {
             // convert to type 4
             let mut nce = ce & PRIMARY_VALUE_MASK;
-            nce |= u32::from((ce as u8).wrapping_sub(MIN_COMPACT_SECONDARY as u8))
-                << COMPACT_SECONDARY_SHIFT;
+            let ([low, ..], [min, ..]) = (ce.to_le_bytes(), MIN_COMPACT_SECONDARY.to_le_bytes());
+            nce |= u32::from(low.wrapping_sub(min)) << COMPACT_SECONDARY_SHIFT;
             ce = nce;
         } else if ce & CE_TYPE_MASK_EXT == CE_TYPE3_OR4 {
             ce &= !(u32::from(MAX_TERTIARY) << 24);
@@ -257,12 +267,14 @@ impl Elem {
 
     /// The index into the expansion table.
     pub(crate) fn split_expand_index(self) -> usize {
-        usize::from(self.0 as u16)
+        let [low, high, ..] = self.0.to_le_bytes();
+        usize::from(u16::from_le_bytes([low, high]))
     }
 
     /// The replacement tertiary weights of the first and the second rune of a decomposition.
     pub(crate) fn split_decompose(self) -> (u8, u8) {
-        (self.0 as u8, (self.0 >> 8) as u8)
+        let [first, second, ..] = self.0.to_le_bytes();
+        (first, second)
     }
 }
 

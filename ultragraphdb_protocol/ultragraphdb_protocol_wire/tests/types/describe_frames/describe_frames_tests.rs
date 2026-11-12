@@ -146,22 +146,24 @@ fn test_a_continuation_keeps_the_first_command_header() -> TestResult {
     Ok(())
 }
 
+/// A continuation frame of the answer holding `bytes` in section `index` and every other section empty.
+fn part(index: usize, bytes: Vec<u8>) -> TestResult<Vec<u8>> {
+    let mut sections = vec![vec![]; 9];
+    if let Some(section) = sections.get_mut(index) {
+        *section = bytes;
+    }
+    frame(
+        Command::Describe,
+        &[(8, &42u64.to_le_bytes())],
+        &sections,
+        false,
+    )
+}
+
 /// A frame splits a section only between whole u32s or records and its text only on a character boundary: each
 /// frame's u32 sections whole u32s, its records whole 16-byte records, its strings' text UTF-8.
 #[test]
 fn test_each_frame_holds_whole_units() -> TestResult {
-    let part = |index: usize, bytes: Vec<u8>| -> TestResult<Vec<u8>> {
-        let mut sections = vec![vec![]; 9];
-        if let Some(section) = sections.get_mut(index) {
-            *section = bytes;
-        }
-        frame(
-            Command::Describe,
-            &[(8, &42u64.to_le_bytes())],
-            &sections,
-            false,
-        )
-    };
     let cases = [
         (
             2,

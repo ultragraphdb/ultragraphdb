@@ -12,16 +12,6 @@ use crate::s2::r3::R3Vector;
 /// A traditional 3x3 matrix of floating point values, used to convert between frames.
 pub(crate) type Matrix3x3 = [[f64; 3]; 3];
 
-fn col(m: &Matrix3x3, col: usize) -> Point {
-    Point(R3Vector::new(m[0][col], m[1][col], m[2][col]))
-}
-
-fn set_col(m: &mut Matrix3x3, col: usize, p: Point) {
-    m[0][col] = p.0.x;
-    m[1][col] = p.0.y;
-    m[2][col] = p.0.z;
-}
-
 /// Multiplies the matrix by the given value, as golang/geo's `matrix3x3.mul`.
 fn mul(m: &Matrix3x3, p: Point) -> Point {
     Point(R3Vector::new(
@@ -37,12 +27,9 @@ pub(crate) fn get_frame(p: Point) -> Matrix3x3 {
     // coordinate frame of unit-length column vectors m = (x,y,z).  Note that
     // the vectors (x,y) are an orthonormal frame for the tangent space at point p,
     // while p itself is an orthonormal frame for the normal space at p.
-    let mut m: Matrix3x3 = [[0.0; 3]; 3];
-    set_col(&mut m, 2, p);
-    set_col(&mut m, 1, ortho(p));
-    let c1 = col(&m, 1);
-    set_col(&mut m, 0, Point(c1.0.cross(p.0)));
-    m
+    let (z, y) = (p.0, ortho(p).0);
+    let x = y.cross(z);
+    [[x.x, y.x, z.x], [x.y, y.y, z.y], [x.z, y.z, z.z]]
 }
 
 /// Returns the coordinates of the given point in standard axis-aligned basis from its

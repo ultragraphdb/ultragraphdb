@@ -34,8 +34,9 @@ impl HeaderView<'_> {
             return Err(ProtocolError::header_checksum(self.checksum, computed));
         }
         let command = Command::from_number(self.command)?;
-        if let Some(i) = self.reserved.iter().position(|b| *b != 0) {
-            return Err(ProtocolError::reserved_not_zero(66 + i));
+        // The reserved bytes start at header offset 66.
+        if let Some((_, at)) = self.reserved.iter().zip(66..).find(|(b, _)| **b != 0) {
+            return Err(ProtocolError::reserved_not_zero(at));
         }
         if self.cluster != cluster {
             return Err(ProtocolError::wrong_cluster(cluster, self.cluster));

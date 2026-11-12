@@ -79,7 +79,10 @@ impl Member {
             }
         };
         if let Some(i) = [pad1, pad2, pad3].iter().position(|b| *b != 0) {
-            return Err(ProtocolError::padding_not_zero(command, at + 1 + i));
+            return Err(ProtocolError::padding_not_zero(
+                command,
+                at.saturating_add(1).saturating_add(i),
+            ));
         }
         let partition = u32::from_le_bytes([p0, p1, p2, p3]);
         if (kind == RoleKind::Compute) != (partition == 0) {

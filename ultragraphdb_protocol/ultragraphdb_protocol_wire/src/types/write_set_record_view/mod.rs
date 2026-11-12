@@ -46,11 +46,11 @@ fn read_fixed(command: u16, fixed: &[u8]) -> Result<Fixed, ProtocolError> {
     let code = fixed.first().copied().unwrap_or(0);
     let kind = RecordKind::from_code(code)
         .ok_or_else(|| ProtocolError::field_value(command, "record kind", code.into()))?;
-    if let Some(j) = fixed
+    if let Some((_, at)) = fixed
         .get(1..8)
-        .and_then(|zeros| zeros.iter().position(|b| *b != 0))
+        .and_then(|zeros| zeros.iter().zip(1..).find(|(b, _)| **b != 0))
     {
-        return Err(ProtocolError::padding_not_zero(command, 1 + j));
+        return Err(ProtocolError::padding_not_zero(command, at));
     }
     let u64_at = |at: usize| bytes_at(fixed, at).map_or(0, u64::from_le_bytes);
     let session: [u8; 16] = bytes_at(fixed, 32).unwrap_or([0; 16]);
@@ -408,7 +408,9 @@ impl<'a> WriteSetRecordView<'a> {
             3 => self.operation_count(),
             4 => self.registration_count(),
             5 => self.commit_record.len(),
-            6..=8 => table(index - 3),
+            6 => table(3),
+            7 => table(4),
+            8 => table(5),
             9 => self.result_count(),
             10 => self.result_terms.len(),
             _ => self.text_len,

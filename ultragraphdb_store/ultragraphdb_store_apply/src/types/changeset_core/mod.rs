@@ -389,23 +389,29 @@ impl<S, C, B> ChangesetCore<S, C, B> {
     /// Asks the metadata group for the default entry of each predicate of `defaults` that `catalog`, an execution's,
     /// holds with its default entry and `installed` does not hold: a first write of the predicate since the partition
     /// started, which the group finds recorded when another partition, or this one before a restart, asked first.
-    fn ask_defaults(&self, installed: Option<&Catalog>, catalog: &Catalog, defaults: &[SystemId]) {
+    fn ask_defaults(
+        &self,
+        installed: Option<&Catalog>,
+        catalog: &Catalog,
+        defaults: &[SystemId],
+    ) -> Result<(), ChangesetError> {
         let asked = defaults.iter().filter_map(|uid| {
             let default = catalog.predicate(*uid)?;
             let held = installed.and_then(|c| c.predicate(*uid)).is_some();
-            (!held).then(|| {
-                let entry = encode_declaration(&Declaration::Predicate(default.clone()));
-                DefaultEntry::new(
+            (!held).then(|| -> Result<DefaultEntry, ChangesetError> {
+                let entry = encode_declaration(&Declaration::Predicate(default.clone()))?;
+                Ok(DefaultEntry::new(
                     catalog.tenant(),
                     default.predicate().as_str().to_string(),
                     entry,
-                )
+                ))
             })
         });
-        let asked: Vec<DefaultEntry> = asked.collect();
+        let asked = asked.collect::<Result<Vec<DefaultEntry>, ChangesetError>>()?;
         if !asked.is_empty() {
             lock(&self.defaults).extend(asked);
         }
+        Ok(())
     }
 
     /// Queues for the indexer each vector `executed`, committed at `version`, wrote or removed: every forward list it
@@ -456,7 +462,7 @@ impl<S, C, B> ChangesetCore<S, C, B> {
         let mut catalogs = lock(&self.catalogs);
         let tenant = catalog.tenant();
         let installed = catalogs.get(&tenant);
-        self.ask_defaults(installed.map(|c| &**c), &catalog, defaults);
+        self.ask_defaults(installed.map(|c| &**c), &catalog, defaults)?;
         let merged = match installed {
             None => catalog,
             Some(installed) if changed => {

@@ -37,7 +37,10 @@ pub(crate) fn check_results(
         let [.., created, z0, z1, z2] = *result;
         if let Some(j) = [z0, z1, z2].iter().position(|b| *b != 0) {
             let start = offset.saturating_add(OPERATION_RESULT_SIZE.saturating_mul(at));
-            return Err(ProtocolError::padding_not_zero(command, start + 13 + j));
+            return Err(ProtocolError::padding_not_zero(
+                command,
+                start.saturating_add(13).saturating_add(j),
+            ));
         }
         if created > 1 {
             return Err(ProtocolError::field_value(

@@ -53,7 +53,12 @@ pub(crate) fn in_region(region: u8, key: &[u8]) -> Vec<u8> {
 
 /// The swap's entry an item of the swap region holds, its region byte taken off.
 pub(crate) fn swap_entry(item: Item) -> Entry {
-    let key = item.key()[1..].to_vec();
+    // Every item of a region begins with its region byte.
+    let key = item
+        .key()
+        .split_first()
+        .map_or(&[][..], |(_, key)| key)
+        .to_vec();
     let (version, meta, discard) = (item.version(), item.meta(), item.discard());
     if meta == DELETION {
         return Entry::deletion(key, version);
@@ -64,7 +69,12 @@ pub(crate) fn swap_entry(item: Item) -> Entry {
 
 /// The item a delta region's item holds, its region byte taken off.
 pub(crate) fn delta_item(item: Item) -> Item {
-    let key = item.key()[1..].to_vec();
+    // Every item of a region begins with its region byte.
+    let key = item
+        .key()
+        .split_first()
+        .map_or(&[][..], |(_, key)| key)
+        .to_vec();
     Item::new(
         key,
         item.version(),

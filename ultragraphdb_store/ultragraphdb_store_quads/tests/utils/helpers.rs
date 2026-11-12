@@ -95,7 +95,7 @@ pub fn commit(store: &TestQuads, writes: Vec<TestWrite<'_>>) -> TestResult<Vec<u
     let mut batch = store.lists().batch();
     let mut terms: Vec<WriteTerms> = Vec::new();
     for write in writes {
-        let (request, t) = write.finish();
+        let (request, t) = write.finish()?;
         batch.push(request);
         terms.push(t);
     }

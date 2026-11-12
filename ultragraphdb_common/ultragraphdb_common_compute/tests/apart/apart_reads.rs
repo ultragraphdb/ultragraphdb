@@ -16,7 +16,7 @@ use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
     BodyView, Cancel, Command, ComputeRead, Credit, ErrorCode, ErrorReplyView, FLAG_LAST,
-    MAX_FRAME_SIZE, ObjectRecordsBuilder, PatternSlot, QuadPattern, ReadLevel, ResultView,
+    MAX_FRAME_SIZE_U32, ObjectRecordsBuilder, PatternSlot, QuadPattern, ReadLevel, ResultView,
     TermTable,
 };
 use ultragraphdb_store_quads::{id_key, term_key};
@@ -110,7 +110,7 @@ pub fn read_of(
         .with_read_version(VERSION)
         .with_principal(1)
         .with_deadline_ms(10_000)
-        .with_client_limits(MAX_FRAME_SIZE as u32, 4)
+        .with_client_limits(MAX_FRAME_SIZE_U32, 4)
         .with_limit(limit)
 }
 

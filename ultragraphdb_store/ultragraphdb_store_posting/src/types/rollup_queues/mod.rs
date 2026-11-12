@@ -36,14 +36,19 @@ pub(crate) struct RollupQueues {
 impl RollupQueues {
     /// Adds `key` to the batch of `priority`; a full batch goes to its queue, or is dropped when the queue is full.
     pub fn add_key(&mut self, key: Vec<u8>, priority: usize) {
-        let priority = priority.min(1);
-        self.pending[priority].push(key);
-        if self.pending[priority].len() < ROLLUP_BATCH {
+        let ([high, low], [full_high, full_low]) = (&mut self.pending, &mut self.full);
+        let (pending, full) = if priority == 0 {
+            (high, full_high)
+        } else {
+            (low, full_low)
+        };
+        pending.push(key);
+        if pending.len() < ROLLUP_BATCH {
             return;
         }
-        let batch = std::mem::take(&mut self.pending[priority]);
-        if self.full[priority].len() < ROLLUP_QUEUE {
-            self.full[priority].push_back(batch);
+        let batch = std::mem::take(pending);
+        if full.len() < ROLLUP_QUEUE {
+            full.push_back(batch);
         }
     }
 

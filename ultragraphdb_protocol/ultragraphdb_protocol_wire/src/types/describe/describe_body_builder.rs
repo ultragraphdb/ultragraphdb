@@ -51,25 +51,30 @@ pub(super) fn layout(describe: &Describe) -> Layout {
         .iter()
         .map(|entry| writer.names.intern(entry.name()))
         .collect();
-    let mut records = Vec::with_capacity(DESCRIBE_ENTRY_SIZE * entries.len());
+    let mut records = Vec::with_capacity(DESCRIBE_ENTRY_SIZE.saturating_mul(entries.len()));
     let mut bytes = Vec::new();
     let mut texts = Vec::new();
     for (entry, name) in entries.iter().zip(entry_names) {
         let start = bytes.len();
-        match entry.retired_name() {
+        let held = match entry.retired_name() {
             Some(retired) => {
                 let current = retired
                     .current()
                     .map(|current| writer.names.intern(current));
-                bytes.extend_from_slice(&retired.encode(current));
+                let encoded = retired.encode(current);
+                bytes.extend_from_slice(&encoded);
+                encoded.len()
             }
-            None => bytes.extend_from_slice(entry.bytes()),
-        }
+            None => {
+                bytes.extend_from_slice(entry.bytes());
+                entry.bytes().len()
+            }
+        };
         if entry.kind() == EntryKind::Source {
             texts.push(start..bytes.len());
         }
         records.extend_from_slice(&[entry.kind().number(), 0, 0, 0]);
-        for field in [name, as_u32(start), as_u32(bytes.len() - start)] {
+        for field in [name, as_u32(start), as_u32(held)] {
             records.extend_from_slice(&field.to_le_bytes());
         }
     }

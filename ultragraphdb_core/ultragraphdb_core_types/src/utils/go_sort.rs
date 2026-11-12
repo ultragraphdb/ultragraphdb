@@ -61,11 +61,10 @@ fn sift_down<D: SortData>(data: &mut D, lo: usize, hi: usize, first: usize) {
 fn heap_sort<D: SortData>(data: &mut D, a: usize, b: usize) {
     let first = a;
     let hi = b - a;
-    // Go's int arithmetic on an index, which is at most isize::MAX; Go's loop runs down from `(hi - 1) / 2` through 0.
-    for i in (0..(hi.cast_signed() - 1) / 2 + 1).rev() {
-        if i >= 0 {
-            sift_down(data, i as usize, hi, first);
-        }
+    // Go's loop runs down from `(hi - 1) / 2` through 0; Go's int division truncates toward zero, so `hi == 0` starts at 0
+    // as `saturating_sub` does.
+    for i in (0..hi.saturating_sub(1) / 2 + 1).rev() {
+        sift_down(data, i, hi, first);
     }
     for i in (0..hi).rev() {
         data.swap(first, first + i);
@@ -127,58 +126,58 @@ fn pdqsort<D: SortData>(data: &mut D, a: usize, b: usize, limit: usize) {
 
 fn partition<D: SortData>(data: &mut D, a: usize, b: usize, pivot: usize) -> (usize, bool) {
     data.swap(a, pivot);
-    // Go's int arithmetic on indices, which are at most isize::MAX.
-    let (mut i, mut j) = (a.cast_signed() + 1, b.cast_signed() - 1);
-    while i <= j && data.less(i as usize, a) {
+    // Go's int indices: `j` falls only while `i <= j`, and `i` starts past `a`, so `j` never drops below `a`.
+    let (mut i, mut j) = (a + 1, b - 1);
+    while i <= j && data.less(i, a) {
         i += 1;
     }
-    while i <= j && !data.less(j as usize, a) {
+    while i <= j && !data.less(j, a) {
         j -= 1;
     }
     if i > j {
-        data.swap(j as usize, a);
-        return (j as usize, true);
+        data.swap(j, a);
+        return (j, true);
     }
-    data.swap(i as usize, j as usize);
+    data.swap(i, j);
     i += 1;
     j -= 1;
     loop {
-        while i <= j && data.less(i as usize, a) {
+        while i <= j && data.less(i, a) {
             i += 1;
         }
-        while i <= j && !data.less(j as usize, a) {
+        while i <= j && !data.less(j, a) {
             j -= 1;
         }
         if i > j {
             break;
         }
-        data.swap(i as usize, j as usize);
+        data.swap(i, j);
         i += 1;
         j -= 1;
     }
-    data.swap(j as usize, a);
-    (j as usize, false)
+    data.swap(j, a);
+    (j, false)
 }
 
 fn partition_equal<D: SortData>(data: &mut D, a: usize, b: usize, pivot: usize) -> usize {
     data.swap(a, pivot);
-    // Go's int arithmetic on indices, which are at most isize::MAX.
-    let (mut i, mut j) = (a.cast_signed() + 1, b.cast_signed() - 1);
+    // Go's int indices: `j` falls only while `i <= j`, and `i` starts past `a`, so `j` never drops below `a`.
+    let (mut i, mut j) = (a + 1, b - 1);
     loop {
-        while i <= j && !data.less(a, i as usize) {
+        while i <= j && !data.less(a, i) {
             i += 1;
         }
-        while i <= j && data.less(a, j as usize) {
+        while i <= j && data.less(a, j) {
             j -= 1;
         }
         if i > j {
             break;
         }
-        data.swap(i as usize, j as usize);
+        data.swap(i, j);
         i += 1;
         j -= 1;
     }
-    i as usize
+    i
 }
 
 fn partial_insertion_sort<D: SortData>(data: &mut D, a: usize, b: usize) -> bool {
@@ -230,7 +229,8 @@ fn break_patterns<D: SortData>(data: &mut D, a: usize, b: usize) {
             random ^= random << 13;
             random ^= random >> 7;
             random ^= random << 17;
-            let mut other = (random as usize) & (modulus - 1);
+            // Go's `uint(r.Next()) & (modulus - 1)`: the mask keeps the value below `modulus`, which is a usize.
+            let mut other = usize::try_from(random & (modulus - 1) as u64).unwrap_or(0);
             if other >= length {
                 other -= length;
             }

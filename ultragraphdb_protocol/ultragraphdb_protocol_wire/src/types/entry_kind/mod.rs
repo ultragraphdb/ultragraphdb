@@ -80,9 +80,9 @@ impl EntryKind {
         // The kinds' numbers: KINDS lists them in their order, from 1, and holds 20, so the place fits a byte.
         KINDS
             .iter()
-            .position(|kind| *kind == self)
-            .and_then(|at| u8::try_from(at + 1).ok())
-            .unwrap_or(0)
+            .zip(1..)
+            .find(|(kind, _)| **kind == self)
+            .map_or(0, |(_, number)| number)
     }
 
     /// The kind the byte `number` names; `None` outside 1 to 20.

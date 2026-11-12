@@ -13,6 +13,11 @@
 //! neither depends on the other. A refusal is a [`BodyError`], naming the rule, the section and the offset; the caller
 //! names the body.
 
+// Arithmetic on decoded wire/store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 mod errors;
 mod types;
 mod utils;

@@ -3,7 +3,6 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -15,6 +14,7 @@ use crate::types::term_table_view::TermTableView;
 use crate::utils::body::{read_sections, u32s};
 use crate::utils::command_header::expect_command;
 use crate::utils::commit_operation_layout::OperationFields;
+use crate::utils::fields::count;
 
 impl<'a> BodyView<'a> for OperationView<'a> {
     const COMMAND: Command = Command::Operation;
@@ -45,7 +45,12 @@ impl<'a> BodyView<'a> for OperationView<'a> {
                 expected,
             ));
         }
-        fields.check_args(command, (0, 0), &args, as_u32(terms.len()))?;
+        fields.check_args(
+            command,
+            (0, 0),
+            &args,
+            count(command, "terms", terms.len())?,
+        )?;
         Ok(Self {
             fields,
             args,

@@ -63,5 +63,10 @@ fn main() -> ExitCode {
 fn fresh_seed() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos() as u64)
+        // The nanoseconds since the epoch modulo 2^64.
+        .map_or(0, |d| {
+            d.as_secs()
+                .wrapping_mul(1_000_000_000)
+                .wrapping_add(u64::from(d.subsec_nanos()))
+        })
 }

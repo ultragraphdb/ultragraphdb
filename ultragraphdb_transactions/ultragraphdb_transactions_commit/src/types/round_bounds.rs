@@ -7,6 +7,11 @@ use ultragraphdb_protocol_wire::MAX_FRAME_SIZE;
 
 use crate::types::commit_step::frame_len;
 
+/// The largest frame, [`MAX_FRAME_SIZE`], as the u32 the bounds hold.
+const MAX_FRAME: u32 = 1 << 20;
+// Lossless: a `usize` holds 32 bits on every target the repository builds for.
+const _: () = assert!(MAX_FRAME as usize == MAX_FRAME_SIZE);
+
 /// The bounds a round closes within: its frame's size in bytes, header and chunk table included, and its number of
 /// transactions. Their defaults follow the log's power-loss-protection flag and are the write-ahead log's
 /// `WalConfig::round_bytes` and `round_transactions`, which the node passes here.
@@ -25,12 +30,11 @@ impl RoundBounds {
     /// At most `bytes` of frame, taken as the maximum frame when larger, and at most `transactions`, taken as 1
     /// when 0, so a round always closes.
     pub fn new(bytes: u32, transactions: u32) -> Self {
-        let bytes = bytes.min(MAX_FRAME_SIZE as u32);
+        let bytes = bytes.min(MAX_FRAME);
         Self {
             bytes,
             transactions: transactions.max(1),
-            // At most `bytes`, far below u32.
-            max_write_set: largest_record(bytes as usize) as u32,
+            max_write_set: largest_record(bytes),
         }
     }
 
@@ -54,8 +58,9 @@ impl RoundBounds {
 
 /// The largest record a round of it alone holds within `bytes` of frame, 0 when none does: the frame grows with the
 /// record, so a binary search over lengths finds it.
-fn largest_record(bytes: usize) -> usize {
-    let fits = |len: usize| frame_len(1, 1, len) <= bytes;
+fn largest_record(bytes: u32) -> u32 {
+    // Lossless: a `usize` holds 32 bits on every target the repository builds for.
+    let fits = |len: u32| frame_len(1, 1, len as usize) <= bytes as usize;
     if !fits(0) {
         return 0;
     }

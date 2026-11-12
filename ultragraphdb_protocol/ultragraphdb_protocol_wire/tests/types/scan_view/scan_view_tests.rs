@@ -88,7 +88,7 @@ fn with_trailing_byte(bytes: &[u8]) -> Vec<u8> {
 fn test_a_scan_reads_each_iri_it_names_by_its_text() -> TestResult {
     let frame = bytes("scan_transaction_terms")?;
     let view = ScanView::from_frame(&frame_of(&frame)?)?;
-    let read: Vec<_> = (0..IRIS.len() as u32)
+    let read: Vec<_> = (0..u32::try_from(IRIS.len())?)
         .filter_map(|index| view.terms().get(index))
         .collect();
     assert_eq!(read, IRIS.map(RequestTermView::Iri));

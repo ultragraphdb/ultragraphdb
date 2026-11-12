@@ -11,7 +11,7 @@ use crate::tables::language_tables::{
     ISO_REGION_OFFSET, M49, N_REGION_GROUPS, REGION_CONTAINMENT, REGION_INCLUSION,
     REGION_INCLUSION_BITS, REGION_ISO, REGION_OLD_MAP, REGION_TYPES, REGION_XK,
 };
-use crate::utils::tag_index::{elem, partition_point};
+use crate::utils::tag_index::elem;
 
 /// An ISO 3166-1 or UN M.49 region identifier. Zero is unspecified; from `ISO_REGION_OFFSET` on the identifiers
 /// index the ISO region table.
@@ -22,7 +22,10 @@ const ISO3166_USER_ASSIGNED: u8 = 1;
 
 impl RegionId {
     fn typ(self) -> u8 {
-        REGION_TYPES[usize::from(self.0)]
+        REGION_TYPES
+            .get(usize::from(self.0))
+            .copied()
+            .unwrap_or_default()
     }
 
     /// The BCP 47 representation, `ZZ` for an unspecified region.
@@ -34,12 +37,13 @@ impl RegionId {
             return format!("{:03}", self.m49());
         }
         let r = usize::from(self.0 - ISO_REGION_OFFSET);
-        String::from_utf8_lossy(&elem(REGION_ISO, r)[..2]).into_owned()
+        let [a, b, ..] = elem(REGION_ISO, r);
+        String::from_utf8_lossy(&[a, b]).into_owned()
     }
 
     /// The UN M.49 code, or zero.
     pub(crate) fn m49(self) -> i32 {
-        i32::from(M49[usize::from(self.0)])
+        M49.get(usize::from(self.0)).map_or(0, |&m| i32::from(m))
     }
 
     /// Whether the region has the ISO 3166 user-assigned status.
@@ -57,7 +61,9 @@ impl RegionId {
         if self.0 == 0 {
             return false;
         }
-        usize::from(REGION_INCLUSION[usize::from(self.0)]) < REGION_CONTAINMENT.len()
+        REGION_INCLUSION
+            .get(usize::from(self.0))
+            .is_some_and(|&g| usize::from(g) < REGION_CONTAINMENT.len())
     }
 
     /// Whether `c` is contained by this region; true if both are equal.
@@ -65,13 +71,21 @@ impl RegionId {
         if self == c {
             return true;
         }
-        let g = REGION_INCLUSION[usize::from(self.0)];
+        let Some(&g) = REGION_INCLUSION.get(usize::from(self.0)) else {
+            return false;
+        };
         if g >= N_REGION_GROUPS {
             return false;
         }
-        let m = REGION_CONTAINMENT[usize::from(g)];
-        let d = REGION_INCLUSION[usize::from(c.0)];
-        let b = REGION_INCLUSION_BITS[usize::from(d)];
+        let (Some(&m), Some(&d)) = (
+            REGION_CONTAINMENT.get(usize::from(g)),
+            REGION_INCLUSION.get(usize::from(c.0)),
+        ) else {
+            return false;
+        };
+        let Some(&b) = REGION_INCLUSION_BITS.get(usize::from(d)) else {
+            return false;
+        };
         // A contained country may belong to multiple disjoint groups. Matching any of these indicates containment.
         // If the contained region is a group, it must strictly be a subset.
         if d >= N_REGION_GROUPS {
@@ -82,10 +96,12 @@ impl RegionId {
 
     /// The replacement of a deprecated region, or the region itself.
     pub(crate) fn canonicalize(self) -> RegionId {
-        let m = &REGION_OLD_MAP;
-        let k = partition_point(m.len(), |i| m[i].from < self.0);
-        if k < m.len() && m[k].from == self.0 && m[k].to != 0 {
-            return RegionId(m[k].to);
+        let k = REGION_OLD_MAP.partition_point(|old| old.from < self.0);
+        if let Some(old) = REGION_OLD_MAP.get(k)
+            && old.from == self.0
+            && old.to != 0
+        {
+            return RegionId(old.to);
         }
         self
     }

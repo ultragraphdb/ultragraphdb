@@ -116,13 +116,12 @@ impl CellUnion {
             // See if the last three cells plus this one can be collapsed.
             // We loop because collapsing three accepted cells and adding a
             // higher level cell could cascade into previously accepted cells.
-            while output.len() >= 3 {
-                let n = output.len();
-                if !are_siblings(output[n - 3], output[n - 2], output[n - 1], ci) {
+            while let Some(&[a, b, c]) = output.last_chunk::<3>() {
+                if !are_siblings(a, b, c, ci) {
                     break;
                 }
                 // Replace four cells by their parent cell.
-                output.truncate(n - 3);
+                output.truncate(output.len() - 3);
                 ci = ci.immediate_parent(); // checked !ci.isFace above
             }
             output.push(ci);
@@ -135,10 +134,16 @@ impl CellUnion {
         // Find index of array item that occurs directly after our probe cell:
         let i = self.0.partition_point(|&c| c <= id);
 
-        if i != self.0.len() && self.0[i].range_min() <= id.range_max() {
+        if self
+            .0
+            .get(i)
+            .is_some_and(|c| c.range_min() <= id.range_max())
+        {
             return true;
         }
-        i != 0 && self.0[i - 1].range_max() >= id.range_min()
+        i.checked_sub(1)
+            .and_then(|k| self.0.get(k))
+            .is_some_and(|c| c.range_max() >= id.range_min())
     }
 
     /// Reports whether the CellUnion contains the given cell ID. Containment is defined with
@@ -151,10 +156,12 @@ impl CellUnion {
         // Find index of array item that occurs directly after our probe cell:
         let i = self.0.partition_point(|&c| c <= id);
 
-        if i != self.0.len() && self.0[i].range_min() <= id {
+        if self.0.get(i).is_some_and(|c| c.range_min() <= id) {
             return true;
         }
-        i != 0 && self.0[i - 1].range_max() >= id
+        i.checked_sub(1)
+            .and_then(|k| self.0.get(k))
+            .is_some_and(|c| c.range_max() >= id)
     }
 
     /// Replaces this CellUnion with an expanded version of the CellUnion where any cell whose

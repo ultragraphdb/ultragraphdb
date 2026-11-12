@@ -235,8 +235,10 @@ fn exact_sign(a: Point, b: Point, c: Point, perturb: bool) -> Direction {
     ) else {
         return Direction::Indeterminate;
     };
-    let xb_cross_xc = xb.cross(&xc);
-    let det = xa.dot(&xb_cross_xc);
+    // An exact sum that cannot be aligned has no determinant either.
+    let Some((det, xb_cross_xc)) = xb.cross(&xc).and_then(|bc| Some((xa.dot(&bc)?, bc))) else {
+        return Direction::Indeterminate;
+    };
 
     // The precision of big.Float is high enough that the result should always
     // be exact enough (no rounding was performed).
@@ -246,7 +248,9 @@ fn exact_sign(a: Point, b: Point, c: Point, perturb: bool) -> Direction {
     if det_sign == Direction::Indeterminate && perturb {
         // Otherwise, we need to resort to symbolic perturbations to resolve the
         // sign of the determinant.
-        det_sign = symbolically_perturbed_sign(&xa, &xb, &xc, &xb_cross_xc);
+        // An exact difference that cannot be aligned leaves the sign unresolved, as a non-finite point does.
+        det_sign = symbolically_perturbed_sign(&xa, &xb, &xc, &xb_cross_xc)
+            .unwrap_or(Direction::Indeterminate);
     }
     perm_sign * det_sign
 }
@@ -270,7 +274,7 @@ fn symbolically_perturbed_sign(
     b: &PreciseVector,
     c: &PreciseVector,
     b_cross_c: &PreciseVector,
-) -> Direction {
+) -> Option<Direction> {
     // The perturbations are chosen such that
     //
     //   da.Z > da.Y > da.X > db.Z > db.Y > db.X > dc.Z > dc.Y > dc.X
@@ -285,51 +289,51 @@ fn symbolically_perturbed_sign(
     let checks: [i32; 3] = [b_cross_c.z.sign(), b_cross_c.y.sign(), b_cross_c.x.sign()]; // da.Z, da.Y, da.X
     for s in checks {
         if s != 0 {
-            return Direction::from_sign(s);
+            return Some(Direction::from_sign(s));
         }
     }
 
-    let mut det_sign = (&(&c.x * &a.y) - &(&c.y * &a.x)).sign(); // db.Z
+    let mut det_sign = (&(&c.x * &a.y) - &(&c.y * &a.x))?.sign(); // db.Z
     if det_sign != 0 {
-        return Direction::from_sign(det_sign);
+        return Some(Direction::from_sign(det_sign));
     }
     det_sign = c.x.sign(); // db.Z * da.Y
     if det_sign != 0 {
-        return Direction::from_sign(det_sign);
+        return Some(Direction::from_sign(det_sign));
     }
     det_sign = -c.y.sign(); // db.Z * da.X
     if det_sign != 0 {
-        return Direction::from_sign(det_sign);
+        return Some(Direction::from_sign(det_sign));
     }
 
-    det_sign = (&(&c.z * &a.x) - &(&c.x * &a.z)).sign(); // db.Y
+    det_sign = (&(&c.z * &a.x) - &(&c.x * &a.z))?.sign(); // db.Y
     if det_sign != 0 {
-        return Direction::from_sign(det_sign);
+        return Some(Direction::from_sign(det_sign));
     }
     det_sign = c.z.sign(); // db.Y * da.X
     if det_sign != 0 {
-        return Direction::from_sign(det_sign);
+        return Some(Direction::from_sign(det_sign));
     }
 
     // The following test is listed in the paper, but it is redundant because
     // the previous tests guarantee that C == (0, 0, 0).
     // (c.Y*a.Z - c.Z*a.Y).Sign() // db.X
 
-    det_sign = (&(&a.x * &b.y) - &(&a.y * &b.x)).sign(); // dc.Z
+    det_sign = (&(&a.x * &b.y) - &(&a.y * &b.x))?.sign(); // dc.Z
     if det_sign != 0 {
-        return Direction::from_sign(det_sign);
+        return Some(Direction::from_sign(det_sign));
     }
     det_sign = -b.x.sign(); // dc.Z * da.Y
     if det_sign != 0 {
-        return Direction::from_sign(det_sign);
+        return Some(Direction::from_sign(det_sign));
     }
     det_sign = b.y.sign(); // dc.Z * da.X
     if det_sign != 0 {
-        return Direction::from_sign(det_sign);
+        return Some(Direction::from_sign(det_sign));
     }
     det_sign = a.x.sign(); // dc.Z * db.Y
     if det_sign != 0 {
-        return Direction::from_sign(det_sign);
+        return Some(Direction::from_sign(det_sign));
     }
-    Direction::CounterClockwise // dc.Z * db.Y * da.X
+    Some(Direction::CounterClockwise) // dc.Z * db.Y * da.X
 }

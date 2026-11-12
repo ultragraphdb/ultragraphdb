@@ -6,6 +6,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+// Arithmetic on decoded text input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use crate::errors::types_error::TypesError;
 use crate::types::big_float::BigFloat;
 use crate::types::date_time::DateTime;
@@ -58,8 +63,8 @@ pub fn parse_time(val: impl AsRef<[u8]>) -> Result<DateTime, TypesError> {
         _ => {}
     }
     if b.len() > LAYOUT_DATE_TIME.len()
-        && b[10] == b'T'
-        && (b[b.len() - 1] == b'Z' || b[b.len() - 3] == b':')
+        && b.get(10) == Some(&b'T')
+        && (b.last() == Some(&b'Z') || matches!(b.last_chunk::<3>(), Some([b':', _, _])))
     {
         return parse(LAYOUT_RFC3339, b);
     }

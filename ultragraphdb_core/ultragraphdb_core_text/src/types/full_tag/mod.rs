@@ -13,6 +13,7 @@ mod full_tag_likely;
 use crate::types::lang_id::LangId;
 use crate::types::region_id::RegionId;
 use crate::types::script_id::ScriptId;
+use crate::utils::go_int::{go_byte, go_uint16};
 
 /// Equals max lang (3) + script (4) + max reg (3) + 2 dashes.
 pub(crate) const MAX_CORE_SIZE: usize = 12;
@@ -77,17 +78,18 @@ impl FullTag {
         let mut b = self.gen_core_bytes();
         if !extra.is_empty() {
             // The variants move to the core's end and the extensions with them, as Go's int arithmetic moves them.
-            // The core is at most MAX_CORE_SIZE bytes, so the u8 cast is lossless; the u16 cast truncates as Go's
-            // uint16 conversion does.
+            // The core is at most MAX_CORE_SIZE bytes, so its byte conversion is lossless; the uint16 conversion
+            // truncates as Go's does.
             let core_len = b.len();
             b.push(b'-');
             b.extend_from_slice(extra.as_bytes());
-            self.p_ext = (usize::from(self.p_ext) + core_len)
-                .wrapping_sub(usize::from(self.p_variant)) as u16;
-            self.p_variant = core_len as u8;
+            self.p_ext = go_uint16(
+                (usize::from(self.p_ext) + core_len).wrapping_sub(usize::from(self.p_variant)),
+            );
+            self.p_variant = go_byte(core_len);
         } else {
-            self.p_variant = b.len() as u8;
-            self.p_ext = b.len() as u16;
+            self.p_variant = go_byte(b.len());
+            self.p_ext = go_uint16(b.len());
         }
         self.str = String::from_utf8_lossy(&b).into_owned();
     }

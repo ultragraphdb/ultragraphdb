@@ -419,9 +419,12 @@ mod stage_6 {
     #[test]
     fn test_a_pattern_and_a_request_carry_no_warning() -> TestResult {
         let warnings = || warning_sections(&[(UQL0110, 0, "m")]);
-        let count_field = |refusal: &ProtocolErrorEnum| match refusal {
-            ProtocolErrorEnum::CountMismatch { command, field, .. } => Some((*command, *field)),
-            _ => None,
+        let count_field = |refusal: &ProtocolErrorEnum| {
+            if let ProtocolErrorEnum::CountMismatch { command, field, .. } = refusal {
+                Some((*command, *field))
+            } else {
+                None
+            }
         };
         // A request of the text: no term, no parameter, no result type and no name, with a warning.
         let [records, message_ends, message_text] = warnings();
@@ -443,8 +446,12 @@ mod stage_6 {
             ],
         )?;
         let view = PrepareView::from_frame(&frame_of(&request)?)?;
-        let refusal = view.check_request().err().context("a refusal")?.0;
-        assert_eq!(count_field(&refusal), Some((10, "warnings")), "{refusal:?}");
+        let request_refusal = view.check_request().err().context("a refusal")?.0;
+        assert_eq!(
+            count_field(&request_refusal),
+            Some((10, "warnings")),
+            "{request_refusal:?}"
+        );
         // A pattern of one unbound slot answered with a warning: the pattern's bytes from the golden reply.
         let pattern = {
             let golden = crate::utils::golden_bodies::golden("prepare_reply")?.bytes()?;

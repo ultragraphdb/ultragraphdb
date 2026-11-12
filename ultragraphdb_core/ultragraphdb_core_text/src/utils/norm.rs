@@ -61,10 +61,10 @@ pub(crate) fn first_rune(s: &[u8]) -> (char, usize) {
 /// invalid properties. Any other invalid sequence has the properties of a starter without decomposition, as U+FFFD
 /// has.
 fn is_cut_short(s: &[u8]) -> bool {
-    let need = match s[0] {
-        0xc2..=0xdf => 2,
-        0xe0..=0xef => 3,
-        0xf0..=0xf7 => 4,
+    let need = match s.first() {
+        Some(0xc2..=0xdf) => 2,
+        Some(0xe0..=0xef) => 3,
+        Some(0xf0..=0xf7) => 4,
         _ => 1,
     };
     s.len() < need
@@ -78,10 +78,11 @@ pub(crate) fn first_boundary(s: &[u8]) -> Option<usize> {
     let mut i = s.iter().position(|&b| b & 0xc0 != 0x80)?;
     let mut ss = 0u32;
     while i < s.len() {
-        if is_cut_short(&s[i..]) {
+        let rest = s.get(i..).unwrap_or_default();
+        if is_cut_short(rest) {
             return None;
         }
-        let (r, size) = first_rune(&s[i..]);
+        let (r, size) = first_rune(rest);
         let n = u32::from(nfd_properties(r).n_lead);
         ss += n;
         if ss > MAX_NON_STARTERS || n == 0 {
@@ -96,9 +97,10 @@ pub(crate) fn first_boundary(s: &[u8]) -> Option<usize> {
 pub(crate) fn nfkd_decomposition(r: char) -> Option<String> {
     let r = r as u32;
     let i = NFKD_INDEX.binary_search_by_key(&r, |&(c, ..)| c).ok()?;
-    let (_, start, end) = NFKD_INDEX[i];
+    let (_, start, end) = *NFKD_INDEX.get(i)?;
     Some(
-        NFKD_DATA[usize::from(start)..usize::from(end)]
+        NFKD_DATA
+            .get(usize::from(start)..usize::from(end))?
             .iter()
             .filter_map(|&c| char::from_u32(c))
             .collect(),

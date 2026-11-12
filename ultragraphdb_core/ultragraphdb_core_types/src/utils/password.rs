@@ -55,32 +55,40 @@ pub fn verify_password(
     if plain.len() < PWD_LEN_LIMIT || h.is_empty() {
         return Err(TypesError::password("Invalid password/crypted string"));
     }
+    let too_short =
+        || TypesError::password("crypto/bcrypt: hashedSecret too short to be a bcrypted password");
     if h.len() < MIN_HASH_SIZE {
-        return Err(TypesError::password(
-            "crypto/bcrypt: hashedSecret too short to be a bcrypted password",
-        ));
+        return Err(too_short());
     }
-    if h[0] != b'$' {
+    let Some(&[h0, h1, h2]) = h.first_chunk::<3>() else {
+        return Err(too_short());
+    };
+    if h0 != b'$' {
         return Err(TypesError::password(format!(
             "crypto/bcrypt: bcrypt hashes must start with '$', but hashedSecret started with '{}'",
-            h[0] as char
+            h0 as char
         )));
     }
-    if h[1] > b'2' {
+    if h1 > b'2' {
         return Err(TypesError::password(format!(
             "crypto/bcrypt: bcrypt algorithm version '{}' requested is newer than current version '2'",
-            h[1] as char
+            h1 as char
         )));
     }
-    // decodeVersion skips the byte after the version, and decodeCost the byte after the cost, unread.
-    let n = if h[2] == b'$' { 3 } else { 4 };
-    let cost = go_strconv::atoi(&h[n..n + 2]).map_err(|e| TypesError::password(e.to_string()))?;
+    // decodeVersion skips the byte after the version, and decodeCost the byte after the cost, unread. The length
+    // checked above holds every part below.
+    let n = if h2 == b'$' { 3 } else { 4 };
+    let cost_digits = h.get(n..n + 2).ok_or_else(too_short)?;
+    let cost = go_strconv::atoi(cost_digits).map_err(|e| TypesError::password(e.to_string()))?;
     if !(MIN_COST..=MAX_COST).contains(&cost) {
         return Err(TypesError::password(format!(
             "crypto/bcrypt: cost {cost} is outside allowed inclusive range {MIN_COST}..{MAX_COST}"
         )));
     }
-    let (encoded_salt, stored) = h[n + 3..].split_at(ENCODED_SALT_SIZE);
+    let (encoded_salt, stored) = h
+        .get(n + 3..)
+        .and_then(|rest| rest.split_at_checked(ENCODED_SALT_SIZE))
+        .ok_or_else(too_short)?;
     let mut padded = encoded_salt.to_vec();
     padded.extend_from_slice(b"==");
     let salt = go_base64_decode(&padded)
@@ -92,12 +100,17 @@ pub fn verify_password(
         return Err(mismatch());
     };
     // The range check above keeps the cost within u32 and within the crate's range.
-    let computed = bcrypt::hash_with_salt(plain, cost as u32, salt)
+    let cost =
+        u32::try_from(cost).map_err(|e| TypesError::password(format!("crypto/bcrypt: {e}")))?;
+    let computed = bcrypt::hash_with_salt(plain, cost, salt)
         .map_err(|e| TypesError::password(format!("crypto/bcrypt: {e}")))?
         .format_for_version(bcrypt::Version::TwoA);
-    let computed = &computed.as_bytes()[computed.len() - ENCODED_HASH_SIZE..];
+    let computed = computed
+        .as_bytes()
+        .last_chunk::<ENCODED_HASH_SIZE>()
+        .ok_or_else(mismatch)?;
     // Go copies the stored hash into a 60-byte buffer, so bytes past the 31st are dropped and missing ones are zero.
-    let stored = &stored[..stored.len().min(ENCODED_HASH_SIZE)];
+    let stored = stored.get(..ENCODED_HASH_SIZE).unwrap_or(stored);
     let differs = stored.len() != computed.len()
         || stored
             .iter()
@@ -118,16 +131,18 @@ fn go_base64_decode(src: &[u8]) -> Result<Vec<u8>, usize> {
         let (mut dbuf, mut dlen, mut j) = ([0u8; 4], 4, 0);
         let mut trailing = None;
         while j < 4 {
-            if si == src.len() {
+            let Some(&c) = src.get(si) else {
                 if j == 0 {
                     return Ok(out);
                 }
                 return Err(si - j);
-            }
-            let c = src[si];
+            };
             si += 1;
-            if let Some(v) = ALPHABET.iter().position(|&a| a == c) {
-                dbuf[j] = v as u8;
+            if let Some((_, v)) = ALPHABET.iter().zip(0u8..).find(|&(&a, _)| a == c) {
+                // `j` is below 4, the loop's bound.
+                if let Some(slot) = dbuf.get_mut(j) {
+                    *slot = v;
+                }
                 j += 1;
                 continue;
             }
@@ -138,18 +153,16 @@ fn go_base64_decode(src: &[u8]) -> Result<Vec<u8>, usize> {
                 return Err(si - 1);
             }
             if j == 2 {
-                while si < src.len() && is_newline(src[si]) {
+                while src.get(si).is_some_and(|&next| is_newline(next)) {
                     si += 1;
                 }
-                if si == src.len() {
-                    return Err(src.len());
+                match src.get(si) {
+                    None => return Err(src.len()),
+                    Some(&pad) if pad != b'=' => return Err(si - 1),
+                    Some(_) => si += 1,
                 }
-                if src[si] != b'=' {
-                    return Err(si - 1);
-                }
-                si += 1;
             }
-            while si < src.len() && is_newline(src[si]) {
+            while src.get(si).is_some_and(|&next| is_newline(next)) {
                 si += 1;
             }
             if si < src.len() {
@@ -159,7 +172,8 @@ fn go_base64_decode(src: &[u8]) -> Result<Vec<u8>, usize> {
             break;
         }
         let val = dbuf.iter().fold(0u32, |acc, &d| (acc << 6) | u32::from(d));
-        out.extend_from_slice(&val.to_be_bytes()[1..dlen]);
+        // `dlen` is 2 to 4, so the range lies within the four bytes.
+        out.extend_from_slice(val.to_be_bytes().get(1..dlen).unwrap_or_default());
         if let Some(i) = trailing {
             return Err(i);
         }

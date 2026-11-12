@@ -23,7 +23,7 @@ pub fn write_sections_into(out: &mut Vec<u8>, fixed: &[u8], sections: &[&[u8]]) 
     out.extend_from_slice(fixed);
     out.resize(align8(fixed.len()), 0);
     let table = out.len();
-    out.resize(table + 8 * sections.len(), 0);
+    sections.iter().for_each(|_| out.extend_from_slice(&[0; 8]));
     let mut entries = Vec::with_capacity(sections.len());
     for section in sections {
         out.resize(align8(out.len()), 0);

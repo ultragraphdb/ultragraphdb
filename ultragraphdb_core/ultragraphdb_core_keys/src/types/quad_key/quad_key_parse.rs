@@ -32,13 +32,17 @@ struct Reader<'a> {
 impl<'a> Reader<'a> {
     /// The next `N` bytes.
     fn array<const N: usize>(&mut self) -> Result<[u8; N], QuadKeyError> {
-        let bytes = self
+        let (bytes, end) = self
             .at
             .checked_add(N)
-            .and_then(|end| self.fields.get(self.at..end))
-            .and_then(|bytes| <[u8; N]>::try_from(bytes).ok())
+            .and_then(|end| {
+                Some((
+                    <[u8; N]>::try_from(self.fields.get(self.at..end)?).ok()?,
+                    end,
+                ))
+            })
             .ok_or_else(|| QuadKeyError::truncated(self.key))?;
-        self.at += N;
+        self.at = end;
         Ok(bytes)
     }
 
@@ -101,7 +105,11 @@ impl<'a> Reader<'a> {
             }
         }
         debug_assert!(after.len() < rest.len(), "an object takes at least its tag");
-        self.at = self.fields.len() - after.len();
+        self.at = self
+            .fields
+            .len()
+            .checked_sub(after.len())
+            .ok_or_else(|| QuadKeyError::truncated(self.key))?;
         Ok(term)
     }
 

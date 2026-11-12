@@ -47,7 +47,7 @@ where
         write.seed(&Writes::default(), terms)?;
         let mut cw = ChangesetWrite::new(write, catalog).under(running.as_ref(), running.is_some());
         cw.derive(writes)?;
-        let outcome = cw.outcome();
+        let outcome = cw.outcome()?;
         let mut request = outcome.request;
         for (key, value) in outcome.terms.entries() {
             request.add_versionless(key, value);

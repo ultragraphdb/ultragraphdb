@@ -24,13 +24,14 @@ fn golden() -> TestResult<Vec<u8>> {
 
 /// An entry laid out from the key-value table: `key_len` u32, `value_len` u32 (`u32::MAX` for none), the key, the
 /// value, zeros to a multiple of 8.
-fn entry(key: &[u8], value: Option<&[u8]>) -> Vec<u8> {
-    let mut out = (key.len() as u32).to_le_bytes().to_vec();
-    out.extend_from_slice(&value.map_or(u32::MAX, |v| v.len() as u32).to_le_bytes());
+fn entry(key: &[u8], value: Option<&[u8]>) -> TestResult<Vec<u8>> {
+    let mut out = u32::try_from(key.len())?.to_le_bytes().to_vec();
+    let value_len = value.map_or(Ok(u32::MAX), |v| u32::try_from(v.len()))?;
+    out.extend_from_slice(&value_len.to_le_bytes());
     out.extend_from_slice(key);
     out.extend_from_slice(value.unwrap_or_default());
     out.resize(out.len().div_ceil(8) * 8, 0);
-    out
+    Ok(out)
 }
 
 /// The golden frame with its entries replaced by `entries` and its count by `count`.
@@ -185,7 +186,7 @@ fn test_the_sections_lie_between_the_header_and_the_entries() -> TestResult {
         refusal::<EntriesView>(&bad_epoch)?,
         field("epoch", MAX_EPOCH + 1)
     );
-    let removal = with_entries(&[entry(b"a", None)], 1)?;
+    let removal = with_entries(&[entry(b"a", None)?], 1)?;
     let holding_it = body_data(&removal).len();
     assert_eq!(
         refusal::<EntriesView>(&with_trailing_byte(&removal))?,
@@ -247,9 +248,9 @@ fn test_the_end_is_checked_before_the_epoch() -> TestResult {
 
 #[test]
 fn test_an_entry_past_its_section_is_refused() -> TestResult {
-    let mut short = entry(b"abc", Some(b"def"));
+    let mut short = entry(b"abc", Some(b"def"))?;
     short[4] = 9;
-    let bytes = with_entries(&[entry(b"a", Some(b"1")), short], 2)?;
+    let bytes = with_entries(&[entry(b"a", Some(b"1"))?, short], 2)?;
     assert_eq!(
         refusal::<EntriesView>(&bytes)?,
         ProtocolErrorEnum::EntryOutOfBounds {
@@ -264,7 +265,7 @@ fn test_an_entry_past_its_section_is_refused() -> TestResult {
 
 #[test]
 fn test_padding_after_an_entry_is_named_at_its_body_offset() -> TestResult {
-    let mut padded = entry(b"ab", Some(b"c"));
+    let mut padded = entry(b"ab", Some(b"c"))?;
     padded[12] = 1;
     let bytes = with_entries(&[padded], 1)?;
     // The section starts at body offset 8, the entry's 11 bytes end at 11 and padding byte 12 is set.
@@ -280,7 +281,7 @@ fn test_padding_after_an_entry_is_named_at_its_body_offset() -> TestResult {
 
 #[test]
 fn test_a_removal_is_refused_naming_its_entry() -> TestResult {
-    let bytes = with_entries(&[entry(b"a", Some(b"1")), entry(b"b", None)], 2)?;
+    let bytes = with_entries(&[entry(b"a", Some(b"1"))?, entry(b"b", None)?], 2)?;
     assert_eq!(refusal::<EntriesView>(&bytes)?, field("entry", 1));
     Ok(())
 }
@@ -289,9 +290,9 @@ fn test_a_removal_is_refused_naming_its_entry() -> TestResult {
 fn test_every_value_present_comes_before_the_keys_order() -> TestResult {
     let bytes = with_entries(
         &[
-            entry(b"b", Some(b"1")),
-            entry(b"a", Some(b"2")),
-            entry(b"c", None),
+            entry(b"b", Some(b"1"))?,
+            entry(b"a", Some(b"2"))?,
+            entry(b"c", None)?,
         ],
         3,
     )?;
@@ -309,9 +310,9 @@ fn test_keys_ascend_byte_by_byte() -> TestResult {
     ] {
         let bytes = with_entries(
             &[
-                entry(b"0", Some(b"")),
-                entry(keys[0], Some(b"")),
-                entry(keys[1], Some(b"")),
+                entry(b"0", Some(b""))?,
+                entry(keys[0], Some(b""))?,
+                entry(keys[1], Some(b""))?,
             ],
             3,
         )?;
@@ -319,9 +320,9 @@ fn test_keys_ascend_byte_by_byte() -> TestResult {
     }
     let bytes = with_entries(
         &[
-            entry(b"", Some(b"")),
-            entry(b"a", Some(b"")),
-            entry(b"a\x00", Some(b"")),
+            entry(b"", Some(b""))?,
+            entry(b"a", Some(b""))?,
+            entry(b"a\x00", Some(b""))?,
         ],
         3,
     )?;
@@ -383,18 +384,18 @@ fn test_continues_needing_an_entry_comes_after_the_count() -> TestResult {
 /// The count is the last check of a frame's entries: a wrong one comes after every entry's own rule.
 #[test]
 fn test_the_count_comes_after_the_entries() -> TestResult {
-    let removal = [entry(b"a", Some(b"1")), entry(b"b", None)];
-    let wrong_count = removal.len() as u32 + 1;
+    let removal = [entry(b"a", Some(b"1"))?, entry(b"b", None)?];
+    let wrong_count = u32::try_from(removal.len())? + 1;
     assert_eq!(
         refusal::<EntriesView>(&with_entries(&removal, wrong_count)?)?,
         field("entry", 1)
     );
-    let unordered = [entry(b"b", Some(b"1")), entry(b"a", Some(b"2"))];
+    let unordered = [entry(b"b", Some(b"1"))?, entry(b"a", Some(b"2"))?];
     assert_eq!(
         refusal::<EntriesView>(&with_entries(&unordered, wrong_count)?)?,
         field("entry order", 1)
     );
-    let mended = [entry(b"a", Some(b"1")), entry(b"b", Some(b"2"))];
+    let mended = [entry(b"a", Some(b"1"))?, entry(b"b", Some(b"2"))?];
     assert_eq!(
         refusal::<EntriesView>(&with_entries(&mended, wrong_count)?)?,
         count_refused(mended.len() as u64, wrong_count.into())

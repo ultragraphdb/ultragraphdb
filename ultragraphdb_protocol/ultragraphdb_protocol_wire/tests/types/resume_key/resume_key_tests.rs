@@ -108,7 +108,7 @@ fn test_a_last_row_of_another_length_is_refused() -> TestResult {
     longer
         .get_mut(len_at..len_at + 4)
         .context("the section's length")?
-        .copy_from_slice(&(longer_row as u32).to_le_bytes());
+        .copy_from_slice(&u32::try_from(longer_row)?.to_le_bytes());
     let refused = ResumeKeyView::read(&checksummed(longer)?)
         .err()
         .context("a refusal")?;

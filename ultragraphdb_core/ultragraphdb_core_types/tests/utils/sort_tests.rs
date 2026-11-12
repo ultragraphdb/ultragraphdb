@@ -88,7 +88,7 @@ fn test_quick_select() -> TestResult {
     for (row, uid) in list.iter().zip(&ul) {
         assert_eq!(
             int(&row[0])?,
-            original[(*uid / 100 - 1) as usize],
+            original[usize::try_from(*uid / 100 - 1)?],
             "uid {uid}"
         );
     }

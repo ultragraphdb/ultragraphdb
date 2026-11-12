@@ -31,7 +31,7 @@ fn up<T>(h: &mut [T], j: usize, less: &impl Fn(&T, &T) -> bool) {
     let mut j = j;
     while j > 0 {
         let i = (j - 1) / 2; // parent
-        if !less(&h[j], &h[i]) {
+        if !less_at(h, j, i, less) {
             break;
         }
         h.swap(i, j);
@@ -48,13 +48,22 @@ fn down<T>(h: &mut [T], i0: usize, n: usize, less: &impl Fn(&T, &T) -> bool) {
         }
         let mut j = j1; // left child
         let j2 = j1 + 1;
-        if j2 < n && less(&h[j2], &h[j1]) {
+        if j2 < n && less_at(h, j2, j1, less) {
             j = j2; // = 2*i + 2  // right child
         }
-        if !less(&h[j], &h[i]) {
+        if !less_at(h, j, i, less) {
             break;
         }
         h.swap(i, j);
         i = j;
+    }
+}
+
+/// Whether the element at `a` orders before the one at `b`; the heap's indices lie below its length, so both are
+/// present.
+fn less_at<T>(h: &[T], a: usize, b: usize, less: &impl Fn(&T, &T) -> bool) -> bool {
+    match (h.get(a), h.get(b)) {
+        (Some(x), Some(y)) => less(x, y),
+        _ => false,
     }
 }

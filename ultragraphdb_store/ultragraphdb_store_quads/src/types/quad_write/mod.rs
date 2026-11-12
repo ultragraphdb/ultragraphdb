@@ -465,21 +465,43 @@ where
     }
 
     /// The request and the terms to commit it with, the statistics deltas added to the request.
-    pub fn finish(mut self) -> (Request<'a, S, C>, WriteTerms) {
+    ///
+    /// # Errors
+    ///
+    /// As [`QuadWrite::add_statistics`] refuses.
+    pub fn finish(mut self) -> Result<(Request<'a, S, C>, WriteTerms), QuadError> {
+        self.add_statistics()?;
+        Ok((self.request, self.terms))
+    }
+
+    /// Adds the statistics deltas the write holds to its request, each encoded, and holds none after; a caller that
+    /// must release the write's terms when it is refused calls it before [`QuadWrite::finish`].
+    ///
+    /// # Errors
+    ///
+    /// [`QuadError::too_many_kinds`] or [`QuadError::kind_too_long`] for a delta its stored format cannot hold, as
+    /// [`Statistics::encode`] refuses; nothing is added, and the deltas stay held.
+    pub fn add_statistics(&mut self) -> Result<(), QuadError> {
         let tenant = self.tenant();
-        for ((graph, predicate), delta) in std::mem::take(&mut self.stats) {
-            if !delta.is_empty() {
+        let entries = self
+            .stats
+            .iter()
+            .filter(|(_, delta)| !delta.is_empty())
+            .map(|(&(graph, predicate), delta)| {
                 let key = QuadKey::Statistics {
                     tenant,
                     graph,
                     predicate,
                 }
                 .to_bytes();
-                self.request
-                    .add_entry(Entry::put(key, 0, BIT_DELTA_POSTING, delta.encode()));
-            }
+                Ok(Entry::put(key, 0, BIT_DELTA_POSTING, delta.encode()?))
+            })
+            .collect::<Result<Vec<_>, QuadError>>()?;
+        self.stats.clear();
+        for entry in entries {
+            self.request.add_entry(entry);
         }
-        (self.request, self.terms)
+        Ok(())
     }
 
     /// Whether the predicate list of `key` names `predicate`, as the write sees it, read whole and recorded.

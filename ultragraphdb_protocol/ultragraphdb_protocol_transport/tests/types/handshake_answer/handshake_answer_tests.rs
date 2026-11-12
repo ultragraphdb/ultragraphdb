@@ -12,8 +12,11 @@ const CLUSTER: u64 = 3;
 
 #[test]
 fn test_an_answer_gives_its_frame_and_outcome_and_parts_alike() -> TestResult {
-    let hello = ClientHandshake::new(CLUSTER, Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c"))
-        .hello_frame()?;
+    let hello = ClientHandshake::new(
+        CLUSTER,
+        Hello::new(1, 1, 0, u32::try_from(MAX_FRAME_SIZE)?, "c"),
+    )
+    .hello_frame()?;
     let answer = ServerHandshake::new(
         CLUSTER,
         Welcome::new(1, 0, "s")

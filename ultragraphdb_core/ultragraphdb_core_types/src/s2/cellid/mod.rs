@@ -16,20 +16,23 @@ use crate::s2::r2::R2Rect;
 use crate::s2::r3::R3Vector;
 use crate::s2::stuv::{face_uv_to_xyz, ij_to_st_min, st_to_ij, st_to_uv, uv_to_st, xyz_to_face_uv};
 use crate::s2::util::clamp;
+use crate::utils::go_conv::go_uint32;
 
 mod lookup;
 
-pub(crate) use lookup::{IJ_TO_POS, INVERT_MASK, POS_TO_IJ, POS_TO_ORIENTATION, SWAP_MASK};
-use lookup::{LOOKUP_BITS, LOOKUP_IJ, LOOKUP_POS};
+pub(crate) use lookup::{IJ_TO_POS, INVERT_MASK, POS_TO_IJ, POS_TO_ORIENTATION, SWAP_MASK, quad};
+use lookup::{LOOKUP_BITS, LOOKUP_IJ, LOOKUP_POS, lookup};
 
 /// The number of bits used to encode the face number.
 pub const FACE_BITS: u32 = 3;
 /// The number of faces.
 pub const NUM_FACES: usize = 6;
 /// The number of levels needed to specify a leaf cell.
-pub const MAX_LEVEL: i64 = 30;
+pub const MAX_LEVEL: i64 = MAX_LEVEL_U32 as i64;
+/// [`MAX_LEVEL`] as a bit count.
+const MAX_LEVEL_U32: u32 = 30;
 /// The total number of position bits.
-pub const POS_BITS: u32 = 2 * MAX_LEVEL as u32 + 1;
+pub const POS_BITS: u32 = 2 * MAX_LEVEL_U32 + 1;
 /// The size of the IJ-plane in leaf cells: MaxSize = 1 << MaxLevel.
 pub(crate) const MAX_SIZE: i64 = 1 << MAX_LEVEL;
 
@@ -78,14 +81,15 @@ impl CellId {
     /// Returns a cell given a hex-encoded string of its uint64 ID, or the zero id (invalid)
     /// for any string Go's `CellIDFromToken` refuses.
     pub fn from_token(s: &str) -> CellId {
-        if s.len() > 16 {
-            return CellId(0);
-        }
+        let len = match u32::try_from(s.len()) {
+            Ok(len @ 0..=16) => len,
+            _ => return CellId(0),
+        };
         let Ok(mut n) = go_strconv::parse_uint(s, 16) else {
             return CellId(0);
         };
-        if s.len() < 16 {
-            n <<= 4 * (16 - s.len()) as u32;
+        if len < 16 {
+            n <<= 4 * (16 - len);
         }
         CellId(n)
     }
@@ -347,7 +351,7 @@ impl CellId {
     pub(crate) fn face_ij_orientation(self) -> (usize, i64, i64, usize) {
         let f = self.face();
         let mut orientation = f & SWAP_MASK;
-        let mut nbits = MAX_LEVEL as u32 - 7 * LOOKUP_BITS; // first iteration
+        let mut nbits = MAX_LEVEL_U32 - 7 * LOOKUP_BITS; // first iteration
         let mut i: i64 = 0;
         let mut j: i64 = 0;
 
@@ -360,9 +364,10 @@ impl CellId {
         // On the first iteration we need to be careful to clear out the bits
         // representing the cube face.
         for k in (0..8u32).rev() {
-            orientation +=
-                (((self.0 >> (k * 2 * LOOKUP_BITS + 1)) as usize) & ((1 << (2 * nbits)) - 1)) << 2;
-            orientation = LOOKUP_IJ[orientation];
+            // The field is at most 2 * LOOKUP_BITS, 8, bits wide, so it lies in the low byte.
+            let [low, ..] = (self.0 >> (k * 2 * LOOKUP_BITS + 1)).to_le_bytes();
+            orientation += (usize::from(low) & ((1 << (2 * nbits)) - 1)) << 2;
+            orientation = lookup(&LOOKUP_IJ, orientation);
             // Both fields are LOOKUP_BITS wide, so neither conversion can fail.
             i += i64::try_from(orientation >> (LOOKUP_BITS + 2)).unwrap_or(0) << (k * LOOKUP_BITS);
             j += i64::try_from((orientation >> 2) & ((1 << LOOKUP_BITS) - 1)).unwrap_or(0)
@@ -395,7 +400,8 @@ impl CellId {
         } else {
             0
         };
-        (face, (2 * i + delta) as u32, (2 * j + delta) as u32)
+        // Go's uint32 of the doubled coordinates, which lie below 2^31 + 2.
+        (face, go_uint32(2 * i + delta), go_uint32(2 * j + delta))
     }
 
     /// Returns an unnormalized r3 vector from the origin through the center of the s2 cell on
@@ -450,9 +456,14 @@ pub(crate) fn cell_id_from_face_ij(f: usize, i: i64, j: i64) -> CellId {
     // Hilbert curve orientation respectively.
     for k in (0..8u32).rev() {
         let mask: i64 = (1 << LOOKUP_BITS) - 1;
-        bits += (((i >> (k * LOOKUP_BITS)) & mask) as usize) << (LOOKUP_BITS + 2);
-        bits += (((j >> (k * LOOKUP_BITS)) & mask) as usize) << 2;
-        bits = LOOKUP_POS[bits];
+        // Each masked field is LOOKUP_BITS, 4, bits wide, so it lies in the low byte.
+        let ([i_low, ..], [j_low, ..]) = (
+            ((i >> (k * LOOKUP_BITS)) & mask).to_le_bytes(),
+            ((j >> (k * LOOKUP_BITS)) & mask).to_le_bytes(),
+        );
+        bits += usize::from(i_low) << (LOOKUP_BITS + 2);
+        bits += usize::from(j_low) << 2;
+        bits = lookup(&LOOKUP_POS, bits);
         n |= ((bits >> 2) as u64) << (k * 2 * LOOKUP_BITS);
         bits &= SWAP_MASK | INVERT_MASK;
     }

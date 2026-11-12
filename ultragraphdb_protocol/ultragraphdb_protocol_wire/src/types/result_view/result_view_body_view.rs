@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_body::{Sections, StringList, as_u32, u32_at};
+use ultragraphdb_core_body::{Sections, StringList};
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -19,6 +19,7 @@ use crate::utils::body::{read_sections, read_string_list, records, u32s};
 use crate::utils::command_header::expect_command;
 use crate::utils::constants::{ABSENT, FLAG_LAST, QUERY_COLUMNS_MAX};
 use crate::utils::fields;
+use crate::utils::fields::count;
 
 impl<'a> BodyView<'a> for ResultView<'a> {
     const COMMAND: Command = Command::Result;
@@ -59,12 +60,13 @@ impl<'a> BodyView<'a> for ResultView<'a> {
         check_cells(
             command,
             sections.get(0),
-            u64::from(columns) * u64::from(rows),
-            as_u32(terms),
+            // Two u32s multiply within a u64, so the product never saturates.
+            u64::from(columns).saturating_mul(u64::from(rows)),
+            count(command, "terms", terms)?,
         )?;
         let encodings = sections.get(2);
         check_encodings(command, &offsets, encodings)?;
-        check_texts(command, texts, as_u32(strings.len()))?;
+        check_texts(command, texts, count(command, "strings", strings.len())?)?;
         check_term_texts(command, texts, &offsets, encodings)?;
         let resume = sections.get(6);
         if !resume.is_empty() && frame.header().flags() & FLAG_LAST == 0 {
@@ -93,7 +95,7 @@ impl<'a> BodyView<'a> for ResultView<'a> {
 
     fn to_body(&self) -> Result<ResultBatch, ProtocolError> {
         let command = Self::COMMAND.number();
-        let terms = (0..self.term_count() as u32)
+        let terms = (0..count(command, "terms", self.term_count())?)
             .map(|i| {
                 let view = self
                     .term(i)
@@ -177,12 +179,15 @@ fn check_term_texts(
     offsets: &[u32],
     encodings: &[u8],
 ) -> Result<(), ProtocolError> {
-    for (index, start) in offsets.iter().enumerate() {
+    // A term's text and annotation, two u32s a term: as many pairs as terms, checked by the caller.
+    let pairs = texts.as_chunks::<8>().0;
+    for (index, (start, pair)) in offsets.iter().zip(pairs).enumerate() {
         // Lossless: a `usize` is at least 32 bits.
         let tag = encodings.get(*start as usize).copied().unwrap_or_default();
         let (text, annotation) = names_text(tag);
-        let held = |at: usize| u32_at(texts, at).is_some_and(|string| string != ABSENT);
-        if held(2 * index) != text || held(2 * index + 1) != annotation {
+        let [t0, t1, t2, t3, a0, a1, a2, a3] = *pair;
+        let held = |string: [u8; 4]| u32::from_le_bytes(string) != ABSENT;
+        if held([t0, t1, t2, t3]) != text || held([a0, a1, a2, a3]) != annotation {
             return Err(ProtocolError::field_value(
                 command,
                 "term text",
@@ -232,11 +237,14 @@ fn check_encodings(command: u16, offsets: &[u32], encodings: &[u8]) -> Result<()
             0,
         ));
     }
-    for (at, start) in offsets.iter().enumerate() {
+    // Each term ends where the next starts, the last at the end of the encodings.
+    let ends = offsets
+        .iter()
+        .skip(1)
+        .map(|end| *end as usize) // lossless: a `usize` is at least 32 bits
+        .chain([encodings.len()]);
+    for (at, (start, end)) in offsets.iter().zip(ends).enumerate() {
         let start = *start as usize; // lossless: a `usize` is at least 32 bits
-        let end = offsets
-            .get(at + 1)
-            .map_or(encodings.len(), |end| *end as usize); // lossless: a `usize` is at least 32 bits
         let whole =
             (at > 0 || start == 0) && encodings.get(start..end).is_some_and(result_encoding_whole);
         if !whole {

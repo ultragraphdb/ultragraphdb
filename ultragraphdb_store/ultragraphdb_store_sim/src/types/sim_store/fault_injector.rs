@@ -76,9 +76,11 @@ impl FaultInjector {
             Some(Fault::PowerLossDuringNextDrop(stage)) => Some((stage, true)),
             Some(Fault::CrashDuringNextDrop(stage)) => Some((stage, false)),
             _ if self.rng.chance(self.config.power_loss_during_drop()) => {
-                Some((self.stage(), true))
+                self.stage().map(|stage| (stage, true))
             }
-            _ if self.rng.chance(self.config.crash_during_drop()) => Some((self.stage(), false)),
+            _ if self.rng.chance(self.config.crash_during_drop()) => {
+                self.stage().map(|stage| (stage, false))
+            }
             _ => None,
         }
     }
@@ -92,22 +94,30 @@ impl FaultInjector {
                 Fault::CrashDuringNextRebuild(_) | Fault::PowerLossDuringNextRebuild(_)
             )
         });
-        let random_stage = |rng: &mut SimRng| RebuildStage::ALL[rng.index(RebuildStage::ALL.len())];
+        // `index` draws below the length, so `get` always finds a stage.
+        let random_stage = |rng: &mut SimRng| {
+            RebuildStage::ALL
+                .get(rng.index(RebuildStage::ALL.len()))
+                .copied()
+        };
         match forced {
             Some(Fault::PowerLossDuringNextRebuild(stage)) => Some((stage, true)),
             Some(Fault::CrashDuringNextRebuild(stage)) => Some((stage, false)),
             _ if self.rng.chance(self.config.power_loss_during_rebuild()) => {
-                Some((random_stage(&mut self.rng), true))
+                random_stage(&mut self.rng).map(|stage| (stage, true))
             }
             _ if self.rng.chance(self.config.crash_during_rebuild()) => {
-                Some((random_stage(&mut self.rng), false))
+                random_stage(&mut self.rng).map(|stage| (stage, false))
             }
             _ => None,
         }
     }
 
-    fn stage(&mut self) -> DropStage {
-        DropStage::ALL[self.rng.index(DropStage::ALL.len())]
+    /// A stage drawn at random; `index` draws below the length, so `get` always finds one.
+    fn stage(&mut self) -> Option<DropStage> {
+        DropStage::ALL
+            .get(self.rng.index(DropStage::ALL.len()))
+            .copied()
     }
 
     pub fn read_fails(&mut self) -> bool {

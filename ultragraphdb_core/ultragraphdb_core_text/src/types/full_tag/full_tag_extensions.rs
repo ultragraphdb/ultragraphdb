@@ -10,6 +10,7 @@
 use super::{FullTag, MAX_CORE_SIZE};
 use crate::errors::language_error::{LanguageError, LanguageErrorEnum};
 use crate::types::scanner::Scanner;
+use crate::utils::go_int::{go_byte, go_uint16};
 use crate::utils::parse::{get_extension, next_extension, parse_extensions};
 
 impl FullTag {
@@ -20,7 +21,7 @@ impl FullTag {
         while i + 1 < s.len() {
             let (end, ext) = get_extension(s, i);
             i = end;
-            if ext[0] == x {
+            if ext.first() == Some(&x) {
                 return Some(String::from_utf8_lossy(ext).into_owned());
             }
         }
@@ -74,9 +75,9 @@ impl FullTag {
             if start != sep {
                 let s = t.str.as_bytes();
                 // Remove a possible empty extension.
-                if s[start - 2] != b'-' {
+                if start.checked_sub(2).and_then(|at| s.get(at)) != Some(&b'-') {
                     // has previous elements.
-                } else if end == s.len() || end + 2 < s.len() && s[end + 2] == b'-' {
+                } else if end == s.len() || s.get(end + 2) == Some(&b'-') {
                     // end of string or end of extension
                     start -= 2;
                 }
@@ -123,18 +124,21 @@ impl FullTag {
 
         // Assemble the replacement string.
         if t.str.is_empty() {
-            t.p_variant = (u_start - 1) as u8;
-            t.p_ext = (u_start - 1) as u16;
+            t.p_variant = go_byte(u_start - 1);
+            t.p_ext = go_uint16(u_start - 1);
             buf.extend_from_slice(&b);
             t.str = String::from_utf8_lossy(&buf).into_owned();
         } else {
             let s = t.str.clone();
             let (start, sep, end, has_ext) = t.find_type_for_key(key);
+            let tail = s.get(end..).unwrap_or_default();
             if start == sep {
-                let b = if has_ext { &b[2..] } else { &b[..] };
-                t.str = format!("{}-{}{}", &s[..sep], String::from_utf8_lossy(b), &s[end..]);
+                let b = b.get(if has_ext { 2 } else { 0 }..).unwrap_or_default();
+                let head = s.get(..sep).unwrap_or_default();
+                t.str = format!("{head}-{}{tail}", String::from_utf8_lossy(b));
             } else {
-                t.str = format!("{}-{}{}", &s[..start + 3], value, &s[end..]);
+                let head = s.get(..start + 3).unwrap_or_default();
+                t.str = format!("{head}-{value}{tail}");
             }
         }
         Ok(t)
@@ -152,8 +156,8 @@ impl FullTag {
 
         // Find the correct extension.
         p += 1;
-        while s[p] != b'u' {
-            if s[p] > b'u' {
+        while s.get(p) != Some(&b'u') {
+            if s.get(p).is_some_and(|&c| c > b'u') {
                 p -= 1;
                 return (p, p, p, false);
             }
@@ -174,7 +178,7 @@ impl FullTag {
         loop {
             let end = p;
             p += 1;
-            while p < s.len() && s[p] != b'-' {
+            while s.get(p).is_some_and(|&c| c != b'-') {
                 p += 1;
             }
             let n = p - end - 1;
@@ -189,7 +193,7 @@ impl FullTag {
                 0 | 1 => return (end, end, end, true),
                 2 => {
                     // next key
-                    cur_key = &s[end + 1..p];
+                    cur_key = s.get(end + 1..p).unwrap_or_default();
                     if cur_key > key {
                         return (end, end, end, true);
                     }

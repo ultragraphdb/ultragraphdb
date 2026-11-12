@@ -28,6 +28,7 @@ ultragraphdb_error_options = { workspace = true }
 ultragraphdb_store_posting = { workspace = true }
 ultragraphdb_traits_index = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
+# External crates
 tracing = { workspace = true }
 
 [dev-dependencies]

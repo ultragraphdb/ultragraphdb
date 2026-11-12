@@ -147,7 +147,10 @@ fn is_reference(p: &Posting) -> bool {
 /// kept is a reference.
 fn reference_in(postings: &[Posting], uid: u128) -> bool {
     let from = postings.partition_point(|p| p.uid() < uid);
-    let mut held = postings[from..]
+    // `from` is at most the length, so `get` always finds the rest.
+    let mut held = postings
+        .get(from..)
+        .unwrap_or_default()
         .iter()
         .take_while(|p| p.uid() == uid)
         .peekable();

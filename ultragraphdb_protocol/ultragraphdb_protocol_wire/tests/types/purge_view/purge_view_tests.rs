@@ -24,7 +24,7 @@ fn field_value(field: &'static str, value: u64) -> ProtocolErrorEnum {
 }
 
 /// A Purge of `epoch` and `removed` in tenant 2 naming `terms`.
-fn purge(epoch: u64, removed: u32, terms: [Vec<u8>; 2]) -> TestResult<Vec<u8>> {
+fn purge(epoch: u64, removed: u32, terms: &[Vec<u8>; 2]) -> TestResult<Vec<u8>> {
     frame(
         Command::Purge,
         &[
@@ -32,7 +32,7 @@ fn purge(epoch: u64, removed: u32, terms: [Vec<u8>; 2]) -> TestResult<Vec<u8>> {
             (8, &epoch.to_le_bytes()),
             (16, &removed.to_le_bytes()),
         ],
-        &terms,
+        terms,
         true,
     )
 }
@@ -53,16 +53,16 @@ fn terms_of(iris: &[String]) -> [Vec<u8>; 2] {
 /// IRIs read in place; a reply its epoch and count.
 #[test]
 fn test_a_well_formed_purge_decodes() -> TestResult {
-    let request = purge(0, 0, iri_terms(&[A]))?;
+    let request = purge(0, 0, &iri_terms(&[A]))?;
     let view = PurgeView::from_frame(&frame_of(&request)?)?;
     assert_eq!((view.tenant(), view.epoch(), view.removed()), (2, 0, 0));
     assert_eq!(view.iri_count(), 1);
     assert_eq!(view.iri(0), Some(A));
     assert_eq!(view.iri(1), None);
-    let reply = purge(30, 1, iri_terms(&[A]))?;
-    let view = PurgeView::from_frame(&frame_of(&reply)?)?;
-    assert_eq!((view.epoch(), view.removed()), (30, 1));
-    let body = view.to_body()?;
+    let reply = purge(30, 1, &iri_terms(&[A]))?;
+    let reply_view = PurgeView::from_frame(&frame_of(&reply)?)?;
+    assert_eq!((reply_view.epoch(), reply_view.removed()), (30, 1));
+    let body = reply_view.to_body()?;
     assert_eq!((body.tenant(), body.epoch(), body.removed()), (2, 30, 1));
     assert_eq!(body.iris(), &[A.to_string()]);
     Ok(())
@@ -71,11 +71,11 @@ fn test_a_well_formed_purge_decodes() -> TestResult {
 /// One to 10,000 IRIs: none and 10,001 refused as `CountMismatch` naming `purge`; 10,000 read.
 #[test]
 fn test_a_purge_names_1_to_10000_iris() -> TestResult {
-    let none = purge(0, 0, [vec![], vec![]])?;
-    let refusal = refused::<PurgeView>(&none)?;
+    let none = purge(0, 0, &[vec![], vec![]])?;
+    let none_refusal = refused::<PurgeView>(&none)?;
     assert!(
         matches!(
-            refusal,
+            none_refusal,
             ProtocolErrorEnum::CountMismatch {
                 command: 24,
                 field: "purge",
@@ -83,11 +83,11 @@ fn test_a_purge_names_1_to_10000_iris() -> TestResult {
                 ..
             }
         ),
-        "{refusal:?}"
+        "{none_refusal:?}"
     );
-    let at_bound = purge(0, 0, terms_of(&iris(PURGE_IRIS_MAX)))?;
+    let at_bound = purge(0, 0, &terms_of(&iris(PURGE_IRIS_MAX)))?;
     assert_eq!(outcome::<PurgeView>(&at_bound)?, None);
-    let past = purge(0, 0, terms_of(&iris(PURGE_IRIS_MAX + 1)))?;
+    let past = purge(0, 0, &terms_of(&iris(PURGE_IRIS_MAX + 1)))?;
     let refusal = refused::<PurgeView>(&past)?;
     assert!(
         matches!(
@@ -109,7 +109,7 @@ fn test_a_purge_names_1_to_10000_iris() -> TestResult {
 fn test_each_purged_term_is_an_iri() -> TestResult {
     let (records, text) = term_sections(&[Entry::Text(1, A, ""), Entry::Text(2, "b1", "")]);
     assert_eq!(
-        refused::<PurgeView>(&purge(0, 0, [records, text])?)?,
+        refused::<PurgeView>(&purge(0, 0, &[records, text])?)?,
         field_value("purge term", 2)
     );
     Ok(())
@@ -118,22 +118,25 @@ fn test_each_purged_term_is_an_iri() -> TestResult {
 /// `epoch` is 0 in a request and an epoch in a reply; `removed` 0 in a request and at most the entries' count.
 #[test]
 fn test_epoch_and_removed_follow_request_and_reply() -> TestResult {
-    let past_epoch = purge(MAX_EPOCH + 1, 1, iri_terms(&[A]))?;
+    let past_epoch = purge(MAX_EPOCH + 1, 1, &iri_terms(&[A]))?;
     assert_eq!(
         refused::<PurgeView>(&past_epoch)?,
         field_value("epoch", MAX_EPOCH + 1)
     );
-    let request_removed = purge(0, 1, iri_terms(&[A]))?;
+    let request_removed = purge(0, 1, &iri_terms(&[A]))?;
     assert_eq!(
         refused::<PurgeView>(&request_removed)?,
         field_value("removed", 1)
     );
-    let too_many = purge(30, 2, iri_terms(&[A]))?;
+    let too_many = purge(30, 2, &iri_terms(&[A]))?;
     assert_eq!(refused::<PurgeView>(&too_many)?, field_value("removed", 2));
     // Removing none of the IRIs named is an answer: an IRI naming none removes nothing.
-    assert_eq!(outcome::<PurgeView>(&purge(30, 0, iri_terms(&[A]))?)?, None);
     assert_eq!(
-        outcome::<PurgeView>(&purge(MAX_EPOCH, 1, iri_terms(&[A]))?)?,
+        outcome::<PurgeView>(&purge(30, 0, &iri_terms(&[A]))?)?,
+        None
+    );
+    assert_eq!(
+        outcome::<PurgeView>(&purge(MAX_EPOCH, 1, &iri_terms(&[A]))?)?,
         None
     );
     Ok(())
@@ -143,7 +146,7 @@ fn test_epoch_and_removed_follow_request_and_reply() -> TestResult {
 #[test]
 fn test_unused_bytes_are_zero() -> TestResult {
     let bytes = crate::utils::golden_bodies::with_command_header(
-        &purge(0, 0, iri_terms(&[A]))?,
+        &purge(0, 0, &iri_terms(&[A]))?,
         |header| header[20] = 1,
     );
     assert_eq!(
@@ -157,7 +160,7 @@ fn test_unused_bytes_are_zero() -> TestResult {
 #[test]
 fn test_every_iri_is_read_in_order() -> TestResult {
     let named = iris(3);
-    let bytes = purge(0, 0, terms_of(&named))?;
+    let bytes = purge(0, 0, &terms_of(&named))?;
     let view = PurgeView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!(view.iri_count(), 3);
     let read: Vec<Option<&str>> = (0..4).map(|index| view.iri(index)).collect();

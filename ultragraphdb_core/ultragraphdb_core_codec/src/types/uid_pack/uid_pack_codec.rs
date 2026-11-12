@@ -38,12 +38,12 @@ struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8], CodecError> {
-        let field = self
+        let (field, end) = self
             .at
             .checked_add(n)
-            .and_then(|end| self.bytes.get(self.at..end))
+            .and_then(|end| Some((self.bytes.get(self.at..end)?, end)))
             .ok_or_else(|| CodecError::truncated(self.at))?;
-        self.at += n;
+        self.at = end;
         Ok(field)
     }
 
@@ -88,8 +88,8 @@ impl UidPack {
             w.extend_from_slice(block.deltas());
         }
         debug_assert_eq!(
-            w.len() - start,
-            self.encoded_len(),
+            w.get(start..).map(<[u8]>::len),
+            Some(self.encoded_len()),
             "the length is the bytes'"
         );
     }
@@ -97,12 +97,11 @@ impl UidPack {
     /// The number of bytes [`UidPack::encode`] writes, without writing them.
     #[must_use]
     pub fn encoded_len(&self) -> usize {
-        HEAD_LEN
-            + self
-                .blocks
-                .iter()
-                .map(|b| BLOCK_LEN + b.deltas().len())
-                .sum::<usize>()
+        // The lengths of a pack held in memory, far below usize::MAX, so no sum saturates.
+        self.blocks.iter().fold(HEAD_LEN, |sum, b| {
+            sum.saturating_add(BLOCK_LEN)
+                .saturating_add(b.deltas().len())
+        })
     }
 
     /// The pack whose bytes are `bytes`, all of them.
@@ -139,8 +138,8 @@ impl UidPack {
         }
         let pack = UidPack::new(block_size, blocks)?;
         debug_assert_eq!(
-            r.at - at,
-            pack.encoded_len(),
+            r.at.checked_sub(at),
+            Some(pack.encoded_len()),
             "the pack took the bytes it encodes to"
         );
         Ok((pack, r.at))

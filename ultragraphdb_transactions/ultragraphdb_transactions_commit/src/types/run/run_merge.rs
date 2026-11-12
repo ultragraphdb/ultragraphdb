@@ -5,7 +5,9 @@
 
 use std::cmp::Ordering;
 
-use crate::types::run::{Point, Run, Statement, Written};
+use ultragraphdb_error_invariant::{InvariantError, invariant};
+
+use crate::types::run::{Point, Run, SPAN_LIMIT, Statement, Written};
 
 /// A statement's list key and object in `arena`.
 fn pair<'a>(s: &Statement, arena: &'a [u8]) -> (&'a [u8], &'a [u8]) {
@@ -19,8 +21,14 @@ fn above(version: u64, floor: u64) -> u64 {
 
 impl Run {
     /// Fills the run, cleared, with `a` and `b` merged: each key and statement once with the newest version of the
-    /// two, the ranges of both, and nothing at or below `floor`.
-    pub fn merge(&mut self, a: &Run, b: &Run, floor: u64) {
+    /// two, the ranges of both, and nothing at or below `floor`; the invariant violated, nothing merged, when the two
+    /// arenas together pass [`SPAN_LIMIT`], which the history's merge rule keeps them within.
+    pub fn merge(&mut self, a: &Run, b: &Run, floor: u64) -> Result<(), InvariantError> {
+        // The merged arena holds at most both arenas' bytes, so one check before the merge holds for every key.
+        invariant(
+            a.arena.len() + b.arena.len() <= SPAN_LIMIT,
+            "two runs merged stay within u32 offsets",
+        )?;
         self.clear();
         self.merge_points(a, b, floor);
         self.merge_statements(a, b, floor);
@@ -29,6 +37,7 @@ impl Run {
         // Each key and statement once: never more than both runs held.
         debug_assert!(self.points.len() <= a.points.len() + b.points.len());
         debug_assert!(self.statements.len() <= a.statements.len() + b.statements.len());
+        Ok(())
     }
 
     /// Adds the keys of `a` and `b` in key order, each once with the newer of its two versions, none at or below

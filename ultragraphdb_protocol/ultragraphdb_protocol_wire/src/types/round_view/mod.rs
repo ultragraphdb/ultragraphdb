@@ -6,7 +6,7 @@
 mod round_view_body_view;
 
 use std::ops::Range;
-use ultragraphdb_core_body::{as_u32, u32_at};
+use ultragraphdb_core_body::u32_at;
 
 use crate::types::command::Command;
 use crate::types::decision::Decision;
@@ -69,9 +69,10 @@ impl<'a> RoundView<'a> {
             .as_chunks::<DECISION_SIZE>()
             .0
             .iter()
-            .enumerate()
-            .filter(|(_, decision)| decision.get(..2) == Some(&[0, 0][..]))
-            .map(|(transaction, _)| as_u32(transaction));
+            // Numbered as u32s: a frame holds far fewer decisions than `u32::MAX`.
+            .zip(0..=u32::MAX)
+            .filter(|(decision, _)| decision.get(..2) == Some(&[0, 0][..]))
+            .map(|(_, transaction)| transaction);
         let base = sections.offset(2);
         sections
             .get(1)

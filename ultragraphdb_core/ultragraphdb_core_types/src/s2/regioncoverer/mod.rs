@@ -288,24 +288,23 @@ impl<'r, R: Region> Coverer<'r, R> {
         }
 
         let v = cells.vec_mut();
-        let mut out = 0;
-        for k in 0..v.len() {
-            let mut ci = v[k];
+        let mut out: Vec<CellId> = Vec::with_capacity(v.len());
+        for &cell in v.iter() {
+            let mut ci = cell;
             let level = ci.level();
             let new_level = self.adjust_level(level);
             if new_level != level {
                 ci = ci.parent(new_level);
             }
-            if out > 0 && v[out - 1].contains(ci) {
+            if out.last().is_some_and(|last| last.contains(ci)) {
                 continue;
             }
-            while out > 0 && ci.contains(v[out - 1]) {
-                out -= 1;
+            while out.last().is_some_and(|&last| ci.contains(last)) {
+                let _contained: Option<CellId> = out.pop();
             }
-            v[out] = ci;
-            out += 1;
+            out.push(ci);
         }
-        v.truncate(out);
+        *v = out;
     }
 
     /// Computes a set of initial candidates that cover the given region.
@@ -420,8 +419,8 @@ impl<'r, R: Region> Coverer<'r, R> {
             let mut best_index: Option<usize> = None;
             let mut best_level: i64 = -1;
             let v = covering.as_slice();
-            for i in 0..v.len().saturating_sub(1) {
-                let Some(level) = v[i].common_ancestor_level(v[i + 1]) else {
+            for (i, (a, b)) in v.iter().zip(v.iter().skip(1)).enumerate() {
+                let Some(level) = a.common_ancestor_level(*b) else {
                     continue;
                 };
                 let level = self.adjust_level(level);
@@ -434,12 +433,12 @@ impl<'r, R: Region> Coverer<'r, R> {
             if best_level < self.min_level {
                 break;
             }
-            let Some(best_index) = best_index else {
+            let Some(&best) = best_index.and_then(|i| covering.as_slice().get(i)) else {
                 break;
             };
 
             // Replace all cells contained by the new ancestor cell.
-            let mut id = covering.as_slice()[best_index].parent(best_level);
+            let mut id = best.parent(best_level);
             replace_cells_with_ancestor(covering, id);
 
             // Now repeatedly check whether all children of the parent cell are
@@ -522,7 +521,7 @@ impl<'r, R: Region> Coverer<'r, R> {
         let end = id.child_end_at_level(level);
         let mut child = id.child_begin_at_level(level);
         while child != end {
-            if pos == covering.len() || covering[pos] != child {
+            if covering.get(pos) != Some(&child) {
                 return false;
             }
             pos += 1;

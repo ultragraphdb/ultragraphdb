@@ -130,7 +130,7 @@ fn assert_sizes(lengths: &[(usize, usize)]) -> TestResult {
         let promised = entries.frame_size_with(*key_len, *value_len);
         // Keys ascend by their first byte, whatever their lengths.
         let mut key = vec![0; *key_len];
-        key[0] = at as u8;
+        key[0] = u8::try_from(at)?;
         entries.push(&key, &vec![0xAB; *value_len]);
         assert_eq!(promised, frame_len(&entries)?, "{key_len} {value_len}");
         assert_eq!(entries.frame_size(), promised, "{key_len} {value_len}");

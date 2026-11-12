@@ -42,12 +42,13 @@ impl FullTag {
 
     /// Specializes a group region to the region of the group's most likely tag.
     fn specialize_region(&mut self) {
-        let i = REGION_INCLUSION[usize::from(self.region_id.0)];
-        if i < N_REGION_GROUPS {
-            let x = LIKELY_REGION_GROUP[usize::from(i)];
-            if LangId(x.lang) == self.lang_id && ScriptId(x.script) == self.script_id {
-                self.region_id = RegionId(x.region);
-            }
+        if let Some(&i) = REGION_INCLUSION.get(usize::from(self.region_id.0))
+            && i < N_REGION_GROUPS
+            && let Some(x) = LIKELY_REGION_GROUP.get(usize::from(i))
+            && LangId(x.lang) == self.lang_id
+            && ScriptId(x.script) == self.script_id
+        {
+            self.region_id = RegionId(x.region);
         }
     }
 
@@ -66,11 +67,13 @@ impl FullTag {
                 return (t, None);
             }
             // Search matches for und-script-region. For these cases region will never be a group.
-            let x = LIKELY_REGION[usize::from(t.region_id.0)];
-            let list = if x.flags & IS_LIST != 0 {
-                &LIKELY_REGION_LIST[usize::from(x.lang)..usize::from(x.lang + x.script)]
-            } else {
-                &LIKELY_REGION[usize::from(t.region_id.0)..usize::from(t.region_id.0) + 1]
+            let x = LIKELY_REGION.get(usize::from(t.region_id.0));
+            let list = match x {
+                Some(x) if x.flags & IS_LIST != 0 => LIKELY_REGION_LIST
+                    .get(usize::from(x.lang)..usize::from(x.lang + x.script))
+                    .unwrap_or_default(),
+                Some(x) => std::slice::from_ref(x),
+                None => &[],
             };
             for entry in list {
                 // Deviating from the spec. See match_test.go for details.
@@ -90,11 +93,16 @@ impl FullTag {
 
         // Search matches for lang.
         if t.lang_id.0 < LANG_NO_INDEX_OFFSET {
-            let mut x = LIKELY_LANG[usize::from(t.lang_id.0)];
-            if x.flags & IS_LIST != 0 {
-                x = LIKELY_LANG_LIST[usize::from(x.region)];
-            }
-            if x.region != 0 {
+            let x =
+                LIKELY_LANG
+                    .get(usize::from(t.lang_id.0))
+                    .and_then(|x| match x.flags & IS_LIST {
+                        0 => Some(x),
+                        _ => LIKELY_LANG_LIST.get(usize::from(x.region)),
+                    });
+            if let Some(x) = x
+                && x.region != 0
+            {
                 t.set_undefined_script(ScriptId(x.script));
                 t.set_undefined_region(RegionId(x.region));
             }
@@ -113,44 +121,44 @@ impl FullTag {
     /// `addTags`' search for a tag with a language: lang-script and lang-region. Whether it completed the tag.
     fn add_likely_for_lang(&mut self) -> bool {
         // Search matches for lang-script and lang-region, where lang != und.
-        if self.lang_id.0 < LANG_NO_INDEX_OFFSET {
-            let x = LIKELY_LANG[usize::from(self.lang_id.0)];
-            if x.flags & IS_LIST != 0 {
-                let list =
-                    &LIKELY_LANG_LIST[usize::from(x.region)..usize::from(x.region + x.script)];
-                if self.script_id.0 != 0 {
-                    for entry in list {
-                        if ScriptId(entry.script) == self.script_id
-                            && entry.flags & SCRIPT_IN_FROM != 0
-                        {
-                            self.set_undefined_region(RegionId(entry.region));
-                            return true;
-                        }
-                    }
-                } else if self.region_id.0 != 0 {
-                    let mut count = 0;
-                    let mut good_script = true;
-                    let mut tt = self.clone();
-                    for entry in list {
-                        // Visit all entries for which the script was not defined, including the ones where the
-                        // region was not defined, for proper disambiguation within regions.
-                        if entry.flags & SCRIPT_IN_FROM == 0
-                            && self.region_id.contains(RegionId(entry.region))
-                        {
-                            tt.region_id = RegionId(entry.region);
-                            tt.set_undefined_script(ScriptId(entry.script));
-                            good_script = good_script && tt.script_id == ScriptId(entry.script);
-                            count += 1;
-                        }
-                    }
-                    if count == 1 {
-                        *self = tt;
+        if self.lang_id.0 < LANG_NO_INDEX_OFFSET
+            && let Some(x) = LIKELY_LANG.get(usize::from(self.lang_id.0))
+            && x.flags & IS_LIST != 0
+        {
+            let list = LIKELY_LANG_LIST
+                .get(usize::from(x.region)..usize::from(x.region + x.script))
+                .unwrap_or_default();
+            if self.script_id.0 != 0 {
+                for entry in list {
+                    if ScriptId(entry.script) == self.script_id && entry.flags & SCRIPT_IN_FROM != 0
+                    {
+                        self.set_undefined_region(RegionId(entry.region));
                         return true;
                     }
-                    // Even if we fail to find a unique region, we might have an unambiguous script.
-                    if good_script {
-                        self.script_id = tt.script_id;
+                }
+            } else if self.region_id.0 != 0 {
+                let mut count = 0;
+                let mut good_script = true;
+                let mut tt = self.clone();
+                for entry in list {
+                    // Visit all entries for which the script was not defined, including the ones where the
+                    // region was not defined, for proper disambiguation within regions.
+                    if entry.flags & SCRIPT_IN_FROM == 0
+                        && self.region_id.contains(RegionId(entry.region))
+                    {
+                        tt.region_id = RegionId(entry.region);
+                        tt.set_undefined_script(ScriptId(entry.script));
+                        good_script = good_script && tt.script_id == ScriptId(entry.script);
+                        count += 1;
                     }
+                }
+                if count == 1 {
+                    *self = tt;
+                    return true;
+                }
+                // Even if we fail to find a unique region, we might have an unambiguous script.
+                if good_script {
+                    self.script_id = tt.script_id;
                 }
             }
         }
@@ -161,34 +169,38 @@ impl FullTag {
     /// a region group's likely subtags fill the tag in without completing it.
     fn add_likely_for_und(&mut self) -> bool {
         // Search matches for und-script.
-        if self.script_id.0 != 0 {
-            let x = LIKELY_SCRIPT[usize::from(self.script_id.0)];
-            if x.region != 0 {
-                self.set_undefined_region(RegionId(x.region));
-                self.set_undefined_lang(LangId(x.lang));
-                return true;
-            }
+        if self.script_id.0 != 0
+            && let Some(x) = LIKELY_SCRIPT.get(usize::from(self.script_id.0))
+            && x.region != 0
+        {
+            self.set_undefined_region(RegionId(x.region));
+            self.set_undefined_lang(LangId(x.lang));
+            return true;
         }
         // Search matches for und-region. If und-script-region exists, it would have been found earlier.
-        if self.region_id.0 != 0 {
-            let i = REGION_INCLUSION[usize::from(self.region_id.0)];
+        if self.region_id.0 != 0
+            && let Some(&i) = REGION_INCLUSION.get(usize::from(self.region_id.0))
+        {
             if i < N_REGION_GROUPS {
-                let x = LIKELY_REGION_GROUP[usize::from(i)];
-                if x.region != 0 {
+                if let Some(x) = LIKELY_REGION_GROUP.get(usize::from(i))
+                    && x.region != 0
+                {
                     self.set_undefined_lang(LangId(x.lang));
                     self.set_undefined_script(ScriptId(x.script));
                     self.region_id = RegionId(x.region);
                 }
-            } else {
-                let mut x = LIKELY_REGION[usize::from(self.region_id.0)];
-                if x.flags & IS_LIST != 0 {
-                    x = LIKELY_REGION_LIST[usize::from(x.lang)];
-                }
-                if x.script != 0 && x.flags != SCRIPT_IN_FROM {
-                    self.set_undefined_lang(LangId(x.lang));
-                    self.set_undefined_script(ScriptId(x.script));
-                    return true;
-                }
+            } else if let Some(x) = LIKELY_REGION
+                .get(usize::from(self.region_id.0))
+                .and_then(|x| match x.flags & IS_LIST {
+                    0 => Some(x),
+                    _ => LIKELY_REGION_LIST.get(usize::from(x.lang)),
+                })
+                && x.script != 0
+                && x.flags != SCRIPT_IN_FROM
+            {
+                self.set_undefined_lang(LangId(x.lang));
+                self.set_undefined_script(ScriptId(x.script));
+                return true;
             }
         }
         false

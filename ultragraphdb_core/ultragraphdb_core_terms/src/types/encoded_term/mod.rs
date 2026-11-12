@@ -68,6 +68,8 @@ const PRECISIONS: std::ops::RangeInclusive<u8> = 1..=12;
 /// The length of an IRI's or a blank node's encoding: the tag and the ID's 16 bytes.
 const ID_LEN: usize = 1 + SystemId::BYTES;
 const _: () = assert!(ID_LEN <= 255, "an inline encoding's length is a u8");
+/// [`ID_LEN`] as the byte an inline encoding keeps its length in: its low byte, the whole of it by the assertion above.
+const ID_LEN_BYTE: u8 = ID_LEN.to_le_bytes()[0];
 
 /// The longest lexical form or language tag held inline; a longer one is hashed.
 pub const INLINE_MAX: usize = 15;
@@ -99,7 +101,7 @@ impl EncodedTerm {
             *payload = id.to_be_bytes();
         }
         Self(Repr::Inline {
-            len: ID_LEN as u8, // lossless: ID_LEN is at most 255, asserted beside it
+            len: ID_LEN_BYTE,
             bytes,
         })
     }
@@ -128,9 +130,10 @@ impl EncodedTerm {
         let malformed = |reason| Err(TermError::malformed(bytes.to_vec(), reason));
         // An inline part at `at`: its length byte, then its bytes, which the length rules proved present.
         let inline_utf8 = |at: usize| {
-            let n = bytes.get(at).copied().map_or(0, usize::from);
             bytes
-                .get(at + 1..at + 1 + n)
+                .get(at..)
+                .and_then(<[u8]>::split_first)
+                .and_then(|(n, rest)| rest.get(..usize::from(*n)))
                 .is_some_and(|text| std::str::from_utf8(text).is_ok())
         };
         let known = |at: usize| {
@@ -175,7 +178,7 @@ impl EncodedTerm {
             }
             tag::SMALL_STRING if !inline_utf8(1) => malformed("inline text that is not UTF-8"),
             t if tag::SMALL_LANG.contains(&t)
-                && !(inline_utf8(1) && inline_utf8(2 + lexical_len)) =>
+                && !(inline_utf8(1) && lexical_len.checked_add(2).is_some_and(inline_utf8)) =>
             {
                 malformed("inline text that is not UTF-8")
             }
@@ -210,24 +213,24 @@ impl EncodedTerm {
         let term = if matches!(encoding.first(), Some(&(tag::VECTOR | tag::BF16_VECTOR))) {
             Self(Repr::Vector(encoding.into()))
         } else {
-            Self::inline(encoding)
+            Self::inline(encoding)?
         };
         Ok((term, rest))
     }
 
-    /// An encoding of at most [`ENCODED_MAX`] bytes.
-    pub(crate) fn inline(encoding: &[u8]) -> Self {
+    /// An encoding of at most [`ENCODED_MAX`] bytes, refused as malformed past them.
+    pub(crate) fn inline(encoding: &[u8]) -> Result<Self, TermError> {
         debug_assert!(!encoding.is_empty(), "an encoding holds at least its tag");
-        debug_assert!(
-            encoding.len() <= ENCODED_MAX,
-            "an inline encoding fits its array"
-        );
+        let len = u8::try_from(encoding.len())
+            .ok()
+            .filter(|len| usize::from(*len) <= ENCODED_MAX)
+            .ok_or_else(|| TermError::malformed(encoding.to_vec(), "an encoding past 33 bytes"))?;
         let mut bytes = [0u8; ENCODED_MAX];
-        bytes[..encoding.len()].copy_from_slice(encoding);
-        Self(Repr::Inline {
-            len: encoding.len() as u8,
-            bytes,
-        })
+        bytes
+            .iter_mut()
+            .zip(encoding)
+            .for_each(|(slot, byte)| *slot = *byte);
+        Ok(Self(Repr::Inline { len, bytes }))
     }
 
     pub(crate) fn vector(encoding: Vec<u8>) -> Self {
@@ -237,7 +240,7 @@ impl EncodedTerm {
     /// The encoding's bytes.
     pub fn as_bytes(&self) -> &[u8] {
         match &self.0 {
-            Repr::Inline { len, bytes } => &bytes[..*len as usize],
+            Repr::Inline { len, bytes } => bytes.get(..usize::from(*len)).unwrap_or(bytes),
             Repr::Vector(bytes) => bytes,
         }
     }
@@ -272,7 +275,8 @@ fn encoded_len(bytes: &[u8]) -> Result<usize, TermError> {
     let truncated = || TermError::truncated(bytes.to_vec());
     let at = |i: usize| bytes.get(i).copied().map(usize::from).ok_or_else(truncated);
     let first = *bytes.first().ok_or_else(truncated)?;
-    let inline_len = |i: usize| -> Result<usize, TermError> {
+    // The end of an inline part whose length byte is at `i` and whose text follows `before` bytes.
+    let inline_end = |i: usize, before: usize| -> Result<usize, TermError> {
         let n = at(i)?;
         if n > INLINE_MAX {
             return Err(TermError::malformed(
@@ -280,7 +284,14 @@ fn encoded_len(bytes: &[u8]) -> Result<usize, TermError> {
                 "an inline part longer than 15 bytes",
             ));
         }
-        Ok(n)
+        before.checked_add(n).ok_or_else(truncated)
+    };
+    // A vector of `dimension` elements of `width` bytes after its 3-byte head.
+    let vector_len = |dimension: usize, width: usize| {
+        dimension
+            .checked_mul(width)
+            .and_then(|elements| elements.checked_add(3))
+            .ok_or_else(truncated)
     };
     let len = match first {
         tag::ID => ID_LEN,
@@ -290,33 +301,36 @@ fn encoded_len(bytes: &[u8]) -> Result<usize, TermError> {
         tag::FLOAT => 5,
         tag::DATE_TIME..=tag::G_MONTH => 19,
         tag::DURATION => 25,
-        tag::SMALL_STRING => 2 + inline_len(1)?,
+        tag::SMALL_STRING => inline_end(1, 2)?,
         tag::BIG_STRING => 17,
         t if tag::SMALL_LANG.contains(&t) => {
-            let lexical = inline_len(1)?;
-            3 + lexical + inline_len(2 + lexical)?
+            let lexical_end = inline_end(1, 2)?;
+            inline_end(
+                lexical_end,
+                lexical_end.checked_add(1).ok_or_else(truncated)?,
+            )?
         }
-        t if tag::BIG_LANG.contains(&t) => 18 + inline_len(17)?,
+        t if tag::BIG_LANG.contains(&t) => inline_end(17, 18)?,
         t if tag::BIG_LANG_BIG_TAG.contains(&t) => 33,
-        tag::SMALL_KNOWN => 3 + inline_len(2)?,
+        tag::SMALL_KNOWN => inline_end(2, 3)?,
         tag::BIG_KNOWN => 18,
-        tag::SMALL_TYPED => 18 + inline_len(17)?,
+        tag::SMALL_TYPED => inline_end(17, 18)?,
         tag::BIG_TYPED => 33,
         tag::VECTOR => {
             let dimension = at(1)? | at(2)? << 8;
             if dimension == 0 {
                 return Err(TermError::malformed(bytes.to_vec(), "an empty vector"));
             }
-            3 + 4 * dimension
+            vector_len(dimension, 4)?
         }
         tag::BF16_VECTOR => {
             let dimension = at(1)? | at(2)? << 8;
             if dimension == 0 {
                 return Err(TermError::malformed(bytes.to_vec(), "an empty vector"));
             }
-            3 + 2 * dimension
+            vector_len(dimension, 2)?
         }
-        tag::MEASURE => 10 + inline_len(9)?,
+        tag::MEASURE => inline_end(9, 10)?,
         tag::PRECISION => 2,
         other => return Err(TermError::unknown_tag(other)),
     };

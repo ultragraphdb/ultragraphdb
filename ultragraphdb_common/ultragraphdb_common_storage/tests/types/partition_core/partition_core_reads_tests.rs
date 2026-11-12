@@ -14,8 +14,8 @@ use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::{
     Bind, BindKind, BindView, BodyView, ClosedView, Command, DirectWrite, EntriesEnd, EntriesView,
-    ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_SIZE, ObjectRecords, RequestTerm, Scan, ScanAt,
-    ScanRange, TermTable, WriteChange,
+    ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_SIZE, MAX_FRAME_SIZE_U32, ObjectRecords,
+    RequestTerm, Scan, ScanAt, ScanRange, TermTable, WriteChange,
 };
 use ultragraphdb_store_quads::{StatementRecord, term_key};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -30,7 +30,7 @@ const SUBJECTS: usize = 400;
 /// The Direct connection's number, beside the sessions the harness numbers from 1.
 const DIRECT: u64 = 1_000;
 /// The frames a reader taking any frame takes.
-const LARGE: u32 = MAX_FRAME_SIZE as u32;
+const LARGE: u32 = MAX_FRAME_SIZE_U32;
 /// The frames of a reader whose small frames make a range of [`SUBJECTS`] lists take many.
 const SMALL: u32 = 4 * 1_024;
 
@@ -895,7 +895,7 @@ fn test_scans_past_one_turns_budget_are_answered_at_the_next() -> TestResult {
     use ultragraphdb_common_storage::TurnBudget;
     // How many of the smallest frames one turn's budget takes.
     let mut budget = TurnBudget::default();
-    let mut per_turn = 0;
+    let mut per_turn = 0_u64;
     while !budget.is_spent() {
         budget.spend_frame(0);
         per_turn += 1;
@@ -904,7 +904,7 @@ fn test_scans_past_one_turns_budget_are_answered_at_the_next() -> TestResult {
         let scans = per_turn + 4;
         // A connection apiece: each holds the frames it sent until the core takes them.
         let mut directs = (0..scans)
-            .map(|at| Direct::open(&core.inbox, DIRECT + at as u64, LARGE))
+            .map(|at| Direct::open(&core.inbox, DIRECT + at, LARGE))
             .collect::<TestResult<Vec<_>>>()?;
         let answers = directs
             .iter_mut()

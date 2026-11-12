@@ -11,7 +11,7 @@ use crate::tables::language_tables::{
     ALIAS_MAP, ALIAS_TYPES, LANG, LANG_NO_INDEX_OFFSET, SUPPRESS_SCRIPT,
 };
 use crate::types::script_id::ScriptId;
-use crate::utils::tag_index::{elem, partition_point};
+use crate::utils::tag_index::elem;
 
 /// A base language identifier: an index into the language table, or, from `LANG_NO_INDEX_OFFSET` on, a
 /// three-letter code encoded in base 26. Zero is `und`.
@@ -55,22 +55,27 @@ impl LangId {
             let s = int_to_str(u32::from(self.0 - LANG_NO_INDEX_OFFSET));
             return String::from_utf8_lossy(&s).into_owned();
         }
-        let l = elem(LANG, usize::from(self.0));
-        let s = if l[3] == 0 { &l[..3] } else { &l[..2] };
-        String::from_utf8_lossy(s).into_owned()
+        let [a, b, c, d] = elem(LANG, usize::from(self.0));
+        if d == 0 {
+            String::from_utf8_lossy(&[a, b, c]).into_owned()
+        } else {
+            String::from_utf8_lossy(&[a, b]).into_owned()
+        }
     }
 
     /// The suggested replacement of the language and the kind of alias it is.
     pub(crate) fn canonicalize(self) -> (LangId, AliasType) {
-        let k = partition_point(ALIAS_MAP.len(), |i| ALIAS_MAP[i].from < self.0);
-        if k < ALIAS_MAP.len() && ALIAS_MAP[k].from == self.0 {
-            let typ = match ALIAS_TYPES[k] {
-                0 => AliasType::Deprecated,
-                1 => AliasType::Macro,
-                2 => AliasType::Legacy,
+        let k = ALIAS_MAP.partition_point(|alias| alias.from < self.0);
+        if let Some(alias) = ALIAS_MAP.get(k)
+            && alias.from == self.0
+        {
+            let typ = match ALIAS_TYPES.get(k) {
+                Some(0) => AliasType::Deprecated,
+                Some(1) => AliasType::Macro,
+                Some(2) => AliasType::Legacy,
                 _ => AliasType::Unknown,
             };
-            return (LangId(ALIAS_MAP[k].to), typ);
+            return (LangId(alias.to), typ);
         }
         (self, AliasType::Unknown)
     }
@@ -78,7 +83,11 @@ impl LangId {
     /// The script marked as Suppress-Script in the IANA registry, or zero.
     pub(crate) fn suppress_script(self) -> ScriptId {
         if self.0 < LANG_NO_INDEX_OFFSET {
-            return ScriptId(u16::from(SUPPRESS_SCRIPT[usize::from(self.0)]));
+            return ScriptId(
+                SUPPRESS_SCRIPT
+                    .get(usize::from(self.0))
+                    .map_or(0, |&s| u16::from(s)),
+            );
         }
         ScriptId(0)
     }

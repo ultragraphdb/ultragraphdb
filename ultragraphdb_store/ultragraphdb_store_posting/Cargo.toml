@@ -26,6 +26,7 @@ ultragraphdb_core_codec = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_error_store = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
+# External crates
 tracing = { workspace = true }
 xxhash-rust = { workspace = true }
 

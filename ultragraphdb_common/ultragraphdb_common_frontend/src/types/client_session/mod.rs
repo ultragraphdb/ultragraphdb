@@ -20,7 +20,7 @@ use std::time::Instant;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use ultragraphdb_common_role::{OpenFrame, ParkedBytes};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, ErrorReply, FLAG_LAST, Header, HeaderView, MAX_FRAME_FLOOR,
+    BodyBuilder, Command, ErrorReply, FLAG_LAST, Header, HeaderView, MAX_FRAME_FLOOR_U32,
     StatementCache,
 };
 
@@ -136,7 +136,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             asked_name: None,
             peer,
             principal: 0,
-            max_frame: MAX_FRAME_FLOOR as u32, // 2^19, lossless
+            max_frame: MAX_FRAME_FLOOR_U32,
             statements,
             transactions: BTreeMap::new(),
             reads: BTreeMap::new(),

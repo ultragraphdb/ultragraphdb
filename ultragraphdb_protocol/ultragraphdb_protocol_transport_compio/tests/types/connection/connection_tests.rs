@@ -79,7 +79,7 @@ fn test_frames_split_in_flight_are_read_whole() -> TestResult {
     let unnumbered = vec![
         credit(1)?,
         large()?,
-        Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c")
+        Hello::new(1, 1, 0, u32::try_from(MAX_FRAME_SIZE)?, "c")
             .frame(Header::new(CLUSTER, Command::Hello))?,
     ];
     // Numbered as a client numbers them, from 1, so each view holds the connection's sequence.
@@ -272,10 +272,16 @@ fn test_a_handshake_agrees_on_the_highest_protocol_both_speak() -> TestResult {
         .with_max_frame(1 << 20)
         .with_max_streams(16)
         .with_initial_credit(4);
-    let (client, server) = handshake(&Hello::new(1, 3, 5, MAX_FRAME_SIZE as u32, "c"), &welcome);
+    let (client, server) = handshake(
+        &Hello::new(1, 3, 5, u32::try_from(MAX_FRAME_SIZE)?, "c"),
+        &welcome,
+    );
     assert_eq!(client?, welcome);
     assert_eq!(server?, welcome);
-    let (lower_client, _) = handshake(&Hello::new(1, 1, 5, MAX_FRAME_SIZE as u32, "c"), &welcome);
+    let (lower_client, _) = handshake(
+        &Hello::new(1, 1, 5, u32::try_from(MAX_FRAME_SIZE)?, "c"),
+        &welcome,
+    );
     assert_eq!(lower_client?.protocol(), 1);
     Ok(())
 }
@@ -283,7 +289,7 @@ fn test_a_handshake_agrees_on_the_highest_protocol_both_speak() -> TestResult {
 #[test]
 fn test_a_hello_above_the_server_is_refused_on_both_sides() -> TestResult {
     let (client, server) = handshake(
-        &Hello::new(3, 4, 5, MAX_FRAME_SIZE as u32, "c"),
+        &Hello::new(3, 4, 5, u32::try_from(MAX_FRAME_SIZE)?, "c"),
         &Welcome::new(2, 9, "s")
             .with_max_frame(1 << 20)
             .with_max_streams(16)
@@ -335,7 +341,10 @@ fn test_a_handshake_of_another_command_is_refused() -> TestResult {
     {
         let (_n, mut client, mut server) = pair(NetworkFaults::none());
         let (refused, answered) = ready(futures::future::join(
-            client.hello(&pool, &Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c")),
+            client.hello(
+                &pool,
+                &Hello::new(1, 1, 0, u32::try_from(MAX_FRAME_SIZE)?, "c"),
+            ),
             async {
                 let _hello = server.read_frame(&pool).await?;
                 Ok::<Vec<u8>, TestError>(server.write_frame(first(credit(0)?)?).await?)
@@ -351,7 +360,10 @@ fn test_a_handshake_of_another_command_is_refused() -> TestResult {
     {
         let (_n, mut client, mut server) = pair(NetworkFaults::none());
         let (refused, answered) = ready(futures::future::join(
-            client.hello(&pool, &Hello::new(1, 2, 0, MAX_FRAME_SIZE as u32, "c")),
+            client.hello(
+                &pool,
+                &Hello::new(1, 2, 0, u32::try_from(MAX_FRAME_SIZE)?, "c"),
+            ),
             async {
                 let _hello = server.read_frame(&pool).await?;
                 let welcome = Welcome::new(5, 0, "s")
@@ -388,7 +400,10 @@ fn test_a_connection_runs_over_compio_tcp() -> TestResult {
             .with_max_streams(8)
             .with_initial_credit(2);
         let (client_side, server_side) = futures::future::join(
-            client.hello(&pool, &Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c")),
+            client.hello(
+                &pool,
+                &Hello::new(1, 1, 0, u32::try_from(MAX_FRAME_SIZE)?, "c"),
+            ),
             server.welcome(&pool, &welcome),
         )
         .await;

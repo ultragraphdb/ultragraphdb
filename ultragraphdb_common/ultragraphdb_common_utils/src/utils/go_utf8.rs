@@ -65,11 +65,11 @@ pub fn decode_rune(b: &[u8]) -> (u32, usize) {
 /// Go's `bytes.Runes`: the runes of `b`, each invalid byte as U+FFFD.
 pub fn runes(b: &[u8]) -> Vec<char> {
     let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        let (r, n) = decode_rune(&b[i..]);
+    let mut rest = b;
+    while !rest.is_empty() {
+        let (r, n) = decode_rune(rest);
         out.push(char::from_u32(r).unwrap_or(char::REPLACEMENT_CHARACTER));
-        i += n;
+        rest = rest.get(n..).unwrap_or_default();
     }
     out
 }

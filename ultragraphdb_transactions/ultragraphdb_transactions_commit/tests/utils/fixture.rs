@@ -410,7 +410,10 @@ impl Rng {
     /// A key of 1 to `max_len` bytes over a three-letter alphabet, so that keys repeat and share prefixes.
     pub fn key(&mut self, max_len: u64) -> Vec<u8> {
         let len = 1 + self.below(max_len);
-        (0..len).map(|_| b'a' + self.below(3) as u8).collect()
+        // Below 3, so the low byte is the whole draw.
+        (0..len)
+            .map(|_| b'a' + self.below(3).to_le_bytes()[0])
+            .collect()
     }
 }
 

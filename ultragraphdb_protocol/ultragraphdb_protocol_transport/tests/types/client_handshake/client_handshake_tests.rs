@@ -28,7 +28,7 @@ fn welcome_numbered(protocol: u16, sequence: u128) -> TestResult<Vec<u8>> {
 
 #[test]
 fn test_the_hello_frame_names_the_cluster_and_the_release_on_stream_zero() -> TestResult {
-    let hello = Hello::new(1, 3, 0x0005_0000, MAX_FRAME_SIZE as u32, "c");
+    let hello = Hello::new(1, 3, 0x0005_0000, u32::try_from(MAX_FRAME_SIZE)?, "c");
     let handshake = ClientHandshake::new(CLUSTER, hello.clone());
     assert_eq!(handshake.hello(), &hello);
     let frame = handshake.hello_frame()?;
@@ -67,7 +67,10 @@ fn test_the_hello_frame_names_the_cluster_and_the_release_on_stream_zero() -> Te
 
 #[test]
 fn test_a_welcome_within_the_range_is_taken_and_outside_it_refused() -> TestResult {
-    let handshake = ClientHandshake::new(CLUSTER, Hello::new(2, 3, 0, MAX_FRAME_SIZE as u32, "c"));
+    let handshake = ClientHandshake::new(
+        CLUSTER,
+        Hello::new(2, 3, 0, u32::try_from(MAX_FRAME_SIZE)?, "c"),
+    );
     for protocol in [2, 3] {
         assert_eq!(handshake.receive(&welcome(protocol)?)?.protocol(), protocol);
     }
@@ -85,7 +88,10 @@ fn test_a_welcome_within_the_range_is_taken_and_outside_it_refused() -> TestResu
 
 #[test]
 fn test_an_error_answer_is_a_refusal_and_another_command_unexpected() -> TestResult {
-    let handshake = ClientHandshake::new(CLUSTER, Hello::new(3, 4, 0, MAX_FRAME_SIZE as u32, "c"));
+    let handshake = ClientHandshake::new(
+        CLUSTER,
+        Hello::new(3, 4, 0, u32::try_from(MAX_FRAME_SIZE)?, "c"),
+    );
     let error = ErrorReply::new(ErrorCode::ProtocolVersion, "above 2")
         .with_detail(2)
         .frame(Header::new(CLUSTER, Command::Error).with_sequence(1))?;
@@ -112,7 +118,10 @@ fn test_an_error_answer_is_a_refusal_and_another_command_unexpected() -> TestRes
 
 #[test]
 fn test_a_damaged_or_foreign_answer_is_a_protocol_error() -> TestResult {
-    let handshake = ClientHandshake::new(CLUSTER, Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c"));
+    let handshake = ClientHandshake::new(
+        CLUSTER,
+        Hello::new(1, 1, 0, u32::try_from(MAX_FRAME_SIZE)?, "c"),
+    );
     let mut damaged = welcome(1)?;
     let last = damaged.len() - 1;
     damaged[last] ^= 1;
@@ -123,8 +132,10 @@ fn test_a_damaged_or_foreign_answer_is_a_protocol_error() -> TestResult {
             error: ProtocolError(ProtocolErrorEnum::Chunk { index: 0, .. })
         }
     ));
-    let foreign =
-        ClientHandshake::new(CLUSTER + 1, Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c"));
+    let foreign = ClientHandshake::new(
+        CLUSTER + 1,
+        Hello::new(1, 1, 0, u32::try_from(MAX_FRAME_SIZE)?, "c"),
+    );
     assert_eq!(
         foreign.receive(&welcome(1)?).err().context("the refusal")?,
         TransportError::protocol(ProtocolError::wrong_cluster(CLUSTER + 1, CLUSTER))
@@ -148,7 +159,10 @@ fn test_a_damaged_or_foreign_answer_is_a_protocol_error() -> TestResult {
 #[test]
 fn test_an_answer_not_numbered_one_is_out_of_sequence() -> TestResult {
     // PROTOCOL.md section 2.5, step 13: the server's first frame is its sequence 1.
-    let handshake = ClientHandshake::new(CLUSTER, Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c"));
+    let handshake = ClientHandshake::new(
+        CLUSTER,
+        Hello::new(1, 1, 0, u32::try_from(MAX_FRAME_SIZE)?, "c"),
+    );
     for sequence in [0, 2] {
         assert_eq!(
             handshake

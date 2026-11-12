@@ -129,16 +129,21 @@ pub fn loop_from_polygon(p: &Geometry) -> Result<Loop, TypesError> {
     if n < 4 || stride < 2 {
         return Err(TypesError::geo("Can't convert ring with less than 4 pts"));
     }
-    if r[0] != r[(n - 1) * stride] || r[1] != r[(n - 1) * stride + 1] {
+    // The n points of the stride each lie within the ring, so every coordinate pair below is present.
+    let coord = |i: usize| {
+        r.get(i * stride..)
+            .and_then(<[f64]>::first_chunk::<2>)
+            .ok_or_else(|| TypesError::geo("Can't convert ring with less than 4 pts"))
+    };
+    if coord(0)? != coord(n - 1)? {
         return Err(TypesError::geo(format!(
             "Last coordinate not same as first for polygon: {}\n",
             polygon_debug(p)
         )));
     }
-    let coord = |i: usize| &r[i * stride..i * stride + 2];
     let reverse = is_clockwise(r, stride);
     let pts = (0..n - 1)
-        .map(|i| point_from_coord(coord(if reverse { n - 1 - i } else { i })))
+        .map(|i| point_from_coord(coord(if reverse { n - 1 - i } else { i })?))
         .collect::<Result<_, _>>()?;
     let mut l = Loop::from_points(pts);
     if l.cap_bound().radius().degrees() > 90.0 {
@@ -149,11 +154,14 @@ pub fn loop_from_polygon(p: &Geometry) -> Result<Loop, TypesError> {
 
 /// Dgraph's `isClockwise`: the planar shoelace test, a fast approximation for rings smaller than a hemisphere.
 fn is_clockwise(r: &[f64], stride: usize) -> bool {
-    let n = r.len() / stride;
+    if stride < 2 {
+        return false;
+    }
+    let points = || r.chunks_exact(stride).filter_map(<[f64]>::first_chunk::<2>);
     let mut a = 0.0;
-    for i in 0..n {
-        let (p1, p2) = (&r[i * stride..], &r[((i + 1) % n) * stride..]);
-        a += (p2[0] - p1[0]) * (p1[1] + p2[1]);
+    // Each point and the next, the last closing the ring on the first.
+    for ([x1, y1], [x2, y2]) in points().zip(points().cycle().skip(1)) {
+        a += (x2 - x1) * (y1 + y2);
     }
     a > 0.0
 }

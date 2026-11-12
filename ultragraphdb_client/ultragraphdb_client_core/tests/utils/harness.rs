@@ -240,7 +240,8 @@ impl<L: Login> Harness<L> {
 
     /// The wall clock at the harness's time, microseconds of Unix time.
     pub fn unix(&self) -> u64 {
-        UNIX + self.now.saturating_duration_since(self.origin).as_micros() as u64
+        let since = self.now.saturating_duration_since(self.origin).as_micros();
+        UNIX + u64::try_from(since).unwrap_or(u64::MAX)
     }
 
     /// A new connection: the core's handshake begun, the server and the client's framer reset for it.

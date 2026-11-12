@@ -304,7 +304,7 @@ fn hold_in_graph(
 #[test]
 fn test_a_read_in_a_named_graph_resumes_in_that_graph() -> TestResult {
     use ultragraphdb_common_compute::read_times_of;
-    use ultragraphdb_protocol_wire::{ComputeRead, MAX_FRAME_SIZE, ReadLevel};
+    use ultragraphdb_protocol_wire::{ComputeRead, MAX_FRAME_SIZE_U32, ReadLevel};
 
     use crate::played_reads::played_cluster::PlayedCluster as ReadsCluster;
     use crate::played_reads::played_data::tenant_over;
@@ -325,7 +325,7 @@ fn test_a_read_in_a_named_graph_resumes_in_that_graph() -> TestResult {
                 ComputeRead::new(tenant, true, ReadLevel::Latest, terms, slots, resume)
                     .with_principal(1)
                     .with_deadline_ms(DEADLINE_MS)
-                    .with_client_limits(MAX_FRAME_SIZE as u32, 4),
+                    .with_client_limits(MAX_FRAME_SIZE_U32, 4),
             )
         };
         let in_graph = |slot: Option<Option<String>>| {

@@ -6,6 +6,7 @@
 //! Request term tables laid out by hand from `PROTOCOL.md` §4.4's record table, for bodies a builder would not write,
 //! and the refusal a view gives a frame.
 
+use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::BodyView;
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -29,11 +30,11 @@ pub fn term_sections(entries: &[Entry<'_>]) -> (Vec<u8>, Vec<u8>) {
     for entry in entries {
         let (kind, fields) = match entry {
             Entry::Text(kind, first, second) => {
-                let a = text.len() as u32;
+                let a = as_u32(text.len());
                 text.extend_from_slice(first.as_bytes());
-                let b = text.len() as u32;
+                let b = as_u32(text.len());
                 text.extend_from_slice(second.as_bytes());
-                (*kind, [a, first.len() as u32, b, second.len() as u32])
+                (*kind, [a, as_u32(first.len()), b, as_u32(second.len())])
             }
             Entry::Triple(s, p, o) => (5, [*s, *p, *o, 0]),
         };

@@ -342,7 +342,7 @@ fn big_float_golden(w: &mut Steps) -> TestResult {
             Ok(b)
                 if c.err.is_empty()
                     && b.text_p() == c.p
-                    && (c.kind == "extreme" || b.marshal_text() == c.text) => {}
+                    && (c.kind == "extreme" || b.marshal_text().is_ok_and(|t| t == c.text)) => {}
             other => w.failures.push(format!(
                 "{:?}: {other:?}, Go {} {} {}",
                 c.input, c.p, c.text, c.err
@@ -361,7 +361,7 @@ fn big_floats_match(w: &mut Steps) {
 fn format_pow2(w: &mut Steps) -> TestResult {
     w.text = BigFloat::unmarshal_text("0x1p-1100", BIG_FLOAT_PRECISION)
         .context("2^-1100 as a big float")?
-        .marshal_text();
+        .marshal_text()?;
     Ok(())
 }
 
@@ -377,7 +377,7 @@ fn parse_big_floats(w: &mut Steps, a: String, b: String, c: String, d: String) {
         .map(
             |s| match convert(&Val::bytes(TypeId::STRING, s.as_bytes()), TypeId::BIGFLOAT) {
                 Ok(v) => match v.into_value() {
-                    Some(Value::BigFloat(f)) => Ok(f.marshal_text()),
+                    Some(Value::BigFloat(f)) => f.marshal_text().map_err(|e| e.to_string()),
                     other => Err(format!("{other:?}")),
                 },
                 Err(e) => Err(e.to_string()),

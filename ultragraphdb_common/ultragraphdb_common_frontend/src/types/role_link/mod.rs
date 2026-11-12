@@ -12,7 +12,9 @@ use std::task::Waker;
 
 use ultragraphdb_common_role::{ParkedBytes, RoleClient};
 use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_wire::{BodyBuilder, Cancel, Command, Credit, Header, MAX_FRAME_SIZE};
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, Cancel, Command, Credit, Header, MAX_FRAME_SIZE_U32,
+};
 
 use crate::types::commit_hold::CommitHold;
 use crate::types::counted_frame::CountedFrame;
@@ -97,7 +99,7 @@ impl RoleLink {
                 next: 1,
                 ..Routes::default()
             })),
-            max_frame: Rc::new(Cell::new(MAX_FRAME_SIZE as u32)), // 2^20, lossless
+            max_frame: Rc::new(Cell::new(MAX_FRAME_SIZE_U32)),
         }
     }
 

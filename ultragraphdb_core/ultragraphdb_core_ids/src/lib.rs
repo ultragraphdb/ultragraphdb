@@ -16,6 +16,11 @@
 //! A [`Version`] is 64 bits: a 42-bit [`Epoch`], which the sequencer closes, and a 22-bit sequence within it, even
 //! for a commit. A [`SessionToken`] names a commit by its partition, its log position and its epoch.
 
+// Arithmetic on decoded wire/store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 mod errors;
 mod types;
 

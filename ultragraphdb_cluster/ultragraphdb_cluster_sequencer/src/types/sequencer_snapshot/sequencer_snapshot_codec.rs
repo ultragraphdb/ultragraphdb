@@ -3,6 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_traits_log::Position;
 
@@ -112,8 +117,10 @@ fn read_framed(reader: &mut Reader<'_>) -> Result<(usize, SequencerRecord), Clus
     let at = reader.offset();
     let body = reader.bytes(len, "a record")?;
     let record = SequencerRecord::decode(body).map_err(|refusal| {
-        if let ClusterErrorEnum::Malformed { what, offset } = &refusal.0 {
-            ClusterError::malformed(what, at + *offset)
+        if let ClusterErrorEnum::Malformed { what, offset } = &refusal.0
+            && let Some(offset) = at.checked_add(*offset)
+        {
+            ClusterError::malformed(what, offset)
         } else {
             refusal
         }

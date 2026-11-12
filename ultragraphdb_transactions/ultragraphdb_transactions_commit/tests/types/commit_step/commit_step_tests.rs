@@ -171,7 +171,7 @@ fn test_a_round_holds_what_fits_its_bytes() -> TestResult {
             Ok(p)
         })
         .collect::<TestResult<_>>()?;
-    let two = frame_of(&[&ps[0], &ps[1]])? as u32;
+    let two = u32::try_from(frame_of(&[&ps[0], &ps[1]])?)?;
     for (bound, held) in [(two, 2u32), (two - 1, 1)] {
         let mut step = Step::new(RoundBounds::new(bound, u32::MAX), 0);
         let mut out = Out::new();
@@ -194,7 +194,7 @@ fn test_a_request_too_large_for_any_round_is_refused_when_it_arrives() -> TestRe
     let mut p = blind(b"big")?;
     p.record = crate::utils::proposal_double::record(0, 0, &Writes::point(b"big"), 9_000);
     let alone = frame_of(&[&p])?;
-    let bound = alone as u32 - 1;
+    let bound = u32::try_from(alone)? - 1;
     let size = p.record.len();
     let mut step = Step::new(RoundBounds::new(bound, u32::MAX), 0);
     let mut out = Out::new();
@@ -222,7 +222,7 @@ fn test_a_request_whose_round_alone_is_exactly_the_bound_is_taken() -> TestResul
     let mut p = blind(b"big")?;
     p.record = crate::utils::proposal_double::record(0, 0, &Writes::point(b"big"), 9_000);
     let alone = frame_of(&[&p])?;
-    let mut step = Step::new(RoundBounds::new(alone as u32, u32::MAX), 0);
+    let mut step = Step::new(RoundBounds::new(u32::try_from(alone)?, u32::MAX), 0);
     let mut out = Out::new();
     commit(&mut step, &mut out, 5, p, 0);
     assert!(out.replies().is_empty(), "{:?}", out.replies());

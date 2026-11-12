@@ -40,7 +40,7 @@ impl BodyBuilder for RoundBody {
                     .chain(detail.to_le_bytes())
             })
             .collect();
-        let mut table = Vec::with_capacity(RECORD_ENTRY_SIZE * self.records().len());
+        let mut table = Vec::with_capacity(RECORD_ENTRY_SIZE.saturating_mul(self.records().len()));
         let mut records = Vec::new();
         for record in self.records() {
             records.resize(align8(records.len()), 0);

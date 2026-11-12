@@ -105,7 +105,10 @@ impl<'a> Reader<'a> {
     }
 
     fn byte(&mut self) -> Result<u8, String> {
-        Ok(self.take(1)?[0])
+        self.take(1)?
+            .first()
+            .copied()
+            .ok_or_else(|| "drop record ends before a byte".to_string())
     }
 
     fn u64(&mut self) -> Result<u64, String> {

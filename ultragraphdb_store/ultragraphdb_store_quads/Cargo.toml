@@ -19,7 +19,6 @@ autotests = false
 workspace = true
 
 [dependencies]
-oxrdf = { workspace = true }
 ultragraphdb_core_codec = { workspace = true }
 ultragraphdb_core_catalog = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }
@@ -30,6 +29,8 @@ ultragraphdb_error_store = { workspace = true }
 ultragraphdb_store_posting = { workspace = true }
 ultragraphdb_traits_blocks = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
+# External crates
+oxrdf = { workspace = true }
 xxhash-rust = { workspace = true }
 
 [dev-dependencies]

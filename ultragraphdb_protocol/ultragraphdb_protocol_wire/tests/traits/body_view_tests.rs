@@ -119,8 +119,8 @@ fn test_every_truncation_of_every_body_is_refused() -> TestResult {
                 ProtocolErrorEnum::SectionOutOfBounds {
                     command: body.command,
                     section,
-                    offset: offset as u32,
-                    len: slen as u32,
+                    offset: u32::try_from(offset)?,
+                    len: u32::try_from(slen)?,
                     body: len,
                 }
             };
@@ -200,14 +200,14 @@ fn layout_cases(body: GoldenBody) -> TestResult<Vec<LayoutCase>> {
     if n == 0 {
         return Ok(cases);
     }
-    bounds_cases(command, n, &data, &mut cases);
-    order_cases(command, n, &data, &mut cases);
-    gap_cases(command, n, &data, &mut cases);
+    bounds_cases(command, n, &data, &mut cases)?;
+    order_cases(command, n, &data, &mut cases)?;
+    gap_cases(command, n, &data, &mut cases)?;
     Ok(cases)
 }
 
 /// The cases of a table or a section outside the body of `data`, `command`'s, of `n` sections.
-fn bounds_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>) {
+fn bounds_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>) -> TestResult {
     // A body shorter than its section table.
     cases.push((
         "shorter than the table".to_string(),
@@ -220,7 +220,7 @@ fn bounds_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>
     ));
     // Section 0's offset past the body.
     let mut past = data.to_vec();
-    let past_at = (data.len() + 8) as u32;
+    let past_at = u32::try_from(data.len() + 8)?;
     put(&mut past, 0, past_at.into(), 4);
     cases.push((
         "an offset past the body".to_string(),
@@ -229,7 +229,7 @@ fn bounds_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>
             command,
             section: 0,
             offset: past_at,
-            len: section(data, 0, 0).1 as u32,
+            len: u32::try_from(section(data, 0, 0).1)?,
             body: data.len(),
         },
     ));
@@ -248,15 +248,16 @@ fn bounds_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>
         ProtocolErrorEnum::SectionOutOfBounds {
             command,
             section: n - 1,
-            offset: offset as u32,
-            len: (data.len() - offset + 1) as u32,
+            offset: u32::try_from(offset)?,
+            len: u32::try_from(data.len() - offset + 1)?,
             body: data.len(),
         },
     ));
+    Ok(())
 }
 
 /// The cases of sections misaligned, overlapping or out of order in `data`, `command`'s, of `n` sections.
-fn order_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>) {
+fn order_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>) -> TestResult {
     // Misaligned: section 0 one byte later, its length one shorter so it stays inside.
     let (offset0, len0) = section(data, 0, 0);
     if len0 > 0 {
@@ -269,7 +270,7 @@ fn order_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>)
             ProtocolErrorEnum::SectionOffset {
                 command,
                 section: 0,
-                offset: (offset0 + 1) as u32,
+                offset: u32::try_from(offset0 + 1)?,
                 expected: 8 * n,
             },
         ));
@@ -287,7 +288,7 @@ fn order_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>)
             ProtocolErrorEnum::SectionOffset {
                 command,
                 section: 1,
-                offset: offset0 as u32,
+                offset: u32::try_from(offset0)?,
                 expected: expected1,
             },
         ));
@@ -303,16 +304,17 @@ fn order_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>)
                 ProtocolErrorEnum::SectionOffset {
                     command,
                     section: 0,
-                    offset: offset1 as u32,
+                    offset: u32::try_from(offset1)?,
                     expected: 8 * n,
                 },
             ));
         }
     }
+    Ok(())
 }
 
 /// The cases of a gap or nonzero padding between sections of `data`, `command`'s, of `n` sections.
-fn gap_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>) {
+fn gap_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>) -> TestResult {
     // A gap: eight zero bytes before the last section, its offset moved past them.
     let (last_offset, _) = section(data, 0, n - 1);
     let mut gapped = data[..last_offset].to_vec();
@@ -325,7 +327,7 @@ fn gap_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>) {
         ProtocolErrorEnum::SectionOffset {
             command,
             section: n - 1,
-            offset: (last_offset + 8) as u32,
+            offset: u32::try_from(last_offset + 8)?,
             expected: last_offset,
         },
     ));
@@ -347,6 +349,7 @@ fn gap_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>) {
             },
         ));
     }
+    Ok(())
 }
 
 #[test]

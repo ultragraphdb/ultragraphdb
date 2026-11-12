@@ -47,19 +47,20 @@ pub(crate) fn read(
 ) -> Result<(u128, usize), CodecError> {
     debug_assert!(len_max <= U128_LEN_MAX, "no width needs more than 19 bytes");
     let mut value = 0u128;
-    for (i, &byte) in bytes.iter().enumerate().take(len_max) {
-        let group = byte & 0x7F;
-        let shift = 7 * u32::try_from(i).map_err(|_| CodecError::overflowing_varint(offset))?;
-        let bits = 8 - group.leading_zeros();
-        if shift + bits > 128 {
+    // The n-th group, n from 1, shifts by 7 × (n - 1); 19 shifts cover 128 bits, the most any width takes.
+    let groups = bytes.iter().zip((0..u128::BITS).step_by(7));
+    for (len, (&byte, shift)) in (1usize..).zip(groups).take(len_max) {
+        let group = u128::from(byte & 0x7F);
+        // The group's bits pass bit 128 exactly when it has fewer leading zeros than its shift.
+        if group.leading_zeros() < shift {
             return Err(CodecError::overflowing_varint(offset));
         }
-        value |= u128::from(group) << shift;
+        value |= group << shift;
         if byte & 0x80 == 0 {
-            if byte == 0 && i > 0 {
+            if byte == 0 && len > 1 {
                 return Err(CodecError::non_canonical_varint(offset));
             }
-            return Ok((value, i + 1));
+            return Ok((value, len));
         }
     }
     if bytes.len() < len_max {

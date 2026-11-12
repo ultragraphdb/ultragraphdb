@@ -26,22 +26,24 @@ impl Table {
         let mut bufp = 0;
         let mut p = scan.scan(0);
 
-        if !scan.done && p < suffix.len() && suffix[p] >= RUNE_SELF {
+        // The byte of `suffix` at `at` starts a multi-byte rune.
+        let multi_byte_at = |at: usize| suffix.get(at).is_some_and(|&b| b >= RUNE_SELF);
+        if !scan.done && multi_byte_at(p) {
             // By now we should have filtered most cases. Invalid UTF-8 has the properties of a starter in norm's
             // trie, so it ends the scan, and its width, Go's and this one alike, is never used.
             let mut p0 = p;
-            let (r, size) = first_rune(&suffix[p..]);
+            let (r, size) = first_rune(suffix.get(p..).unwrap_or_default());
             let mut rune = nfd_properties(r);
             p += size;
             if rune.lead_ccc != 0 {
                 let mut prev_cc = rune.trail_ccc;
                 // A gap may only occur in the last normalization segment. This also ensures that the scanned input
                 // is shorter than a segment.
-                if let Some(end) = first_boundary(&suffix[p..]) {
+                if let Some(end) = first_boundary(suffix.get(p..).unwrap_or_default()) {
                     scan.s_end = p + end;
                 }
-                while p < suffix.len() && !scan.done && suffix[p] >= RUNE_SELF {
-                    let (next_r, next_size) = first_rune(&suffix[p..]);
+                while !scan.done && multi_byte_at(p) {
+                    let (next_r, next_size) = first_rune(suffix.get(p..).unwrap_or_default());
                     rune = nfd_properties(next_r);
                     let ccc = rune.lead_ccc;
                     if ccc == 0 || prev_cc >= ccc {
@@ -52,8 +54,8 @@ impl Table {
                     if pp != p {
                         // Copy the interstitial runes for later processing; Go's buffer holds one segment.
                         let room = MAX_SEGMENT_SIZE - buf.len();
-                        let part = &suffix[p0..p];
-                        buf.extend_from_slice(&part[..part.len().min(room)]);
+                        let part = suffix.get(p0..p).unwrap_or_default();
+                        buf.extend(part.iter().take(room));
                         if scan.pindex == pp {
                             bufp = buf.len();
                         }
@@ -67,21 +69,26 @@ impl Table {
         }
         // Append weights for the matched contraction, which may be an expansion.
         let (i, consumed) = scan.result();
-        let contraction_ce = Elem(MAIN_CONTRACT_ELEM[i + offset]);
+        let contraction_ce = Elem(
+            MAIN_CONTRACT_ELEM
+                .get(i + offset)
+                .copied()
+                .unwrap_or_default(),
+        );
         if contraction_ce.ctype() == CeType::Normal {
             w.push(contraction_ce);
         } else {
             self.append_expansion(w, contraction_ce);
         }
         // Append weights for the runes in the segment not part of the contraction.
-        let mut b = &buf[..bufp];
+        let mut b = buf.get(..bufp).unwrap_or_default();
         while !b.is_empty() {
             let rune_len = self.append_next(w, b);
             if rune_len == 0 {
                 // An incomplete rune at the end of a full buffer, where Go loops forever.
                 break;
             }
-            b = &b[rune_len..];
+            b = b.get(rune_len..).unwrap_or_default();
         }
         consumed
     }

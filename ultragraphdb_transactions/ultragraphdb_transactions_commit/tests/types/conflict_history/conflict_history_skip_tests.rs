@@ -14,8 +14,8 @@ use ultragraphdb_transactions_commit::ConflictHistory;
 
 use crate::utils::proposal_double::{Reads, Writes, read_set, term_key};
 
-fn insert(history: &mut ConflictHistory, version: u64, writes: &Writes) {
-    history.insert(
+fn insert(history: &mut ConflictHistory, version: u64, writes: &Writes) -> TestResult {
+    Ok(history.insert(
         version,
         writes.points.iter().map(Vec::as_slice),
         writes
@@ -26,7 +26,7 @@ fn insert(history: &mut ConflictHistory, version: u64, writes: &Writes) {
             .ranges
             .iter()
             .map(|(s, e)| (s.as_slice(), e.as_deref())),
-    );
+    )?)
 }
 
 fn points(keys: &[&[u8]]) -> Writes {
@@ -44,15 +44,15 @@ fn lists(keys: &[&[u8]]) -> Reads {
 }
 
 /// A history of one run holding the points `d` and `m`, written at 12.
-fn one_run() -> ConflictHistory {
+fn one_run() -> TestResult<ConflictHistory> {
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 12, &points(&[b"d", b"m"]));
-    history
+    insert(&mut history, 12, &points(&[b"d", b"m"]))?;
+    Ok(history)
 }
 
 #[test]
 fn test_a_key_at_either_bound_of_a_run_conflicts_and_one_past_it_does_not() -> TestResult {
-    let history = one_run();
+    let history = one_run()?;
     let check = |reads: &Reads| read_set(0, 10, reads).map(|set| history.conflict(&set));
     assert_eq!(check(&Reads::list(b"d"))?, Some(ConflictKind::List));
     assert_eq!(check(&Reads::list(b"m"))?, Some(ConflictKind::List));
@@ -69,7 +69,7 @@ fn test_a_key_at_either_bound_of_a_run_conflicts_and_one_past_it_does_not() -> T
     // A run holding the term key of `id(3)` among its points.
     let mut terms = ConflictHistory::new(0);
     let term = term_key(3);
-    insert(&mut terms, 12, &points(&[b"d", &term]));
+    insert(&mut terms, 12, &points(&[b"d", &term]))?;
     let absent =
         |sequence| read_set(0, 10, &Reads::absent(sequence)).map(|set| terms.conflict(&set));
     assert_eq!(absent(3)?, Some(ConflictKind::AbsentTerm));
@@ -80,8 +80,8 @@ fn test_a_key_at_either_bound_of_a_run_conflicts_and_one_past_it_does_not() -> T
 #[test]
 fn test_a_statement_at_a_bound_conflicts() -> TestResult {
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 12, &Writes::statement(b"m", b"o"));
-    insert(&mut history, 14, &Writes::statement(b"d", b"o"));
+    insert(&mut history, 12, &Writes::statement(b"m", b"o"))?;
+    insert(&mut history, 14, &Writes::statement(b"d", b"o"))?;
     let check = |reads: &Reads| read_set(0, 10, reads).map(|set| history.conflict(&set));
     assert_eq!(
         check(&Reads::statement(b"m", b"o"))?,
@@ -98,7 +98,7 @@ fn test_a_statement_at_a_bound_conflicts() -> TestResult {
 
 #[test]
 fn test_a_range_read_meeting_a_run_at_a_bound_conflicts() -> TestResult {
-    let history = one_run();
+    let history = one_run()?;
     let check = |reads: &Reads| read_set(0, 10, reads).map(|set| history.conflict(&set));
     // Ending at the lower bound, the end exclusive: no key of the run inside.
     assert_eq!(check(&Reads::range(b"a", Some(b"d")))?, None);
@@ -120,8 +120,8 @@ fn test_a_range_read_meeting_a_run_at_a_bound_conflicts() -> TestResult {
 fn test_a_merged_run_keeps_both_runs_bounds() -> TestResult {
     // Two runs of one point each merge into one (the newest is no larger than the one before).
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 12, &points(&[b"m"]));
-    insert(&mut history, 14, &points(&[b"d"]));
+    insert(&mut history, 12, &points(&[b"m"]))?;
+    insert(&mut history, 14, &points(&[b"d"]))?;
     assert_eq!(history.runs(), 1, "merged");
     let check = |reads: &Reads| read_set(0, 10, reads).map(|set| history.conflict(&set));
     assert_eq!(check(&Reads::list(b"d"))?, Some(ConflictKind::List));
@@ -133,7 +133,7 @@ fn test_a_merged_run_keeps_both_runs_bounds() -> TestResult {
 #[test]
 fn test_a_written_range_at_its_bounds_conflicts_alone_and_after_a_merge() -> TestResult {
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 12, &Writes::range(b"m", Some(b"p")));
+    insert(&mut history, 12, &Writes::range(b"m", Some(b"p")))?;
     let check = |checked: &ConflictHistory, reads: &Reads| {
         read_set(0, 10, reads).map(|set| checked.conflict(&set))
     };
@@ -149,7 +149,7 @@ fn test_a_written_range_at_its_bounds_conflicts_alone_and_after_a_merge() -> Tes
     assert_eq!(check(&history, &Reads::list(b"l\xff"))?, None);
     // A second range, below the first, merged into its run: the merged run's ranges reach from the lower start to
     // the higher end, and then to no end at all.
-    insert(&mut history, 14, &Writes::range(b"b", Some(b"c")));
+    insert(&mut history, 14, &Writes::range(b"b", Some(b"c")))?;
     assert_eq!(history.runs(), 1, "merged");
     assert_eq!(
         check(&history, &Reads::list(b"b"))?,
@@ -165,8 +165,8 @@ fn test_a_written_range_at_its_bounds_conflicts_alone_and_after_a_merge() -> Tes
         "between the two ranges"
     );
     assert_eq!(check(&history, &Reads::list(b"a"))?, None);
-    insert(&mut history, 16, &Writes::range(b"x", None));
-    insert(&mut history, 18, &Writes::range(b"y", Some(b"z")));
+    insert(&mut history, 16, &Writes::range(b"x", None))?;
+    insert(&mut history, 18, &Writes::range(b"y", Some(b"z")))?;
     assert_eq!(
         check(&history, &Reads::list(b"\xff\xff"))?,
         Some(ConflictKind::Drop)
@@ -187,7 +187,7 @@ fn test_a_written_range_at_its_bounds_conflicts_alone_and_after_a_merge() -> Tes
 fn test_a_written_range_over_the_lowest_keys_conflicts_at_them() -> TestResult {
     // A range from the empty key to 0x00 0x05: the empty key and 0x00 0x01 lie inside it, 0x00 0x05 is its end.
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 12, &Writes::range(b"", Some(b"\x00\x05")));
+    insert(&mut history, 12, &Writes::range(b"", Some(b"\x00\x05")))?;
     let check = |reads: &Reads| read_set(0, 10, reads).map(|set| history.conflict(&set));
     assert_eq!(check(&Reads::list(b""))?, Some(ConflictKind::Drop));
     assert_eq!(check(&Reads::list(b"\x00\x01"))?, Some(ConflictKind::Drop));

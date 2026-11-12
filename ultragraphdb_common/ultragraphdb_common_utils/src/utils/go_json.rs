@@ -9,6 +9,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+// Arithmetic on decoded text input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 //! Go's `encoding/json` as Dgraph runs it on Go 1.27, where it is built on `encoding/json/jsontext`: `Valid`,
 //! `Unmarshal` into an `interface{}` and `Marshal` of a string. The stream decoder is
 //! [`JsonDecoder`](crate::JsonDecoder) and the decoded value [`JsonValue`](crate::JsonValue).
@@ -54,14 +59,18 @@ pub fn valid(data: &[u8]) -> bool {
 /// value or holds none.
 pub fn unmarshal(data: &[u8]) -> Result<JsonValue, JsonError> {
     let (start, end) = check_valid(data)?;
-    Ok(JsonValue::from_valid(&data[start..end]))
+    // `check_valid` returns the value's place in `data`; a value not held whole is reported as cut short.
+    data.get(start..end)
+        .map(JsonValue::from_valid)
+        .ok_or_else(JsonError::unexpected_eof)
 }
 
 /// Go 1.27's `json.Marshal` of a string, jsonwire's `AppendQuote` with v1's options: the quote, the backslash and
 /// control characters escaped (`\b`, `\f`, `\n`, `\r`, `\t` by name, the others as `\u00xx`), the HTML characters
 /// `<`, `>`, `&` and U+2028 and U+2029 as `\u` escapes, and each byte that is not UTF-8 as the character U+FFFD.
 pub fn encode_string(s: &[u8]) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
+    // A capacity hint: the bytes and their quotes.
+    let mut out = String::with_capacity(s.len().saturating_add(2));
     out.push('"');
     for chunk in s.utf8_chunks() {
         for c in chunk.valid().chars() {

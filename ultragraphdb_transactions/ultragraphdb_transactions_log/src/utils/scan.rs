@@ -3,6 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+// Arithmetic on decoded log input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use ultragraphdb_error_log::LogError;
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{
@@ -14,7 +19,7 @@ use crate::types::damage::Damage;
 use crate::types::scan_start::ScanStart;
 use crate::types::scanned_round::ScannedRound;
 use crate::types::segment_scan::SegmentScan;
-use crate::utils::block::BLOCK;
+use crate::utils::block::{BLOCK, padded_usize};
 
 /// What a block boundary of a segment holds.
 enum Found {
@@ -42,14 +47,21 @@ fn frame_at(bytes: &[u8], offset: usize, cluster: u64) -> Found {
     if block.iter().all(|byte| *byte == 0) {
         return Found::Zeros;
     }
-    let size = block
+    let stored_size = block
         .get(40..44)
         .and_then(|field| field.try_into().ok())
-        .map_or(0, u32::from_le_bytes) as usize;
-    if !(HEADER_SIZE..=MAX_FRAME_SIZE).contains(&size) || size > bytes.len() - offset {
+        .map_or(0, u32::from_le_bytes);
+    // Lossless: a `usize` holds 32 bits on every target the repository builds for.
+    let size = stored_size as usize;
+    if !(HEADER_SIZE..=MAX_FRAME_SIZE).contains(&size) {
         return Found::NotARound;
     }
-    let frame = bytes.get(offset..offset + size).unwrap_or_default();
+    let Some(frame) = offset
+        .checked_add(size)
+        .and_then(|end| bytes.get(offset..end))
+    else {
+        return Found::NotARound;
+    };
     // size is at least a header, so the view's length rule holds; verify checks the rest.
     let verified = HeaderView::new(frame).and_then(|view| {
         let header = view.verify(cluster, MAX_FRAME_SIZE)?;
@@ -66,9 +78,9 @@ fn frame_at(bytes: &[u8], offset: usize, cluster: u64) -> Found {
             if fields.position() == 0 || header.sequence() != u128::from(fields.position()) {
                 return Found::NotARound;
             }
-            // Lossless: a `usize` is at most 64 bits, and `size` was read from a u32.
+            // Lossless: a `usize` is at most 64 bits.
             Found::Frame {
-                round: ScannedRound::new(fields, view.checksum(), offset as u64, size as u32),
+                round: ScannedRound::new(fields, view.checksum(), offset as u64, stored_size),
                 incarnation: fields.incarnation(),
                 checksum_body: view.checksum_body(),
             }
@@ -79,9 +91,18 @@ fn frame_at(bytes: &[u8], offset: usize, cluster: u64) -> Found {
 
 /// The body of `round`, whose header verified, checked against `checksum_body`: its chunk table, then each chunk.
 fn check_body(bytes: &[u8], round: &ScannedRound, checksum_body: u64) -> Result<(), Damage> {
-    let start = round.offset() as usize + HEADER_SIZE;
-    let end = round.offset() as usize + round.size() as usize;
-    let body = bytes.get(start..end).unwrap_or_default();
+    // A body outside `bytes` has no chunk table to trust. A `usize` holds the u32 size on every target the repository
+    // builds for.
+    let body = usize::try_from(round.offset()).ok().and_then(|offset| {
+        let start = offset.checked_add(HEADER_SIZE)?;
+        let end = offset.checked_add(round.size() as usize)?;
+        bytes.get(start..end)
+    });
+    let Some(body) = body else {
+        return Err(Damage::ChunkTable {
+            position: round.position(),
+        });
+    };
     ChunkedBody::verify(body, checksum_body)
         .map(|_| ())
         .map_err(|refusal| match refusal.0 {
@@ -231,7 +252,16 @@ pub fn scan_segment(bytes: &[u8], start: &ScanStart) -> Result<SegmentScan, LogE
                     .position()
                     .next()
                     .map(|position| (position, round.checksum()));
-                offset += round.padded_size() as usize;
+                // Lossless: a `usize` holds 32 bits on every target the repository builds for. The frame lies within
+                // the bytes, so its padded end is less than a block past them and never overflows.
+                let Some(end) = offset.checked_add(padded_usize(round.size() as usize)) else {
+                    return Ok(SegmentScan::new(
+                        rounds,
+                        offset as u64,
+                        Some(Damage::Header),
+                    ));
+                };
+                offset = end;
                 rounds.push(round);
                 if next.is_none() {
                     return Ok(SegmentScan::new(rounds, offset as u64, None));

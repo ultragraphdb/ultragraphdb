@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_core_mapping::RandomSource;
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
 fn test_the_draws_are_splitmix64s() {
@@ -59,14 +60,15 @@ fn test_a_draw_below_a_bound_is_lemires_from_the_seeds_draws() {
 }
 
 #[test]
-fn test_draws_below_a_bound_reach_every_value() {
+fn test_draws_below_a_bound_reach_every_value() -> TestResult {
     // 3,000 draws below 3 miss a value with probability 3 × (2/3)^3000, which is 0 in practice.
     let mut source = RandomSource::new(11);
     let mut seen = [false; 3];
     for _ in 0..3_000 {
-        if let Some(slot) = seen.get_mut(source.below(3) as usize) {
+        if let Some(slot) = seen.get_mut(usize::try_from(source.below(3))?) {
             *slot = true;
         }
     }
     assert_eq!(seen, [true; 3]);
+    Ok(())
 }

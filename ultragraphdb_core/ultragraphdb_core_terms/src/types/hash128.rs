@@ -13,8 +13,11 @@ pub struct Hash128([u8; 16]);
 impl Hash128 {
     /// The hash of `bytes`.
     pub fn of(bytes: &[u8]) -> Self {
+        // The digest's first 16 of its 32 bytes.
         let mut out = [0u8; 16];
-        out.copy_from_slice(&Sha256::digest(bytes)[..16]);
+        out.iter_mut()
+            .zip(Sha256::digest(bytes))
+            .for_each(|(slot, byte)| *slot = byte);
         Self(out)
     }
 

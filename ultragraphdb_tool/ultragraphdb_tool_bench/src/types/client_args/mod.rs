@@ -123,28 +123,36 @@ impl ClientArgs {
         })?;
         let partitions = bounded(&flags, "--partitions", (1, 1), PARTITIONS_MAX)?;
         let relations = bounded(&flags, "--relations", (1, 1), RELATIONS_MAX)?;
+        let unfit = |flag: &str| BenchError::usage(format!("{flag} does not fit this machine"));
         Ok(Self {
             address: resolved(address)?,
             password_file: PathBuf::from(required("--password-file")?),
             op,
             connections: bounded(&flags, "--connections", (1, 1), CONNECTIONS_MAX)?,
             seconds: number(&flags, "--seconds", Some(30), 1)?,
-            // At most `RELATIONS_MAX` and `PARTITIONS_MAX`, so each cast is lossless.
-            relations: relations as usize,
+            // At most `RELATIONS_MAX` and `PARTITIONS_MAX`, so each converts.
+            relations: usize::try_from(relations).map_err(|_| unfit("--relations"))?,
             session: on_off(&flags, "--session", true)?,
-            partitions: partitions as u32,
+            partitions: u32::try_from(partitions).map_err(|_| unfit("--partitions"))?,
             hubs: number(&flags, "--hubs", Some(1_000), partitions)?,
             subjects: number(&flags, "--subjects", Some(1_000), 1)?,
             cluster: number(&flags, "--cluster", Some(1), 1)?,
             seed: number(&flags, "--seed", Some(1), 0)?,
             level: level(&flags)?,
-            // At most `u32::MAX`, so the cast is lossless.
-            limit: bounded(&flags, "--limit", (0, 0), u64::from(u32::MAX))? as u32,
+            // At most `u32::MAX`, so it converts.
+            limit: u32::try_from(bounded(&flags, "--limit", (0, 0), u64::from(u32::MAX))?)
+                .map_err(|_| unfit("--limit"))?,
             predicates: bounded(&flags, "--predicates", (8, 1), PREDICATES_MAX)?,
             fresh: on_off(&flags, "--fresh", false)?,
             writes: bounded(&flags, "--writes", (16, 1), WRITES_MAX)?,
-            // At most `VALUE_BYTES_MAX`, so the cast is lossless.
-            value_bytes: bounded(&flags, "--value-bytes", (1, 1), VALUE_BYTES_MAX)? as usize,
+            // At most `VALUE_BYTES_MAX`, so it converts.
+            value_bytes: usize::try_from(bounded(
+                &flags,
+                "--value-bytes",
+                (1, 1),
+                VALUE_BYTES_MAX,
+            )?)
+            .map_err(|_| unfit("--value-bytes"))?,
         })
     }
 

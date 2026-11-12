@@ -80,8 +80,13 @@ impl IdHeap {
         }
     }
 
+    /// Whether the element at `i` is smaller than the one at `j`; false when either is out of range, which stops the
+    /// caller's move.
     fn less(&self, i: usize, j: usize) -> bool {
-        self.elems[i].val() < self.elems[j].val()
+        match (self.elems.get(i), self.elems.get(j)) {
+            (Some(a), Some(b)) => a.val() < b.val(),
+            _ => false,
+        }
     }
 
     fn up(&mut self, mut j: usize) {

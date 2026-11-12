@@ -3,6 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+// Arithmetic on decoded wire input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use crate::types::http_limits::HttpLimits;
 use crate::types::parsed_head::{HttpHead, ParsedHead};
 
@@ -33,9 +38,13 @@ pub fn parse_head(bytes: &[u8], limits: &HttpLimits) -> ParsedHead {
     else {
         return ParsedHead::Refused(400);
     };
-    let body_start = end + END_OF_HEAD.len();
+    // `end` is where the window `END_OF_HEAD` was found, within `bytes`, so the sum fits.
+    let Some(body_start) = end.checked_add(END_OF_HEAD.len()) else {
+        return ParsedHead::Refused(400);
+    };
+    let arrived = bytes.get(body_start..).map_or(0, <[u8]>::len);
     match read_head(head, body_start, limits) {
-        Ok(read) if bytes.len() < body_start + read.body_len => ParsedHead::Incomplete,
+        Ok(read) if arrived < read.body_len => ParsedHead::Incomplete,
         Ok(read) => ParsedHead::Complete(read),
         Err(status) => ParsedHead::Refused(status),
     }

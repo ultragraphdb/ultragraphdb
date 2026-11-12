@@ -13,8 +13,8 @@ use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, SystemId, Version};
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::{
-    BodyView, ComputeRead, ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_FLOOR, ReadLevel,
-    ResumeKey, ResumeKeyView, ResumeRow, ScanAt, TermTable,
+    BodyView, ComputeRead, ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_FLOOR,
+    MAX_FRAME_FLOOR_U32, ReadLevel, ResumeKey, ResumeKeyView, ResumeRow, ScanAt, TermTable,
 };
 use ultragraphdb_store_quads::{ReferrerSet, term_key};
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -139,7 +139,7 @@ fn test_a_limited_read_resumes_after_its_last_row() -> TestResult {
         let resumed = ComputeRead::new(tenant, true, ReadLevel::Snapshot, terms, slots, key)
             .with_principal(1)
             .with_deadline_ms(crate::played_reads::read_answer::DEADLINE_MS)
-            .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE as u32, 4)
+            .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE_U32, 4)
             .with_read_version(Version::bound_of(Epoch::new(SNAPSHOT)?))
             .with_epoch(SNAPSHOT);
         let rest = answer(&cluster, &resumed).await?;
@@ -303,7 +303,7 @@ fn test_a_read_over_two_partitions_merges_in_key_order_and_resumes() -> TestResu
         )
         .with_principal(1)
         .with_deadline_ms(crate::played_reads::read_answer::DEADLINE_MS)
-        .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE as u32, 4)
+        .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE_U32, 4)
         .with_read_version(Version::bound_of(Epoch::new(SNAPSHOT)?))
         .with_epoch(SNAPSHOT);
         let rest = answer(&cluster, &resumed).await?;
@@ -489,7 +489,7 @@ fn test_a_resume_key_of_another_pattern_or_version_is_refused() -> TestResult {
                 ComputeRead::new(tenant, true, ReadLevel::Snapshot, terms, slots, key.clone())
                     .with_principal(1)
                     .with_deadline_ms(crate::played_reads::read_answer::DEADLINE_MS)
-                    .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE as u32, 4)
+                    .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE_U32, 4)
                     .with_read_version(Version::bound_of(Epoch::new(epoch)?))
                     .with_epoch(epoch),
             )
@@ -534,7 +534,7 @@ fn test_a_resume_key_naming_an_unheld_term_past_the_frame_is_refused_within_it()
         let resumed = ComputeRead::new(tenant, true, ReadLevel::Snapshot, table, slots, forged)
             .with_principal(1)
             .with_deadline_ms(DEADLINE_MS)
-            .with_client_limits(MAX_FRAME_FLOOR as u32, 4) // 2^19, lossless
+            .with_client_limits(MAX_FRAME_FLOOR_U32, 4)
             .with_read_version(Version::bound_of(Epoch::new(SNAPSHOT)?))
             .with_epoch(SNAPSHOT);
         let mut client = cluster.client().await?;

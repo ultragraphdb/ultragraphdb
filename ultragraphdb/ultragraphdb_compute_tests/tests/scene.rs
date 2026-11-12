@@ -17,9 +17,9 @@ use ultragraphdb_core_terms::{EncodedTerm, TermView, Text};
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     Bind, BindKind, BindView, BodyView, Closed, ClosedView, Command, Commit, CommitView,
-    ComputeRead, Credit, ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_FLOOR, MAX_FRAME_SIZE,
-    PatternSlot, QuadPattern, ReadLevel, RequestTerm, ResultTermView, ResultView, Scan, ScanAt,
-    ScanRange, TermTable, Write, WriteChange,
+    ComputeRead, Credit, ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_FLOOR_U32,
+    MAX_FRAME_SIZE_U32, PatternSlot, QuadPattern, ReadLevel, RequestTerm, ResultTermView,
+    ResultView, Scan, ScanAt, ScanRange, TermTable, Write, WriteChange,
 };
 use ultragraphdb_store_quads::{iri_bucket, term_key};
 use ultragraphdb_tests::{CLUSTER, SECRET};
@@ -467,7 +467,7 @@ impl Scene {
             ComputeRead::new(self.tenant, read_only, level, terms, slots, Vec::new())
                 .with_principal(PRINCIPAL)
                 .with_deadline_ms(DEADLINE_MS)
-                .with_client_limits(MAX_FRAME_SIZE as u32, 4),
+                .with_client_limits(MAX_FRAME_SIZE_U32, 4),
         )
     }
 
@@ -602,4 +602,4 @@ impl Transaction {
 }
 
 /// The largest client frame the floor allows.
-pub const FLOOR: u32 = MAX_FRAME_FLOOR as u32;
+pub const FLOOR: u32 = MAX_FRAME_FLOOR_U32;

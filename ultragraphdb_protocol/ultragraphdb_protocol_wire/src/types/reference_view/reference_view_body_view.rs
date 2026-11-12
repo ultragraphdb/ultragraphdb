@@ -3,7 +3,6 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -19,7 +18,7 @@ use crate::types::term_table_view::TermTableView;
 use crate::utils::body::{read_sections, records};
 use crate::utils::command_header::expect_command;
 use crate::utils::constants::MAX_EPOCH;
-use crate::utils::fields::boolean;
+use crate::utils::fields::{boolean, count};
 use crate::utils::term_kind::term_kind;
 
 impl<'a> BodyView<'a> for ReferenceView<'a> {
@@ -43,7 +42,7 @@ impl<'a> BodyView<'a> for ReferenceView<'a> {
             sections.get(1),
             sections.get(2),
         )?;
-        if let Some(other) = (0..as_u32(terms.len()))
+        if let Some(other) = (0..count(command, "terms", terms.len())?)
             .filter_map(|index| terms.get(index))
             .find(|term| !matches!(term, RequestTermView::Iri(_)))
         {
@@ -64,7 +63,9 @@ impl<'a> BodyView<'a> for ReferenceView<'a> {
             ));
         }
         for (index, record) in whole.enumerate() {
-            let at = sections.offset(0) + REGISTRATION_SIZE * index;
+            let at = sections
+                .offset(0)
+                .saturating_add(REGISTRATION_SIZE.saturating_mul(index));
             check_registration(command, (reply, mode), at, index, record, terms.len())?;
         }
         Ok(Self {
@@ -99,7 +100,10 @@ fn check_registration(
     terms: usize,
 ) -> Result<(), ProtocolError> {
     if record.get(15).is_some_and(|zero| *zero != 0) {
-        return Err(ProtocolError::padding_not_zero(command, at + 15));
+        return Err(ProtocolError::padding_not_zero(
+            command,
+            at.saturating_add(15),
+        ));
     }
     // Lossless: a `usize` is at most 64 bits.
     let refused = ProtocolError::field_value(command, "registration", index as u64);

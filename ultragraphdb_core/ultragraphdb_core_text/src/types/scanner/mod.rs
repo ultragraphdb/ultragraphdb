@@ -59,12 +59,12 @@ impl Scanner {
 
     /// The buffer.
     pub(crate) fn b(&self) -> &[u8] {
-        &self.arr[..self.len]
+        self.arr.get(..self.len).unwrap_or_default()
     }
 
     /// The buffer, mutable.
     pub(crate) fn b_mut(&mut self) -> &mut [u8] {
-        &mut self.arr[..self.len]
+        self.arr.get_mut(..self.len).unwrap_or_default()
     }
 
     /// The length of the buffer.
@@ -83,14 +83,18 @@ impl Scanner {
         if end > self.arr.len() {
             self.arr.resize(end, 0);
         }
-        self.arr[self.len..end].copy_from_slice(bytes);
+        if let Some(slot) = self.arr.get_mut(self.len..end) {
+            slot.copy_from_slice(bytes);
+        }
         self.len = end;
     }
 
     /// Go's `copy(b[p:], src)`: copies as much of `src` as fits before the end of the buffer.
     pub(crate) fn copy_at(&mut self, p: usize, src: &[u8]) {
         let n = src.len().min(self.len.saturating_sub(p));
-        self.arr[p..p + n].copy_from_slice(&src[..n]);
+        if let (Some(dst), Some(src)) = (self.arr.get_mut(p..p + n), src.get(..n)) {
+            dst.copy_from_slice(src);
+        }
     }
 
     /// Removes `[start, end)` from the buffer in place: the rest moves left and the old bytes stay beyond the new
@@ -103,7 +107,7 @@ impl Scanner {
     /// The current token, empty when there is none.
     pub(crate) fn token(&self) -> &[u8] {
         match self.token {
-            Some((s, e)) => &self.arr[s..e],
+            Some((s, e)) => self.arr.get(s..e).unwrap_or_default(),
             None => &[],
         }
     }
@@ -111,7 +115,7 @@ impl Scanner {
     /// The current token, mutable, for the lookups that fix its case in place.
     pub(crate) fn token_mut(&mut self) -> &mut [u8] {
         match self.token {
-            Some((s, e)) => &mut self.arr[s..e],
+            Some((s, e)) => self.arr.get_mut(s..e).unwrap_or_default(),
             None => &mut [],
         }
     }
@@ -123,8 +127,8 @@ impl Scanner {
 
     /// Converts `b[start..end]` to lower case; an empty or inverted range is left alone, as Go's loop does.
     pub(crate) fn lower_case(&mut self, start: usize, end: usize) {
-        if start < end {
-            self.arr[start..end].make_ascii_lowercase();
+        if let Some(range) = self.arr.get_mut(start..end) {
+            range.make_ascii_lowercase();
         }
     }
 
@@ -198,7 +202,8 @@ impl Scanner {
         self.token = None;
         self.start = self.next;
         while self.next < self.len {
-            let i = match self.b()[self.next..].iter().position(|&c| c == b'-') {
+            let rest = self.b().get(self.next..).unwrap_or_default();
+            let i = match rest.iter().position(|&c| c == b'-') {
                 None => {
                     self.end = self.len;
                     self.next = self.len;
@@ -210,7 +215,7 @@ impl Scanner {
                     i
                 }
             };
-            let token = &self.arr[self.start..self.end];
+            let token = self.arr.get(self.start..self.end).unwrap_or_default();
             if !(1..=8).contains(&i) || !token.iter().all(u8::is_ascii_alphanumeric) {
                 self.gobble(Some(LanguageError::syntax()));
                 continue;

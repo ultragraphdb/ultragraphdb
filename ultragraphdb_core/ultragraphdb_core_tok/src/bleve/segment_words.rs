@@ -53,8 +53,10 @@ enum Label {
 pub(crate) fn word_segments(input: &str) -> (Vec<(&str, SegmentType)>, Option<&'static str>) {
     let mut out = Vec::new();
     let mut start = 0;
-    while start < input.len() {
-        match segment_words(&input.as_bytes()[start..]) {
+    while let Some(rest) = input.as_bytes().get(start..)
+        && !rest.is_empty()
+    {
+        match segment_words(rest) {
             Err(e) => return (out, Some(e)),
             Ok(None) => break,
             Ok(Some(f)) => {
@@ -71,11 +73,10 @@ pub(crate) fn word_segments(input: &str) -> (Vec<(&str, SegmentType)>, Option<&'
 
 /// segment's `segmentWords(data, 1, true, nil, nil)`: the first segment of `data`.
 fn segment_words(data: &[u8]) -> Result<Option<Found>, &'static str> {
-    // A slice holds at most isize::MAX bytes, so the conversion succeeds.
-    let pe = isize::try_from(data.len()).map_err(|_| PARSE_ERROR)?;
+    let pe = data.len();
     let eof = pe;
     let mut cs = S_START;
-    let mut p: isize = 0;
+    let mut p: usize = 0;
     let mut registers = Registers::default();
 
     let mut label = if p == pe {
@@ -88,18 +89,18 @@ fn segment_words(data: &[u8]) -> Result<Option<Found>, &'static str> {
             Label::Resume => {
                 // Only an end-of-input transition without a finish moves p past the end, where Go indexes past the
                 // data and panics; the scan ends there instead.
-                let Some(&c) = usize::try_from(p).ok().and_then(|i| data.get(i)) else {
+                let Some(&c) = data.get(p) else {
                     label = Label::TestEof;
                     continue;
                 };
-                label = Label::EofTrans(transition(cs, c));
+                label = Label::EofTrans(transition(cs, c)?);
             }
             Label::EofTrans(trans) => {
-                cs = S_TRANS_TARGS[trans] as usize;
+                cs = usize::from(entry(&S_TRANS_TARGS, trans)?);
                 // The generated actions also keep the scanner's token end (te) and move p back to it before a
                 // finish action; every finish action returns here, as one token is wanted and atEOF is set, so
                 // those registers are never read again and are left out.
-                if let Some(finish) = registers.act(S_TRANS_ACTIONS[trans], p) {
+                if let Some(finish) = registers.act(entry(&S_TRANS_ACTIONS, trans)?, p) {
                     return Ok(Some(finish_token(
                         data,
                         finish,
@@ -121,8 +122,10 @@ fn segment_words(data: &[u8]) -> Result<Option<Found>, &'static str> {
             }
             Label::TestEof => {
                 // The only end-of-input action (24) sets startPos, which nothing reads afterwards.
-                if p == eof && S_EOF_TRANS[cs] > 0 {
-                    label = Label::EofTrans(S_EOF_TRANS[cs] as usize - 1);
+                if p == eof
+                    && let Some(trans) = usize::from(entry(&S_EOF_TRANS, cs)?).checked_sub(1)
+                {
+                    label = Label::EofTrans(trans);
                     continue;
                 }
                 break;
@@ -135,24 +138,31 @@ fn segment_words(data: &[u8]) -> Result<Option<Found>, &'static str> {
     Ok(None)
 }
 
+/// The entry `i` of a generated table. The tables are generated together, so every state, key and transition one
+/// names is in range of the others; were one not, the scan stops with segment's parse error rather than reading past
+/// a table.
+fn entry<T: Copy>(table: &[T], i: usize) -> Result<T, &'static str> {
+    table.get(i).copied().ok_or(PARSE_ERROR)
+}
+
 /// The transition of state `cs` on the byte `c`: the state's single keys are searched first, then its ranges, and
 /// past both the state's default transition is taken. Each search halves its span per turn, so it ends within the
-/// logarithm of the state's key count. `keys` and `trans` start at unsigned offsets and only grow, and `mid` lies at or
-/// above `keys`, so their `usize` casts lose no sign; `S_INDICIES` holds no negative entry, so neither does its cast.
-fn transition(cs: usize, c: u8) -> usize {
-    let mut keys = i64::from(S_KEY_OFFSETS[cs]);
-    let mut trans = i64::from(S_INDEX_OFFSETS[cs]);
+/// logarithm of the state's key count. Go's searches keep an inclusive upper bound, which falls below zero past the
+/// first key; these keep it one key (one range) higher, exclusive, so it stays unsigned, and probe the keys Go's do.
+fn transition(cs: usize, c: u8) -> Result<usize, &'static str> {
+    let mut keys = usize::from(entry(&S_KEY_OFFSETS, cs)?);
+    let mut trans = usize::from(entry(&S_INDEX_OFFSETS, cs)?);
     let mut matched = false;
 
-    let klen = i64::from(S_SINGLE_LENGTHS[cs]);
+    let klen = usize::from(entry(&S_SINGLE_LENGTHS, cs)?);
     if klen > 0 {
         let mut lower = keys;
-        let mut upper = keys + klen - 1;
-        while upper >= lower {
-            let mid = lower + ((upper - lower) >> 1);
-            let k = S_TRANS_KEYS[mid as usize];
+        let mut upper = keys + klen;
+        while upper > lower {
+            let mid = lower + ((upper - 1 - lower) >> 1);
+            let k = entry(&S_TRANS_KEYS, mid)?;
             if c < k {
-                upper = mid - 1;
+                upper = mid;
             } else if c > k {
                 lower = mid + 1;
             } else {
@@ -167,15 +177,15 @@ fn transition(cs: usize, c: u8) -> usize {
         }
     }
     if !matched {
-        let range_len = i64::from(S_RANGE_LENGTHS[cs]);
+        let range_len = usize::from(entry(&S_RANGE_LENGTHS, cs)?);
         if range_len > 0 {
             let mut lower = keys;
-            let mut upper = keys + (range_len << 1) - 2;
-            while upper >= lower {
-                let mid = lower + (((upper - lower) >> 1) & !1);
-                if c < S_TRANS_KEYS[mid as usize] {
-                    upper = mid - 2;
-                } else if c > S_TRANS_KEYS[mid as usize + 1] {
+            let mut upper = keys + (range_len << 1);
+            while upper > lower {
+                let mid = lower + (((upper - 2 - lower) >> 1) & !1);
+                if c < entry(&S_TRANS_KEYS, mid)? {
+                    upper = mid;
+                } else if c > entry(&S_TRANS_KEYS, mid + 1)? {
                     lower = mid + 2;
                 } else {
                     trans += (mid - keys) >> 1;
@@ -188,20 +198,20 @@ fn transition(cs: usize, c: u8) -> usize {
             trans += range_len;
         }
     }
-    S_INDICIES[trans as usize] as usize
+    Ok(usize::from(entry(&S_INDICIES, trans)?))
 }
 
 /// The registers the scanner's actions write: the token's start and end, and the action of the longest match.
 #[derive(Default)]
 struct Registers {
     act: i32,
-    start_pos: isize,
-    end_pos: isize,
+    start_pos: usize,
+    end_pos: usize,
 }
 
 impl Registers {
     /// Runs the actions of code `code` at `p`, and the finish they decide on, if any.
-    fn act(&mut self, code: u8, p: isize) -> Option<Finish> {
+    fn act(&mut self, code: u8, p: usize) -> Option<Finish> {
         match code {
             0 => None,
             10 | 18 => {
@@ -270,16 +280,19 @@ impl Registers {
 /// segment's Hangul, Han, Hiragana, Katakana and non-word actions return no token when the rune after it decodes
 /// as an invalid byte, which at the end of the input drops the token and the rest (ledger 18). The input is a
 /// `&str`, so no invalid byte follows, and the check is left out.
-fn finish_token(data: &[u8], finish: Finish, start_pos: isize, end_pos: isize) -> Found {
-    let (start, mut end) = (start_pos as usize, end_pos as usize);
+fn finish_token(data: &[u8], finish: Finish, start: usize, mut end: usize) -> Found {
     let typ = match finish {
         Finish::Number => SegmentType::Number,
         Finish::Word | Finish::Hangul => SegmentType::Letter,
         Finish::Ideo => SegmentType::Ideo,
         Finish::None => {
             let mut last = start;
-            while last <= end {
-                last += go_utf8::decode_rune(&data[last..]).1;
+            // A rune decodes from the rest of the data only; at its end, where Go's loop would not advance, the token
+            // ends.
+            while last <= end
+                && let Some(rest) = data.get(last..).filter(|rest| !rest.is_empty())
+            {
+                last += go_utf8::decode_rune(rest).1;
             }
             end = last - 1;
             SegmentType::None

@@ -9,7 +9,7 @@ use ultragraphdb_protocol_wire::{Command, HEADER_SIZE, Header, RoundHeader};
 use ultragraphdb_traits_log::RoundRef;
 
 use crate::types::aligned_buf::AlignedBuf;
-use crate::utils::block::padded;
+use crate::utils::block::padded_usize;
 
 /// The bytes a round takes in a segment and its checksum: the Round frame of `cluster`, its header numbered by the
 /// round's position and naming `release`, the release of the node writing it (`PROTOCOL.md` §12), its command header
@@ -71,7 +71,7 @@ pub fn encode_round(
                 LogError::too_large(HEADER_SIZE + round.body().len(), 0)
             }
         })?;
-    let mut bytes = AlignedBuf::zeroed(padded(frame.len() as u64) as usize);
+    let mut bytes = AlignedBuf::zeroed(padded_usize(frame.len()));
     bytes
         .as_mut_slice()
         .iter_mut()

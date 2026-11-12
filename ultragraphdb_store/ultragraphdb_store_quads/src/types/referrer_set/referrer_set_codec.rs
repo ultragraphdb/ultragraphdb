@@ -3,6 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use std::num::NonZeroU64;
 
 use ultragraphdb_core_ids::{BucketGroup, Epoch};
@@ -21,7 +26,12 @@ const MEMBER: usize = 4 + 8 + 8;
 impl ReferrerSet {
     /// The set's value, appended to `out`.
     pub fn encode(&self, out: &mut Vec<u8>) {
-        out.reserve(HEADER + MEMBER * self.members.len());
+        // A capacity hint: none past `usize`.
+        let hint = MEMBER
+            .checked_mul(self.members.len())
+            .and_then(|members| members.checked_add(HEADER))
+            .unwrap_or(0);
+        out.reserve(hint);
         out.push(VERSION);
         // At most one member per group, so the count is below 2^18 and fits.
         let count = u32::try_from(self.members.len()).unwrap_or(u32::MAX);

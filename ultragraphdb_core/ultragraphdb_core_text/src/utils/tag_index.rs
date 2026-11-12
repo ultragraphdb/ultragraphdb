@@ -10,19 +10,23 @@
 
 use std::cmp::Ordering;
 
-/// The entry at position `x`.
-pub(crate) fn elem(s: &'static [u8], x: usize) -> &'static [u8] {
-    &s[x * 4..x * 4 + 4]
+/// The entry at position `x`; four zero bytes past the last.
+pub(crate) fn elem(s: &'static [u8], x: usize) -> [u8; 4] {
+    s.as_chunks::<4>().0.get(x).copied().unwrap_or_default()
+}
+
+/// The first `key.len()` bytes of `entry`, a key of at most four bytes being compared with an entry's prefix.
+fn prefix<'a>(entry: &'a [u8; 4], key: &[u8]) -> &'a [u8] {
+    entry.get(..key.len()).unwrap_or(entry)
 }
 
 /// The position of the first entry starting with `key`, if any.
 pub(crate) fn index(s: &[u8], key: &[u8]) -> Option<usize> {
-    let n = key.len();
+    let entries = s.as_chunks::<4>().0;
     // The first entry with an equal or higher value than key.
-    let count = s.len() / 4;
-    let pos = partition_point(count, |i| cmp(&s[i * 4..i * 4 + n], key) == Ordering::Less);
-    let i = pos * 4;
-    if cmp(&s[i..i + key.len()], key) != Ordering::Equal {
+    let pos = entries.partition_point(|e| cmp(prefix(e, key), key) == Ordering::Less);
+    let entry = entries.get(pos)?;
+    if cmp(prefix(entry, key), key) != Ordering::Equal {
         return None;
     }
     Some(pos)
@@ -31,24 +35,8 @@ pub(crate) fn index(s: &[u8], key: &[u8]) -> Option<usize> {
 /// The position after `x` if that entry also starts with `key`.
 pub(crate) fn next(s: &[u8], key: &[u8], x: usize) -> Option<usize> {
     let x = x + 1;
-    if x * 4 < s.len() && cmp(&s[x * 4..x * 4 + key.len()], key) == Ordering::Equal {
-        return Some(x);
-    }
-    None
-}
-
-/// Go's `sort.Search`: the smallest `i` in `0..n` for which `pred(i)` is false (`pred` is "less than").
-pub(crate) fn partition_point(n: usize, pred: impl Fn(usize) -> bool) -> usize {
-    let (mut lo, mut hi) = (0, n);
-    while lo < hi {
-        let mid = lo + (hi - lo) / 2;
-        if pred(mid) {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    lo
+    let entry = s.as_chunks::<4>().0.get(x)?;
+    (cmp(prefix(entry, key), key) == Ordering::Equal).then_some(x)
 }
 
 /// Byte-wise comparison, a shorter prefix first.
@@ -62,9 +50,9 @@ pub(crate) fn fix_case(form: &[u8], b: &mut [u8]) -> bool {
     if form.len() != b.len() {
         return false;
     }
-    for (i, slot) in b.iter_mut().enumerate() {
+    for (slot, &f) in b.iter_mut().zip(form) {
         let mut c = *slot;
-        if form[i] <= b'Z' {
+        if f <= b'Z' {
             if c >= b'a' {
                 c = c.wrapping_sub(b'z' - b'Z');
             }

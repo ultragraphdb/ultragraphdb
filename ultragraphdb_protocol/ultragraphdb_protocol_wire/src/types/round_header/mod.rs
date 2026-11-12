@@ -69,14 +69,14 @@ impl RoundHeader {
     /// [`ProtocolError::reserved_not_zero`] at the frame offset of the first nonzero byte of 40 to 127; then
     /// [`ProtocolError::field_value`] `"derivation"` for a derivation of 0.
     pub fn decode(command_header: &[u8; COMMAND_HEADER_SIZE]) -> Result<Self, ProtocolError> {
-        if let Some(at) = command_header
+        // The command header starts at header offset `COMMAND_HEADER_SIZE`.
+        if let Some((_, at)) = command_header
             .iter()
+            .zip(COMMAND_HEADER_SIZE..)
             .skip(UNUSED_FROM)
-            .position(|byte| *byte != 0)
+            .find(|(byte, _)| **byte != 0)
         {
-            return Err(ProtocolError::reserved_not_zero(
-                COMMAND_HEADER_SIZE + UNUSED_FROM + at,
-            ));
+            return Err(ProtocolError::reserved_not_zero(at));
         }
         let u64_at = |at: usize| bytes_at(command_header, at).map_or(0, u64::from_le_bytes);
         let u32_at = |at: usize| bytes_at(command_header, at).map_or(0, u32::from_le_bytes);

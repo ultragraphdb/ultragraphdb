@@ -15,6 +15,11 @@
 //!
 //! Nothing follows the last declaration.
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 
 use crate::errors::catalog_error::{CatalogError, CatalogErrorEnum};
@@ -65,7 +70,7 @@ impl CatalogContents {
         debug_assert_eq!(w.len(), HEADER_LEN);
         for declaration in &self.declarations {
             check_lengths(declaration)?;
-            let entry = encode(declaration);
+            let entry = encode(declaration)?;
             let len = u32::try_from(entry.len()).map_err(|_| {
                 // Lossless: a `usize` holds 32 bits on every target the repository builds for.
                 CatalogError::too_large("", "declaration bytes", entry.len(), u32::MAX as usize)

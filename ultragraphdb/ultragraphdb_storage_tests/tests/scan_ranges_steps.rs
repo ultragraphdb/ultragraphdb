@@ -20,8 +20,8 @@ use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
     Abort, Bind, BindKind, BindView, BodyView, Cancel, Command, Commit, CommitOperation,
     DropCommand, EntriesEnd, EntriesSequence, ErrorCode, ErrorReplyView, FLAG_LAST,
-    MAX_FRAME_FLOOR, ObjectRecords, Operation, Reference, ReferenceView, RequestTerm, Scan, ScanAt,
-    ScanRange, StatementTarget, TermTable, Write, WriteChange,
+    MAX_FRAME_FLOOR, MAX_FRAME_FLOOR_U32, ObjectRecords, Operation, Reference, ReferenceView,
+    RequestTerm, Scan, ScanAt, ScanRange, StatementTarget, TermTable, Write, WriteChange,
 };
 use ultragraphdb_store_kv::DATA_KEYSPACE;
 use ultragraphdb_store_quads::{StatementRecord, id_key, iri_bucket, tenant_base, term_key};
@@ -796,7 +796,7 @@ pub(crate) async fn too_large_record() -> TestResult<Refused> {
     let write = statement_write(&properties)?;
     let _version = commit_at(&address(), PARTITION, &write).await?;
     let target = Address::parse(&address())?;
-    let taking = MAX_FRAME_FLOOR as u32;
+    let taking = MAX_FRAME_FLOOR_U32;
     let mut small = RoleClient::dial_taking(&target, CLUSTER, "compute", SECRET, taking).await?;
     let statement = statement_of(&mut small).await?;
     let scan = plain(ScanAt::Latest, 0, 0, 0, &[alone(record_key(statement))]);

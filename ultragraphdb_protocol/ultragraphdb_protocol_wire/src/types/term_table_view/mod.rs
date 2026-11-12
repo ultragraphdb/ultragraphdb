@@ -66,7 +66,9 @@ impl Entry {
         {
             return Err(ProtocolError::padding_not_zero(
                 command,
-                base + TERM_RECORD_SIZE * self.at + 2 + j,
+                base.saturating_add(TERM_RECORD_SIZE.saturating_mul(self.at))
+                    .saturating_add(2)
+                    .saturating_add(j),
             ));
         }
         Ok((term_kind, direction))
@@ -100,16 +102,18 @@ impl Entry {
                 second_len.into(),
             ));
         }
-        if deepest + 1 > MAX_TERM_DEPTH {
+        // Every depth held is at most `MAX_TERM_DEPTH`, so one more never saturates.
+        let nested = deepest.saturating_add(1);
+        if nested > MAX_TERM_DEPTH {
             return Err(ProtocolError::term_too_deep(
                 self.command,
                 self.record_section,
                 self.at,
-                deepest + 1,
+                nested,
                 MAX_TERM_DEPTH,
             ));
         }
-        Ok((Key::Triple(first, first_len, second), deepest + 1))
+        Ok((Key::Triple(first, first_len, second), nested))
     }
 
     /// A text term's key and its texts' boundaries, the first's start and end and the second's end: the texts where
@@ -306,7 +310,8 @@ impl<'a> TermTableView<'a> {
     /// The owned table.
     pub fn to_table(&self) -> TermTable {
         let mut table = TermTable::new();
-        for index in 0..as_u32(self.len()) {
+        // Indexed as u32s: a frame holds far fewer terms than `u32::MAX`.
+        for index in (0..=u32::MAX).take(self.len()) {
             if let Some(term) = self.get(index) {
                 // A checked table holds each term once, its triple terms over earlier entries: interning keeps
                 // every index.

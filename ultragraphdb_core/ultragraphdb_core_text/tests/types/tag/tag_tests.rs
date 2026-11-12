@@ -97,7 +97,7 @@ impl Rng {
 }
 
 #[test]
-fn parsing_and_collating_arbitrary_tags_does_not_panic() {
+fn parsing_and_collating_arbitrary_tags_does_not_panic() -> TestResult {
     // Go's parser recovers its own panics; the port's parser runs without a guard, so every input must return.
     const PIECES: [&str; 24] = [
         "-",
@@ -128,9 +128,9 @@ fn parsing_and_collating_arbitrary_tags_does_not_panic() {
     let mut rng = Rng(7);
     for _ in 0..200_000 {
         let n = (rng.next() % 12) as usize;
-        let s: String = (0..n)
-            .map(|_| PIECES[(rng.next() % PIECES.len() as u64) as usize])
-            .collect();
+        let s = (0..n)
+            .map(|_| usize::try_from(rng.next() % PIECES.len() as u64).map(|i| PIECES[i]))
+            .collect::<Result<String, _>>()?;
         if let Ok(tag) = Tag::parse(&s) {
             // Reaching each value without a panic is the test; the values themselves are not checked.
             let _base: (Base, Confidence) = tag.base();
@@ -139,4 +139,5 @@ fn parsing_and_collating_arbitrary_tags_does_not_panic() {
                 ultragraphdb_core_text::Collator::new(&tag);
         }
     }
+    Ok(())
 }

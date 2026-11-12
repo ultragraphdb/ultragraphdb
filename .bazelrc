@@ -28,5 +28,10 @@ build --show_timestamps
 # Show failing logs. A test runs once: a failure on any run is a failure, since a test that fails intermittently is a race to find.
 test --test_output=errors
 
+# Integer overflow panics in every build, release included: a wrapped offset, length or epoch written to disk is
+# corruption, and a stop is not. Cargo's [profile.release] says the same; Bazel reads no Cargo profile, and a binary's
+# release_flags reach only its own crate, so the flag goes to every target here.
+build --@rules_rust//rust/settings:extra_rustc_flag=-Coverflow-checks=on
+
 # Allow developers to extend configuration locally (ignored in version control).
 try-import %workspace%/.bazelrc.local

@@ -15,7 +15,8 @@ pub(crate) fn stop_words(lang: &str) -> Option<&'static [&'static str]> {
     STOP_WORDS
         .binary_search_by_key(&lang, |&(l, _)| l)
         .ok()
-        .map(|i| STOP_WORDS[i].1)
+        .and_then(|i| STOP_WORDS.get(i))
+        .map(|&(_, words)| words)
 }
 
 /// bleve's `StopTokensFilter.Filter`: the tokens whose term is not a stop word.

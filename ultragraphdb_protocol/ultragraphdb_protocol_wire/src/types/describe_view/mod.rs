@@ -93,12 +93,11 @@ impl<'a> DescribeView<'a> {
             .entry_bytes
             .get(start..start.checked_add(field(12)? as usize)?)?;
         // A renamed name's current name, by the index its bytes hold.
-        let current = match kind {
-            EntryKind::RetiredName => {
-                RetiredNameView::read(bytes, |index| self.strings.get(index as usize)) // lossless: a `usize` is at least 32 bits
-                    .and_then(|retired| retired.current())
-            }
-            _ => None,
+        let current = if kind == EntryKind::RetiredName {
+            RetiredNameView::read(bytes, |string| self.strings.get(string as usize)) // lossless: a `usize` is at least 32 bits
+                .and_then(|retired| retired.current())
+        } else {
+            None
         };
         Some(DescribeEntryView::new(kind, name, bytes, current))
     }

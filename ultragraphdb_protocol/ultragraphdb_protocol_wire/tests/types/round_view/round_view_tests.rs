@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{
     ABSENT, BodyView, Decision, ErrorCode, RecordEntry, RecordKind, RoundView,
@@ -46,8 +47,8 @@ fn refused_header(change: impl FnOnce(&mut [u8])) -> TestResult<ProtocolErrorEnu
 
 /// A dictionary entry laid out from the layout table.
 fn entry(key: &[u8], value: Option<&[u8]>) -> Vec<u8> {
-    let mut out = (key.len() as u32).to_le_bytes().to_vec();
-    out.extend_from_slice(&value.map_or(ABSENT, |v| v.len() as u32).to_le_bytes());
+    let mut out = as_u32(key.len()).to_le_bytes().to_vec();
+    out.extend_from_slice(&value.map_or(ABSENT, |v| as_u32(v.len())).to_le_bytes());
     out.extend_from_slice(key);
     out.extend_from_slice(value.unwrap_or_default());
     out.resize(out.len().div_ceil(8) * 8, 0);

@@ -27,9 +27,9 @@ ultragraphdb_traits_log = { workspace = true }
 ultragraphdb_error_log = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
+# External crates
 compio = { workspace = true }
 tracing = { workspace = true }
-
 # fallocate(2) for a new segment; macOS reserves nothing.
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { workspace = true }
@@ -38,6 +38,7 @@ rustix = { workspace = true }
 # The crate's own test utilities, so its suite tests them under Cargo as under Bazel.
 ultragraphdb_transactions_log = { path = ".", features = ["test-utils"] }
 ultragraphdb_tool_bdd = { workspace = true }
+# External crates
 cucumber = { workspace = true }
 futures = { workspace = true }
 tracing-subscriber = { workspace = true }

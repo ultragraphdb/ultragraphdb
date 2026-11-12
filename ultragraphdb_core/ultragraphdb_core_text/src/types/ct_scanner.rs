@@ -50,12 +50,14 @@ impl<'a> CtScanner<'a> {
     /// Matches the longest suffix at position `p` and returns the number of bytes consumed.
     pub(crate) fn scan(&mut self, mut p: usize) -> usize {
         let mut pr = p; // the p at the rune start
-        let str = &self.s[..self.s_end];
+        let str = self.s.get(..self.s_end).unwrap_or(self.s);
         let (mut states, mut n) = (self.states, self.n);
         let mut i = 0;
         while i < n && p < str.len() {
-            let [l, h, nn, ii] = MAIN_CT_ENTRIES[states + i];
-            let c = str[p];
+            let (Some(&[l, h, nn, ii]), Some(&c)) = (MAIN_CT_ENTRIES.get(states + i), str.get(p))
+            else {
+                break;
+            };
             if c >= l {
                 if l == c {
                     p += 1;
@@ -67,7 +69,7 @@ impl<'a> CtScanner<'a> {
                         i = 0;
                         states += usize::from(h) + n;
                         n = usize::from(nn);
-                        if p >= str.len() || is_rune_start(str[p]) {
+                        if str.get(p).is_none_or(|&b| is_rune_start(b)) {
                             self.states = states;
                             self.n = n;
                             pr = p;

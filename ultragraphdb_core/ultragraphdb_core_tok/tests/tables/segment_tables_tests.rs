@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_core_tok::word_segments;
+use ultragraphdb_tool_bdd::TestResult;
 
 /// FNV-1a 64 of blevesearch/segment v0.9.1's direct word segmentation, by a Go program, per plane: for every scalar
 /// value `c` of the plane and each context `x` of none, `a` and `1`, the input `x c x` gives `c` as four
@@ -34,7 +35,7 @@ impl Fnv {
 }
 
 #[test]
-fn test_segment_tables_every_scalar() {
+fn test_segment_tables_every_scalar() -> TestResult {
     for (plane, want) in GO_PLANE_HASHES {
         let mut h = Fnv(0xcbf2_9ce4_8422_2325);
         for c in (plane << 16..(plane + 1) << 16).filter_map(char::from_u32) {
@@ -44,7 +45,7 @@ fn test_segment_tables_every_scalar() {
                 h.byte(ctx.bytes().next().unwrap_or(0));
                 let (segments, err) = word_segments(&input);
                 for (text, typ) in segments {
-                    h.u32(text.len() as u32);
+                    h.u32(u32::try_from(text.len())?);
                     h.byte(typ as u8);
                 }
                 if err.is_some() {
@@ -55,4 +56,5 @@ fn test_segment_tables_every_scalar() {
         }
         assert_eq!(h.0, want, "plane {plane}");
     }
+    Ok(())
 }

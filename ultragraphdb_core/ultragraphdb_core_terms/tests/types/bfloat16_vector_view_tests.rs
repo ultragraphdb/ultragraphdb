@@ -13,9 +13,10 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 fn test_a_view_reads_the_elements_in_place() -> TestResult {
     let bytes = [0x41, 3, 0, 0x80, 0x3F, 0x00, 0xC0, 0x20, 0x3E];
     let term = EncodedTerm::from_bytes(&bytes)?;
-    let view = match term.result_view()? {
-        TermView::Bfloat16Vector(view) => Some(view),
-        _ => None,
+    let view = if let TermView::Bfloat16Vector(v) = term.result_view()? {
+        Some(v)
+    } else {
+        None
     }
     .context("a bfloat16vector")?;
     assert_eq!((view.len(), view.is_empty()), (3, false));

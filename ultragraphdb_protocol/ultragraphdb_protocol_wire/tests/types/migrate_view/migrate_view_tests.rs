@@ -56,11 +56,14 @@ fn test_a_well_formed_migrate_decodes() -> TestResult {
     );
     assert_eq!((view.state(), view.refusal(), view.epoch()), (None, 0, 0));
     let failed = migrate(5, [5, 9], 2_299, 31, [b"UGS2299 m", b"r"])?;
-    let view = MigrateView::from_frame(&frame_of(&failed)?)?;
-    assert_eq!(view.state(), Some(MigrateState::Failed));
-    assert_eq!((view.refusal(), view.epoch()), (2_299, 31));
-    assert_eq!((view.message(), view.report()), ("UGS2299 m", "r"));
-    let body = view.to_body()?;
+    let failed_view = MigrateView::from_frame(&frame_of(&failed)?)?;
+    assert_eq!(failed_view.state(), Some(MigrateState::Failed));
+    assert_eq!((failed_view.refusal(), failed_view.epoch()), (2_299, 31));
+    assert_eq!(
+        (failed_view.message(), failed_view.report()),
+        ("UGS2299 m", "r")
+    );
+    let body = failed_view.to_body()?;
     assert_eq!(
         (body.staged(), body.refusal(), body.message()),
         (5, 2_299, "UGS2299 m")

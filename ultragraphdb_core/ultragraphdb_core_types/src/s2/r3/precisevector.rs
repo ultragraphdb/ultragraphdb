@@ -28,17 +28,17 @@ impl PreciseVector {
         })
     }
 
-    /// Returns the standard dot product of v and ov.
-    pub(crate) fn dot(&self, ov: &PreciseVector) -> ExactFloat {
-        &(&self.x * &ov.x) + &(&(&self.y * &ov.y) + &(&self.z * &ov.z))
+    /// Returns the standard dot product of v and ov; `None` where an exact sum cannot be aligned.
+    pub(crate) fn dot(&self, ov: &PreciseVector) -> Option<ExactFloat> {
+        &(&self.x * &ov.x) + &(&(&self.y * &ov.y) + &(&self.z * &ov.z))?
     }
 
-    /// Returns the standard cross product of v and ov.
-    pub(crate) fn cross(&self, ov: &PreciseVector) -> PreciseVector {
-        PreciseVector {
-            x: &(&self.y * &ov.z) - &(&self.z * &ov.y),
-            y: &(&self.z * &ov.x) - &(&self.x * &ov.z),
-            z: &(&self.x * &ov.y) - &(&self.y * &ov.x),
-        }
+    /// Returns the standard cross product of v and ov; `None` where an exact difference cannot be aligned.
+    pub(crate) fn cross(&self, ov: &PreciseVector) -> Option<PreciseVector> {
+        Some(PreciseVector {
+            x: (&(&self.y * &ov.z) - &(&self.z * &ov.y))?,
+            y: (&(&self.z * &ov.x) - &(&self.x * &ov.z))?,
+            z: (&(&self.x * &ov.y) - &(&self.y * &ov.x))?,
+        })
     }
 }

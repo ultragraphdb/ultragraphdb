@@ -54,8 +54,8 @@ fn writes(rng: &mut Rng) -> Writes {
     writes
 }
 
-fn insert(history: &mut ConflictHistory, version: u64, writes: &Writes) {
-    history.insert(
+fn insert(history: &mut ConflictHistory, version: u64, writes: &Writes) -> TestResult {
+    Ok(history.insert(
         version,
         writes.points.iter().map(Vec::as_slice),
         writes
@@ -66,7 +66,7 @@ fn insert(history: &mut ConflictHistory, version: u64, writes: &Writes) {
             .ranges
             .iter()
             .map(|(s, e)| (s.as_slice(), e.as_deref())),
-    );
+    )?)
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn test_the_history_agrees_with_the_model_over_random_histories() -> TestResult 
                 0..=4 => {
                     version += 2;
                     let w = writes(&mut rng);
-                    insert(&mut history, version, &w);
+                    insert(&mut history, version, &w)?;
                     model.insert(version, &w);
                 }
                 5 => {
@@ -128,7 +128,7 @@ fn test_the_resolver_agrees_with_the_model_on_too_old_and_conflicts() -> TestRes
                     let w = writes(&mut rng);
                     let bytes = record(0, 0, &w, 0);
                     let view = WriteSetRecordView::new(&bytes).context("the record reads")?;
-                    resolver.admit(version, &view);
+                    resolver.admit(version, &view)?;
                     model.insert(version, &w);
                 }
                 4 => {

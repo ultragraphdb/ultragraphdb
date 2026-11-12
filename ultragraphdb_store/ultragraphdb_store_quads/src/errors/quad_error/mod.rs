@@ -28,6 +28,9 @@ use ultragraphdb_store_posting::PostingError;
 ///   not hold.
 /// - **Another partition's:** [`NotOwned`](QuadErrorEnum::NotOwned): an IRI of a bucket the partition does not own and
 ///   holds no ID for; its home registers it first.
+/// - **Statistics past their format:** [`KindTooLong`](QuadErrorEnum::KindTooLong),
+///   [`TooManyKinds`](QuadErrorEnum::TooManyKinds): a write's statistics delta holds what its stored format's u16
+///   lengths cannot count; nothing is written.
 #[derive(Debug, Clone, PartialEq)]
 pub enum QuadErrorEnum {
     /// The store failed.
@@ -75,6 +78,16 @@ pub enum QuadErrorEnum {
     UnknownSkolem {
         /// The IRI.
         iri: String,
+    },
+    /// A kind of a statistics delta, a literal's datatype IRI, is `len` bytes, past the 65,535 its stored length counts.
+    KindTooLong {
+        /// The kind's length in bytes.
+        len: usize,
+    },
+    /// A statistics delta counts `count` kinds, past the 65,535 its stored count holds.
+    TooManyKinds {
+        /// The kinds the delta counts.
+        count: usize,
     },
     /// `iri`'s bucket `bucket` is another partition's and the partition holds no ID for it: its home gives the ID
     /// (term-dictionary, "A reference to another partition's entity registers at its home").
@@ -135,5 +148,17 @@ impl QuadError {
     /// [`QuadErrorEnum::UnknownSkolem`] for `iri`.
     pub fn unknown_skolem(iri: impl Into<String>) -> Self {
         Self(QuadErrorEnum::UnknownSkolem { iri: iri.into() })
+    }
+
+    /// [`QuadErrorEnum::KindTooLong`] for a kind of `len` bytes.
+    #[must_use]
+    pub fn kind_too_long(len: usize) -> Self {
+        Self(QuadErrorEnum::KindTooLong { len })
+    }
+
+    /// [`QuadErrorEnum::TooManyKinds`] for a delta of `count` kinds.
+    #[must_use]
+    pub fn too_many_kinds(count: usize) -> Self {
+        Self(QuadErrorEnum::TooManyKinds { count })
     }
 }

@@ -132,7 +132,7 @@ pub fn held_under(applier: &Applier, count: usize) -> TestResult<Vec<SystemId>> 
     let mut batch = quads.lists().batch();
     let mut write = QuadWrite::new(quads, TENANT, batch.request(quads.lists().applied_ts()));
     write.set_statement_ids(Graph::Default, subject, knows, &object, &ids);
-    let (request, terms) = write.finish();
+    let (request, terms) = write.finish()?;
     batch.push(request);
     let _committed: Vec<u64> = quads.commit(batch, &[terms])?;
     Ok(ids)
@@ -248,7 +248,10 @@ impl Rng {
     /// A key of 0 to `max_len` bytes over a small alphabet, so that keys repeat and share prefixes.
     pub fn key(&mut self, max_len: u64) -> Vec<u8> {
         let len = self.below(max_len + 1);
-        (0..len).map(|_| b'a' + self.below(3) as u8).collect()
+        // Below 3, so the low byte is the whole draw.
+        (0..len)
+            .map(|_| b'a' + self.below(3).to_le_bytes()[0])
+            .collect()
     }
 }
 

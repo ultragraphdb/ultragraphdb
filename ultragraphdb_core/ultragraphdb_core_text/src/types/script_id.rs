@@ -20,6 +20,6 @@ impl ScriptId {
         if self.0 == 0 {
             return "Zzzz".to_string();
         }
-        String::from_utf8_lossy(elem(SCRIPT, usize::from(self.0))).into_owned()
+        String::from_utf8_lossy(&elem(SCRIPT, usize::from(self.0))).into_owned()
     }
 }

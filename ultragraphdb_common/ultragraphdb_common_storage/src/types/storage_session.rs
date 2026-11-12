@@ -9,7 +9,7 @@ use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use ultragraphdb_common_role::{Answer, ParkedBytes, Push, Session};
 use ultragraphdb_protocol_transport::ReceivedFrame;
-use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply, MAX_FRAME_FLOOR};
+use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply, MAX_FRAME_FLOOR_U32};
 
 use crate::types::core_message::{CoreMessage, Pushes};
 use crate::types::parked_frame::ParkedFrame;
@@ -50,7 +50,7 @@ impl StorageSession {
             pushes,
             pushed,
             held: ParkedBytes::new(held_bytes),
-            max_frame: MAX_FRAME_FLOOR as u32, // 2^19, lossless
+            max_frame: MAX_FRAME_FLOOR_U32,
             phases: None,
             read_at: BTreeMap::new(),
         }

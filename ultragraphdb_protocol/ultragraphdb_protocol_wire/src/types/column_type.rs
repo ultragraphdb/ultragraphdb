@@ -58,9 +58,10 @@ impl ColumnType {
     pub fn number(self) -> u8 {
         ColumnType::ALL
             .iter()
-            .position(|t| *t == self)
-            // `i` is below the 13 types of `ALL`, so the cast is lossless and the number at most 13.
-            .map_or(0, |i| i as u8 + 1)
+            // The 13 types of `ALL` are numbered from 1, so the number is at most 13 and fits a byte.
+            .zip(1..)
+            .find(|(t, _)| **t == self)
+            .map_or(0, |(_, number)| number)
     }
 
     /// The type numbered `number`; `None` for a number no type has.

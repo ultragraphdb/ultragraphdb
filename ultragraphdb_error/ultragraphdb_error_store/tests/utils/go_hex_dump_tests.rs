@@ -97,7 +97,7 @@ fn test_dump_matches_go_at_every_line_length_boundary() {
         ),
     ];
     for (n, want) in cases {
-        let input: Vec<u8> = (0..n as u8).map(|i| b'A' + i).collect();
+        let input: Vec<u8> = (b'A'..).take(n).collect();
         assert_eq!(go_hex_dump(&input), want, "{n} bytes");
     }
 }
@@ -141,7 +141,11 @@ fn test_dump_of_every_byte_value_matches_go() {
 fn test_dump_offsets_past_four_hex_digits_match_go() {
     // Go 1.27: hex.Dump of 65,537 bytes, byte i being i*13 mod 256, the longest stored key plus two. Its length is
     // 323,648 bytes in 4,097 lines; the lines at offsets 0x1000, 0xfff0 and 0x10000, from fmt.Printf("%q").
-    let input: Vec<u8> = (0..65_537usize).map(|i| (i * 13) as u8).collect();
+    let input: Vec<u8> = (0..=u8::MAX)
+        .cycle()
+        .take(65_537)
+        .map(|i| i.wrapping_mul(13))
+        .collect();
     let text = go_hex_dump(&input);
     let lines: Vec<&str> = text.split('\n').collect();
     assert_eq!((text.len(), lines.len()), (323_648, 4_098));

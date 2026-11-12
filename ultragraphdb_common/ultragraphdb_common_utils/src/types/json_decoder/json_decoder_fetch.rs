@@ -39,26 +39,45 @@ impl<R: Read> JsonDecoder<R> {
         // Grow below the maximum size once enough has been read, or when a value that started the buffer fills
         // three quarters of it.
         let grow = self.cap <= MAX_BUFFER_SIZE / 2 && self.cap < self.prev_end / 2;
-        let grow = grow || (self.prev_start == self.base && self.buf.len() >= 3 * self.cap / 4);
+        let three_quarters = self
+            .cap
+            .checked_mul(3)
+            .ok_or_else(ScanError::offset_overflow)?
+            / 4;
+        let grow = grow || (self.prev_start == self.base && self.buf.len() >= three_quarters);
         if grow {
-            self.cap *= 2;
+            self.cap = self
+                .cap
+                .checked_mul(2)
+                .ok_or_else(ScanError::offset_overflow)?;
         }
         // Move the unread part to the front.
-        drop(self.buf.drain(..self.prev_start - self.base));
+        let consumed = self
+            .prev_start
+            .checked_sub(self.base)
+            .ok_or_else(ScanError::offset_overflow)?;
+        drop(self.buf.drain(..consumed.min(self.buf.len())));
         self.base = self.prev_start;
         // The buffer is never full here: a value filling it from its start grows it.
         let len = self.buf.len();
-        self.cap = self.cap.max(len + 1);
+        self.cap = self
+            .cap
+            .max(len.checked_add(1).ok_or_else(ScanError::offset_overflow)?);
         self.buf.resize(self.cap, 0);
         let read = loop {
-            match self.rd.read(&mut self.buf[len..]) {
+            // Above `len`: the buffer was just resized past it.
+            let Some(free) = self.buf.get_mut(len..) else {
+                return Err(ScanError::offset_overflow());
+            };
+            match self.rd.read(free) {
                 Err(e) if e.kind() == ErrorKind::Interrupted => continue,
                 other => break other,
             }
         };
         match read {
             Ok(n) => {
-                self.buf.truncate(len + n);
+                self.buf
+                    .truncate(len.checked_add(n).ok_or_else(ScanError::offset_overflow)?);
                 if n > 0 {
                     Ok(())
                 } else {

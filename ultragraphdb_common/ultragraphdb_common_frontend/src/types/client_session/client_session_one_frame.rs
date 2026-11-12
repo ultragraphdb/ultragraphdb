@@ -225,8 +225,9 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 session.copy_from_slice(&facts.session);
                 request.copy_from_slice(&facts.request.to_le_bytes());
                 let at = xxh3_64(&placed) % owners.len().max(1) as u64; // lossless: a `usize` is at most 64 bits
-                owners
-                    .get(at as usize) // below `owners.len()`, a `usize`, lossless
+                usize::try_from(at) // below `owners.len()`, a `usize`
+                    .ok()
+                    .and_then(|at| owners.get(at))
                     .copied()
                     .map(Some)
                     .ok_or_else(|| self.unavailable())

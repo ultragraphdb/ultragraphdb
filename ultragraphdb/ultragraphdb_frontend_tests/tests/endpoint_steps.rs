@@ -21,8 +21,8 @@ use ultragraphdb_protocol_transport::{
 };
 use ultragraphdb_protocol_transport_compio::{Carrier, CompioTlsStream, Connection};
 use ultragraphdb_protocol_wire::{
-    Begin, BodyBuilder, Command, DirectWrite, Header, Hello, Join, MAX_FRAME_SIZE, PatternSlot,
-    QuadPattern, Read, TermTable, WriteChange,
+    Begin, BodyBuilder, Command, DirectWrite, Header, Hello, Join, MAX_FRAME_SIZE,
+    MAX_FRAME_SIZE_U32, PatternSlot, QuadPattern, Read, TermTable, WriteChange,
 };
 use ultragraphdb_tests::{
     CLIENT_ADDRESS, CLUSTER, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, FRONTEND_ROLE_ADDRESS,
@@ -108,7 +108,7 @@ impl<S: AsyncRead + AsyncWrite> Authenticated<S> {
             pool: BufferPool::new(1, MAX_FRAME_SIZE),
             sent: 1,
         };
-        let hello = Hello::new(1, 1, 1, MAX_FRAME_SIZE as u32, "client");
+        let hello = Hello::new(1, 1, 1, MAX_FRAME_SIZE_U32, "client");
         let _welcome = held.connection.hello(&held.pool, &hello).await?;
         let nonce = system_nonce()?;
         let mut exchange = ClientAuthentication::new(ScramClient::new(ADMIN, PASSWORD, &nonce)?);
@@ -264,7 +264,7 @@ fn clear_text_at_tls(w: &mut Steps) -> TestResult {
         let carrier = Carrier::connect(&client_address()?).await?;
         let mut raw = Connection::new(carrier, Framer::new(CLUSTER, MAX_FRAME_SIZE));
         let pool = BufferPool::new(1, MAX_FRAME_SIZE);
-        let hello = Hello::new(1, 1, 1, MAX_FRAME_SIZE as u32, "client");
+        let hello = Hello::new(1, 1, 1, MAX_FRAME_SIZE_U32, "client");
         let refused = raw.hello(&pool, &hello).await.err().context("no Welcome")?;
         w.refused = Some(refused.to_string());
         Ok(())

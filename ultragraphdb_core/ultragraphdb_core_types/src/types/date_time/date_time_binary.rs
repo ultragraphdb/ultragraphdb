@@ -6,6 +6,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use crate::errors::types_error::TypesError;
 use crate::types::date_time::{DateTime, Zone};
 
@@ -27,13 +32,12 @@ impl DateTime {
                     version = VERSION_V2;
                     offset_sec = (offset % 60) as i8;
                 }
-                let minutes = offset / 60;
-                if !(-32768..=32767).contains(&minutes) || minutes == -1 {
-                    return Err(TypesError::time(
-                        "Time.MarshalBinary: unexpected zone offset",
-                    ));
+                let unexpected = || TypesError::time("Time.MarshalBinary: unexpected zone offset");
+                let minutes = i16::try_from(offset / 60).map_err(|_| unexpected())?;
+                if minutes == -1 {
+                    return Err(unexpected());
                 }
-                minutes as i16
+                minutes
             }
         };
         let mut b = Vec::with_capacity(16);
@@ -42,7 +46,8 @@ impl DateTime {
         b.extend_from_slice(&self.nanosecond().to_be_bytes());
         b.extend_from_slice(&offset_min.to_be_bytes());
         if version == VERSION_V2 {
-            b.push(offset_sec as u8);
+            // Go's byte(int8): the offset's two's complement.
+            b.push(offset_sec.cast_unsigned());
         }
         Ok(b)
     }
@@ -50,10 +55,9 @@ impl DateTime {
     /// Go's `UnmarshalBinary`. Version 2 adds its signed byte of leftover seconds to the offset. An offset of -60
     /// seconds is UTC; any other offset is a fixed zone.
     pub fn unmarshal_binary(data: &[u8]) -> Result<DateTime, TypesError> {
-        if data.is_empty() {
+        let Some((&version, rest)) = data.split_first() else {
             return Err(TypesError::time("Time.UnmarshalBinary: no data"));
-        }
-        let version = data[0];
+        };
         if version != VERSION_V1 && version != VERSION_V2 {
             return Err(TypesError::time(
                 "Time.UnmarshalBinary: unsupported version",
@@ -65,15 +69,21 @@ impl DateTime {
             return Err(invalid_length());
         }
         // The length is 15 or 16, checked above, so each chunk is present.
-        let chunk = |start: usize| data.get(start..).ok_or_else(invalid_length);
-        let sec = i64::from_be_bytes(*chunk(1)?.first_chunk().ok_or_else(invalid_length)?);
-        let nsec = i32::from_be_bytes(*chunk(9)?.first_chunk().ok_or_else(invalid_length)?);
-        let mut offset = i32::from(i16::from_be_bytes(
-            *chunk(13)?.first_chunk().ok_or_else(invalid_length)?,
-        )) * 60;
-        if version == VERSION_V2 {
+        let (sec, rest) = rest.split_first_chunk().ok_or_else(invalid_length)?;
+        let (nsec, rest) = rest.split_first_chunk().ok_or_else(invalid_length)?;
+        let (offset_min, rest) = rest.split_first_chunk().ok_or_else(invalid_length)?;
+        let (sec, nsec) = (i64::from_be_bytes(*sec), i32::from_be_bytes(*nsec));
+        // A 16-bit count of minutes plus a signed byte of seconds stays far inside i32, and the wall seconds below far
+        // inside i64: Go's int arithmetic never overflows here, so the checks cannot fire.
+        let out_of_range = || TypesError::time("Time.UnmarshalBinary: value out of range");
+        let mut offset = i32::from(i16::from_be_bytes(*offset_min))
+            .checked_mul(60)
+            .ok_or_else(out_of_range)?;
+        if let Some(&leftover) = rest.first() {
             // Go's int8(b): the byte read as two's complement.
-            offset += i32::from(data[15].cast_signed());
+            offset = offset
+                .checked_add(i32::from(leftover.cast_signed()))
+                .ok_or_else(out_of_range)?;
         }
         let zone = if offset == -60 {
             Zone::Utc
@@ -83,10 +93,13 @@ impl DateTime {
         // Go sets its wall clock to the stored nanoseconds and keeps their low 30 bits as the nanosecond field. A
         // negative value sign-extends into the wall clock's monotonic bit, and Go then reads the seconds from the wall
         // clock's bits 30 to 62, after its wall epoch of 1885, instead of the stored seconds.
-        let wall = i64::from(nsec) as u64;
+        let wall = i64::from(nsec).cast_unsigned();
         let sec = if nsec < 0 {
-            // The shifted wall bits are 33 wide, so reading them as signed keeps their value.
-            WALL_TO_INTERNAL + ((wall << 1) >> 31).cast_signed()
+            // The shifted wall bits are 33 wide, so reading them as signed keeps their value, and the sum stays
+            // far inside i64.
+            WALL_TO_INTERNAL
+                .checked_add(((wall << 1) >> 31).cast_signed())
+                .ok_or_else(out_of_range)?
         } else {
             sec
         };

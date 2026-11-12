@@ -6,7 +6,7 @@
 //! One partition's part of a read (`PROTOCOL.md` §13.12, §13.13): its dictionary Scan resolving the pattern's terms, the version
 //! its first answer chose, which every later Scan reads and a read-only read holds, and the rows it gives the merge.
 
-use ultragraphdb_protocol_wire::{ComputeRead, ReadLevel, RequestTerm, ScanAt};
+use ultragraphdb_protocol_wire::{ComputeRead, MAX_FRAME_SIZE_U32, ReadLevel, RequestTerm, ScanAt};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::played::played_cluster::{PlayedCluster, quiet_times, run};
@@ -391,7 +391,7 @@ fn test_a_referrer_set_answered_over_frames_is_read_to_its_last() -> TestResult 
     use ultragraphdb_common_role::OpenRequests;
     use ultragraphdb_core_keys::{Graph, QuadKey};
     use ultragraphdb_core_terms::EncodedTerm;
-    use ultragraphdb_protocol_wire::{MAX_FRAME_SIZE, PatternSlot, QuadPattern, TermTable};
+    use ultragraphdb_protocol_wire::{PatternSlot, QuadPattern, TermTable};
 
     use crate::apart::apart_cluster::{ApartCluster, times};
     use crate::apart::apart_partition::VERSION;
@@ -438,7 +438,7 @@ fn test_a_referrer_set_answered_over_frames_is_read_to_its_last() -> TestResult 
         .with_epoch(epoch)
         .with_principal(1)
         .with_deadline_ms(10_000)
-        .with_client_limits(MAX_FRAME_SIZE as u32, 4);
+        .with_client_limits(MAX_FRAME_SIZE_U32, 4);
         let mut client = cluster
             .compute(times(Duration::from_secs(1)), OpenRequests::default())
             .await?;

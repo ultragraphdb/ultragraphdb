@@ -161,7 +161,9 @@ impl DictionaryWorkload {
             | QuadErrorEnum::NoOwnedBucket { .. }
             | QuadErrorEnum::SkolemDraws { .. }
             | QuadErrorEnum::NotOwned { .. }
-            | QuadErrorEnum::UnknownSkolem { .. } => false,
+            | QuadErrorEnum::UnknownSkolem { .. }
+            | QuadErrorEnum::KindTooLong { .. }
+            | QuadErrorEnum::TooManyKinds { .. } => false,
         };
         if injected || ctx.store().needs_recovery() {
             Ok(())
@@ -263,7 +265,7 @@ impl DictionaryWorkload {
                     );
                 }
             }
-            let (request, t) = write.finish();
+            let (request, t) = write.finish()?;
             batch.push(request);
             terms.push(t);
         }
@@ -383,6 +385,8 @@ fn dictionary_miss(e: QuadError) -> Result<Option<(&'static str, String)>, QuadE
         | QuadErrorEnum::NoOwnedBucket { .. }
         | QuadErrorEnum::SkolemDraws { .. }
         | QuadErrorEnum::NotOwned { .. }
-        | QuadErrorEnum::UnknownSkolem { .. } => Err(e),
+        | QuadErrorEnum::UnknownSkolem { .. }
+        | QuadErrorEnum::KindTooLong { .. }
+        | QuadErrorEnum::TooManyKinds { .. } => Err(e),
     }
 }

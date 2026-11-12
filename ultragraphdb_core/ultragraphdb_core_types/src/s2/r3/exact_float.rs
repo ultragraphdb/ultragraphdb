@@ -52,33 +52,37 @@ impl ExactFloat {
         }
     }
 
-    fn aligned(&self, exponent: i64) -> IBig {
-        let shift = (self.exponent - exponent) as usize;
-        &self.mantissa << shift
+    /// The mantissa scaled to `exponent`, which callers take as the smaller of two; `None` for a shift outside
+    /// usize, which exponents built from float64 values never reach.
+    fn aligned(&self, exponent: i64) -> Option<IBig> {
+        let shift = usize::try_from(self.exponent.checked_sub(exponent)?).ok()?;
+        Some(&self.mantissa << shift)
     }
 }
 
+/// The exact sum; `None` where the operands cannot be aligned.
 impl Add for &ExactFloat {
-    type Output = ExactFloat;
+    type Output = Option<ExactFloat>;
 
-    fn add(self, rhs: &ExactFloat) -> ExactFloat {
+    fn add(self, rhs: &ExactFloat) -> Option<ExactFloat> {
         let e = self.exponent.min(rhs.exponent);
-        ExactFloat {
-            mantissa: self.aligned(e) + rhs.aligned(e),
+        Some(ExactFloat {
+            mantissa: self.aligned(e)? + rhs.aligned(e)?,
             exponent: e,
-        }
+        })
     }
 }
 
+/// The exact difference; `None` where the operands cannot be aligned.
 impl Sub for &ExactFloat {
-    type Output = ExactFloat;
+    type Output = Option<ExactFloat>;
 
-    fn sub(self, rhs: &ExactFloat) -> ExactFloat {
+    fn sub(self, rhs: &ExactFloat) -> Option<ExactFloat> {
         let e = self.exponent.min(rhs.exponent);
-        ExactFloat {
-            mantissa: self.aligned(e) - rhs.aligned(e),
+        Some(ExactFloat {
+            mantissa: self.aligned(e)? - rhs.aligned(e)?,
             exponent: e,
-        }
+        })
     }
 }
 

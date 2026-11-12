@@ -12,14 +12,14 @@ fn test_bounds_within_the_frame_are_kept() -> TestResult {
     let bounds = RoundBounds::new(5_000, 9);
     assert_eq!(bounds.bytes(), 5_000);
     assert_eq!(bounds.transactions(), 9);
-    let frame = RoundBounds::new(MAX_FRAME_SIZE as u32, 1);
+    let frame = RoundBounds::new(u32::try_from(MAX_FRAME_SIZE)?, 1);
     assert_eq!(frame.bytes(), 1_048_576);
     Ok(())
 }
 
 #[test]
 fn test_bytes_past_the_frame_are_the_frame_and_no_transactions_is_one() -> TestResult {
-    let bounds = RoundBounds::new(MAX_FRAME_SIZE as u32 + 1, 0);
+    let bounds = RoundBounds::new(u32::try_from(MAX_FRAME_SIZE)? + 1, 0);
     assert_eq!(bounds.bytes(), 1_048_576);
     assert_eq!(bounds.transactions(), 1);
     assert_eq!(RoundBounds::new(u32::MAX, 2).bytes(), 1_048_576);

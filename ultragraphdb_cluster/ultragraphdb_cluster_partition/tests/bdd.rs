@@ -1609,7 +1609,7 @@ fn read_list(
         Keyspace::Forward,
         TENANT,
         list.clone(),
-        host.bound_read(&[READER.0 as u8; 16])
+        host.bound_read(&[u8::try_from(READER.0)?; 16])
             .context("the transaction")?
             .read_version(),
         NonZeroUsize::MIN,
@@ -1638,7 +1638,7 @@ fn read_through_copy(w: &mut Steps) -> TestResult {
             Some(held),
             "the copy"
         );
-        bind_reader(host, READER, READER.0 as u8)?;
+        bind_reader(host, READER, u8::try_from(READER.0)?)?;
         let step = host.read_terms_bound(READER, &[ex(&predicate)], 0)?;
         assert_eq!(step, BoundStep::Done, "a copy asks its home for nothing");
         let (read, objects) = read_list(host, READER, &ex(&predicate), &ex(&subject))?;
@@ -1664,7 +1664,7 @@ fn read_without_copy(w: &mut Steps) -> TestResult {
     on_hosts(2, |hosts| {
         // The subject is held already, so what the later commit conflicts with is the list alone.
         let _held = commit_of(hosts, WRITER, 9, &subject, &other)?;
-        bind_reader(first(hosts)?, READER, READER.0 as u8)?;
+        bind_reader(first(hosts)?, READER, u8::try_from(READER.0)?)?;
         assert_eq!(held_id(first(hosts)?, ex(&predicate).as_str())?, None);
         assert_eq!(
             first(hosts)?.read_terms_bound(READER, &[ex(&predicate)], 0)?,
@@ -1745,7 +1745,7 @@ fn later_subject(w: &mut Steps) -> TestResult {
             .err();
         w.errors.push(stale_refusal.context("a refusal")?);
         // A Bind stream's first request goes the same way.
-        bind_reader(first(hosts)?, READER, READER.0 as u8)?;
+        bind_reader(first(hosts)?, READER, u8::try_from(READER.0)?)?;
         let on_bind = changeset(vec![insert_literal(&later, "p", "y")]);
         w.errors.push(
             first(hosts)?
@@ -1814,7 +1814,7 @@ fn home_store_fails(w: &mut Steps) -> TestResult {
     on_hosts(2, |hosts| {
         // A statement of partition 1 and its terms first, so the two asks name the skolem IRI alone.
         let _held = commit_of(hosts, WRITER, 9, &subject, &homed(1, "p")?)?;
-        bind_reader(first(hosts)?, READER, READER.0 as u8)?;
+        bind_reader(first(hosts)?, READER, u8::try_from(READER.0)?)?;
         let edge = Change::Insert {
             graph: GraphName::DefaultGraph,
             subject: ex(&subject).into(),
@@ -1828,7 +1828,9 @@ fn home_store_fails(w: &mut Steps) -> TestResult {
         );
         w.errors.push(refused_by_home(hosts, READER)?);
         w.numbers.push(u64::from(
-            first(hosts)?.bound_read(&[READER.0 as u8; 16]).is_none(),
+            first(hosts)?
+                .bound_read(&[u8::try_from(READER.0)?; 16])
+                .is_none(),
         ));
         let reading = (2, 3);
         bind_reader(first(hosts)?, reading, 3)?;

@@ -21,10 +21,12 @@ workspace = true
 [dependencies]
 ultragraphdb_core_ids = { workspace = true }
 ultragraphdb_error_store = { workspace = true }
+# External crates
 xxhash-rust = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_tool_bdd = { workspace = true }
+# External crates
 cucumber = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }

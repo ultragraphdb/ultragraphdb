@@ -10,6 +10,7 @@
  */
 
 use ultragraphdb_core_tok::{AnalysisToken, TokenType, analyze};
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
 fn test_unicode_normalization_nfkc() {
@@ -108,7 +109,7 @@ impl Fnv {
 }
 
 #[test]
-fn test_unicode_normalization_every_scalar() {
+fn test_unicode_normalization_every_scalar() -> TestResult {
     for (plane, want_tokens, want) in GO_PLANE_HASHES {
         let mut h = Fnv(0xcbf2_9ce4_8422_2325);
         let mut tokens = 0;
@@ -118,10 +119,10 @@ fn test_unicode_normalization_every_scalar() {
                 h.byte(ctx.bytes().next().unwrap_or(0));
                 for t in analyze(&format!("{ctx}{c}")) {
                     tokens += 1;
-                    h.u32(t.term().len() as u32);
+                    h.u32(u32::try_from(t.term().len())?);
                     t.term().bytes().for_each(|b| h.byte(b));
-                    h.u32(t.start() as u32);
-                    h.u32(t.end() as u32);
+                    h.u32(u32::try_from(t.start())?);
+                    h.u32(u32::try_from(t.end())?);
                     h.byte(t.typ() as u8);
                 }
                 h.byte(0xff);
@@ -129,4 +130,5 @@ fn test_unicode_normalization_every_scalar() {
         }
         assert_eq!((tokens, h.0), (want_tokens, want), "plane {plane}");
     }
+    Ok(())
 }

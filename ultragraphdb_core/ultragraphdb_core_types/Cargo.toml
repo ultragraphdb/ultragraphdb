@@ -27,11 +27,13 @@ ultragraphdb_error_json = { workspace = true }
 ultragraphdb_error_num = { workspace = true }
 ultragraphdb_traits_collator = { workspace = true }
 ultragraphdb_core_text = { workspace = true }
+# External crates
 bcrypt = { workspace = true }
 dashu-int = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_tool_bdd = { workspace = true }
+# External crates
 cucumber = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }

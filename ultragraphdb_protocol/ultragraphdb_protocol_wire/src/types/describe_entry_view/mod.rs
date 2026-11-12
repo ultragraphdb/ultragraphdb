@@ -57,9 +57,10 @@ impl<'a> DescribeEntryView<'a> {
     /// The retired name an entry of kind 20 holds; `None` for every other kind.
     #[must_use]
     pub fn retired_name(&self) -> Option<RetiredNameView<'a>> {
-        match self.kind {
-            EntryKind::RetiredName => RetiredNameView::read(self.bytes, |_| self.current),
-            _ => None,
+        if self.kind == EntryKind::RetiredName {
+            RetiredNameView::read(self.bytes, |_| self.current)
+        } else {
+            None
         }
     }
 

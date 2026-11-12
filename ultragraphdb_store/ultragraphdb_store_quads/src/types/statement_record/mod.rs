@@ -3,6 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::EncodedTerm;
 
@@ -22,6 +27,8 @@ pub struct StatementRecord {
 /// big-endian count of properties, each a predicate's 16 bytes and a value's encoding; encodings end where their tags
 /// say.
 const FORMAT: u8 = 2;
+/// The bytes of a record besides its object and properties: the version, the two IDs and the property count.
+const FIXED: usize = 1 + 2 * SystemId::BYTES + 2;
 
 impl StatementRecord {
     /// The record of the statement `subject` `predicate` `object` with `properties`.
@@ -74,7 +81,9 @@ impl StatementRecord {
             "a record holds at most 2^16 - 1 properties"
         );
         let count = u16::try_from(self.properties.len()).unwrap_or(u16::MAX);
-        let mut w = Vec::with_capacity(1 + 2 * SystemId::BYTES + self.object.as_bytes().len() + 2);
+        // A capacity hint: none past `usize`.
+        let hint = self.object.as_bytes().len().checked_add(FIXED).unwrap_or(0);
+        let mut w = Vec::with_capacity(hint);
         w.push(FORMAT);
         w.extend_from_slice(&self.subject.to_be_bytes());
         w.extend_from_slice(&self.predicate.to_be_bytes());

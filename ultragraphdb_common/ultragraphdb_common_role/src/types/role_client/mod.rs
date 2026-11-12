@@ -12,8 +12,8 @@ use ultragraphdb_protocol_transport::{
 };
 use ultragraphdb_protocol_transport_compio::{Carrier, Connection};
 use ultragraphdb_protocol_wire::{
-    Authenticate, BodyBuilder, BodyView, Command, ErrorReplyView, Header, Hello, MAX_FRAME_SIZE,
-    Welcome,
+    Authenticate, BodyBuilder, BodyView, Command, ErrorReplyView, Header, Hello,
+    MAX_FRAME_SIZE_U32, Welcome,
 };
 
 /// The protocol version this release speaks, and its release number.
@@ -53,8 +53,7 @@ impl RoleClient {
         name: &str,
         password: &str,
     ) -> Result<Self, TransportError> {
-        // `MAX_FRAME_SIZE` is 2^20, so the cast is lossless.
-        Self::dial_taking(address, cluster, name, password, MAX_FRAME_SIZE as u32).await
+        Self::dial_taking(address, cluster, name, password, MAX_FRAME_SIZE_U32).await
     }
 
     /// Dials as [`RoleClient::dial`] does, stating `max_frame` in its Hello as the largest frame it takes, and refusing

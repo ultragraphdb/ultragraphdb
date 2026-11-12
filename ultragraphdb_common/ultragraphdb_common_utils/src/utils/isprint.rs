@@ -142,7 +142,7 @@ const IS_NOT_PRINT32: [u16; 120] = [
 
 fn bsearch<T: Ord + Copy>(s: &[T], v: T) -> (usize, bool) {
     let i = s.partition_point(|x| *x < v);
-    (i, i < s.len() && s[i] == v)
+    (i, s.get(i) == Some(&v))
 }
 
 /// Go's `strconv.IsPrint`.
@@ -151,20 +151,28 @@ pub fn is_print(r: char) -> bool {
     if r <= 0xff {
         return (0x20..=0x7e).contains(&r) || (0xa1..=0xff).contains(&r) && r != 0xad;
     }
-    if r < 1 << 16 {
-        let rr = r as u16;
+    if let Ok(rr) = u16::try_from(r) {
+        // The table holds pairs, a range's first and last: past its end no pair holds `rr`.
         let (i, _) = bsearch(&IS_PRINT16, rr);
-        if i >= IS_PRINT16.len() || rr < IS_PRINT16[i & !1] || IS_PRINT16[i | 1] < rr {
+        let (Some(&lo), Some(&hi)) = (IS_PRINT16.get(i & !1), IS_PRINT16.get(i | 1)) else {
+            return false;
+        };
+        if rr < lo || hi < rr {
             return false;
         }
         return !bsearch(&IS_NOT_PRINT16, rr).1;
     }
     let (i, _) = bsearch(&IS_PRINT32, r);
-    if i >= IS_PRINT32.len() || r < IS_PRINT32[i & !1] || IS_PRINT32[i | 1] < r {
+    let (Some(&lo), Some(&hi)) = (IS_PRINT32.get(i & !1), IS_PRINT32.get(i | 1)) else {
+        return false;
+    };
+    if r < lo || hi < r {
         return false;
     }
     if r >= 0x20000 {
         return true;
     }
-    !bsearch(&IS_NOT_PRINT32, (r - 0x10000) as u16).1
+    // Below 0x20000, so the low two bytes are `r - 0x10000`.
+    let [low, high, _, _] = r.to_le_bytes();
+    !bsearch(&IS_NOT_PRINT32, u16::from_le_bytes([low, high])).1
 }

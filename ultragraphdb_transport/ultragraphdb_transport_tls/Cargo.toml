@@ -24,6 +24,7 @@ workspace = true
 test-utils = ["dep:rcgen"]
 
 [dependencies]
+# External crates
 rcgen = { workspace = true, optional = true }
 rustls = { workspace = true }
 rustls-pki-types = { workspace = true }
@@ -31,6 +32,7 @@ rustls-pki-types = { workspace = true }
 [dev-dependencies]
 ultragraphdb_transport_tls = { workspace = true, features = ["test-utils"] }
 ultragraphdb_tool_bdd = { workspace = true }
+# External crates
 cucumber = { workspace = true }
 futures = { workspace = true }
 

@@ -326,23 +326,24 @@ fn replica_refused(w: &mut Steps) -> TestResult {
     assert_eq!(
         refusal.0,
         ProtocolErrorEnum::UnknownCommand {
-            command: *number as u16
+            command: u16::try_from(*number)?
         }
     );
     Ok(())
 }
 
 #[then("it is refused as an unknown command")]
-fn refused_unknown(w: &mut Steps) {
+fn refused_unknown(w: &mut Steps) -> TestResult {
     assert_eq!(w.refusals.len(), 65_536 - Command::ALL.len());
     for (refusal, (number, _)) in w.refusals.iter().zip(&w.checksums) {
         assert_eq!(
             refusal.0,
             ProtocolErrorEnum::UnknownCommand {
-                command: *number as u16
+                command: u16::try_from(*number)?
             }
         );
     }
+    Ok(())
 }
 
 fn main() -> TestResult {

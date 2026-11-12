@@ -59,7 +59,13 @@ pub fn encode_from_buffer(buf: &[u8], block_size: usize) -> Result<Option<UidPac
             .ok_or_else(|| CodecError::overflowing_varint(offset))?;
         let id = SystemId::from_u128(value).map_err(|e| CodecError::invalid_id(position, e))?;
         enc.add(id)?;
-        (previous, offset, position) = (value, offset + len, position + 1);
+        let next_offset = offset
+            .checked_add(len)
+            .ok_or_else(|| CodecError::truncated_varint(offset))?;
+        let next_position = position
+            .checked_add(1)
+            .ok_or_else(|| CodecError::truncated_varint(offset))?;
+        (previous, offset, position) = (value, next_offset, next_position);
     }
     debug_assert_eq!(offset, buf.len(), "every byte is read");
     Ok(enc.done())

@@ -16,6 +16,7 @@ use crate::types::civil_time::CivilTime;
 use crate::types::date_time::date_time_calendar::{
     ABSOLUTE_TO_UNIX, INTERNAL_TO_UNIX, UNIX_TO_INTERNAL, date_to_abs_days,
 };
+use crate::utils::go_conv::go_uint32;
 
 /// The zone a [`DateTime`] is presented in: UTC, or a fixed offset east of UTC in seconds.
 ///
@@ -75,9 +76,11 @@ impl DateTime {
         let (min, sec) = norm(min, sec, 60);
         let (hour, min) = norm(hour, min, 60);
         let (day, hour) = norm(day, hour, 24);
-        // Go's int64(uint64): the day count read as two's complement. The month, normalised, is 1 to 12, so its
-        // cast is lossless.
-        let mut unix = date_to_abs_days(year, month as u32, day)
+        // Go's int64(uint64): the day count read as two's complement. Go's uint32(month) and int32(nsec) keep the
+        // low 32 bits of the normalised month, 1 to 12, and nanoseconds, 0 to 999,999,999.
+        let month = go_uint32(month);
+        let nsec = go_uint32(nsec);
+        let mut unix = date_to_abs_days(year, month, day)
             .cast_signed()
             .wrapping_mul(86400)
             .wrapping_add(hour * 3600 + min * 60 + sec)
@@ -85,7 +88,7 @@ impl DateTime {
         if let Zone::Fixed(offset) = zone {
             unix = unix.wrapping_sub(i64::from(offset));
         }
-        Self::from_unix_zone(unix, nsec as u32, zone)
+        Self::from_unix_zone(unix, nsec, zone)
     }
 
     /// `time.Date(...)` in UTC.
@@ -108,7 +111,8 @@ impl DateTime {
                 sec = sec.wrapping_sub(1);
             }
         }
-        Self::from_unix_zone(sec, nsec as u32, Zone::Utc)
+        // Go's int32(nsec) keeps the low 32 bits of the normalised 0 to 999,999,999.
+        Self::from_unix_zone(sec, go_uint32(nsec), Zone::Utc)
     }
 
     pub(crate) fn from_unix_zone(unix: i64, nsec: u32, zone: Zone) -> Self {

@@ -203,8 +203,11 @@ impl<'a> FrameChanges<'a> {
         let reader = Reader { table, terms };
         let changes = (0..count)
             .map(|index| {
-                // A frame holds far fewer than 2^32 changes, so the index's cast is lossless.
-                let change = change(index).ok_or_else(|| refused("change", index as u32))?;
+                // The refusal names the index as a u64, which holds a `usize` on every target the repository builds
+                // for, so the cast is lossless.
+                let change = change(index).ok_or_else(|| {
+                    ProtocolError::field_value(Command::Write.number(), "change", index as u64)
+                })?;
                 reader.change(change)
             })
             .collect::<Result<Vec<_>, _>>()?;

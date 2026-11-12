@@ -110,7 +110,7 @@ fn test_power_of_two_formats_as_go_shortens_it() -> TestResult {
     let x = BigFloat::unmarshal_text("0x1p-1100", BIG_FLOAT_PRECISION)
         .context("BigFloat::unmarshal_text(\"0x1p-1100\", BIG_FLOAT_PRECISION)")?;
     assert_eq!(
-        x.marshal_text(),
+        x.marshal_text()?,
         "7.3621518290228626754368661771449651176491350325096363488672e-332"
     );
     Ok(())
@@ -122,7 +122,7 @@ fn test_conversions() -> TestResult {
         .context("BigFloat::unmarshal_text(\"-2.5\", BIG_FLOAT_PRECISION)")?;
     assert_eq!(x.to_f64(), -2.5);
     assert_eq!(x.to_i64(), -2);
-    assert_eq!(x.text_g(10), "-2.5");
+    assert_eq!(x.text_g(10)?, "-2.5");
     assert_eq!(BigFloat::from_i64(i64::MIN, 200).to_i64(), i64::MIN);
     assert_eq!(BigFloat::from_i64(i64::MAX, 200).to_i64(), i64::MAX);
     assert_eq!(BigFloat::inf(false, 200).to_i64(), i64::MAX);
@@ -148,7 +148,7 @@ fn test_conversions() -> TestResult {
     assert!(!BigFloat::zero(200).is_neg());
     // SetInt64 and SetFloat64 are exact at their own widths and round to nearest even below them.
     assert_eq!(
-        BigFloat::from_i64(i64::MIN, 200).text_g(-1),
+        BigFloat::from_i64(i64::MIN, 200).text_g(-1)?,
         "-9.223372036854775808e+18"
     );
     assert_eq!(BigFloat::from_i64((1 << 53) + 1, 53).to_i64(), 1 << 53);
@@ -172,7 +172,7 @@ fn test_conversions() -> TestResult {
     assert_eq!(
         one.quo(&BigFloat::from_i64(3, 200), 53)
             .context("one.quo(&BigFloat::from_i64(3, 200), 53)")?
-            .text_g(-1),
+            .text_g(-1)?,
         "0.3333333333333333"
     );
     Ok(())
@@ -205,9 +205,9 @@ fn test_text_g_float64_and_int64_as_go_writes_them() -> TestResult {
             .context("BigFloat::unmarshal_text(input, BIG_FLOAT_PRECISION)")?;
         assert_eq!(x.prec(), BIG_FLOAT_PRECISION);
         for (p, want) in [-1, 0, 1, 2, 5, 10, 20].into_iter().zip(texts) {
-            assert_eq!(x.text_g(p), want, "{input} at {p}");
+            assert_eq!(x.text_g(p)?, want, "{input} at {p}");
         }
-        assert_eq!(x.marshal_text(), texts[0], "{input}");
+        assert_eq!(x.marshal_text()?, texts[0], "{input}");
         assert_eq!(x.to_f64().to_bits(), f.to_bits(), "{input}");
         assert_eq!(x.to_i64(), i, "{input}");
     }
@@ -267,7 +267,7 @@ fn test_quo_rounds_as_go_does() -> TestResult {
             let z = x.quo(&y, p).context("x.quo(&y, p)")?;
             // A precision of 0 is the operands' 64 bits.
             assert_eq!(z.prec(), if p == 0 { 64 } else { p });
-            assert_eq!(z.text_g(-1), want, "{a}/{b} at {p}");
+            assert_eq!(z.text_g(-1)?, want, "{a}/{b} at {p}");
         }
     }
     Ok(())
@@ -286,10 +286,10 @@ fn test_quo_smoke() -> TestResult {
             let (a, b) = (f64::from(x), f64::from(y));
             for ad in -DPREC..=DPREC {
                 for bd in -DPREC..=DPREC {
-                    let fa = BigFloat::from_f64(a, (PREC + ad) as u32)
-                        .context("BigFloat::from_f64(a, (PREC + ad) as u32)")?;
-                    let fb = BigFloat::from_f64(b, (PREC + bd) as u32)
-                        .context("BigFloat::from_f64(b, (PREC + bd) as u32)")?;
+                    let fa = BigFloat::from_f64(a, u32::try_from(PREC + ad)?)
+                        .context("BigFloat::from_f64(a, PREC + ad)")?;
+                    let fb = BigFloat::from_f64(b, u32::try_from(PREC + bd)?)
+                        .context("BigFloat::from_f64(b, PREC + bd)")?;
                     let c = fa.quo(&fb, 53).context("fa.quo(&fb, 53)")?;
                     assert_eq!(c.to_f64().to_bits(), (a / b).to_bits(), "{a}/{b}");
                 }
@@ -539,7 +539,8 @@ fn test_unmarshal_errors() -> TestResult {
     ];
     for (text, want) in accepted {
         assert_eq!(
-            BigFloat::unmarshal_text(text, 200).map(|x| x.marshal_text()),
+            BigFloat::unmarshal_text(text, 200)
+                .and_then(|x| x.marshal_text().map_err(|e| e.to_string())),
             Ok(want.to_string()),
             "{text}"
         );
@@ -571,7 +572,7 @@ fn test_a_precision_of_zero_is_gos_default() -> TestResult {
     let two = BigFloat::unmarshal_text("2", 0).context("BigFloat::unmarshal_text(\"2\", 0)")?;
     assert_eq!(two.prec(), 64);
     let q = five.quo(&two, 0).context("five.quo(&two, 0)")?;
-    assert_eq!((q.prec(), q.text_g(-1)), (64, "2.5".to_string()));
+    assert_eq!((q.prec(), q.text_g(-1)?), (64, "2.5".to_string()));
     let ten = BigFloat::unmarshal_text("1e1", u32::MAX)
         .context("BigFloat::unmarshal_text(\"1e1\", u32::MAX)")?;
     assert_eq!((ten.prec(), ten.to_i64()), (u32::MAX, 10));
@@ -627,7 +628,7 @@ fn test_round_shortest_of_float64_as_go_1_27_writes_it() -> TestResult {
         assert_eq!(
             BigFloat::from_f64(x, 53)
                 .context("BigFloat::from_f64(x, 53)")?
-                .text_g(-1),
+                .text_g(-1)?,
             want,
             "{x:e}"
         );

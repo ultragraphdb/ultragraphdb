@@ -17,15 +17,16 @@ pub(crate) fn is_point_in_ring(stride: usize, p: [f64; 2], ring: &[f64]) -> bool
         crossing_count: 0,
         on_segment: false,
     };
-    let mut i = stride;
-    while i < ring.len() {
-        let p1 = [ring[i], ring[i + 1]];
-        let p2 = [ring[i - stride], ring[i - stride + 1]];
+    if stride < 2 {
+        return false;
+    }
+    // Each point with the one before it; a trailing point short of two coordinates is left out.
+    let points = || ring.chunks(stride).filter_map(<[f64]>::first_chunk::<2>);
+    for (&p2, &p1) in points().zip(points().skip(1)) {
         counter.count_segment(p1, p2);
         if counter.on_segment {
             return true;
         }
-        i += stride;
     }
     counter.on_segment || counter.crossing_count % 2 == 1
 }

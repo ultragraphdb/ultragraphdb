@@ -121,19 +121,15 @@ impl Tracker {
         }
 
         // If it's the first element, drop it from the slice.
-        if self.shape_ids[0] == shape_id {
+        if self.shape_ids.first() == Some(&shape_id) {
             let _removed: i32 = self.shape_ids.remove(0);
             return;
         }
 
-        for i in 0..self.shape_ids.len() {
-            let s = self.shape_ids[i];
-            if s < shape_id {
-                continue;
-            }
-
+        // The first id at or past this one, where it is cut out or inserted.
+        if let Some(i) = self.shape_ids.iter().position(|&s| s >= shape_id) {
             // If it's in the set, cut it out.
-            if s == shape_id {
+            if self.shape_ids.get(i) == Some(&shape_id) {
                 let _removed: i32 = self.shape_ids.remove(i);
                 return;
             }

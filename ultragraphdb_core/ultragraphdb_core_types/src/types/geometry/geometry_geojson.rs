@@ -8,6 +8,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+// Arithmetic on decoded text input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use crate::errors::types_error::TypesError;
 use crate::types::geometry::Geometry;
 use crate::types::geometry_kind::GeometryKind;
@@ -255,7 +260,9 @@ fn guess_layout0(c: &[f64]) -> Result<Layout, TypesError> {
         2 => Ok(Layout::XY),
         3 => Ok(Layout::XYZ),
         4 => Ok(Layout::XYZM),
-        n => Ok(Layout::new(n as u32)),
+        n => u32::try_from(n)
+            .map(Layout::new)
+            .map_err(|_| TypesError::geo(format!("geojson: dimensionality too high ({n})"))),
     }
 }
 
@@ -474,7 +481,7 @@ fn push_coords2(out: &mut String, flat: &[f64], ends: &[usize], stride: usize) -
         if i > 0 {
             out.push(',');
         }
-        push_coords1(out, &flat[offset..end], stride)?;
+        push_coords1(out, flat.get(offset..end)?, stride)?;
         offset = end;
     }
     out.push(']');

@@ -306,8 +306,8 @@ fn test_a_batch_with_warnings_counts_them_and_reads_them_back() -> TestResult {
     let iri = ResultTerm::iri("http://ex.org/t0");
     let mut readable = ResultBatch::new(1).with_warnings(warnings.clone());
     readable.push_query_row(&[Some(&iri)])?;
-    let frame = readable.frame(Header::new(CLUSTER, Command::Result).with_stream(1))?;
-    let view = ResultView::from_frame(&frame_of(&frame)?)?;
+    let readable_frame = readable.frame(Header::new(CLUSTER, Command::Result).with_stream(1))?;
+    let view = ResultView::from_frame(&frame_of(&readable_frame)?)?;
     assert_eq!(view.warnings().len(), 2);
     assert!(!view.warnings().is_empty());
     assert_eq!(view.to_body()?.warnings(), warnings.as_slice());

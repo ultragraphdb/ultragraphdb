@@ -20,7 +20,7 @@ fn batch(entries: &[(&[u8], u64)]) -> WriteBatch {
     let mut batch = WriteBatch::new();
     entries
         .iter()
-        .for_each(|(k, v)| batch.push(Entry::put(k.to_vec(), *v, 0x04, vec![*v as u8])));
+        .for_each(|(k, v)| batch.push(Entry::put(k.to_vec(), *v, 0x04, vec![v.to_le_bytes()[0]])));
     batch
 }
 

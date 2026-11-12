@@ -3,6 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use std::collections::BTreeMap;
 
 use ultragraphdb_core_ids::Epoch;
@@ -27,7 +32,7 @@ impl PlacementMap {
         // At most 256 layouts, 2^18 runs each and 1,024 leaders: every count fits its field.
         let layouts = std::iter::once(&self.first).chain(&self.later);
         out.push(FORMAT);
-        out.extend_from_slice(&count_u16(self.later.len() + 1).to_be_bytes());
+        out.extend_from_slice(&count_u16(layouts.clone().count()).to_be_bytes());
         for layout in layouts {
             out.extend_from_slice(&layout.from.get().to_be_bytes());
             out.extend_from_slice(&count_u32(layout.runs.len()).to_be_bytes());
@@ -66,7 +71,8 @@ impl PlacementMap {
             ));
         }
         let first = read_layout(&mut reader, None)?;
-        let mut later: Vec<Layout> = Vec::with_capacity(usize::from(count) - 1);
+        // One per layout after the first.
+        let mut later: Vec<Layout> = Vec::with_capacity((1..count).len());
         for _ in 1..count {
             let before = later.last().unwrap_or(&first).from;
             later.push(read_layout(&mut reader, Some(before))?);

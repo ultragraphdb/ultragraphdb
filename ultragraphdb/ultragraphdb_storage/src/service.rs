@@ -79,8 +79,10 @@ fn now() -> Instant {
 fn first_ticket() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        // Microseconds since 1970 fit a `u64` until the year 586,912, so the cast loses nothing.
-        .map_or(1, |since| since.as_micros() as u64)
+        // Microseconds since 1970 fit a `u64` until the year 586,912; a clock past that saturates.
+        .map_or(1, |since| {
+            u64::try_from(since.as_micros()).unwrap_or(u64::MAX)
+        })
 }
 
 /// What every partition core of the process reads at start.

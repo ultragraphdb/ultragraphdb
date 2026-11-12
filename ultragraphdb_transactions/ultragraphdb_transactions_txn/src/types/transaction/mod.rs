@@ -326,8 +326,10 @@ where
             return Err(TxnError::ended());
         }
         if past(now_us.saturating_sub(self.began_us), limit) {
-            // The cast truncates only past 2^64 ms, some 584 million years, beyond any limit a setting holds.
-            return Err(TxnError::past_limit(limit.as_millis() as u64));
+            // Saturates only past 2^64 ms, some 584 million years, beyond any limit a setting holds.
+            return Err(TxnError::past_limit(
+                u64::try_from(limit.as_millis()).unwrap_or(u64::MAX),
+            ));
         }
         if self.mode == Mode::ReadOnly {
             return Ok(Commit::ReadOnly(std::mem::take(&mut self.buffers)));
@@ -420,8 +422,10 @@ where
         let limit = self.limit();
         if self.execution.is_some() && past(now_us.saturating_sub(self.began_us), limit) {
             self.end();
-            // The cast truncates only past 2^64 ms, some 584 million years, beyond any limit a setting holds.
-            return Err(TxnError::past_limit(limit.as_millis() as u64));
+            // Saturates only past 2^64 ms, some 584 million years, beyond any limit a setting holds.
+            return Err(TxnError::past_limit(
+                u64::try_from(limit.as_millis()).unwrap_or(u64::MAX),
+            ));
         }
         self.execution.as_mut().ok_or_else(TxnError::ended)
     }

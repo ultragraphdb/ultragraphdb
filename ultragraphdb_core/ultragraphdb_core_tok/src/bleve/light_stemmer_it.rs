@@ -23,11 +23,10 @@ pub(crate) fn stem(term: &str) -> String {
             c => c,
         };
     }
-    let prev = s[l - 2];
-    let keep = match s[l - 1] {
-        'e' | 'i' if prev == 'i' || prev == 'h' => l - 2,
-        'a' | 'o' if prev == 'i' => l - 2,
-        'e' | 'i' | 'a' | 'o' => l - 1,
+    let keep = match s.as_slice() {
+        [.., 'i' | 'h', 'e' | 'i'] => l - 2,
+        [.., 'i', 'a' | 'o'] => l - 2,
+        [.., 'e' | 'i' | 'a' | 'o'] => l - 1,
         _ => l,
     };
     s.truncate(keep);

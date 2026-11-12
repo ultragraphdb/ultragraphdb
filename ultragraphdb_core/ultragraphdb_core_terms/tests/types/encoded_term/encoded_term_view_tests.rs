@@ -22,7 +22,7 @@ fn typed(datatype: &[u8; 16]) -> TestResult<[EncodedTerm; 2]> {
     let short = [
         &[0x32][..],
         datatype,
-        &[SHORT.len() as u8],
+        &[u8::try_from(SHORT.len())?],
         SHORT.as_bytes(),
     ]
     .concat();
@@ -107,7 +107,11 @@ fn test_a_results_reader_refuses_an_iri_and_reads_other_literals_as_the_store() 
         ))
     );
     let string = EncodedTerm::from_bytes(
-        &[[0x20, SHORT.len() as u8].as_slice(), SHORT.as_bytes()].concat(),
+        &[
+            [0x20, u8::try_from(SHORT.len())?].as_slice(),
+            SHORT.as_bytes(),
+        ]
+        .concat(),
     )?;
     assert_eq!(string.result_view()?, string.view()?);
     Ok(())

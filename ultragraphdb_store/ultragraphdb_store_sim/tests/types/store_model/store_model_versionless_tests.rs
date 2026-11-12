@@ -29,7 +29,7 @@ fn batch(entries: Vec<Entry>, writes: &[(&[u8], Option<&[u8]>)]) -> WriteBatch {
 }
 
 fn put(key: &[u8], version: u64) -> Entry {
-    Entry::put(key.to_vec(), version, 0x04, vec![version as u8])
+    Entry::put(key.to_vec(), version, 0x04, vec![version.to_le_bytes()[0]])
 }
 
 fn applied(batch: WriteBatch, mode: PersistMode) -> OpRecord {

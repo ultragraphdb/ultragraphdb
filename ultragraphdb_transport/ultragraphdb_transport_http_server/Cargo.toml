@@ -20,12 +20,14 @@ autotests = false
 workspace = true
 
 [dependencies]
+
+ultragraphdb_protocol_transport_compio = { workspace = true }
+ultragraphdb_transport_tls = { workspace = true }
+# External crates
 compio = { workspace = true }
 sha2 = { workspace = true }
 subtle = { workspace = true }
 tracing = { workspace = true }
-ultragraphdb_protocol_transport_compio = { workspace = true }
-ultragraphdb_transport_tls = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_protocol_transport = { workspace = true }

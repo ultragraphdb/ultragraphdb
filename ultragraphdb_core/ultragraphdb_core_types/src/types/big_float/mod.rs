@@ -14,6 +14,8 @@ mod big_float_scan;
 use dashu_int::UBig;
 use dashu_int::ops::BitTest;
 
+use crate::errors::types_error::TypesError;
+
 /// Go's `big.MinExp` and `big.MaxExp`: the range of the exponent `e` of a value `0.m × 2^e`.
 const MIN_EXP: i64 = i32::MIN as i64;
 const MAX_EXP: i64 = i32::MAX as i64;
@@ -21,6 +23,16 @@ const MAX_EXP: i64 = i32::MAX as i64;
 /// Go's `int` of a length or a bit count: either is at most `isize::MAX`, so the saturation never fires.
 fn go_int(n: usize) -> i64 {
     i64::try_from(n).unwrap_or(i64::MAX)
+}
+
+// A u32 precision fits usize on every target this crate builds for, so `prec as usize` is lossless.
+const _: () = assert!(usize::BITS >= u32::BITS);
+
+/// The magnitude of a Go `int` shift, length or index whose sign the caller has checked, as usize: within the
+/// exponent range it fits a 64-bit usize, and one past usize is refused.
+fn go_uint(n: u64) -> Result<usize, TypesError> {
+    usize::try_from(n)
+        .map_err(|_| TypesError::big_float(format!("invariant violated: {n} exceeds usize")))
 }
 
 /// The value of a [`BigFloat`]: zero, infinity, or `mant × 2^exp` with `mant` odd.
@@ -152,7 +164,8 @@ impl BigFloat {
         let p = i64::from(self.prec);
         let (mut m, mut e) = (mant, exp);
         if n > p || sticky {
-            let r = (n - p).max(0) as usize;
+            // Go's `n - p` bits below the precision, none when the mantissa is shorter.
+            let r = mant_bits_minus_prec(&m, self.prec);
             let rbit = r > 0 && m.bit(r - 1);
             let sbit = sticky || (r > 1 && (m.trailing_zeros().unwrap_or(0) < r - 1));
             m >>= r;
@@ -182,4 +195,9 @@ impl BigFloat {
             Form::Zero | Form::Inf => 0,
         }
     }
+}
+
+/// The bits of `m` past `prec`, 0 when `m` holds no more than `prec` bits.
+fn mant_bits_minus_prec(m: &UBig, prec: u32) -> usize {
+    m.bit_len().saturating_sub(prec as usize)
 }

@@ -48,8 +48,8 @@ impl Collator {
             key.extend_from_slice(&[0, 0]);
             let mut push = |w: i32| {
                 if w > 0 {
-                    key.push((w >> 8) as u8);
-                    key.push(w as u8);
+                    let [.., high, low] = w.to_be_bytes();
+                    key.extend_from_slice(&[high, low]);
                 }
             };
             if !o.backwards {
@@ -103,10 +103,11 @@ impl Collator {
 
 /// Appends a primary weight in a variable-length encoding of up to 23 bits.
 fn append_primary(key: &mut Vec<u8>, p: i32) {
+    let [_, top, high, low] = p.to_be_bytes();
     if p <= 0x7FFF {
-        key.extend_from_slice(&[(p >> 8) as u8, p as u8]);
+        key.extend_from_slice(&[high, low]);
     } else {
-        key.extend_from_slice(&[(p >> 16) as u8 | 0x80, (p >> 8) as u8, p as u8]);
+        key.extend_from_slice(&[top | 0x80, high, low]);
     }
 }
 

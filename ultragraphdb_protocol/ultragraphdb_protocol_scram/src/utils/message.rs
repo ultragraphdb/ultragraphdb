@@ -35,15 +35,15 @@ pub(crate) fn escape(name: &str) -> String {
 pub(crate) fn unescape(name: &str) -> Result<String, ScramError> {
     let mut out = String::with_capacity(name.len());
     let mut rest = name;
-    while let Some(at) = rest.find('=') {
-        out.push_str(&rest[..at]);
-        let escape = rest.get(at..at + 3);
-        match escape {
-            Some("=2C") => out.push(','),
-            Some("=3D") => out.push('='),
+    while let Some((before, after)) = rest.split_once('=') {
+        out.push_str(before);
+        let (escaped, tail) = match after.split_at_checked(2) {
+            Some(("2C", tail)) => (',', tail),
+            Some(("3D", tail)) => ('=', tail),
             _ => return Err(ScramError::malformed("name")),
-        }
-        rest = &rest[at + 3..];
+        };
+        out.push(escaped);
+        rest = tail;
     }
     out.push_str(rest);
     Ok(out)

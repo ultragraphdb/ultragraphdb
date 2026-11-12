@@ -8,6 +8,7 @@
 //! flagged `LAST`. A frame splits a section of records or u32s only between whole ones and a text only on a character
 //! boundary.
 
+use std::num::NonZeroUsize;
 use std::ops::Range;
 
 use ultragraphdb_core_body::{align8, write_sections};
@@ -43,16 +44,22 @@ impl Cut<'_> {
         }
     }
 
-    /// The end of the part from `start`, at most `limit`, where this cut allows a frame to end it in `bytes`.
-    fn end(self, bytes: &[u8], start: usize, limit: usize) -> usize {
-        match self {
-            Cut::Units(unit) => start + (limit - start) / unit.max(1) * unit.max(1),
+    /// The end of the part from `start`, at most `limit`, where this cut allows a frame to end it in `bytes`; `None`
+    /// for a `limit` below `start`.
+    fn end(self, bytes: &[u8], start: usize, limit: usize) -> Option<usize> {
+        Some(match self {
+            Cut::Units(unit) => {
+                // Whole units from `start`: the span rounded down to a multiple of the unit, within `limit`.
+                let unit = NonZeroUsize::new(unit).unwrap_or(NonZeroUsize::MIN);
+                let span = limit.checked_sub(start)?;
+                start.checked_add(span.checked_sub(span % unit)?)?
+            }
             Cut::Text => char_boundary(bytes, start, limit),
             Cut::Texts(ranges) => match ranges.iter().find(|r| r.start < limit && limit < r.end) {
                 Some(range) => char_boundary(bytes, start.max(range.start), limit),
                 None => limit,
             },
-        }
+        })
     }
 }
 
@@ -60,13 +67,15 @@ impl Cut<'_> {
 /// most three.
 fn char_len(bytes: &[u8], start: usize) -> usize {
     let continuing = bytes
-        .get(start + 1..)
+        .get(start..)
+        .and_then(|rest| rest.get(1..))
         .unwrap_or_default()
         .iter()
         .take(3)
         .take_while(|byte| *byte & 0xC0 == 0x80)
         .count();
-    1 + continuing
+    // At most three continuation bytes, so the length never saturates.
+    continuing.saturating_add(1)
 }
 
 /// The last character boundary of `bytes` at or below `limit` and at or above `floor`: a byte that is no UTF-8
@@ -78,7 +87,11 @@ fn char_boundary(bytes: &[u8], floor: usize, limit: usize) -> usize {
         if end <= floor || !continues {
             return end;
         }
-        end -= 1;
+        // `end` is above `floor`, so it is at least 1.
+        let Some(before) = end.checked_sub(1) else {
+            return end;
+        };
+        end = before;
     }
     end.max(floor)
 }
@@ -89,22 +102,29 @@ pub(crate) fn frame_len(body_len: usize) -> usize {
 }
 
 /// The most bytes of body, before its chunk table, a frame within `max_frame` holds: the body of one chunk, or of `n ≥ 2`
-/// chunks, which hold at most 3,840 + 4,096 (n − 1) bytes beside a table of 8n.
-pub(crate) fn data_room(max_frame: usize) -> usize {
+/// chunks, which hold at most 3,840 + 4,096 (n − 1) bytes beside a table of 8n. `None` past `usize`, which a room of at
+/// most 1 MiB never reaches.
+pub(crate) fn data_room(max_frame: usize) -> Option<usize> {
     let room = max_frame.min(MAX_FRAME_SIZE).saturating_sub(HEADER_SIZE);
     if room <= FIRST_CHUNK_SIZE {
-        return room;
+        return Some(room);
     }
     // The chunks' room and the table's meet near n = (room + 256) / 4,104; either side of it is the most.
-    let near = (room + CHUNK_SIZE - FIRST_CHUNK_SIZE) / (CHUNK_SIZE + LEAF_SIZE);
-    [near, near + 1]
+    let near = room.checked_add(CHUNK_SIZE - FIRST_CHUNK_SIZE)? / (CHUNK_SIZE + LEAF_SIZE);
+    [Some(near), near.checked_add(1)]
         .into_iter()
-        .filter(|chunks| *chunks >= 2)
+        .filter(|chunks| chunks.is_none_or(|chunks| chunks >= 2))
         .map(|chunks| {
-            room.saturating_sub(LEAF_SIZE * chunks)
-                .min(FIRST_CHUNK_SIZE + CHUNK_SIZE * (chunks - 1))
+            let chunks = chunks?;
+            let chunks_room = CHUNK_SIZE
+                .checked_mul(chunks.checked_sub(1)?)?
+                .checked_add(FIRST_CHUNK_SIZE)?;
+            Some(
+                room.checked_sub(LEAF_SIZE.checked_mul(chunks)?)?
+                    .min(chunks_room),
+            )
         })
-        .fold(FIRST_CHUNK_SIZE, usize::max)
+        .try_fold(FIRST_CHUNK_SIZE, |most, room| Some(most.max(room?)))
 }
 
 /// The frames that carry the body of `sections` within `max_frame`, each under `header`, whose command header every
@@ -128,13 +148,16 @@ pub(crate) fn continuation_frames(
             header.with_flags(flags | FLAG_LAST).encode_frame(&body)?,
         ]);
     }
-    let room = data_room(max_frame);
+    let room = data_room(max_frame)
+        .ok_or_else(|| ProtocolError::frame_too_large(frame_len(body.len()), max_frame))?;
     let total = whole.iter().map(|bytes| bytes.len()).sum::<usize>();
     let mut cursors = vec![0usize; sections.len()];
     let mut frames = Vec::new();
     // Each frame carries at least one byte, so the answer takes at most one frame a byte.
     for _ in 0..=total {
-        let parts = next_parts(sections, &mut cursors, room);
+        let parts = next_parts(sections, &mut cursors, room).ok_or_else(|| {
+            ProtocolError::frame_too_large(least_frame(sections, &cursors), max_frame)
+        })?;
         let carried = parts.iter().map(|part| part.len()).sum::<usize>();
         if carried == 0 {
             return Err(ProtocolError::frame_too_large(
@@ -166,6 +189,7 @@ pub(crate) fn continuation_frames(
 /// the last. It is one chunk, with no chunk table.
 fn least_frame(sections: &[(&[u8], Cut<'_>)], cursors: &[usize]) -> usize {
     let count = sections.len();
+    let last = count.checked_sub(1);
     sections
         .iter()
         .zip(cursors)
@@ -173,12 +197,15 @@ fn least_frame(sections: &[(&[u8], Cut<'_>)], cursors: &[usize]) -> usize {
         .filter(|(_, ((bytes, _), cursor))| **cursor < bytes.len())
         .map(|(index, ((bytes, cut), cursor))| {
             let unit = cut.unit(bytes, *cursor);
-            let held = if index + 1 < count {
-                align8(unit)
-            } else {
+            let held = if Some(index) == last {
                 unit
+            } else {
+                align8(unit)
             };
-            HEADER_SIZE + 8 * count + held
+            // A frame's few sections and one unit: the size never saturates.
+            HEADER_SIZE
+                .saturating_add(count.saturating_mul(8))
+                .saturating_add(held)
         })
         .min()
         .unwrap_or(HEADER_SIZE)
@@ -186,29 +213,27 @@ fn least_frame(sections: &[(&[u8], Cut<'_>)], cursors: &[usize]) -> usize {
 
 /// The next frame's part of each section, from its cursor, within `room` bytes of body: each section after the one
 /// before rounded up to 8, and each but the last ending by `room` rounded down to 8, so the padding after it fits.
-/// Moves the cursors past the parts.
+/// Moves the cursors past the parts. `None` for a place past `usize`, which a frame's body of at most 1 MiB never
+/// reaches.
 fn next_parts<'a>(
     sections: &[(&'a [u8], Cut<'_>)],
     cursors: &mut [usize],
     room: usize,
-) -> Vec<&'a [u8]> {
+) -> Option<Vec<&'a [u8]>> {
     let count = sections.len();
-    let mut at = 8 * count;
+    let last = count.checked_sub(1);
+    let mut at = count.checked_mul(8)?;
     let mut parts = Vec::with_capacity(count);
     for (index, ((bytes, cut), cursor)) in sections.iter().zip(cursors.iter_mut()).enumerate() {
         at = align8(at);
-        let end_by = if index + 1 < count {
-            room / 8 * 8
-        } else {
-            room
-        };
+        let end_by = if Some(index) == last { room } else { room & !7 };
         let space = end_by.saturating_sub(at);
         let start = *cursor;
         let limit = start.saturating_add(space).min(bytes.len());
-        let end = cut.end(bytes, start, limit);
-        parts.push(bytes.get(start..end).unwrap_or_default());
-        at += end - start;
+        let end = cut.end(bytes, start, limit)?;
+        parts.push(bytes.get(start..end)?);
+        at = at.checked_add(end.checked_sub(start)?)?;
         *cursor = end;
     }
-    parts
+    Some(parts)
 }

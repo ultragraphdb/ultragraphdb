@@ -12,7 +12,7 @@ use ultragraphdb_core_tok::VEC_KEYWORD;
 use ultragraphdb_store_kv::{Durability, FjallStore};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimRng};
 
-use ultragraphdb_traits_index::Metric;
+use ultragraphdb_traits_index::{Float, Metric};
 
 use crate::utils::helpers::{
     delete, draw, id, insert, lists_over, nums, opts, oracle_score, pred, search, vkeys,
@@ -96,7 +96,7 @@ fn test_the_workload_rules_hold_on_fjall() -> TestResult {
             let _inserted: bool = dead.insert(gone);
         }
         let v: Vec<f32> = (0..3)
-            .map(|_| (draw(&mut rng) * 2.0 - 1.0) as f32)
+            .map(|_| f32::from_f64(draw(&mut rng) * 2.0 - 1.0))
             .collect();
         let edges = insert(&lists, &p, &o, id(uid)?, &v, &mut || draw(&mut rng))?;
         assert_eq!(
@@ -109,7 +109,7 @@ fn test_the_workload_rules_hold_on_fjall() -> TestResult {
     assert_eq!(graph_defect(&lists, &p, lists.applied_ts())?, None);
     for _ in 0..50 {
         let q: Vec<f32> = (0..3)
-            .map(|_| (draw(&mut rng) * 2.0 - 1.0) as f32)
+            .map(|_| f32::from_f64(draw(&mut rng) * 2.0 - 1.0))
             .collect();
         let found = nums(&search(&lists, &vkeys(&p)?, &o, &q, 4, None)?);
         assert_eq!(found.len(), 4, "{} live", live.len());

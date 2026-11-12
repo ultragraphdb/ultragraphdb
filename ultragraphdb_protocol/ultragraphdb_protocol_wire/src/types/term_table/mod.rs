@@ -97,16 +97,18 @@ impl TermTable {
                         )?;
                         deepest = deepest.max(*depth);
                     }
-                    if deepest + 1 > MAX_TERM_DEPTH {
+                    // Every depth held is at most `MAX_TERM_DEPTH`, so one more never saturates.
+                    let nested = deepest.saturating_add(1);
+                    if nested > MAX_TERM_DEPTH {
                         return Err(ProtocolError::term_too_deep(
                             0,
                             0,
                             at,
-                            deepest + 1,
+                            nested,
                             MAX_TERM_DEPTH,
                         ));
                     }
-                    deepest + 1
+                    nested
                 }
                 RequestTerm::Iri(_)
                 | RequestTerm::BlankNode(_)
@@ -211,7 +213,7 @@ impl TermTable {
 
     /// The two sections, the records and the text.
     pub(crate) fn sections(&self) -> (Vec<u8>, Vec<u8>) {
-        let mut records = Vec::with_capacity(TERM_RECORD_SIZE * self.terms.len());
+        let mut records = Vec::with_capacity(TERM_RECORD_SIZE.saturating_mul(self.terms.len()));
         let mut text = Vec::new();
         for term in &self.terms {
             let mut texts = |kind: u8, direction: u8, first: &str, second: &str| {

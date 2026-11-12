@@ -70,5 +70,5 @@ pub(crate) fn stem(term: &str) -> String {
 /// bleve's `truncateRunes`.
 fn truncate_runes(input: &str, num: usize) -> String {
     let r: Vec<char> = input.chars().collect();
-    r[..r.len() - num].iter().collect()
+    r.iter().take(r.len() - num).collect()
 }

@@ -391,7 +391,7 @@ fn test_the_map_keeps_at_most_256_layouts() -> TestResult {
     // The first layout and 255 changes.
     for epoch in 1..=255 {
         map.change(at(epoch)?, &layout)?;
-        assert_eq!(map.layouts_free(), 255 - epoch as usize);
+        assert_eq!(map.layouts_free(), 255 - usize::try_from(epoch)?);
     }
     let refusal = map.change(at(256)?, &layout).err().context("a refusal")?;
     assert_eq!(

@@ -17,10 +17,11 @@ use ultragraphdb_tool_bdd::{Context as _, TestResult};
 
 /// The client's Hello of `cluster`, its first frame.
 fn hello(cluster: u64) -> TestResult<Vec<u8>> {
-    Ok(
-        ClientHandshake::new(cluster, Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c"))
-            .hello_frame()?,
+    Ok(ClientHandshake::new(
+        cluster,
+        Hello::new(1, 1, 0, u32::try_from(MAX_FRAME_SIZE)?, "c"),
     )
+    .hello_frame()?)
 }
 
 /// The code and message of the server's Error frame `frame`, and its stream.
@@ -57,7 +58,7 @@ fn test_a_frame_shorter_than_its_size_closes_the_connection() -> TestResult {
     server.receive(&frame[..short], now);
     assert!(server.is_closing());
     let error = server.transmit().context("the closing Error")?;
-    let expected = ProtocolError::length_mismatch(frame.len() as u32, short).to_string();
+    let expected = ProtocolError::length_mismatch(u32::try_from(frame.len())?, short).to_string();
     assert_eq!(refusal(&error)?, (0, ErrorCode::Protocol, expected));
     assert_eq!(server.transmit(), None, "the Error is the last frame");
     Ok(())

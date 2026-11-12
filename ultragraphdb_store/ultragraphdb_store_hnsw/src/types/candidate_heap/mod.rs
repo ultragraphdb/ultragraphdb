@@ -67,10 +67,11 @@ impl<T: HnswFloat> CandidateHeap<T> {
     }
 
     fn less(&self, i: usize, j: usize) -> bool {
-        if self.max {
-            self.items[i].value() > self.items[j].value()
-        } else {
-            self.items[i].value() < self.items[j].value()
+        // The heap's moves name items it holds, so both are always there.
+        match (self.items.get(i), self.items.get(j)) {
+            (Some(a), Some(b)) if self.max => a.value() > b.value(),
+            (Some(a), Some(b)) => a.value() < b.value(),
+            _ => false,
         }
     }
 

@@ -148,7 +148,7 @@ fn stalls_behind(w: &mut Steps) -> TestResult {
 
 #[then("the read reaches `LAST` with each row once, and the Scan went on from where it stopped")]
 fn went_on(w: &mut Steps) -> TestResult {
-    let rows = *w.numbers.first().context("the rows")? as usize;
+    let rows = usize::try_from(*w.numbers.first().context("the rows")?)?;
     assert_eq!(w.answers.len(), 2);
     for answer in &w.answers {
         answer.whole()?;

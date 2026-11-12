@@ -25,7 +25,7 @@ fn test_the_defaults_are_as_documented() -> TestResult {
     assert_eq!(config.buffers(), 64);
     assert_eq!(
         config.hello(),
-        Hello::new(1, PROTOCOL_VERSION, 0, MAX_FRAME_SIZE as u32, "c")
+        Hello::new(1, PROTOCOL_VERSION, 0, u32::try_from(MAX_FRAME_SIZE)?, "c")
     );
     // The core keeps the configuration it was made with.
     assert_eq!(ClientCore::new(config.clone(), Anonymous).config(), &config);
@@ -56,7 +56,7 @@ fn test_each_setting_is_kept() -> TestResult {
     // The Hello names the protocols and release set, the largest frame, and the name.
     assert_eq!(
         config.hello(),
-        Hello::new(2, 3, u32::MAX, MAX_FRAME_SIZE as u32, "")
+        Hello::new(2, 3, u32::MAX, u32::try_from(MAX_FRAME_SIZE)?, "")
     );
     Ok(())
 }

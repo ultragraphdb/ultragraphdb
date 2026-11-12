@@ -60,7 +60,8 @@ fn test_bounded_draws_stay_in_their_bounds() {
     assert!((0..1000).all(|_| rng.index(3) < 3));
     assert!((0..1000).all(|_| rng.below(1) == 0));
     let mut seen = [false; 5];
-    (0..1000).for_each(|_| seen[(rng.between(5, 9) - 5) as usize] = true);
+    (0..1000)
+        .for_each(|_| seen[usize::try_from(rng.between(5, 9) - 5).unwrap_or(usize::MAX)] = true);
     assert_eq!(seen, [true; 5], "both bounds are reachable");
 }
 

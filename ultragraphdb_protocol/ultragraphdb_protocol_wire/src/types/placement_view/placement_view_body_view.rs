@@ -37,7 +37,10 @@ impl<'a> BodyView<'a> for PlacementView<'a> {
         let sections = read_sections::<3>(command, frame.body(), 0)?;
         let (ranges, runs, leaders) = (sections.get(0), sections.get(1), sections.get(2));
         if from == 0 {
-            let bytes = ranges.len() + runs.len() + leaders.len();
+            let bytes = ranges
+                .len()
+                .saturating_add(runs.len())
+                .saturating_add(leaders.len());
             if bytes != 0 {
                 return Err(ProtocolError::count_mismatch(
                     command,
@@ -118,7 +121,8 @@ fn check_ranges(
     let mut partitions = BTreeSet::new();
     let (mut end, mut previous) = (0u32, 0u32);
     for (i, bytes) in ranges.iter().enumerate() {
-        let range = BucketRange::decode(command, at + BucketRange::SIZE * i, bytes)?;
+        let offset = at.saturating_add(BucketRange::SIZE.saturating_mul(i));
+        let range = BucketRange::decode(command, offset, bytes)?;
         if range.start() != end
             || range.end() <= range.start()
             || range.partition() == 0
@@ -148,7 +152,8 @@ fn check_runs(
 ) -> Result<(), ProtocolError> {
     let mut previous: Option<u64> = None;
     for (i, bytes) in runs.iter().enumerate() {
-        let run = TenantRun::decode(command, at + TenantRun::SIZE * i, bytes)?;
+        let offset = at.saturating_add(TenantRun::SIZE.saturating_mul(i));
+        let run = TenantRun::decode(command, offset, bytes)?;
         if previous.is_some_and(|before| run.tenant() <= before) {
             return Err(ProtocolError::field_value(command, "run", i as u64)); // lossless: a `usize` is at most 64 bits
         }

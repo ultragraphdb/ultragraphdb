@@ -22,7 +22,7 @@ fn batch(entries: Vec<Entry>, applied: Option<u64>) -> WriteBatch {
 }
 
 fn put(key: &[u8], version: u64) -> Entry {
-    Entry::put(key.to_vec(), version, 0x04, vec![version as u8])
+    Entry::put(key.to_vec(), version, 0x04, vec![version.to_le_bytes()[0]])
 }
 
 /// The model after feeding it the log of what `run` does to a fresh store, and the store.
@@ -808,7 +808,7 @@ fn test_a_temporary_keyspace_is_read_at_every_version() -> TestResult {
             version,
             0x04,
             false,
-            vec![version as u8],
+            vec![version.to_le_bytes()[0]],
         ))),
     };
     model.observe(&[at(7)]).context("the newest version")?;
@@ -1415,7 +1415,15 @@ fn test_a_snapshot_holds_the_answers_of_64_reads() -> TestResult {
 /// corrupted, must still repeat their answers to the key.
 #[test]
 fn test_a_corruption_frees_only_the_snapshots_that_read_its_version() -> TestResult {
-    let item = |version: u64| Item::new(b"a".to_vec(), version, 0x04, false, vec![version as u8]);
+    let item = |version: u64| {
+        Item::new(
+            b"a".to_vec(),
+            version,
+            0x04,
+            false,
+            vec![version.to_le_bytes()[0]],
+        )
+    };
     let read = |id, result| OpRecord::Read {
         id,
         key: b"a".to_vec(),

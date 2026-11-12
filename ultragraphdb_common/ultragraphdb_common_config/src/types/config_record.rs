@@ -3,6 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+// Arithmetic on decoded log input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use crate::errors::config_error::ConfigError;
 
 const REVISION: u8 = 1;
@@ -61,7 +66,11 @@ impl<'a> ConfigRecord<'a> {
             Self::Activate { target, number } => (ACTIVATE, target, number, &[]),
             Self::Retire { target } => (RETIRE, target, 0, &[]),
         };
-        let mut body = Vec::with_capacity(HEAD + target.len() + 8 + files.len());
+        // A capacity hint: the head, the name, the number and the files.
+        let capacity = [target.len(), 8, files.len()]
+            .iter()
+            .fold(HEAD, |sum, len| sum.saturating_add(*len));
+        let mut body = Vec::with_capacity(capacity);
         body.push(kind);
         body.extend_from_slice(
             &u16::try_from(target.len())

@@ -3,6 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use std::collections::BTreeSet;
 
 use ultragraphdb_cluster_placement::{BucketRange, PlacementMap};
@@ -259,7 +264,7 @@ fn decode_placement_pending(
         let version_at = reader.offset();
         let version = reader.u64("a placement version")?;
         check(
-            first.map(|first| first + index as u64) == Some(version), // below `pending`, lossless
+            first.and_then(|first| first.checked_add(index as u64)) == Some(version), // below `pending`, lossless
             "a placement version one above the one before, the last the last committed",
             version_at,
         )?;
@@ -435,7 +440,11 @@ fn decode_tables(reader: &mut Reader<'_>, state: &mut MetadataState) -> Result<(
             .insert(prefix, reader.u64("a next sequence")?);
     }
     if reader.flag()? {
-        let at = reader.offset() + 4;
+        // The map's bytes begin past their 4-byte length.
+        let at = reader
+            .offset()
+            .checked_add(4)
+            .ok_or_else(|| ClusterError::malformed("bytes of a placement map", reader.offset()))?;
         let encoded = read_len_u32(reader, "bytes of a placement map", PLACEMENT_BYTES_MAX)?;
         let map = PlacementMap::decode(&encoded).map_err(|error| shifted(&error, at))?;
         state.placement = Some(map);
@@ -457,8 +466,10 @@ fn decode_tables(reader: &mut Reader<'_>, state: &mut MetadataState) -> Result<(
 
 /// `error`, the placement map's refusal of its bytes, its offset moved by `at`, where they begin in the snapshot.
 fn shifted(error: &ClusterError, at: usize) -> ClusterError {
-    if let ClusterErrorEnum::Malformed { what, offset } = error.0 {
-        ClusterError::malformed(what, at + offset)
+    if let ClusterErrorEnum::Malformed { what, offset } = error.0
+        && let Some(offset) = at.checked_add(offset)
+    {
+        ClusterError::malformed(what, offset)
     } else {
         ClusterError::malformed("a placement map", at)
     }

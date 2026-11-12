@@ -138,7 +138,7 @@ fn declared(w: &mut Steps, args: &[String]) -> TestResult {
         p,
         &Declaration::Predicate(declaration),
         0,
-    ));
+    )?);
     let _versions: Vec<u64> = commit(store, vec![write])?;
     Ok(())
 }
@@ -160,7 +160,7 @@ fn written_during_pass(w: &mut Steps, args: &[String]) -> TestResult {
     let before = store.lists().applied_ts();
     let during = d.run_pass(store, before).context("the pass completes")?;
     let write = insert_write(store, 0, &[statement(text)?])?;
-    let (request, terms) = write.finish();
+    let (request, terms) = write.finish()?;
     let read_nothing = request.read_keys().next().is_none();
     let mut batch = store.lists().batch();
     batch.push(request);

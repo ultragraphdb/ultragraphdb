@@ -33,12 +33,12 @@ pub fn query_tokens_geo(
 ) -> Result<(Vec<String>, GeoQueryData), TypesError> {
     let (loops, pt) = query_loops(qt, g, max_distance)?;
     let (parents, cover) = if qt == QueryType::Near {
-        if loops.is_empty() {
+        let Some(first) = loops.first() else {
             return Err(TypesError::geo(
                 "Internal error while processing near query.",
             ));
-        }
-        let cover = cover_loop(&loops[0], MIN_CELL_LEVEL, MAX_CELL_LEVEL, MAX_CELLS);
+        };
+        let cover = cover_loop(first, MIN_CELL_LEVEL, MAX_CELL_LEVEL, MAX_CELLS);
         (get_parent_cells(&cover, MIN_CELL_LEVEL), cover)
     } else {
         index_cells(g)?

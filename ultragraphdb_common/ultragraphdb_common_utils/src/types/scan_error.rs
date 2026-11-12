@@ -32,9 +32,11 @@ pub(crate) enum ScanError {
 
 /// Go's `jsonwire.QuoteRune`: the first rune in single quotes, a byte that is not UTF-8 as `'\xff'`.
 fn quote_rune(b: &[u8]) -> String {
-    match go_utf8::decode_rune(b) {
-        (go_utf8::RUNE_ERROR, 1) => format!("'\\x{:x}'", b[0]),
-        (r, _) => go_strconv::quote_rune(char::from_u32(r).unwrap_or(char::REPLACEMENT_CHARACTER)),
+    match (go_utf8::decode_rune(b), b.first()) {
+        ((go_utf8::RUNE_ERROR, 1), Some(c)) => format!("'\\x{c:x}'"),
+        ((r, _), _) => {
+            go_strconv::quote_rune(char::from_u32(r).unwrap_or(char::REPLACEMENT_CHARACTER))
+        }
     }
 }
 
@@ -44,9 +46,15 @@ impl ScanError {
         let (_, n) = go_utf8::decode_rune(prefix);
         ScanError::InvalidText {
             label: "character",
-            what: prefix[..n].to_vec(),
+            what: prefix.get(..n).unwrap_or(prefix).to_vec(),
             where_: where_.into(),
         }
+    }
+
+    /// A stream longer than an absolute offset counts, which no reader reaches: the decoder stops as on a failed
+    /// read.
+    pub(crate) fn offset_overflow() -> Self {
+        ScanError::Read("the stream is longer than an offset counts".to_string())
     }
 
     /// Go's `NewInvalidEscapeSequenceError` for the escapes Go 1.27's v1 decoder checks: no surrogate pairs.
@@ -63,11 +71,11 @@ impl ScanError {
     fn invalid_text(label: &str, what: &[u8], where_: &str) -> String {
         let runes: Vec<(u32, usize)> = {
             let mut out = Vec::new();
-            let mut i = 0;
-            while i < what.len() {
-                let (r, n) = go_utf8::decode_rune(&what[i..]);
+            let mut rest = what;
+            while !rest.is_empty() {
+                let (r, n) = go_utf8::decode_rune(rest);
                 out.push((r, n));
-                i += n;
+                rest = rest.get(n..).unwrap_or_default();
             }
             out
         };

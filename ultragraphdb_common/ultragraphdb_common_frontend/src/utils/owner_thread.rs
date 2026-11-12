@@ -90,11 +90,15 @@ impl OwnerClock {
         reason = "the shell reads the clock and tells the owner's state machines, which read none"
     )]
     fn read(self) -> ClockReading {
-        // A `u128` of microseconds fits a `u64` for 584,000 years, past what the elapsed time or a wall clock reaches.
+        // A `u128` of microseconds fits a `u64` for 584,000 years, past what the elapsed time or a wall clock reaches;
+        // a reading past that saturates.
         let wall = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_or(0, |since| since.as_micros() as u64);
-        ClockReading::new(self.started.elapsed().as_micros() as u64, wall)
+            .map_or(0, |since| {
+                u64::try_from(since.as_micros()).unwrap_or(u64::MAX)
+            });
+        let elapsed = u64::try_from(self.started.elapsed().as_micros()).unwrap_or(u64::MAX);
+        ClockReading::new(elapsed, wall)
     }
 }
 

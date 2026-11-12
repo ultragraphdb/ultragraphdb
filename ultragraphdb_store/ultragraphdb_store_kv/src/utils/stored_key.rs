@@ -14,11 +14,11 @@
 //! sorts below every key it begins, a longer run below a shorter one followed by a non-zero byte.
 
 /// The longest run one code stands for.
-const RUN: usize = 126;
+const RUN: u8 = 126;
 /// The code of a key ending after a run of `j` zero bytes is `END + j`.
 const END: u8 = 0x01;
 /// The code of `RUN` zero bytes followed by more zero bytes.
-const LONG: u8 = END + RUN as u8 + 1;
+const LONG: u8 = END + RUN + 1;
 /// The code of a run of `k` zero bytes followed by a non-zero byte is `MORE - k`.
 const MORE: u8 = 0xFF;
 /// The version's eight bytes.
@@ -50,7 +50,8 @@ pub fn key_end(user_key: &[u8]) -> Vec<u8> {
 /// `user_key` with its zero runs written as codes, then its end code.
 fn encoded(user_key: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(user_key.len() + 2 + VERSION);
-    let mut run = 0usize;
+    // Reset past `RUN`, so it and the codes made of it fit a byte.
+    let mut run = 0u8;
     for &b in user_key {
         if b == 0 {
             run += 1;
@@ -61,12 +62,12 @@ fn encoded(user_key: &[u8]) -> Vec<u8> {
             continue;
         }
         if run > 0 {
-            out.extend_from_slice(&[0x00, MORE - run as u8]);
+            out.extend_from_slice(&[0x00, MORE - run]);
             run = 0;
         }
         out.push(b);
     }
-    out.extend_from_slice(&[0x00, END + run as u8]);
+    out.extend_from_slice(&[0x00, END + run]);
     out
 }
 
@@ -116,7 +117,7 @@ pub fn decode_stored_key(stored: &[u8]) -> Result<(Vec<u8>, u64), String> {
                 }
                 break;
             }
-            Some(&LONG) => RUN,
+            Some(&LONG) => usize::from(RUN),
             Some(&c) if c > LONG && c < MORE => usize::from(MORE - c),
             _ => return Err("stored key holds a zero byte without a run code".to_string()),
         };

@@ -12,6 +12,11 @@ pub(crate) fn padded(len: u64) -> u64 {
     len.div_ceil(BLOCK as u64).saturating_mul(BLOCK as u64)
 }
 
+/// `len` rounded up to whole blocks, saturating: [`padded`] for a length in memory.
+pub(crate) fn padded_usize(len: usize) -> usize {
+    len.div_ceil(BLOCK).saturating_mul(BLOCK)
+}
+
 /// Whether `offset` and `len` are both multiples of a block.
 pub(crate) fn aligned(offset: u64, len: u64) -> bool {
     offset.is_multiple_of(BLOCK as u64) && len.is_multiple_of(BLOCK as u64)

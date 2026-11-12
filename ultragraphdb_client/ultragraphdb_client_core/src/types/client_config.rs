@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use ultragraphdb_protocol_wire::{Hello, MAX_FRAME_SIZE, PROTOCOL_VERSION};
+use ultragraphdb_protocol_wire::{Hello, MAX_FRAME_SIZE_U32, PROTOCOL_VERSION};
 
 /// What a client is: the cluster it connects to, its name and release, the protocols it speaks, how long it waits
 /// for an answer, how often it retries a commit through its session or a busy Register, how far apart, the credit it grants a result
@@ -169,7 +169,7 @@ impl ClientConfig {
             self.protocol_min,
             self.protocol_max,
             self.release,
-            MAX_FRAME_SIZE as u32,
+            MAX_FRAME_SIZE_U32,
             self.name.clone(),
         )
     }

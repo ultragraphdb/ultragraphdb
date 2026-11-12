@@ -52,7 +52,10 @@ impl TenantRun {
         let (tenant, rest) = bytes.split_at(8);
         let (run, zero) = rest.split_at(1);
         if let Some(i) = zero.iter().position(|b| *b != 0) {
-            return Err(ProtocolError::padding_not_zero(command, at + 9 + i));
+            return Err(ProtocolError::padding_not_zero(
+                command,
+                at.saturating_add(9).saturating_add(i),
+            ));
         }
         Ok(Self::new(
             tenant.try_into().map_or(0, u64::from_le_bytes),

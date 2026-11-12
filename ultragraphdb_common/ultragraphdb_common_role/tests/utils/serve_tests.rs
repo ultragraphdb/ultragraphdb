@@ -27,7 +27,7 @@ use ultragraphdb_protocol_transport::{
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Cancel, CloseRequest, Closed, Command, Credit, DEFAULT_INITIAL_CREDIT,
     Entries, EntriesEnd, EntriesView, ErrorCode, ErrorReply, ErrorReplyView, FLAG_LAST, Header,
-    Held, Join, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Members, Scan, ScanAt, ScanRange,
+    Held, Join, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE_U32, Members, Scan, ScanAt, ScanRange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -193,7 +193,7 @@ fn test_a_session_producing_on_ready_stops_where_the_readers_credit_stops() -> T
             }
         })
         .detach();
-        let max_frame = MAX_FRAME_FLOOR as u32;
+        let max_frame = MAX_FRAME_FLOOR_U32;
         let mut client =
             RoleClient::dial_taking(&address, CLUSTER, "compute", PASSWORD, max_frame).await?;
         assert_eq!(
@@ -706,16 +706,16 @@ fn test_a_split_client_writes_requests_and_shuts_down() -> TestResult {
 #[test]
 fn test_a_client_endpoint_announces_its_welcome_as_made() -> TestResult {
     bounded(async {
-        let floor = MAX_FRAME_FLOOR as u32;
+        let floor = MAX_FRAME_FLOOR_U32;
         for (endpoint, max_frame) in [
             (Endpoint::Client, floor),
-            (Endpoint::Partition, MAX_FRAME_SIZE as u32),
+            (Endpoint::Partition, MAX_FRAME_SIZE_U32),
         ] {
             let listener = listen(&free_tcp()?).await?;
             let address = listener.local_address()?;
             let server = Server::new(CLUSTER, "test", endpoint)?
                 .with_iterations(ROLE_ITERATIONS)
-                .with_welcome(|welcome| welcome.with_max_frame(MAX_FRAME_FLOOR as u32));
+                .with_welcome(|welcome| welcome.with_max_frame(MAX_FRAME_FLOOR_U32));
             let held = credentials()?;
             spawn(async move {
                 if let Ok(carrier) = listener.accept().await {

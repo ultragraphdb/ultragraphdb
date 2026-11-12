@@ -61,7 +61,7 @@ fn test_a_literal_of_another_datatype_reads_back_with_its_datatype_by_hash() -> 
     let short = [
         &[0x32][..],
         datatype.as_bytes(),
-        &[SHORT.len() as u8],
+        &[u8::try_from(SHORT.len())?],
         SHORT.as_bytes(),
     ]
     .concat();

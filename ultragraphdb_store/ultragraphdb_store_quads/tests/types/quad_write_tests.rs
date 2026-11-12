@@ -291,7 +291,7 @@ fn test_set_statement_ids_of_a_vector_writes_its_forward_posting_alone() -> Test
     assert!(vector.is_vector());
     let mut w = QuadWrite::new(&store, 0, store.lists().request(store.lists().applied_ts()));
     w.set_statement_ids(D, a, knows, &vector, &[statement(1)?]);
-    let (request, _terms) = w.finish();
+    let (request, _terms) = w.finish()?;
     let written: Vec<Vec<u8>> = request.written_keys().map(<[u8]>::to_vec).collect();
     assert_eq!(
         written,
@@ -381,7 +381,7 @@ fn test_a_seeded_write_continues_the_write_it_was_seeded_with() -> TestResult {
     let mut first = QuadWrite::new(&store, 0, store.lists().request(read_ts));
     let (s1, p) = (iri(&mut first, "s1")?, iri(&mut first, "p")?);
     first.insert(D, s1, p, &literal("a")?, &[], "x");
-    let (request, terms) = first.finish();
+    let (request, terms) = first.finish()?;
     let writes = request.into_writes();
 
     let mut second = QuadWrite::new(&store, 0, store.lists().request(read_ts));

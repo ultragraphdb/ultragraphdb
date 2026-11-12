@@ -7,6 +7,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use crate::errors::types_error::TypesError;
 use crate::types::geometry::Geometry;
 use crate::types::geometry_kind::GeometryKind;
@@ -15,25 +20,23 @@ use crate::types::layout::Layout;
 const EOF: &str = "EOF";
 const UNEXPECTED_EOF: &str = "unexpected EOF";
 
-/// A `bytes.Buffer` read with `io.ReadFull`.
+/// A `bytes.Buffer` read with `io.ReadFull`: the bytes not yet read.
 struct Reader<'a> {
     data: &'a [u8],
-    pos: usize,
 }
 
-impl Reader<'_> {
-    fn read_full(&mut self, n: usize) -> Result<&[u8], TypesError> {
-        let rest = self.data.len() - self.pos;
-        if rest < n {
-            self.pos = self.data.len();
-            return Err(TypesError::geo(if rest == 0 && n > 0 {
+impl<'a> Reader<'a> {
+    fn read_full(&mut self, n: usize) -> Result<&'a [u8], TypesError> {
+        let Some((s, rest)) = self.data.split_at_checked(n) else {
+            let at_end = self.data.is_empty();
+            self.data = &[];
+            return Err(TypesError::geo(if at_end && n > 0 {
                 EOF
             } else {
                 UNEXPECTED_EOF
             }));
-        }
-        let s = &self.data[self.pos..self.pos + n];
-        self.pos += n;
+        };
+        self.data = rest;
         Ok(s)
     }
 
@@ -92,7 +95,7 @@ fn kind_code(kind: GeometryKind) -> u32 {
 impl Geometry {
     /// go-geom's `wkb.Unmarshal`.
     pub fn unmarshal_wkb(data: &[u8]) -> Result<Geometry, TypesError> {
-        read(&mut Reader { data, pos: 0 })
+        read(&mut Reader { data })
     }
 
     /// go-geom's `wkb.Marshal(g, binary.LittleEndian)`.
@@ -154,7 +157,10 @@ fn read(r: &mut Reader<'_>) -> Result<Geometry, TypesError> {
                 )));
             }
             top.g.push(m)?;
-            top.left -= 1;
+            // A collection with no members left is closed below, so one is left here.
+            top.left = top.left.checked_sub(1).ok_or_else(|| {
+                TypesError::geo("wkb: invariant violated: a member past the count")
+            })?;
             if top.left == 0
                 && let Some(open) = stack.pop()
             {
@@ -166,18 +172,18 @@ fn read(r: &mut Reader<'_>) -> Result<Geometry, TypesError> {
 
 /// Reads one geometry's byte order, type and body; a multi-geometry's or collection's members are left to read.
 fn read_one(r: &mut Reader<'_>) -> Result<Read, TypesError> {
-    let order = r.read_full(1)?[0];
-    let big = match order {
-        0 => true,
-        1 => false,
-        b => return Err(TypesError::geo(format!("wkb: unknown byte order: {b:b}"))),
+    let big = match r.read_full(1)? {
+        [0] => true,
+        [1] => false,
+        [b] => return Err(TypesError::geo(format!("wkb: unknown byte order: {b:b}"))),
+        _ => return Err(TypesError::geo(UNEXPECTED_EOF)),
     };
     let t = r.read_u32(big)?;
-    let layout = match 1000 * (t / 1000) {
+    let layout = match t / 1000 {
         0 => Layout::XY,
-        1000 => Layout::XYZ,
-        2000 => Layout::XYM,
-        3000 => Layout::XYZM,
+        1 => Layout::XYZ,
+        2 => Layout::XYM,
+        3 => Layout::XYZM,
         _ => return Err(TypesError::geo(format!("wkb: unknown type: {t}"))),
     };
     let stride = layout.stride();
@@ -253,9 +259,23 @@ fn put_floats(out: &mut Vec<u8>, v: &[f64]) {
         .for_each(|f| out.extend_from_slice(&f.to_bits().to_le_bytes()));
 }
 
-fn put_flat1(out: &mut Vec<u8>, coords: &[f64], stride: usize) {
-    put_u32(out, (coords.len() / stride) as u32);
+/// A count as WKB's u32; go-geom writes `uint32(n)`, which this port refuses past u32 instead of truncating.
+fn put_count(out: &mut Vec<u8>, n: usize) -> Result<(), TypesError> {
+    let n =
+        u32::try_from(n).map_err(|_| TypesError::geo(format!("wkb: count {n} exceeds uint32")))?;
+    put_u32(out, n);
+    Ok(())
+}
+
+fn put_flat1(out: &mut Vec<u8>, coords: &[f64], stride: usize) -> Result<(), TypesError> {
+    // `layout_code` refuses no layout first, so the stride is at least 2.
+    let n = coords
+        .len()
+        .checked_div(stride)
+        .ok_or_else(|| TypesError::geo("geom: unsupported layout NoLayout"))?;
+    put_count(out, n)?;
     put_floats(out, coords);
+    Ok(())
 }
 
 /// go-geom's `Write`, its recursion into the members of collections kept on a stack: a collection's header, then
@@ -287,15 +307,18 @@ fn write(out: &mut Vec<u8>, root: &Geometry) -> Result<(), TypesError> {
             | GeometryKind::MultiPolygon => (g.layout, g.flat_coords().is_empty()),
         })
         .collect();
-    for i in (0..nodes.len()).rev() {
-        if let Some(p) = nodes[i].1 {
-            let (layout, empty) = shape[i];
-            let parent = &mut shape[p];
-            if joined(nodes[p].0) {
-                parent.0 = parent.0.widest(layout);
-            }
-            parent.1 &= empty;
+    // Each parent precedes its members, so walking backwards joins a member before its parent is read.
+    for (i, &(_, parent_at)) in nodes.iter().enumerate().rev() {
+        let (Some(p), Some(&(layout, empty))) = (parent_at, shape.get(i)) else {
+            continue;
+        };
+        let (Some(&(parent_g, _)), Some(parent)) = (nodes.get(p), shape.get_mut(p)) else {
+            continue;
+        };
+        if joined(parent_g) {
+            parent.0 = parent.0.widest(layout);
         }
+        parent.1 &= empty;
     }
     nodes
         .iter()
@@ -336,7 +359,11 @@ fn write_one(
     empty: bool,
 ) -> Result<(), TypesError> {
     out.push(1);
-    put_u32(out, kind_code(g.kind()) + layout_code(g, layout, empty)?);
+    // A kind code below 8 and a layout code of at most 3000 sum far inside u32.
+    let code = kind_code(g.kind())
+        .checked_add(layout_code(g, layout, empty)?)
+        .ok_or_else(|| TypesError::geo("wkb: invariant violated: a type code past u32"))?;
+    put_u32(out, code);
     let stride = layout.stride();
     match g.kind() {
         GeometryKind::Point => {
@@ -345,18 +372,18 @@ fn write_one(
             }
             put_floats(out, g.flat_coords());
         }
-        GeometryKind::LineString => put_flat1(out, g.flat_coords(), stride),
+        GeometryKind::LineString => put_flat1(out, g.flat_coords(), stride)?,
         GeometryKind::Polygon => {
-            put_u32(out, g.ends().len() as u32);
+            put_count(out, g.ends().len())?;
             let mut offset = 0;
             for &end in g.ends() {
-                put_flat1(out, &g.flat_coords()[offset..end], stride);
+                put_flat1(out, ring(g, offset, end)?, stride)?;
                 offset = end;
             }
         }
         GeometryKind::MultiPoint => {
             let points = g.multi_point_coords();
-            put_u32(out, points.len() as u32);
+            put_count(out, points.len())?;
             for p in points {
                 let p = match p {
                     Some(c) => {
@@ -368,13 +395,13 @@ fn write_one(
             }
         }
         GeometryKind::MultiLineString => {
-            put_u32(out, g.ends().len() as u32);
+            put_count(out, g.ends().len())?;
             let mut offset = 0;
             for &end in g.ends() {
                 let ls = Geometry::from_flat(
                     GeometryKind::LineString,
                     layout,
-                    g.flat_coords()[offset..end].to_vec(),
+                    ring(g, offset, end)?.to_vec(),
                     Vec::new(),
                 );
                 write_one(out, &ls, layout, ls.is_empty())?;
@@ -382,13 +409,21 @@ fn write_one(
             }
         }
         GeometryKind::MultiPolygon => {
-            put_u32(out, g.num_polygons() as u32);
+            put_count(out, g.num_polygons())?;
             for i in 0..g.num_polygons() {
                 let p = g.polygon_at(i);
                 write_one(out, &p, layout, p.is_empty())?;
             }
         }
-        GeometryKind::GeometryCollection => put_u32(out, g.geoms().len() as u32),
+        GeometryKind::GeometryCollection => put_count(out, g.geoms().len())?,
     }
     Ok(())
+}
+
+/// The coordinates of one ring or line of `g`, from one end to the next; the ends lie within the coordinates of a
+/// geometry this crate built.
+fn ring(g: &Geometry, start: usize, end: usize) -> Result<&[f64], TypesError> {
+    g.flat_coords()
+        .get(start..end)
+        .ok_or_else(|| TypesError::geo("geom: ends past the coordinates"))
 }

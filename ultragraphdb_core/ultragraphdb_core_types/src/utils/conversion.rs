@@ -8,6 +8,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+// Arithmetic on decoded text and store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use crate::errors::types_error::TypesError;
 use crate::types::big_float::BigFloat;
 use crate::types::date_time::DateTime;
@@ -280,10 +285,10 @@ fn convert_big_float(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val,
     match to_id {
         TypeId::BIGFLOAT => ok(Value::BigFloat(t)),
         TypeId::FLOAT => ok(Value::Float(t.to_f64())),
-        TypeId::BINARY => ok(Value::Bytes(t.marshal_text().into_bytes())),
+        TypeId::BINARY => ok(Value::Bytes(t.marshal_text()?.into_bytes())),
         TypeId::INT => ok(Value::Int(t.to_i64())),
         TypeId::BOOL => ok(Value::Bool(!t.is_zero())),
-        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(t.text_g(10))),
+        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(t.text_g(10)?)),
         TypeId::DATETIME => {
             if !big_float_in_int64(&t) {
                 return Err(float_out_of_range());
@@ -333,13 +338,15 @@ fn convert_float(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Typ
 /// [`convert`] from a bool value.
 fn convert_bool(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
     let ok = |v: Value| Ok(Val::new(to_id, v));
-    if data.is_empty() || data[0] > 1 {
-        return Err(TypesError::conversion(format!(
-            "invalid value for bool {}",
-            go_fmt::byte_slice(data)
-        )));
-    }
-    let vc = data[0] == 1;
+    let vc = match data.first() {
+        Some(&b) if b <= 1 => b == 1,
+        _ => {
+            return Err(TypesError::conversion(format!(
+                "invalid value for bool {}",
+                go_fmt::byte_slice(data)
+            )));
+        }
+    };
     match to_id {
         TypeId::BOOL => ok(Value::Bool(vc)),
         TypeId::BINARY => ok(Value::Bytes(vec![u8::from(vc)])),
@@ -496,8 +503,8 @@ fn marshal_encoded(val: &Value, from_id: TypeId, to_id: TypeId) -> Result<Val, T
                 return Err(assertion(val, "big.Float"));
             };
             match to_id {
-                _ if is_str => ok(Value::str(vc.text_g(10))),
-                TypeId::BINARY => ok(Value::Bytes(vc.marshal_text().into_bytes())),
+                _ if is_str => ok(Value::str(vc.text_g(10)?)),
+                TypeId::BINARY => ok(Value::Bytes(vc.marshal_text()?.into_bytes())),
                 _ => Err(cant_convert(from_id, to_id)),
             }
         }
@@ -615,7 +622,7 @@ pub fn marshal_json(v: &Val) -> Result<Vec<u8>, TypesError> {
         (TypeId::GEO, Some(Value::Geo(g))) => g
             .to_geojson()
             .ok_or_else(|| unsupported(&go_strconv::format_float(first_non_finite(g), b'g', 64)))?,
-        (TypeId::BIGFLOAT, Some(Value::BigFloat(b))) => b.marshal_text(),
+        (TypeId::BIGFLOAT, Some(Value::BigFloat(b))) => b.marshal_text()?,
         (TypeId::STRING | TypeId::DEFAULT, None) => crate::utils::json::encode_string(b""),
         (TypeId::STRING | TypeId::DEFAULT | TypeId::PASSWORD, Some(Value::Str(s))) => {
             crate::utils::json::encode_string(s.as_bytes())

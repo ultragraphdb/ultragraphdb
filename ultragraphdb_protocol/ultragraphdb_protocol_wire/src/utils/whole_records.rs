@@ -33,5 +33,5 @@ pub(crate) fn record_at<const N: usize>(bytes: &[u8], index: usize) -> Option<&[
 
 /// The number of whole `N`-byte records `bytes` holds.
 pub(crate) fn record_count<const N: usize>(bytes: &[u8]) -> usize {
-    bytes.len() / N
+    bytes.as_chunks::<N>().0.len()
 }

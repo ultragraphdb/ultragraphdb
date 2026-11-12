@@ -23,6 +23,12 @@ const MAX_NESTING_DEPTH: usize = 10000;
 /// A failed consumption: the absolute offset it reached and why it stopped.
 type Failure = (usize, ScanError);
 
+/// The absolute offset `n` bytes past `pos`.
+fn past(pos: usize, n: usize) -> Result<usize, Failure> {
+    pos.checked_add(n)
+        .ok_or_else(|| (pos, ScanError::offset_overflow()))
+}
+
 impl<R: Read> JsonDecoder<R> {
     /// jsontext's `ReadValue` at the top level: the absolute start and end of the next value, which becomes the
     /// previous value.
@@ -48,7 +54,7 @@ impl<R: Read> JsonDecoder<R> {
     /// reading more as needed. When it succeeds a byte is buffered there.
     pub(super) fn consume_whitespace(&mut self, mut pos: usize) -> Result<usize, Failure> {
         loop {
-            pos += json_wire::consume_whitespace(self.from(pos));
+            pos = past(pos, json_wire::consume_whitespace(self.from(pos)))?;
             if !self.need_more(pos) {
                 return Ok(pos);
             }
@@ -69,13 +75,13 @@ impl<R: Read> JsonDecoder<R> {
                 b'"' => pos = self.consume_string(pos)?,
                 b'0' => pos = self.consume_number(pos)?,
                 b'{' | b'[' => {
-                    if depth + open.len() == MAX_NESTING_DEPTH + 1 {
+                    if open.len().checked_add(depth) == Some(MAX_NESTING_DEPTH + 1) {
                         return Err((pos, ScanError::MaxDepth));
                     }
-                    pos = self.consume_whitespace(pos + 1)?;
+                    pos = self.consume_whitespace(past(pos, 1)?)?;
                     let close = if c == b'{' { b'}' } else { b']' };
                     if self.from(pos).first() == Some(&close) {
-                        pos += 1;
+                        pos = past(pos, 1)?;
                     } else {
                         open.push(c);
                         if c == b'{' {
@@ -95,14 +101,14 @@ impl<R: Read> JsonDecoder<R> {
                 match (top, self.from(pos).first().copied().unwrap_or_default()) {
                     (_, b',') => {
                         pos = if top == b'{' {
-                            self.consume_name(pos + 1)?
+                            self.consume_name(past(pos, 1)?)?
                         } else {
-                            self.consume_whitespace(pos + 1)?
+                            self.consume_whitespace(past(pos, 1)?)?
                         };
                         continue 'value;
                     }
                     (b'{', b'}') | (b'[', b']') => {
-                        pos += 1;
+                        pos = past(pos, 1)?;
                         let _closed: Option<u8> = open.pop();
                     }
                     (b'{', _) => {
@@ -130,16 +136,19 @@ impl<R: Read> JsonDecoder<R> {
                 ScanError::invalid_character(self.from(pos), "after object name (expecting ':')");
             return Err((pos, e));
         }
-        self.consume_whitespace(pos + 1)
+        self.consume_whitespace(past(pos, 1)?)
     }
 
     /// jsontext's `consumeLiteral`.
     fn consume_literal(&mut self, pos: usize, lit: &str) -> Result<usize, Failure> {
         loop {
             match json_wire::consume_literal(self.from(pos), lit) {
-                (n, Some(ScanError::UnexpectedEof)) => self.fetch().map_err(|e| (pos + n, e))?,
-                (n, Some(e)) => return Err((pos + n, e)),
-                (n, None) => return Ok(pos + n),
+                (n, Some(ScanError::UnexpectedEof)) => {
+                    let at = past(pos, n)?;
+                    self.fetch().map_err(|e| (at, e))?;
+                }
+                (n, Some(e)) => return Err((past(pos, n)?, e)),
+                (n, None) => return past(pos, n),
             }
         }
     }
@@ -151,10 +160,11 @@ impl<R: Read> JsonDecoder<R> {
             match json_wire::consume_string_resumable(self.from(pos), resume) {
                 (n, Some(ScanError::UnexpectedEof)) => {
                     resume = n;
-                    self.fetch().map_err(|e| (pos + n, e))?;
+                    let at = past(pos, n)?;
+                    self.fetch().map_err(|e| (at, e))?;
                 }
-                (n, Some(e)) => return Err((pos + n, e)),
-                (n, None) => return Ok(pos + n),
+                (n, Some(e)) => return Err((past(pos, n)?, e)),
+                (n, None) => return past(pos, n),
             }
         }
     }
@@ -166,17 +176,18 @@ impl<R: Read> JsonDecoder<R> {
         loop {
             let (n2, state2, err) = json_wire::consume_number_resumable(self.from(pos), n, state);
             (n, state) = (n2, state2);
-            if err == Some(ScanError::UnexpectedEof) || self.need_more(pos + n) {
+            let end = past(pos, n)?;
+            if err == Some(ScanError::UnexpectedEof) || self.need_more(end) {
                 let may_terminate = err.is_none();
                 match self.fetch() {
                     Ok(()) => continue,
-                    Err(ScanError::UnexpectedEof) if may_terminate => return Ok(pos + n),
+                    Err(ScanError::UnexpectedEof) if may_terminate => return Ok(end),
                     Err(e) => return Err((pos, e)),
                 }
             }
             return match err {
-                Some(e) => Err((pos + n, e)),
-                None => Ok(pos + n),
+                Some(e) => Err((end, e)),
+                None => Ok(end),
             };
         }
     }

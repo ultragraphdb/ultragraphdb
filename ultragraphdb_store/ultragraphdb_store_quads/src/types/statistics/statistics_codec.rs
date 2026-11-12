@@ -3,6 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use std::collections::BTreeMap;
 
 use crate::errors::quad_error::QuadError;
@@ -14,24 +19,33 @@ const FORMAT: u8 = 1;
 
 impl Statistics {
     /// The statistics in their stored format.
-    pub fn encode(&self) -> Vec<u8> {
+    ///
+    /// # Errors
+    ///
+    /// [`QuadError::too_many_kinds`] past 65,535 kinds and [`QuadError::kind_too_long`] for a kind past 65,535 bytes,
+    /// which the format's u16 count and lengths cannot hold.
+    pub fn encode(&self) -> Result<Vec<u8>, QuadError> {
+        let count = u16::try_from(self.kinds.len())
+            .map_err(|_| QuadError::too_many_kinds(self.kinds.len()))?;
         let mut w = vec![FORMAT];
         w.extend_from_slice(&self.statements.to_be_bytes());
-        w.extend_from_slice(&(self.kinds.len() as u16).to_be_bytes());
+        w.extend_from_slice(&count.to_be_bytes());
         for (kind, n) in &self.kinds {
-            w.extend_from_slice(&(kind.len() as u16).to_be_bytes());
+            let len =
+                u16::try_from(kind.len()).map_err(|_| QuadError::kind_too_long(kind.len()))?;
+            w.extend_from_slice(&len.to_be_bytes());
             w.extend_from_slice(kind.as_bytes());
             w.extend_from_slice(&n.to_be_bytes());
         }
         w.extend_from_slice(&self.subjects);
         w.extend_from_slice(&self.objects);
-        w
+        Ok(w)
     }
 
     /// The statistics stored as `bytes` under `key`.
     pub fn decode(key: &[u8], bytes: &[u8]) -> Result<Self, QuadError> {
         let mut r = Reader { key, bytes, at: 0 };
-        if r.take(1)?[0] != FORMAT {
+        if r.take(1)?.first() != Some(&FORMAT) {
             return Err(r.bad());
         }
         let statements = r.i64()?;
@@ -69,17 +83,15 @@ impl<'a> Reader<'a> {
     }
 
     fn take(&mut self, n: usize) -> Result<&'a [u8], QuadError> {
-        let part = self
-            .bytes
-            .get(self.at..self.at + n)
-            .ok_or_else(|| self.bad())?;
-        self.at += n;
+        let end = self.at.checked_add(n).ok_or_else(|| self.bad())?;
+        let part = self.bytes.get(self.at..end).ok_or_else(|| self.bad())?;
+        self.at = end;
         Ok(part)
     }
 
     fn u16(&mut self) -> Result<u16, QuadError> {
-        let b = self.take(2)?;
-        Ok(u16::from_be_bytes([b[0], b[1]]))
+        let pair = self.take(2)?.first_chunk::<2>().ok_or_else(|| self.bad())?;
+        Ok(u16::from_be_bytes(*pair))
     }
 
     fn i64(&mut self) -> Result<i64, QuadError> {

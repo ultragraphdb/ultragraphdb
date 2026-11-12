@@ -6,7 +6,7 @@
 use ultragraphdb_common_role::Answer;
 use ultragraphdb_protocol_wire::{
     Action, BodyBuilder, BodyView, Command, ComputeRead, ComputeReadView, ErrorCode, ErrorReply,
-    ExecuteView, FLAG_LAST, FrameView, Header, Language, MAX_FRAME_FLOOR, MAX_FRAME_SIZE,
+    ExecuteView, FLAG_LAST, FrameView, Header, Language, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE,
     PrepareView, ReadLevel,
 };
 
@@ -93,7 +93,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             pattern,
             asked.resume().to_vec(),
         )
-        .with_client_limits(MAX_FRAME_FLOOR as u32, 1); // 2^19, lossless
+        .with_client_limits(MAX_FRAME_FLOOR_U32, 1);
         let frame = body
             .frame(Header::new(self.cluster(), Command::ComputeRead).with_stream(stream))
             .map_err(|_| too_large())?;

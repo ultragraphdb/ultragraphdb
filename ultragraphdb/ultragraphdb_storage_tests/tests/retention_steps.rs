@@ -176,7 +176,7 @@ fn open_scan(w: &mut Steps) -> TestResult {
 fn scan_held(w: &mut Steps) -> TestResult {
     assert!(w.kernel.refused.is_empty(), "{:?}", w.kernel.refused);
     let (version, read) = w.kernel.numbers.split_first().context("the version")?;
-    assert_eq!(read.len() as u32, PARTITION_INITIAL_CREDIT + 2);
+    assert_eq!(u32::try_from(read.len())?, PARTITION_INITIAL_CREDIT + 2);
     assert!(read.iter().all(|at| at == version), "{read:?}");
     w.roles = None;
     Ok(())

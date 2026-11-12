@@ -49,10 +49,11 @@ impl<'a> ResultView<'a> {
         if column >= self.columns || row >= self.rows {
             return None;
         }
-        u32_at(
-            self.cells,
-            column as usize * self.rows as usize + row as usize,
-        )
+        // The casts are lossless: a `usize` is at least 32 bits.
+        let at = (column as usize)
+            .checked_mul(self.rows as usize)?
+            .checked_add(row as usize)?;
+        u32_at(self.cells, at)
     }
 
     /// The number of terms in the table.
@@ -64,15 +65,17 @@ impl<'a> ResultView<'a> {
     pub fn term(&self, index: u32) -> Option<ResultTermView<'a>> {
         let index = index as usize;
         let start = *self.offsets.get(index)? as usize;
-        let end = self
-            .offsets
-            .get(index + 1)
+        let end = index
+            .checked_add(1)
+            .and_then(|next| self.offsets.get(next))
             .map_or(self.encodings.len(), |end| *end as usize);
         let text = |at: usize| u32_at(self.texts, at).and_then(|i| self.strings.get(i as usize));
+        // A term's text and annotation, two u32s a term.
+        let first = index.checked_mul(2)?;
         Some(ResultTermView::new(
             self.encodings.get(start..end)?,
-            text(2 * index),
-            text(2 * index + 1),
+            text(first),
+            text(first.checked_add(1)?),
         ))
     }
 

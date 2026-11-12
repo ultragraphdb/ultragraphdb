@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{
     ABSENT, OperationResult, RECORD_FIXED_SIZE, RECORD_REGISTRATION_SIZE, RECORD_SECTIONS,
@@ -56,8 +57,8 @@ fn refusal(bytes: &[u8]) -> TestResult<ProtocolErrorEnum> {
 
 /// A key-value entry laid out from the layout table: lengths, key, value, zeros to 8.
 fn entry(key: &[u8], value: Option<&[u8]>) -> Vec<u8> {
-    let mut out = (key.len() as u32).to_le_bytes().to_vec();
-    out.extend_from_slice(&value.map_or(ABSENT, |v| v.len() as u32).to_le_bytes());
+    let mut out = as_u32(key.len()).to_le_bytes().to_vec();
+    out.extend_from_slice(&value.map_or(ABSENT, |v| as_u32(v.len())).to_le_bytes());
     out.extend_from_slice(key);
     out.extend_from_slice(value.unwrap_or_default());
     out.resize(out.len().div_ceil(8) * 8, 0);

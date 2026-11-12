@@ -124,9 +124,12 @@ fn check_warning(
         .get(20..WARNING_SIZE)
         .and_then(|zero| zero.iter().position(|b| *b != 0))
     {
-        return Err(ProtocolError::padding_not_zero(command, start + 20 + j));
+        return Err(ProtocolError::padding_not_zero(
+            command,
+            start.saturating_add(20).saturating_add(j),
+        ));
     }
-    let field = |at: usize| bytes_at(record, at).map_or(0, u32::from_le_bytes);
+    let field = |offset: usize| bytes_at(record, offset).map_or(0, u32::from_le_bytes);
     let diagnostic = field(0);
     if diagnostic >> 24 != 0 || !LANGUAGES.contains(&((diagnostic >> 16) & 0xFF)) {
         return Err(ProtocolError::field_value(
@@ -139,7 +142,8 @@ fn check_warning(
     if source != 0 && !sourced {
         return Err(ProtocolError::field_value(command, "source", source.into()));
     }
-    let end = u64::from(field(8)) + u64::from(field(12));
+    // Two u32s add within a u64, so the end never saturates.
+    let end = u64::from(field(8)).saturating_add(u64::from(field(12)));
     if end > u64::from(u32::MAX) {
         return Err(ProtocolError::field_value(command, "location", end));
     }
@@ -169,7 +173,7 @@ fn check_warning(
 /// list, each distinct message once (§4.3).
 pub(crate) fn warning_sections(warnings: &[Warning]) -> [Vec<u8>; 3] {
     let mut messages = StringWriter::default();
-    let mut records = Vec::with_capacity(WARNING_SIZE * warnings.len());
+    let mut records = Vec::with_capacity(WARNING_SIZE.saturating_mul(warnings.len()));
     for warning in warnings {
         let location = warning.location();
         let length = location.end.saturating_sub(location.start);

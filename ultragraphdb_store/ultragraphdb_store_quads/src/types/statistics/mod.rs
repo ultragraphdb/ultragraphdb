@@ -98,12 +98,21 @@ impl Statistics {
     }
 }
 
+// A register's index is read from the hash's low byte.
+const _: () = assert!(256 % SKETCH_REGISTERS == 0);
+
 /// Raises the register `value`'s hash selects to the position of the hash's first set bit after the index bits.
 fn observe(registers: &mut [u8; SKETCH_REGISTERS], value: &[u8]) {
     let hash = xxh3_64(value);
-    let index = (hash & (SKETCH_REGISTERS as u64 - 1)) as usize;
-    let rank = ((hash >> 6) | (1 << 58)).trailing_zeros() as u8 + 1;
-    registers[index] = registers[index].max(rank);
+    // The low 6 bits select the register: 64 divides 256, so the low byte holds them.
+    let [low, ..] = hash.to_le_bytes();
+    let index = usize::from(low) % SKETCH_REGISTERS;
+    // At most 59, so the count's low byte is the whole of it.
+    let [rank, ..] = (((hash >> 6) | (1 << 58)).trailing_zeros() + 1).to_le_bytes();
+    // `index` is below the register count, so the register is always there.
+    if let Some(register) = registers.get_mut(index) {
+        *register = (*register).max(rank);
+    }
 }
 
 fn merge_registers(into: &mut [u8; SKETCH_REGISTERS], from: &[u8; SKETCH_REGISTERS]) {

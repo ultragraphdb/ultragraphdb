@@ -13,7 +13,7 @@ members = [
     "ultragraphdb_core/*",
     "ultragraphdb_error/*",
     "ultragraphdb_protocol/*",
-#    "ultragraphdb_schema/*",
+    #    "ultragraphdb_schema/*",
     "ultragraphdb_store/*",
     "ultragraphdb_tool/*",
     "ultragraphdb_traits/*",
@@ -36,11 +36,9 @@ publish = false
 # ==============
 # Internal crates
 # ==============
-# Ultragraphdb: service binaries, tests, and specs
-ultragraphdb_tests = { path = "ultragraphdb/ultragraphdb_tests" }
 ## Client
-ultragraphdb_client_core = { path = "ultragraphdb_client/ultragraphdb_client_core" }
 ultragraphdb_client_compio = { path = "ultragraphdb_client/ultragraphdb_client_compio" }
+ultragraphdb_client_core = { path = "ultragraphdb_client/ultragraphdb_client_core" }
 ultragraphdb_client_tokio = { path = "ultragraphdb_client/ultragraphdb_client_tokio" }
 ## Cluster
 ultragraphdb_cluster_metadata = { path = "ultragraphdb_cluster/ultragraphdb_cluster_metadata" }
@@ -48,14 +46,14 @@ ultragraphdb_cluster_partition = { path = "ultragraphdb_cluster/ultragraphdb_clu
 ultragraphdb_cluster_placement = { path = "ultragraphdb_cluster/ultragraphdb_cluster_placement" }
 ultragraphdb_cluster_sequencer = { path = "ultragraphdb_cluster/ultragraphdb_cluster_sequencer" }
 ## Common
-ultragraphdb_common_role = { path = "ultragraphdb_common/ultragraphdb_common_role" }
 ultragraphdb_common_compute = { path = "ultragraphdb_common/ultragraphdb_common_compute" }
 ultragraphdb_common_config = { path = "ultragraphdb_common/ultragraphdb_common_config" }
 ultragraphdb_common_config_check = { path = "ultragraphdb_common/ultragraphdb_common_config_check" }
 ultragraphdb_common_frontend = { path = "ultragraphdb_common/ultragraphdb_common_frontend" }
-ultragraphdb_common_storage = { path = "ultragraphdb_common/ultragraphdb_common_storage" }
+ultragraphdb_common_role = { path = "ultragraphdb_common/ultragraphdb_common_role" }
 ultragraphdb_common_service = { path = "ultragraphdb_common/ultragraphdb_common_service" }
 ultragraphdb_common_service_config = { path = "ultragraphdb_common/ultragraphdb_common_service_config" }
+ultragraphdb_common_storage = { path = "ultragraphdb_common/ultragraphdb_common_storage" }
 ultragraphdb_common_telemetry = { path = "ultragraphdb_common/ultragraphdb_common_telemetry" }
 ultragraphdb_common_utils = { path = "ultragraphdb_common/ultragraphdb_common_utils" }
 ultragraphdb_common_version = { path = "ultragraphdb_common/ultragraphdb_common_version" }
@@ -72,14 +70,14 @@ ultragraphdb_core_text = { path = "ultragraphdb_core/ultragraphdb_core_text" }
 ultragraphdb_core_tok = { path = "ultragraphdb_core/ultragraphdb_core_tok" }
 ultragraphdb_core_types = { path = "ultragraphdb_core/ultragraphdb_core_types" }
 ## Error
-ultragraphdb_error_role = { path = "ultragraphdb_error/ultragraphdb_error_role" }
 ultragraphdb_error_cluster = { path = "ultragraphdb_error/ultragraphdb_error_cluster" }
+ultragraphdb_error_invariant = { path = "ultragraphdb_error/ultragraphdb_error_invariant" }
 ultragraphdb_error_json = { path = "ultragraphdb_error/ultragraphdb_error_json" }
 ultragraphdb_error_log = { path = "ultragraphdb_error/ultragraphdb_error_log" }
-ultragraphdb_error_invariant = { path = "ultragraphdb_error/ultragraphdb_error_invariant" }
 ultragraphdb_error_num = { path = "ultragraphdb_error/ultragraphdb_error_num" }
 ultragraphdb_error_options = { path = "ultragraphdb_error/ultragraphdb_error_options" }
 ultragraphdb_error_protocol = { path = "ultragraphdb_error/ultragraphdb_error_protocol" }
+ultragraphdb_error_role = { path = "ultragraphdb_error/ultragraphdb_error_role" }
 ultragraphdb_error_store = { path = "ultragraphdb_error/ultragraphdb_error_store" }
 ## Protocol: the binary protocol client and server share
 ultragraphdb_protocol_scram = { path = "ultragraphdb_protocol/ultragraphdb_protocol_scram" }
@@ -95,6 +93,8 @@ ultragraphdb_store_kv = { path = "ultragraphdb_store/ultragraphdb_store_kv" }
 ultragraphdb_store_posting = { path = "ultragraphdb_store/ultragraphdb_store_posting" }
 ultragraphdb_store_quads = { path = "ultragraphdb_store/ultragraphdb_store_quads" }
 ultragraphdb_store_sim = { path = "ultragraphdb_store/ultragraphdb_store_sim" }
+## Test
+ultragraphdb_tests = { path = "ultragraphdb/ultragraphdb_tests" }
 ## Tool
 ultragraphdb_tool_bdd = { path = "ultragraphdb_tool/ultragraphdb_tool_bdd" }
 ultragraphdb_tool_bench = { path = "ultragraphdb_tool/ultragraphdb_tool_bench" }
@@ -118,56 +118,53 @@ ultragraphdb_transport_tls = { path = "ultragraphdb_transport/ultragraphdb_trans
 # ==============
 # External crates
 # ==============
-serde_json =  { version = "1.0", default-features = false }
-tokio =  { version = "1", default-features = false }
-bcrypt = { version = "0.19"}
+arbitrary = { version = "1.5", features = ["derive"] }
+async-trait = { version = "0.1", default-features = false }
+base64 = { version = "0.23", default-features = false }
+bcrypt = { version = "0.19" }
+compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "polling", "fs", "net", "time"] }
+criterion = { version = "0.8" }
+cucumber = { version = "0.23" }
 dashu-int = { version = "0.6", default-features = false }
-rust-stemmers = { version = "1.2", default-features = false }
-serde = { version = "1.0", features = ["derive"] }
-unicode-normalization = { version = "0.1", default-features = false}
-oxilangtag = { version = "0.1", default-features = false}
+fjall = { version = "3.1", default-features = false }
+futures = { version = "0.3", default-features = false }
+getrandom = { version = "0.4", default-features = false }
+hegeltest = { version = "0.52" }
+hmac = { version = "0.13", default-features = false }
+mimalloc = { version = "0.1", features = ["local_dynamic_tls"] }
+moka = { version = "0.12", features = ["sync"] }
+opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
+opentelemetry-http = { version = "0.33", default-features = false }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "trace"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
+oxilangtag = { version = "0.1", default-features = false }
 oxrdf = { version = "0.3", features = ["rdf-12"] }
 oxsdatatypes = { version = "0.2", default-features = false }
-tracing = { version = "0.1", default-features = false }
-tracing-subscriber = { version = "0.3", features = ["fmt", "json", "env-filter"] }
-opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
-opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
-opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "trace"] }
-opentelemetry-http = { version = "0.33", default-features = false }
-async-trait =  { version = "0.1", default-features = false }
-tracing-opentelemetry = { version = "0.34", default-features = false }
-fjall =  { version = "3.1", default-features = false }
-moka = { version = "0.12", features = ["sync"] }
-sha2 = { version = "0.11", default-features = false }
-hmac = { version = "0.13", default-features = false }
-subtle = { version = "2.6", default-features = false }
-base64 = { version = "0.23", default-features = false }
-stringprep = { version = "0.1", default-features = false }
-getrandom =  { version = "0.4", default-features = false }
-futures =  { version = "0.3", default-features = false }
-signal-hook = { version = "0.4", default-features = false }
-service_utils =  { version = "0.4", default-features = false }
-compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "polling", "fs", "net", "time"] }
-mimalloc = { version = "0.1", features = ["local_dynamic_tls"] }
-stats_alloc =  { version = "0.1", default-features = false }
-xxhash-rust = { version = "0.8", default-features = false, features = ["xxh3"] }
+rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }
+rust-stemmers = { version = "1.2", default-features = false }
 rustix = { version = "1.1", default-features = false, features = ["fs", "process"] }
-socket2 =  { version = "0.6", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["ring", "tls12", "std"] }
 rustls-pki-types = { version = "1", features = ["std"] }
-rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }
-# ==============
-# Dev only crates
-# ==============
-arbitrary = { version = "1.5", features = ["derive"] }
-cucumber = { version = "0.23"}
-criterion = { version = "0.8"}
-hegeltest = { version = "0.52"}
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+service_utils = { version = "0.4", default-features = false }
+sha2 = { version = "0.11", default-features = false }
+signal-hook = { version = "0.4", default-features = false }
+socket2 = { version = "0.6", default-features = false }
+stats_alloc = { version = "0.1", default-features = false }
+stringprep = { version = "0.1", default-features = false }
+subtle = { version = "2.6", default-features = false }
+tokio = { version = "1", default-features = false }
+tracing = { version = "0.1" }
+tracing-opentelemetry = { version = "0.34", default-features = false }
+tracing-subscriber = { version = "0.3", features = ["fmt", "json", "env-filter"] }
+unicode-normalization = { version = "0.1", default-features = false }
+xxhash-rust = { version = "0.8", default-features = false, features = ["xxh3"] }
+
 
 [workspace.lints.clippy]
 # The one lint table of the workspace: every crate takes it with `[lints] workspace = true`.
-# It is Ultra Style's lint set (openspec/protocols/ULTRA_STYLE.md, "The lint set"). A lint the crates do not meet yet
-# stays here commented out, with its count of violations on 2026-11-02.
+# It is Ultra Style's lint set (openspec/protocols/ULTRA_STYLE.md, "The lint set").
 all = { level = "deny", priority = -1 }
 # Rule 2.
 infinite_iter = "deny"
@@ -180,13 +177,11 @@ expect_used = "deny"
 panic = "deny"
 todo = "deny"
 unimplemented = "warn"  # unimplemented is used during TDD so warn simplifies the impl stage w/o blocking compilation.
-#indexing_slicing = "deny"                  # 1018
-#arithmetic_side_effects = "deny"           # 1778; Ultra asks it in decoders and parsers
 let_underscore_must_use = "deny"
 let_underscore_untyped = "deny"
 # Types.
-#cast_possible_truncation = "deny"          # 355
-#cast_sign_loss = "deny"                    # 118
+#cast_possible_truncation = "deny"          # 16; float casts with Go semantics, which only `as` expresses
+#cast_sign_loss = "deny"                    # 4; the same float casts
 cast_possible_wrap = "deny"
 cast_lossless = "deny"
 wildcard_enum_match_arm = "deny"
@@ -199,7 +194,7 @@ mutex_atomic = "deny"
 # Rule 10.
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
-too_many_lines = "deny"   # too-many-lines-threshold = 70 in clippy.toml.
+too_many_lines = "deny"   # too-many-lines-threshold = 70 set in clippy.toml.
 # Concurrency.
 await_holding_lock = "deny"
 await_holding_refcell_ref = "deny"
@@ -216,10 +211,13 @@ unused_results = "deny"
 missing_docs = "deny"
 
 [profile.release]
+# Bazel needs these options seperately for its release build configuration
+# in file .bazelrc and bazel/binary.bzl
 opt-level = 3
 debug = false
+debug-assertions = false
 rpath = false
 lto = true
-debug-assertions = false
+overflow-checks = true
 # unwind preserves drop, which is critical for security code relying on drop.
 panic = "unwind"

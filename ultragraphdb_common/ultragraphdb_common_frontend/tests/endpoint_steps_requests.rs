@@ -33,9 +33,10 @@ use ultragraphdb_protocol_wire::{
     Command, Commit, CommitOperation, CommitView, ComputeReadView, ConditionalWrite, Declared,
     DeclaredKind, DeclaredPredicate, DefaultEntry, Describe, DescribeView, DirectWrite,
     DropCommand, ErrorCode, ErrorReply, Execute, FLAG_LAST, Header, Held, Hello, Join,
-    MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Operation, PatternSlot, Prepare, PrepareView, QuadPattern,
-    Read, ReadLevel, ReferenceView, Report, RequestTerm, RequestTermView, ResultBatch, ResultView,
-    TenantRun, TermTable, Write, WriteChange, xxh3_64,
+    MAX_FRAME_FLOOR, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE, MAX_FRAME_SIZE_U32, Operation,
+    PatternSlot, Prepare, PrepareView, QuadPattern, Read, ReadLevel, ReferenceView, Report,
+    RequestTerm, RequestTermView, ResultBatch, ResultView, TenantRun, TermTable, Write,
+    WriteChange, xxh3_64,
 };
 use ultragraphdb_store_sim::LogCapture;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -250,7 +251,7 @@ pub(crate) async fn challenge(client: &Address, name: &str) -> TestResult<String
     let mut raw = Connection::new(carrier, Framer::new(CLUSTER, MAX_FRAME_SIZE));
     let pool = BufferPool::new(1, MAX_FRAME_SIZE);
     let _welcome = raw
-        .hello(&pool, &Hello::new(1, 1, 1, MAX_FRAME_SIZE as u32, "client"))
+        .hello(&pool, &Hello::new(1, 1, 1, MAX_FRAME_SIZE_U32, "client"))
         .await?;
     let nonce = system_nonce()?;
     let mechanism = ScramClient::new(name, "pw", &nonce)?;
@@ -1809,7 +1810,7 @@ fn a_describe_past_the_client_s_frame_is_refused(w: &mut Steps) -> TestResult {
             record_default(&stage, &long).await?;
         }
         let inner =
-            RoleClient::dial_taking(&stage.client, CLUSTER, "ann", "pw", MAX_FRAME_FLOOR as u32)
+            RoleClient::dial_taking(&stage.client, CLUSTER, "ann", "pw", MAX_FRAME_FLOOR_U32)
                 .await?;
         let mut client = Client::over(inner);
         let describe = client.send(&Describe::request(0)).await?;

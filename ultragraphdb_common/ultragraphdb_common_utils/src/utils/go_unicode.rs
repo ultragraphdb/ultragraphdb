@@ -62,5 +62,7 @@ pub fn to_lower<R: Into<u32>>(r: R) -> u32 {
     }
     TO_LOWER
         .binary_search_by_key(&r, |&(from, _)| from)
-        .map_or(r, |i| TO_LOWER[i].1)
+        .ok()
+        .and_then(|i| TO_LOWER.get(i))
+        .map_or(r, |&(_, to)| to)
 }

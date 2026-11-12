@@ -5,6 +5,7 @@
 
 pub(crate) mod canonicalize;
 pub(crate) mod compose;
+pub(crate) mod go_int;
 pub mod language_base;
 pub(crate) mod lookup;
 pub(crate) mod match_lang;

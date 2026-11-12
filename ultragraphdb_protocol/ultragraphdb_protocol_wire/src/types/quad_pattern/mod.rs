@@ -8,7 +8,6 @@ use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::column_type::ColumnType;
 use crate::types::pattern_slot::PatternSlot;
-use crate::utils::le::bytes_at;
 
 /// The size of a pattern on the wire: four slots of 8 bytes.
 pub(crate) const PATTERN_SIZE: usize = 32;
@@ -119,9 +118,10 @@ impl QuadPattern {
         }
         let mut read = [PatternSlot::Unbound; 4];
         let mut parameters_seen = 0u32;
-        for (i, out) in read.iter_mut().enumerate() {
-            let kind = bytes_at(slots, 8 * i).map_or(0, u32::from_le_bytes);
-            let value = bytes_at(slots, 8 * i + 4).map_or(0, u32::from_le_bytes);
+        // Four slots of two u32s, the length checked above.
+        let slot_words = slots.as_chunks::<4>().0.as_chunks::<2>().0;
+        for (i, (out, words)) in read.iter_mut().zip(slot_words).enumerate() {
+            let [kind, value] = words.map(u32::from_le_bytes);
             *out = match kind {
                 0 | 1 if value != 0 => {
                     return Err(ProtocolError::field_value(
@@ -164,7 +164,7 @@ impl QuadPattern {
                             value.into(),
                         ));
                     }
-                    parameters_seen += 1;
+                    parameters_seen = parameters_seen.saturating_add(1); // at most four, never saturates
                     PatternSlot::Parameter(value)
                 }
                 other => {

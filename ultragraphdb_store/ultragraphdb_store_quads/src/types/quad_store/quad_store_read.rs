@@ -108,7 +108,9 @@ where
                     | QuadErrorEnum::NoOwnedBucket { .. }
                     | QuadErrorEnum::SkolemDraws { .. }
                     | QuadErrorEnum::NotOwned { .. }
-                    | QuadErrorEnum::UnknownSkolem { .. } => e,
+                    | QuadErrorEnum::UnknownSkolem { .. }
+                    | QuadErrorEnum::KindTooLong { .. }
+                    | QuadErrorEnum::TooManyKinds { .. } => e,
                 })
             })
             .collect()

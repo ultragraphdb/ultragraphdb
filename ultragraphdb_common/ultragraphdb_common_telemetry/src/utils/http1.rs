@@ -3,6 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+// Arithmetic on decoded wire input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 //! One HTTP/1.1 exchange over a dialed connection, plain or verified TLS: the request with `Content-Length` and
 //! `Connection: close`, the response read to the connection's end and framed by `Transfer-Encoding: chunked` or
 //! `Content-Length`.
@@ -104,7 +109,8 @@ fn read_to_end<S: Read + Write>(connection: &mut Connection<S>) -> Result<Vec<u8
         if n == 0 {
             return Ok(raw);
         }
-        raw.extend_from_slice(&buf[..n]);
+        let read = buf.get(..n).ok_or("a read past its buffer")?;
+        raw.extend_from_slice(read);
         if raw.len() > MAX_RESPONSE {
             return Err(format!("response over {MAX_RESPONSE} bytes").into());
         }
@@ -120,9 +126,8 @@ fn read_to_end<S: Read + Write>(connection: &mut Connection<S>) -> Result<Vec<u8
 /// A head without its blank line or not UTF-8, a malformed status line or header, a `Content-Length` that is no
 /// number or announces more than `raw` holds, and a malformed chunked body.
 pub fn decode_response(raw: &[u8]) -> Result<Response<Bytes>, HttpError> {
-    let end = find(raw, b"\r\n\r\n").ok_or("response without a complete head")?;
-    let head = std::str::from_utf8(&raw[..end])?;
-    let rest = &raw[end + 4..];
+    let (head, rest) = split_once(raw, b"\r\n\r\n").ok_or("response without a complete head")?;
+    let head = std::str::from_utf8(head)?;
     let mut lines = head.split("\r\n");
     let status_line = lines.next().unwrap_or_default();
     let status: u16 = status_line
@@ -159,12 +164,12 @@ pub fn decode_response(raw: &[u8]) -> Result<Response<Bytes>, HttpError> {
 fn dechunk(mut data: &[u8]) -> Result<Vec<u8>, HttpError> {
     let mut body = Vec::new();
     loop {
-        let eol = find(data, b"\r\n").ok_or("chunk size without its line end")?;
-        let line = std::str::from_utf8(&data[..eol])?;
+        let (line, after) = split_once(data, b"\r\n").ok_or("chunk size without its line end")?;
+        let line = std::str::from_utf8(line)?;
         let hex = line.split(';').next().unwrap_or_default().trim();
         let size =
             usize::from_str_radix(hex, 16).map_err(|_| format!("malformed chunk size {line:?}"))?;
-        data = &data[eol + 2..];
+        data = after;
         if size == 0 {
             return Ok(body);
         }
@@ -177,7 +182,9 @@ fn dechunk(mut data: &[u8]) -> Result<Vec<u8>, HttpError> {
     }
 }
 
-/// The offset of `needle` in `haystack`.
-fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|w| w == needle)
+/// `haystack` before the first `needle` and after it.
+fn split_once<'a>(haystack: &'a [u8], needle: &[u8]) -> Option<(&'a [u8], &'a [u8])> {
+    let at = haystack.windows(needle.len()).position(|w| w == needle)?;
+    let (before, from) = haystack.split_at_checked(at)?;
+    Some((before, from.get(needle.len()..)?))
 }

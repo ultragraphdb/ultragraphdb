@@ -30,7 +30,9 @@ fn record(prefixes: Option<&[&[u8]]>, ts: u64, entries: &[(&[u8], u64, u8, &[u8]
 fn record_of(prefixes: Option<&[&[u8]]>, ts: u64, entries: &[RecordEntry]) -> Vec<u8> {
     let mut out = vec![u8::from(prefixes.is_none())];
     out.extend_from_slice(&ts.to_be_bytes());
-    let len = |buf: &mut Vec<u8>, n: usize| buf.extend_from_slice(&(n as u32).to_be_bytes());
+    let len = |buf: &mut Vec<u8>, n: usize| {
+        buf.extend_from_slice(&u32::try_from(n).unwrap_or(u32::MAX).to_be_bytes());
+    };
     let ps = prefixes.unwrap_or_default();
     len(&mut out, ps.len());
     for p in ps {
@@ -222,7 +224,7 @@ fn test_a_drop_refuses_an_oversized_entry_and_drops_nothing() -> TestResult {
         "{err}"
     );
     assert_eq!(held(&s, b"\x00a1")?, vec![(3, false)]);
-    let alternating: Vec<u8> = (0..44_000).map(|i| (i % 2) as u8).collect();
+    let alternating: Vec<u8> = (0..44_000).map(|i| u8::from(i % 2 == 1)).collect();
     let encoded_err = s
         .drop_all(vec![Entry::deletion(alternating, 1)])
         .err()

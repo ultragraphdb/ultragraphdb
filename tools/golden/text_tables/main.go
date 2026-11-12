@@ -496,7 +496,7 @@ func languageTables(f *file) string {
 	e.structArray(f, "Deprecated regions and their replacements, sorted by `from`.", "REGION_OLD_MAP", "FromTo",
 		[]string{"From", "To"}, 4)
 	e.intArray("The UN M.49 code of each region.", "M49", "i16", f.ints("m49"), 16, false)
-	e.intArray("Indexes into `FROM_M49` by the three most significant bits of a code.", "M49_INDEX", "i16",
+	e.intArray("Indexes into `FROM_M49` by the three most significant bits of a code.", "M49_INDEX", "u16",
 		f.ints("m49Index"), 9, false)
 	e.intArray("UN M.49 codes (seven bits) and their regions (nine bits).", "FROM_M49", "u16", f.ints("fromM49"),
 		12, true)

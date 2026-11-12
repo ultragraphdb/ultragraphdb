@@ -192,9 +192,10 @@ mod stage_6 {
     }
 
     fn count_field(refusal: &ProtocolErrorEnum) -> Option<(u16, &'static str)> {
-        match refusal {
-            ProtocolErrorEnum::CountMismatch { command, field, .. } => Some((*command, *field)),
-            _ => None,
+        if let ProtocolErrorEnum::CountMismatch { command, field, .. } = refusal {
+            Some((*command, *field))
+        } else {
+            None
         }
     }
 

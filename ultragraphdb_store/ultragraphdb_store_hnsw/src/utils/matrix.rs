@@ -10,6 +10,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use ultragraphdb_core_ids::SystemId;
 
 /// A node's neighbour lists, every level's, as one value: the number of rows, then each row's length, each a
@@ -20,7 +25,15 @@ pub fn encode_id_matrix(matrix: &[Vec<SystemId>]) -> Vec<u8> {
         return Vec::new();
     }
     let ids: usize = matrix.iter().map(Vec::len).sum();
-    let mut data = Vec::with_capacity(COUNT_LEN * (1 + matrix.len()) + SystemId::BYTES * ids);
+    // A capacity hint: none past `usize`.
+    let hint = matrix
+        .len()
+        .checked_add(1)
+        .and_then(|counts| counts.checked_mul(COUNT_LEN))
+        .zip(ids.checked_mul(SystemId::BYTES))
+        .and_then(|(counts, ids)| counts.checked_add(ids))
+        .unwrap_or(0);
+    let mut data = Vec::with_capacity(hint);
     data.extend_from_slice(&(matrix.len() as u64).to_le_bytes());
     for row in matrix {
         data.extend_from_slice(&(row.len() as u64).to_le_bytes());
@@ -55,10 +68,10 @@ pub fn decode_id_matrix(data: &[u8]) -> Result<Vec<Vec<SystemId>>, &'static str>
     let mut matrix = Vec::with_capacity(rows);
     for _ in 0..rows {
         let (len, after) = read_count(rest).ok_or("a neighbour matrix shorter than its rows")?;
-        if len > after.len() / SystemId::BYTES {
-            return Err("a neighbour row longer than the matrix holds");
-        }
-        let (row, after) = after.split_at(len * SystemId::BYTES);
+        let (row, after) = len
+            .checked_mul(SystemId::BYTES)
+            .and_then(|bytes| after.split_at_checked(bytes))
+            .ok_or("a neighbour row longer than the matrix holds")?;
         let ids = row
             .as_chunks::<{ SystemId::BYTES }>()
             .0

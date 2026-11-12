@@ -284,10 +284,10 @@ mod stage_6 {
                 limit: 1
             }
         );
-        let [mut short, bytes] = entry_sections(&[(3, 0, b"x")]);
+        let [mut short, short_bytes] = entry_sections(&[(3, 0, b"x")]);
         short.truncate(15);
         assert_eq!(
-            refused::<DescribeView>(&describe_frame(&["n"], [short, bytes], true)?)?,
+            refused::<DescribeView>(&describe_frame(&["n"], [short, short_bytes], true)?)?,
             ProtocolErrorEnum::SectionLength {
                 command: 12,
                 section: 7,
@@ -306,27 +306,27 @@ mod stage_6 {
         if let Some(byte) = records.get_mut(16 + 8) {
             *byte = 1;
         }
-        let refusal =
+        let overlap =
             refused::<DescribeView>(&describe_frame(&["a", "b"], [records, bytes], true)?)?;
         assert!(
             matches!(
-                refusal,
+                overlap,
                 ProtocolErrorEnum::FieldValue {
                     command: 12,
                     field: "entry offset",
                     ..
                 }
             ),
-            "{refusal:?}"
+            "{overlap:?}"
         );
-        let [mut long, bytes] = entry_sections(&[(3, 0, b"ab")]);
+        let [mut long, long_bytes] = entry_sections(&[(3, 0, b"ab")]);
         if let Some(byte) = long.get_mut(12) {
             *byte = 3;
         }
-        let refusal = refused::<DescribeView>(&describe_frame(&["a"], [long, bytes], true)?)?;
+        let past_end = refused::<DescribeView>(&describe_frame(&["a"], [long, long_bytes], true)?)?;
         assert!(
             matches!(
-                refusal,
+                past_end,
                 ProtocolErrorEnum::IndexOutOfRange {
                     command: 12,
                     section: 8,
@@ -334,11 +334,12 @@ mod stage_6 {
                     ..
                 }
             ),
-            "{refusal:?}"
+            "{past_end:?}"
         );
-        let [records, mut bytes] = entry_sections(&[(3, 0, b"ab")]);
-        bytes.push(b'c');
-        let refusal = refused::<DescribeView>(&describe_frame(&["a"], [records, bytes], true)?)?;
+        let [trailing_records, mut trailing] = entry_sections(&[(3, 0, b"ab")]);
+        trailing.push(b'c');
+        let refusal =
+            refused::<DescribeView>(&describe_frame(&["a"], [trailing_records, trailing], true)?)?;
         assert!(
             matches!(
                 refusal,

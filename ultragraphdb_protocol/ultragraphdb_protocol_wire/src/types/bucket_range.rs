@@ -88,7 +88,10 @@ impl BucketRange {
             z3,
         ] = *bytes;
         if let Some(i) = [z0, z1, z2, z3].iter().position(|b| *b != 0) {
-            return Err(ProtocolError::padding_not_zero(command, at + 12 + i));
+            return Err(ProtocolError::padding_not_zero(
+                command,
+                at.saturating_add(12).saturating_add(i),
+            ));
         }
         Ok(Self::new(
             u32::from_le_bytes([s0, s1, s2, s3]),

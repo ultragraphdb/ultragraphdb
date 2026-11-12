@@ -24,8 +24,8 @@ fn answer(
     min: u16,
     max: u16,
 ) -> TestResult<Result<Welcome, ultragraphdb_protocol_wire::ErrorReply>> {
-    let frame =
-        Hello::new(min, max, 9, MAX_FRAME_SIZE as u32, "c").frame(golden("hello")?.header())?;
+    let frame = Hello::new(min, max, 9, u32::try_from(MAX_FRAME_SIZE)?, "c")
+        .frame(golden("hello")?.header())?;
     let view = HelloView::from_frame(&frame_of(&frame)?)?;
     Ok(server(3).answer(&view))
 }

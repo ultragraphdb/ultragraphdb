@@ -100,7 +100,7 @@ fn test_contents_at_the_bounds_of_their_numbers_round_trip() -> TestResult {
 #[test]
 fn test_the_layout_is_the_documented_one() -> TestResult {
     let declaration = Declaration::Predicate(PredicateDeclaration::new(ex("p")));
-    let entry = encode_declaration(&declaration);
+    let entry = encode_declaration(&declaration)?;
     let bytes = CatalogContents::new(0x0102, 0x0304, vec![declaration]).encode()?;
     let mut expected = vec![1];
     expected.extend_from_slice(&0x0102u64.to_be_bytes());

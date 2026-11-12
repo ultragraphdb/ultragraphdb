@@ -716,7 +716,7 @@ fn test_every_golden_reply_under_every_fault_is_read_or_refused_by_the_connectio
         }
         // The evidence of what the networks did and what became of the frames, shown with `--nocapture`.
         println!("replies, {class}: {tally:?}");
-        let total = (cases().len() as u64 * SEEDS) as u32;
+        let total = u32::try_from(cases().len() as u64 * SEEDS)?;
         assert_eq!(
             tally.delivered + tally.refused + tally.lost,
             total,

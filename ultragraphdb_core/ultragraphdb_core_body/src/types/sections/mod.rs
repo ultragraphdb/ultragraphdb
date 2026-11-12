@@ -10,7 +10,6 @@
 
 use crate::errors::body_error::BodyError;
 use crate::utils::layout::align8;
-use crate::utils::le::bytes_at;
 
 /// The sections of a body checked against the layout, `N` of them, after a fixed part.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,16 +30,17 @@ impl<'a, const N: usize> Sections<'a, N> {
     ///
     /// The first rule of `PROTOCOL.md` §4.1 the body breaks, in the order above.
     pub fn read(body: &'a [u8], fixed: usize) -> Result<Self, BodyError> {
-        let need = fixed.saturating_add(8 * N);
-        if body.len() < need {
+        let need = fixed.saturating_add(N.saturating_mul(8));
+        let Some(table) = body.get(fixed..need) else {
             return Err(BodyError::body_too_short(body.len(), need));
-        }
+        };
         let mut ranges = [(0usize, 0usize); N];
         let mut end = need;
-        for (section, range) in ranges.iter_mut().enumerate() {
-            let at = fixed + 8 * section;
-            let offset = bytes_at(body, at).map_or(0, u32::from_le_bytes);
-            let len = bytes_at(body, at + 4).map_or(0, u32::from_le_bytes);
+        let entries = table.as_chunks::<8>().0;
+        for (section, (range, entry)) in ranges.iter_mut().zip(entries).enumerate() {
+            let [o0, o1, o2, o3, l0, l1, l2, l3] = *entry;
+            let offset = u32::from_le_bytes([o0, o1, o2, o3]);
+            let len = u32::from_le_bytes([l0, l1, l2, l3]);
             let start = offset as usize;
             let stop = start.saturating_add(len as usize);
             if stop > body.len() {
@@ -55,11 +55,14 @@ impl<'a, const N: usize> Sections<'a, N> {
             if start != expected {
                 return Err(BodyError::section_offset(section, offset, expected));
             }
-            if let Some(i) = body
-                .get(end..start)
-                .and_then(|padding| padding.iter().position(|b| *b != 0))
+            if let Some((at, _)) = body
+                .iter()
+                .enumerate()
+                .take(start)
+                .skip(end)
+                .find(|(_, b)| **b != 0)
             {
-                return Err(BodyError::padding_not_zero(end + i));
+                return Err(BodyError::padding_not_zero(at));
             }
             *range = (start, stop);
             end = stop;

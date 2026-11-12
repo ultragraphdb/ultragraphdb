@@ -84,7 +84,10 @@ impl Header {
         offset: usize,
         bytes: &[u8],
     ) -> Result<(), ProtocolError> {
-        Self::stamp(frame, COMMAND_HEADER_OFFSET + offset, bytes)
+        let at = COMMAND_HEADER_OFFSET
+            .checked_add(offset)
+            .ok_or(ProtocolError::short_header(frame.len()))?;
+        Self::stamp(frame, at, bytes)
     }
 
     /// Writes `bytes` at `at` in the header of `frame` and recomputes its `checksum`.
@@ -107,14 +110,14 @@ impl Header {
     /// one chunk, with `size`, `checksum_body` and `checksum` filled in. Refused as
     /// [`ProtocolError::frame_too_large`] when the frame would exceed [`crate::MAX_FRAME_SIZE`].
     pub fn encode_frame(&self, body: &[u8]) -> Result<Vec<u8>, ProtocolError> {
-        let size = HEADER_SIZE + ChunkLayout::of_data(body.len()).body_len();
-        if size > MAX_FRAME_SIZE {
+        let body_len = ChunkLayout::of_data(body.len()).body_len();
+        let size = HEADER_SIZE.saturating_add(body_len);
+        let Some(frame_size) = u32::try_from(size).ok().filter(|_| size <= MAX_FRAME_SIZE) else {
             return Err(ProtocolError::frame_too_large(size, MAX_FRAME_SIZE));
-        }
-        let mut chunked = Vec::with_capacity(size - HEADER_SIZE);
+        };
+        let mut chunked = Vec::with_capacity(body_len);
         let checksum_body = ChunkedBody::encode(body, &mut chunked);
-        // size is at most MAX_FRAME_SIZE, 2^20, so it fits a u32.
-        let header = self.encode(size as u32, checksum_body);
+        let header = self.encode(frame_size, checksum_body);
         Ok([&header[..], &chunked].concat())
     }
 }

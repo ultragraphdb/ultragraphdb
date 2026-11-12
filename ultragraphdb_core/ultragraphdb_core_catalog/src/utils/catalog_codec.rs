@@ -3,6 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use std::num::NonZeroU16;
 
 use oxrdf::NamedNode;
@@ -113,11 +118,16 @@ fn list(iri: &str, what: &'static str, len: usize) -> Result<(), CatalogError> {
 }
 
 /// The stored value of `declaration`.
-pub fn encode(declaration: &Declaration) -> Vec<u8> {
+///
+/// # Errors
+///
+/// [`CatalogError::too_large`] for a string or list past its width, which [`check_lengths`] refuses first for every
+/// declaration the catalog takes.
+pub fn encode(declaration: &Declaration) -> Result<Vec<u8>, CatalogError> {
     let mut w = vec![FORMAT, kind_of(declaration)];
     match declaration {
         Declaration::Predicate(p) => {
-            string(&mut w, p.predicate().as_str());
+            string(&mut w, p.predicate().as_str())?;
             w.push(match p.kind() {
                 PredicateKind::Edge => 0,
                 PredicateKind::Property => 1,
@@ -127,39 +137,39 @@ pub fn encode(declaration: &Declaration) -> Vec<u8> {
                 Cardinality::Single => 0,
                 Cardinality::Multi => 1,
             });
-            optional(&mut w, p.datatype().map(NamedNode::as_str));
+            optional(&mut w, p.datatype().map(NamedNode::as_str))?;
             w.push(u8::from(p.unique()));
-            write_list(&mut w, p.tokenizers().iter().map(String::as_str));
+            write_list(&mut w, p.tokenizers().iter().map(String::as_str))?;
             w.push(u8::from(p.count_index()));
             match p.vector_index() {
                 Some(spec) => {
                     w.push(1);
-                    string(&mut w, spec.factory());
+                    string(&mut w, spec.factory())?;
                     let dimension = spec.dimension().map_or(0, NonZeroU16::get);
                     w.extend_from_slice(&dimension.to_be_bytes());
-                    count(&mut w, spec.options().len());
-                    spec.options().iter().for_each(|(k, v)| {
-                        string(&mut w, k);
-                        string(&mut w, v);
-                    });
+                    count(&mut w, spec.options().len())?;
+                    for (k, v) in spec.options() {
+                        string(&mut w, k)?;
+                        string(&mut w, v)?;
+                    }
                 }
                 None => w.push(0),
             }
-            write_list(&mut w, p.domains().iter().map(NamedNode::as_str));
+            write_list(&mut w, p.domains().iter().map(NamedNode::as_str))?;
         }
         Declaration::EntityType(t) => {
-            string(&mut w, t.iri().as_str());
-            optional(&mut w, t.parent().map(NamedNode::as_str));
+            string(&mut w, t.iri().as_str())?;
+            optional(&mut w, t.parent().map(NamedNode::as_str))?;
             w.push(u8::from(t.is_abstract()));
         }
         Declaration::Relation(r) => {
-            string(&mut w, r.iri().as_str());
-            write_list(&mut w, r.roles().iter().map(NamedNode::as_str));
+            string(&mut w, r.iri().as_str())?;
+            write_list(&mut w, r.roles().iter().map(NamedNode::as_str))?;
         }
     }
     // Paired with the load's decode: what is written reads back as the declaration it was written from.
     debug_assert!(decode(&[], &w).is_ok_and(|read| read == *declaration));
-    w
+    Ok(w)
 }
 
 /// The declaration stored as `bytes` under `key`, refused, naming the key, when it cannot be read.
@@ -247,31 +257,40 @@ fn predicate(r: &mut Reader<'_>) -> Result<PredicateDeclaration, CatalogError> {
 }
 
 // The lengths fit their widths for every declaration [`check_lengths`] passes, which every declaration the catalog
-// takes and every version encoded is checked by: the conversions are lossless there.
-fn string(w: &mut Vec<u8>, s: &str) {
-    debug_assert!(s.len() <= STRING_MAX);
-    w.extend_from_slice(&(s.len() as u32).to_be_bytes());
+// takes and every version encoded is checked by; a length past its width is refused rather than written wrapped.
+fn string(w: &mut Vec<u8>, s: &str) -> Result<(), CatalogError> {
+    let len = u32::try_from(s.len())
+        .map_err(|_| CatalogError::too_large("", "string bytes", s.len(), STRING_MAX))?;
+    w.extend_from_slice(&len.to_be_bytes());
     w.extend_from_slice(s.as_bytes());
+    Ok(())
 }
 
-fn optional(w: &mut Vec<u8>, s: Option<&str>) {
+fn optional(w: &mut Vec<u8>, s: Option<&str>) -> Result<(), CatalogError> {
     match s {
         Some(s) => {
             w.push(1);
-            string(w, s);
+            string(w, s)
         }
-        None => w.push(0),
+        None => {
+            w.push(0);
+            Ok(())
+        }
     }
 }
 
-fn count(w: &mut Vec<u8>, n: usize) {
-    debug_assert!(n <= LIST_MAX);
-    w.extend_from_slice(&(n as u16).to_be_bytes());
+fn count(w: &mut Vec<u8>, n: usize) -> Result<(), CatalogError> {
+    let n = u16::try_from(n).map_err(|_| CatalogError::too_large("", "list items", n, LIST_MAX))?;
+    w.extend_from_slice(&n.to_be_bytes());
+    Ok(())
 }
 
-fn write_list<'a>(w: &mut Vec<u8>, items: impl ExactSizeIterator<Item = &'a str>) {
-    count(w, items.len());
-    items.for_each(|s| string(w, s));
+fn write_list<'a>(
+    w: &mut Vec<u8>,
+    mut items: impl ExactSizeIterator<Item = &'a str>,
+) -> Result<(), CatalogError> {
+    count(w, items.len())?;
+    items.try_for_each(|s| string(w, s))
 }
 
 struct Reader<'a> {

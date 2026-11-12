@@ -291,7 +291,7 @@ fn test_a_pending_id_is_burned_once_every_write_holding_it_is_released() -> Test
 fn test_a_write_dropped_without_release_leaves_its_id_pending_for_the_next_writer() -> TestResult {
     let store = quads()?;
     let dropped = insert_write(&store, 0, &[quad("new", "p", ex("q"))])?;
-    let (_, terms) = dropped.finish();
+    let (_, terms) = dropped.finish()?;
     let created = terms
         .written()
         .next()

@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
     Authenticate, AuthenticateView, BodyBuilder, BodyView, Command, ComputeReadView, CreditView,
-    ErrorCode, ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, HelloView, MAX_FRAME_FLOOR,
-    QueryView, ReadView, Welcome,
+    ErrorCode, ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, HelloView,
+    MAX_FRAME_FLOOR_U32, QueryView, ReadView, Welcome,
 };
 
 use crate::errors::transport_error::{TransportError, TransportErrorEnum};
@@ -320,7 +320,7 @@ impl<A: Authenticator> ServerConnection<A> {
                 let protocol = welcome.protocol();
                 // The handshake took this frame as a Hello, so its view reads; the floor is what every client takes.
                 let max_frame = HelloView::from_frame(view)
-                    .map_or(MAX_FRAME_FLOOR as u32, |hello| hello.max_frame()); // 2^19, lossless
+                    .map_or(MAX_FRAME_FLOOR_U32, |hello| hello.max_frame());
                 if welcome.authenticates() {
                     self.phase = Phase::Authenticating;
                     self.opened = now;

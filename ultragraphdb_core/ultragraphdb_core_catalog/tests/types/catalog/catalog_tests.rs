@@ -212,7 +212,7 @@ fn test_types_and_relations_are_listed_and_removed() -> TestResult {
 
 #[test]
 fn test_a_relation_with_more_roles_than_the_encoding_holds_is_refused() -> TestResult {
-    // 65,536 roles: one past the encoding's u16 count, which `Catalog::entry` would wrap to 0 and a load then refuse.
+    // 65,536 roles: one past the encoding's u16 count, which the declaration refuses before `Catalog::entry` would.
     let roles: Vec<NamedNode> = (0..=u16::MAX).map(|i| ex(&i.to_string())).collect();
     let mut catalog = Catalog::new(0);
     let refused = catalog

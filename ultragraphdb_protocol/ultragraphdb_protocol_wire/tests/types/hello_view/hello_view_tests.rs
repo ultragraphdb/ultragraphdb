@@ -20,7 +20,13 @@ fn test_the_golden_hello_reads_its_values() -> TestResult {
     assert_eq!(view.client(), "ultragraph-test");
     assert_eq!(
         view.to_body()?,
-        Hello::new(1, 1, RELEASE, MAX_FRAME_SIZE as u32, "ultragraph-test")
+        Hello::new(
+            1,
+            1,
+            RELEASE,
+            u32::try_from(MAX_FRAME_SIZE)?,
+            "ultragraph-test"
+        )
     );
     Ok(())
 }
@@ -74,7 +80,7 @@ fn test_the_largest_frame_a_client_takes_is_from_the_floor_to_one_mebibyte() -> 
             .map_err(|e| e.0))
     };
     for max_frame in [524_288u64, 524_289, 1_048_575, 1_048_576] {
-        assert_eq!(at(max_frame)?, Ok(max_frame as u32));
+        assert_eq!(at(max_frame)?, Ok(u32::try_from(max_frame)?));
     }
     for max_frame in [0u64, 4_096, 524_287, 1_048_577, u64::from(u32::MAX)] {
         assert_eq!(
@@ -141,7 +147,7 @@ fn test_a_name_that_is_not_utf8_is_refused_at_its_first_bad_byte() -> TestResult
         }
     );
     // A name of multi-byte characters reads.
-    let unicode = Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "ültra → graph");
+    let unicode = Hello::new(1, 1, 0, u32::try_from(MAX_FRAME_SIZE)?, "ültra → graph");
     use ultragraphdb_protocol_wire::BodyBuilder;
     let frame = unicode.frame(golden("hello")?.header())?;
     assert_eq!(

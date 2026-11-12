@@ -209,7 +209,7 @@ fn resumed(
     )
     .with_principal(1)
     .with_deadline_ms(crate::played_reads::read_answer::DEADLINE_MS)
-    .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE as u32, 4))
+    .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE_U32, 4))
 }
 
 /// In the store's order: a string, the language strings `tagged` and one of each direction, a known datatype's literal not in its
@@ -278,7 +278,7 @@ fn test_a_read_resumed_at_a_tagged_or_typed_literal_goes_on_after_it() -> TestRe
                 &mut cluster.client().await?,
                 &pattern
                     .read(tenant, true, ReadLevel::Latest)?
-                    .with_limit(limit as u32),
+                    .with_limit(u32::try_from(limit)?),
             )
             .await?;
             let rest = answer_on(

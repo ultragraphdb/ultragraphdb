@@ -151,7 +151,7 @@ fn read(tx: u64) -> Read {
 fn test_a_credential_is_renewed_before_it_expires_while_a_read_streams() -> TestResult {
     let life = Duration::from_secs(600);
     let mut h = Harness::authenticated(scram_server().with_credential_life(life).with_results(6))?;
-    let first = UNIX + life.as_micros() as u64;
+    let first = UNIX + u64::try_from(life.as_micros())?;
     assert_eq!(h.core.expires(), Some(first));
     let p = h.core.begin(0, true, h.now)?;
     let tx = begun(h.settle(p)?)?;
@@ -166,7 +166,7 @@ fn test_a_credential_is_renewed_before_it_expires_while_a_read_streams() -> Test
     );
     h.now = renew;
     h.core.handle_timeout(h.now);
-    let renewed = UNIX + (Duration::from_secs(540) + life).as_micros() as u64;
+    let renewed = UNIX + u64::try_from((Duration::from_secs(540) + life).as_micros())?;
     h.until(|h| h.core.expires() == Some(renewed))?;
     assert_eq!(
         exchanges(&h),
@@ -403,9 +403,8 @@ fn test_each_renewal_is_scheduled_from_the_wall_clock_at_its_end() -> TestResult
     let first = h.core.next_deadline().context("a deadline")?;
     h.now = first;
     h.core.handle_timeout(h.now);
-    h.until(|h| {
-        h.core.expires() == Some(UNIX + (Duration::from_secs(540) + life).as_micros() as u64)
-    })?;
+    let renewed = UNIX + u64::try_from((Duration::from_secs(540) + life).as_micros())?;
+    h.until(|h| h.core.expires() == Some(renewed))?;
     assert_eq!(
         h.core.next_deadline(),
         Some(first + Duration::from_secs(540))

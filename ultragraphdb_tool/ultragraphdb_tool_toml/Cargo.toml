@@ -22,6 +22,7 @@ workspace = true
 
 [dev-dependencies]
 ultragraphdb_tool_bdd = { workspace = true }
+# External crates
 cucumber = { workspace = true }
 futures = { workspace = true }
 serde_json = { workspace = true }

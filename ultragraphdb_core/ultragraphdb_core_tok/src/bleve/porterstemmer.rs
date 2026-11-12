@@ -15,18 +15,21 @@ pub(crate) fn stem(term: &str) -> String {
         .collect()
 }
 
-/// go-porterstemmer's `isConsonant`: a `y` is a consonant at the start and after a vowel. Go recurses once per `y`
-/// of a run, on its growable stack; this walks the run back to the letter before it and counts its parity.
-fn is_consonant(s: &[char], i: usize) -> bool {
-    match s[i] {
-        'a' | 'e' | 'i' | 'o' | 'u' => false,
-        'y' => {
-            let run = s[..=i].iter().rev().take_while(|&&c| c == 'y').count();
+/// go-porterstemmer's `isConsonant` of the last letter of `s`, which Go names by its index `i` in the word, `s` being
+/// the word up to it; every caller passes a letter. A `y` is a consonant at the start and after a vowel. Go recurses
+/// once per `y` of a run, on its growable stack; this walks the run back to the letter before it and counts its
+/// parity.
+fn is_consonant(s: &[char]) -> bool {
+    match s.last() {
+        Some('a' | 'e' | 'i' | 'o' | 'u') => false,
+        Some('y') => {
+            let run = s.iter().rev().take_while(|&&c| c == 'y').count();
             // The run's first `y` follows a letter that is not a `y`, a consonant unless a vowel.
-            let first = match (i + 1 - run).checked_sub(1).map(|before| s[before]) {
-                None => true,
-                Some(before) => matches!(before, 'a' | 'e' | 'i' | 'o' | 'u'),
-            };
+            let first = s
+                .iter()
+                .rev()
+                .nth(run)
+                .is_none_or(|&before| matches!(before, 'a' | 'e' | 'i' | 'o' | 'u'));
             first == (run % 2 == 1)
         }
         _ => true,
@@ -47,37 +50,13 @@ fn consonants(s: &[char]) -> Vec<bool> {
     out
 }
 
-fn measure(s: &[char]) -> u32 {
-    let c = consonants(s);
-    let len = s.len();
-    let mut result = 0;
-    let mut i = 0;
-    if len == 0 {
-        return result;
-    }
-    while c[i] {
-        i += 1;
-        if i >= len {
-            return result;
-        }
-    }
-    'outer: while i < len {
-        while !c[i] {
-            i += 1;
-            if i >= len {
-                break 'outer;
-            }
-        }
-        while c[i] {
-            i += 1;
-            if i >= len {
-                result += 1;
-                break 'outer;
-            }
-        }
-        result += 1;
-    }
-    result
+/// go-porterstemmer's `measure`, the m of the word's form [C](VC)^m[V]: the number of vowels followed by a
+/// consonant.
+fn measure(s: &[char]) -> usize {
+    consonants(s)
+        .windows(2)
+        .filter(|pair| matches!(pair, [false, true]))
+        .count()
 }
 
 /// go-porterstemmer's `hasSuffix`: `s` ends with `suffix` and is longer than it.
@@ -91,13 +70,15 @@ fn contains_vowel(s: &[char]) -> bool {
 }
 
 fn has_repeat_double_consonant_suffix(s: &[char]) -> bool {
-    let n = s.len();
-    n >= 2 && s[n - 1] == s[n - 2] && is_consonant(s, n - 1)
+    matches!(s, [.., a, b] if a == b) && is_consonant(s)
 }
 
 fn has_consonant_vowel_consonant_suffix(s: &[char]) -> bool {
     let n = s.len();
-    n >= 3 && is_consonant(s, n - 3) && !is_consonant(s, n - 2) && is_consonant(s, n - 1)
+    n >= 3
+        && s.get(..n - 2).is_some_and(is_consonant)
+        && s.get(..n - 1).is_some_and(|before| !is_consonant(before))
+        && is_consonant(s)
 }
 
 fn step1a(mut s: Vec<char>) -> Vec<char> {
@@ -114,18 +95,21 @@ fn step1a(mut s: Vec<char>) -> Vec<char> {
 /// (`s[..sub_len + 1]`), that letter is the `e` of `ed`, or the `i` of `ing` rewritten to `e` when `at_bl_iz_e`.
 fn step1b_tail(s: Vec<char>, sub_len: usize, at_bl_iz_e: bool) -> Vec<char> {
     let mut s = s;
-    let sub = s[..sub_len].to_vec();
-    if !contains_vowel(&sub) {
+    // The stem precedes a suffix of the word, so it is in it.
+    let Some(sub) = s.get(..sub_len).map(<[char]>::to_vec) else {
         return s;
-    }
+    };
+    // A stem holding a vowel holds a last letter.
+    let Some(&c) = sub.last().filter(|_| contains_vowel(&sub)) else {
+        return s;
+    };
     if has_suffix(&sub, "at") || has_suffix(&sub, "bl") || has_suffix(&sub, "iz") {
         s.truncate(sub_len + 1);
-        if at_bl_iz_e {
-            s[sub_len] = 'e';
+        if at_bl_iz_e && let Some(kept) = s.last_mut() {
+            *kept = 'e';
         }
         return s;
     }
-    let c = sub[sub.len() - 1];
     if c != 'l' && c != 's' && c != 'z' && has_repeat_double_consonant_suffix(&sub) {
         s.truncate(sub_len - 1);
         return s;
@@ -137,7 +121,9 @@ fn step1b_tail(s: Vec<char>, sub_len: usize, at_bl_iz_e: bool) -> Vec<char> {
         && c != 'y'
     {
         s.truncate(sub_len + 1);
-        s[sub_len] = 'e';
+        if let Some(kept) = s.last_mut() {
+            *kept = 'e';
+        }
         return s;
     }
     s.truncate(sub_len);
@@ -147,7 +133,7 @@ fn step1b_tail(s: Vec<char>, sub_len: usize, at_bl_iz_e: bool) -> Vec<char> {
 fn step1b(mut s: Vec<char>) -> Vec<char> {
     let n = s.len();
     if has_suffix(&s, "eed") {
-        if measure(&s[..n - 3]) > 0 {
+        if s.get(..n - 3).is_some_and(|stem| measure(stem) > 0) {
             s.truncate(n - 1);
         }
         s
@@ -161,14 +147,15 @@ fn step1b(mut s: Vec<char>) -> Vec<char> {
 }
 
 fn step1c(mut s: Vec<char>) -> Vec<char> {
-    let n = s.len();
-    if n < 2 {
+    if s.len() < 2 {
         return s;
     }
-    if s[n - 1] == 'y' && contains_vowel(&s[..n - 1]) {
-        s[n - 1] = 'i';
-    } else if s[n - 1] == 'Y' && contains_vowel(&s[..n - 1]) {
-        s[n - 1] = 'I';
+    if let Some((last, before)) = s.split_last_mut() {
+        if *last == 'y' && contains_vowel(before) {
+            *last = 'i';
+        } else if *last == 'Y' && contains_vowel(before) {
+            *last = 'I';
+        }
     }
     s
 }
@@ -180,11 +167,12 @@ struct Rule {
     edit: fn(&mut Vec<char>),
 }
 
-fn apply(s: Vec<char>, rules: &[Rule], m_ok: fn(u32) -> bool) -> Vec<char> {
+fn apply(s: Vec<char>, rules: &[Rule], m_ok: fn(usize) -> bool) -> Vec<char> {
     let mut s = s;
     for r in rules {
         if has_suffix(&s, r.suffix) {
-            if m_ok(measure(&s[..s.len() - r.suffix.chars().count()])) {
+            let stem = s.get(..s.len() - r.suffix.chars().count());
+            if stem.is_some_and(|stem| m_ok(measure(stem))) {
                 (r.edit)(&mut s);
             }
             return s;
@@ -197,13 +185,19 @@ fn cut(s: &mut Vec<char>, n: usize) {
     s.truncate(s.len() - n);
 }
 
+/// Sets the letter `from_end` places from the end, 1 the last; every rule's suffix is that long.
+fn set(s: &mut [char], from_end: usize, c: char) {
+    if let Some(slot) = s.len().checked_sub(from_end).and_then(|i| s.get_mut(i)) {
+        *slot = c;
+    }
+}
+
 /// Step 2's rules, each a suffix and its edit, tried in order.
 const STEP2_RULES: &[Rule] = &[
     Rule {
         suffix: "ational",
         edit: |s| {
-            let n = s.len();
-            s[n - 5] = 'e';
+            set(s, 5, 'e');
             cut(s, 4)
         },
     },
@@ -213,17 +207,11 @@ const STEP2_RULES: &[Rule] = &[
     },
     Rule {
         suffix: "enci",
-        edit: |s| {
-            let n = s.len();
-            s[n - 1] = 'e'
-        },
+        edit: |s| set(s, 1, 'e'),
     },
     Rule {
         suffix: "anci",
-        edit: |s| {
-            let n = s.len();
-            s[n - 1] = 'e'
-        },
+        edit: |s| set(s, 1, 'e'),
     },
     Rule {
         suffix: "izer",
@@ -231,10 +219,7 @@ const STEP2_RULES: &[Rule] = &[
     },
     Rule {
         suffix: "bli",
-        edit: |s| {
-            let n = s.len();
-            s[n - 1] = 'e'
-        },
+        edit: |s| set(s, 1, 'e'),
     },
     Rule {
         suffix: "alli",
@@ -255,24 +240,21 @@ const STEP2_RULES: &[Rule] = &[
     Rule {
         suffix: "ization",
         edit: |s| {
-            let n = s.len();
-            s[n - 5] = 'e';
+            set(s, 5, 'e');
             cut(s, 4)
         },
     },
     Rule {
         suffix: "ation",
         edit: |s| {
-            let n = s.len();
-            s[n - 3] = 'e';
+            set(s, 3, 'e');
             cut(s, 2)
         },
     },
     Rule {
         suffix: "ator",
         edit: |s| {
-            let n = s.len();
-            s[n - 2] = 'e';
+            set(s, 2, 'e');
             cut(s, 1)
         },
     },
@@ -299,17 +281,15 @@ const STEP2_RULES: &[Rule] = &[
     Rule {
         suffix: "iviti",
         edit: |s| {
-            let n = s.len();
-            s[n - 3] = 'e';
+            set(s, 3, 'e');
             cut(s, 2)
         },
     },
     Rule {
         suffix: "biliti",
         edit: |s| {
-            let n = s.len();
-            s[n - 5] = 'l';
-            s[n - 4] = 'e';
+            set(s, 5, 'l');
+            set(s, 4, 'e');
             cut(s, 3)
         },
     },
@@ -366,12 +346,14 @@ fn step4(s: Vec<char>) -> Vec<char> {
     for suffix in SUFFIXES {
         if has_suffix(&s, suffix) {
             let sub_len = s.len() - suffix.len();
-            let m = measure(&s[..sub_len]);
-            let ok = if *suffix == "ion" {
-                m > 1 && matches!(s[sub_len - 1], 's' | 't')
-            } else {
-                m > 1
-            };
+            let ok = s.get(..sub_len).is_some_and(|stem| {
+                let m = measure(stem);
+                if *suffix == "ion" {
+                    m > 1 && matches!(stem.last(), Some('s' | 't'))
+                } else {
+                    m > 1
+                }
+            });
             if ok {
                 s.truncate(sub_len);
             }
@@ -382,26 +364,29 @@ fn step4(s: Vec<char>) -> Vec<char> {
 }
 
 fn step5a(mut s: Vec<char>) -> Vec<char> {
-    let n = s.len();
-    if s[n - 1] == 'e' {
-        let sub = &s[..n - 1];
-        let m = measure(sub);
-        if m > 1 {
-            s.truncate(n - 1);
-        } else if m == 1 {
-            let c = sub[sub.len() - 1];
-            if !(has_consonant_vowel_consonant_suffix(sub) && c != 'w' && c != 'x' && c != 'y') {
-                s.truncate(n - 1);
-            }
+    let drop_e = match s.split_last() {
+        Some((&'e', sub)) => {
+            let m = measure(sub);
+            // A stem of measure 1 holds a vowel and a consonant after it, so it has a last letter.
+            m > 1
+                || (m == 1
+                    && !(has_consonant_vowel_consonant_suffix(sub)
+                        && !matches!(sub.last(), Some('w' | 'x' | 'y'))))
         }
+        _ => false,
+    };
+    if drop_e {
+        let _last: Option<char> = s.pop();
     }
     s
 }
 
 fn step5b(mut s: Vec<char>) -> Vec<char> {
-    let n = s.len();
-    if n > 2 && s[n - 2] == 'l' && s[n - 1] == 'l' && measure(&s[..n - 1]) > 1 {
-        s.truncate(n - 1);
+    let drop_l = matches!(s.as_slice(), [_, .., 'l', 'l'])
+        && s.split_last()
+            .is_some_and(|(_, before)| measure(before) > 1);
+    if drop_l {
+        let _last: Option<char> = s.pop();
     }
     s
 }

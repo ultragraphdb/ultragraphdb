@@ -42,7 +42,10 @@ impl<'a> ChunkedBody<'a> {
         }
         for index in 0..layout.chunks() {
             let range = layout.chunk_range(index).unwrap_or_default();
-            let stored = bytes_at(table, index * LEAF_SIZE).map(u64::from_le_bytes);
+            let stored = index
+                .checked_mul(LEAF_SIZE)
+                .and_then(|at| bytes_at(table, at))
+                .map(u64::from_le_bytes);
             let chunk = data.get(range.clone()).unwrap_or_default();
             if stored != Some(xxh3_64_with_seed(chunk, index as u64)) {
                 return Err(ProtocolError::chunk(index, range.start, range.end));

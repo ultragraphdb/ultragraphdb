@@ -28,7 +28,6 @@ ultragraphdb_cluster_sequencer = { workspace = true }
 ultragraphdb_common_frontend = { workspace = true }
 ultragraphdb_common_service_config = { workspace = true }
 ultragraphdb_common_telemetry = { workspace = true }
-oxrdf = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_core_mapping = { workspace = true }
@@ -46,6 +45,8 @@ ultragraphdb_traits_log = { workspace = true }
 ultragraphdb_transactions_commit = { workspace = true }
 ultragraphdb_transactions_log = { workspace = true }
 ultragraphdb_transactions_txn = { workspace = true }
+# External crates
+oxrdf = { workspace = true }
 compio = { workspace = true }
 futures = { workspace = true }
 mimalloc = { workspace = true }

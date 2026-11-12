@@ -19,6 +19,7 @@ use crate::utils::body::{read_sections, read_string_list, records, u32s};
 use crate::utils::changes::{RecordKinds, check_records, decode_declaration};
 use crate::utils::command_header::{CommandHeader, expect_command};
 use crate::utils::constants::DESCRIBE_ENTRY_SIZE;
+use crate::utils::fields::count;
 use crate::utils::le::bytes_at;
 
 impl<'a> BodyView<'a> for DescribeView<'a> {
@@ -68,7 +69,7 @@ impl<'a> DescribeView<'a> {
         header.unused_zero(&[(0, 16)])?;
         let sections = read_sections::<9>(command, body, 0)?;
         let strings = read_string_list(command, (0, 1), sections.get(0), sections.get(1))?;
-        let limit = as_u32(strings.len());
+        let limit = count(command, "strings", strings.len())?;
         let names = |section: usize| -> Result<Vec<u32>, ProtocolError> {
             let indices = u32s(command, section, sections.get(section))?;
             match indices.iter().enumerate().find(|(_, i)| **i >= limit) {
@@ -142,7 +143,10 @@ fn check_entries(
             .and_then(|zero| zero.iter().position(|b| *b != 0))
         {
             let start = offset.saturating_add(DESCRIBE_ENTRY_SIZE.saturating_mul(at));
-            return Err(ProtocolError::padding_not_zero(command, start + 1 + j));
+            return Err(ProtocolError::padding_not_zero(
+                command,
+                start.saturating_add(1).saturating_add(j),
+            ));
         }
         let (number, name, first, len) = fields(record);
         let refused = |field| ProtocolError::field_value(command, field, at as u64); // lossless: a `usize` is at most 64 bits
@@ -174,7 +178,7 @@ fn check_entries(
             return Err(ProtocolError::not_utf8(
                 command,
                 8,
-                end + error.valid_up_to(),
+                end.saturating_add(error.valid_up_to()),
             ));
         }
         // Lossless: a `usize` is at least 32 bits.

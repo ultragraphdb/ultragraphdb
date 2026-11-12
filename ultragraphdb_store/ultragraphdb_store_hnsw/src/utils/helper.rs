@@ -13,6 +13,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use ultragraphdb_core_ids::SystemId;
 
 use crate::errors::hnsw_error::HnswError;
@@ -90,12 +95,14 @@ pub fn concat_strings(strs: &[&str]) -> String {
 /// from the caller's source. Level `max_levels - 1`, the bottom layer, holds every node; each level above holds a
 /// fifth of the one below.
 pub fn insert_layer(max_levels: usize, rand_float: f64) -> usize {
+    // Level `i` beside its exponent, `max_levels - 1 - i`.
     (0..max_levels)
-        .find(|&i| {
-            let exponent = u32::try_from(max_levels - 1 - i).unwrap_or(u32::MAX);
+        .zip((0..max_levels).rev())
+        .find(|&(_, exponent)| {
+            let exponent = u32::try_from(exponent).unwrap_or(u32::MAX);
             rand_float < go_math::pow(1.0 / 5.0, exponent)
         })
-        .unwrap_or(0)
+        .map_or(0, |(level, _)| level)
 }
 
 /// Dgraph's `BytesToUint64`: the node an entry point names, its system ID's 16 big-endian bytes; `None` unless
@@ -158,15 +165,19 @@ pub fn insert_uids_top_k_by_score<T: HnswFloat, E>(
         return Ok(Vec::new());
     }
     edges.truncate(keep);
-    let mut seen = std::collections::HashSet::with_capacity(edges.len() + new_uids.len());
+    // A capacity hint: none past `usize`.
+    let hint = edges.len().checked_add(new_uids.len()).unwrap_or(0);
+    let mut seen = std::collections::HashSet::with_capacity(hint);
     edges.retain(|&uid| seen.insert(uid));
     for &uid in new_uids {
         if !seen.insert(uid) {
             continue;
         }
         let score_new = score(uid)?;
-        let pos = go_sort::search(edges.len(), |i| {
-            Ok(sim.is_better_score(score_new, score(edges[i])?))
+        // The search asks only indexes below the length.
+        let pos = go_sort::search(edges.len(), |i| match edges.get(i) {
+            Some(&edge) => Ok(sim.is_better_score(score_new, score(edge)?)),
+            None => Ok(true),
         })?;
         edges.insert(pos, uid);
         edges.truncate(keep);

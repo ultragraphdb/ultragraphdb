@@ -41,7 +41,10 @@ pub(crate) fn check_operations(
         }
         if let Some(j) = zeros.iter().position(|b| *b != 0) {
             let start = offset.saturating_add(RECORD_OPERATION_SIZE.saturating_mul(at));
-            return Err(ProtocolError::padding_not_zero(command, start + 2 + j));
+            return Err(ProtocolError::padding_not_zero(
+                command,
+                start.saturating_add(2).saturating_add(j),
+            ));
         }
         if RecordOperation::from_parts(code, argument).is_none() {
             // Lossless: a `usize` is at most 64 bits.

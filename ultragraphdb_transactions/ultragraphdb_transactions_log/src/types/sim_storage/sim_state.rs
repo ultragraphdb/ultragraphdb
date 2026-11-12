@@ -364,14 +364,15 @@ impl SimState {
     /// How many bytes of a write of `len` a tear keeps: whole 512-byte sectors, at least one and never all, drawn from
     /// the seed; inside a write of at most one sector, at least one byte and never all.
     pub(crate) fn tear(&mut self, len: usize) -> usize {
-        let len = len as u64;
-        let kept = if len > 512 {
-            512 * (1 + self.draw_below((len - 1) / 512))
-        } else if len > 1 {
-            1 + self.draw_below(len - 1)
+        let wide = len as u64;
+        let kept = if wide > 512 {
+            512 * (1 + self.draw_below((wide - 1) / 512))
+        } else if wide > 1 {
+            1 + self.draw_below(wide - 1)
         } else {
             0
         };
-        kept as usize
+        // At most `len`, so it fits back and the fallback is never taken.
+        usize::try_from(kept).unwrap_or(len)
     }
 }

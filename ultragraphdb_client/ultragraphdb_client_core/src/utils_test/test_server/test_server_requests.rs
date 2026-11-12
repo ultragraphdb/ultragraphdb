@@ -67,11 +67,7 @@ impl TestServer {
                     transaction.operations += 1;
                 }
             }
-            Command::Read => {
-                if let Ok(read) = ReadView::from_frame(&view) {
-                    self.answer_read(stream, read.transaction());
-                }
-            }
+            Command::Read => self.read_view(stream, &view),
             Command::Execute => {
                 if let Ok(execute) = ExecuteView::from_frame(&view) {
                     self.execute(stream, execute.statement(), execute.transaction());
@@ -127,6 +123,13 @@ impl TestServer {
             | Command::DefaultEntry
             | Command::Report
             | Command::Held => {}
+        }
+    }
+
+    /// A Read `view` on `stream`, answered in its transaction.
+    fn read_view(&mut self, stream: u64, view: &FrameView<'_>) {
+        if let Ok(read) = ReadView::from_frame(view) {
+            self.answer_read(stream, read.transaction());
         }
     }
 
@@ -308,9 +311,10 @@ impl TestServer {
         for i in 0..results {
             // Only a stream's last batch holds a resume key, and a refused read has no last batch.
             let last = refusal.is_none() && i + 1 == results;
-            // The key's one byte is the batch's index modulo 256, truncated on purpose: a client takes a resume key as
-            // opaque bytes.
-            let resume = if last { vec![i as u8] } else { Vec::new() };
+            // The key's one byte is the batch's index modulo 256, its low byte on purpose: a client takes a resume key
+            // as opaque bytes.
+            let [low, ..] = i.to_le_bytes();
+            let resume = if last { vec![low] } else { Vec::new() };
             let mut batch = ResultBatch::new(2)
                 .with_resume(resume)
                 .with_read_at(epoch, 1);

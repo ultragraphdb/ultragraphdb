@@ -778,12 +778,13 @@ fn recovers_cleanly(storage: &SimStorage, checksums: &[u64], case: &str) -> Test
     assert!(committed >= 12, "{case}: committed {committed}");
     let from = recovery.checkpoint().get() + 1;
     let rounds = block_on(wal.read(Position::new(from), u32::MAX)).context("read")?;
+    let from_index = usize::try_from(from)?;
     let read: Vec<u64> = rounds
         .iter()
         .map(|r| r.checksum())
-        .take(12 - from as usize + 1)
+        .take(12 - from_index + 1)
         .collect();
-    assert_eq!(read, checksums[from as usize - 1..], "{case}");
+    assert_eq!(read, checksums[from_index - 1..], "{case}");
     if recovery.checkpoint() == Position::new(8) {
         assert_eq!(storage.contents(&segment(0)), None, "{case}");
         assert_eq!(storage.contents(&segment(1)), None, "{case}");
@@ -1258,7 +1259,7 @@ fn append_and_sync(
     acknowledged: &mut BTreeMap<u64, u64>,
 ) -> AfterAppend {
     let position = log.tail().0.get() + 1;
-    let len = [10, ONE_BLOCK, TWO_BLOCKS][draws.next(3) as usize];
+    let len = [10, ONE_BLOCK, TWO_BLOCKS][usize::try_from(draws.next(3)).unwrap_or(usize::MAX)];
     let appended = append(log, position, len);
     assert!(
         matches!(appended, Ok(_) | Err(LogError(LogErrorEnum::Busy { .. }))),

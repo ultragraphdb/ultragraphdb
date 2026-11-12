@@ -40,9 +40,13 @@ impl LanguageError {
 
     /// Go's `NewValueError`: the subtag's first eight bytes, up to a zero byte.
     pub(crate) fn unknown_subtag(tag: &[u8]) -> Self {
-        let tag = &tag[..tag.len().min(8)];
-        let end = tag.iter().position(|&c| c == 0).unwrap_or(tag.len());
-        Self::new(LanguageErrorEnum::Value(tag[..end].to_vec()))
+        let subtag = tag
+            .iter()
+            .take(8)
+            .take_while(|&&c| c != 0)
+            .copied()
+            .collect();
+        Self::new(LanguageErrorEnum::Value(subtag))
     }
 
     pub(crate) fn is_syntax(&self) -> bool {

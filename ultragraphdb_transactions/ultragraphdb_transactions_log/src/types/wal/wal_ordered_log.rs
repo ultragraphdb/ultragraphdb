@@ -14,7 +14,7 @@ use crate::traits::durable_file::DurableFile;
 use crate::traits::durable_storage::DurableStorage;
 use crate::types::wal::Wal;
 use crate::types::wal::wal_entry::WalEntry;
-use crate::utils::block::padded;
+use crate::utils::block::padded_usize;
 use crate::utils::frame::encode_round;
 use crate::utils::io_error::io_error;
 
@@ -35,7 +35,8 @@ impl<S: DurableStorage> Wal<S> {
             return Err(corrupt());
         };
         let bytes = file
-            .read_at(entry.offset, padded(u64::from(entry.size)) as usize)
+            // Lossless: a `usize` holds 32 bits on every target the repository builds for.
+            .read_at(entry.offset, padded_usize(entry.size as usize))
             .await
             .map_err(io_error("read"))?;
         let frame = bytes
@@ -134,9 +135,11 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
         )?;
         let size = self.config.segment_size();
         let padded_len = frame.len() as u64;
-        if padded_len > size {
-            // Lossless: a `usize` is 64 bits on every target the repository builds for.
-            return Err(LogError::too_large(frame.len(), size as usize));
+        // A segment past `usize` holds any frame held in memory.
+        if let Ok(limit) = usize::try_from(size)
+            && frame.len() > limit
+        {
+            return Err(LogError::too_large(frame.len(), limit));
         }
         let (mut segment, mut offset) = self.cursor;
         if offset + padded_len > size {
@@ -232,7 +235,10 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
         }
         let mut rounds = Vec::new();
         let mut total = 0u64;
-        for entry in self.index.iter().skip((from.get() - first) as usize) {
+        // The index holds a round per position from `first`, in memory, so the distance to `from` fits a `usize`.
+        let skipped = usize::try_from(from.get() - first)
+            .map_err(|_| LogError::position_mismatch(after, from.get()))?;
+        for entry in self.index.iter().skip(skipped) {
             let size = u64::from(entry.size);
             if !rounds.is_empty() && total + size > u64::from(max_bytes) {
                 break;

@@ -32,7 +32,7 @@ fn test_a_request_and_its_replies_are_built() -> TestResult {
         (None, 0, 0)
     );
     assert_eq!((request.message(), request.report()), ("", ""));
-    let expected = frame(
+    let expected_request = frame(
         Command::Migrate,
         &[
             (0, &2u64.to_le_bytes()),
@@ -42,13 +42,13 @@ fn test_a_request_and_its_replies_are_built() -> TestResult {
         &[vec![], vec![]],
         true,
     )?;
-    assert_eq!(request.frame(header())?, expected);
+    assert_eq!(request.frame(header())?, expected_request);
     let copying = Migrate::new(2, 5, MigrateAction::Start).answered(MigrateState::Copying, 30, "r");
     assert_eq!(
         (copying.state(), copying.epoch(), copying.report()),
         (Some(MigrateState::Copying), 30, "r")
     );
-    let expected = frame(
+    let expected_copying = frame(
         Command::Migrate,
         &[
             (0, &2u64.to_le_bytes()),
@@ -59,12 +59,12 @@ fn test_a_request_and_its_replies_are_built() -> TestResult {
         &[vec![], b"r".to_vec()],
         true,
     )?;
-    assert_eq!(copying.frame(header())?, expected);
+    assert_eq!(copying.frame(header())?, expected_copying);
     let failed = Migrate::new(2, 5, MigrateAction::ReadState)
         .answered(MigrateState::Failed, 31, "")
         .refused(2_205, "UGS2205 m");
     assert_eq!((failed.refusal(), failed.message()), (2_205, "UGS2205 m"));
-    let expected = frame(
+    let expected_failed = frame(
         Command::Migrate,
         &[
             (0, &2u64.to_le_bytes()),
@@ -76,6 +76,6 @@ fn test_a_request_and_its_replies_are_built() -> TestResult {
         &[b"UGS2205 m".to_vec(), vec![]],
         true,
     )?;
-    assert_eq!(failed.frame(header())?, expected);
+    assert_eq!(failed.frame(header())?, expected_failed);
     Ok(())
 }

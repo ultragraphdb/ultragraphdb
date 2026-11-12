@@ -182,7 +182,7 @@ impl Cluster {
     /// of a test register what they name and no more.
     pub fn with_placement(placement: &PlacementMap) -> TestResult<Self> {
         let mut cluster = Self::bare(placement)?;
-        for id in 1..=cluster.parts.len() as u32 {
+        for id in 1..=u32::try_from(cluster.parts.len())? {
             let _written = cluster.write(id, Vec::new())?.version()?;
         }
         Ok(cluster)
@@ -315,7 +315,7 @@ impl Cluster {
     /// reaching them all.
     pub fn close(&mut self) -> TestResult<Epoch> {
         let next = self.closed.next()?;
-        for id in 1..=self.parts.len() as u32 {
+        for id in 1..=u32::try_from(self.parts.len())? {
             self.close_at(id, next)?;
         }
         self.closed = next;
@@ -394,7 +394,7 @@ impl Cluster {
         let cs = changeset(vec![Change::Declare(Declaration::Predicate(declaration))]);
         let home = self.owner(name)?;
         let _applied = self.part(home)?.applier().apply(&cs)?;
-        for id in 1..=self.parts.len() as u32 {
+        for id in 1..=u32::try_from(self.parts.len())? {
             if id == home {
                 continue;
             }

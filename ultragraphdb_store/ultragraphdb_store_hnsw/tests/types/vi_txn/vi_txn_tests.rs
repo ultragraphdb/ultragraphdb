@@ -235,7 +235,7 @@ fn replay<S: Store>(c: &GraphCase, lists: &Lists<S, SimListCache<CachedList>>) -
                     &c.pred,
                     &o,
                     id(op.uid)?,
-                    &vector::<f32>(op),
+                    &vector::<f32>(op)?,
                     &mut draw,
                 )?;
                 assert_eq!(golden_edges(&edges), go_edges(c, op)?, "{} op {i}", c.name);
@@ -245,7 +245,7 @@ fn replay<S: Store>(c: &GraphCase, lists: &Lists<S, SimListCache<CachedList>>) -
                     lists,
                     &vkeys(&c.pred)?,
                     &o,
-                    &vector::<f32>(op),
+                    &vector::<f32>(op)?,
                     op.k,
                     None,
                 )?;

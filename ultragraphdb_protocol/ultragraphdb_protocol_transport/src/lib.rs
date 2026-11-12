@@ -20,6 +20,11 @@
 //! delaying, duplicating and splitting them from a seed, so a conversation replays. An [`Address`] names where a role
 //! listens or is dialled, its carrier, TCP or a Unix-domain socket, chosen by its [`Scheme`].
 
+// Arithmetic on decoded wire input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 mod errors;
 mod traits;
 mod types;

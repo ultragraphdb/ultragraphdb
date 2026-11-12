@@ -26,7 +26,8 @@ impl ChunkLayout {
     pub fn of_data(data_len: usize) -> Self {
         let chunks = match data_len.checked_sub(FIRST_CHUNK_SIZE) {
             None | Some(0) => 1,
-            Some(rest) => 1 + rest.div_ceil(CHUNK_SIZE),
+            // At most `usize::MAX / 4,096 + 1`, so the count never saturates.
+            Some(rest) => rest.div_ceil(CHUNK_SIZE).saturating_add(1),
         };
         Self { data_len, chunks }
     }
@@ -47,7 +48,11 @@ impl ChunkLayout {
             .ok_or_else(refused)?
             .div_ceil(CHUNK_SIZE + LEAF_SIZE)
             .max(2);
-        let layout = Self::of_data(body_len - LEAF_SIZE * chunks);
+        let data_len = LEAF_SIZE
+            .checked_mul(chunks)
+            .and_then(|table| body_len.checked_sub(table))
+            .ok_or_else(refused)?;
+        let layout = Self::of_data(data_len);
         if layout.chunks == chunks {
             Ok(layout)
         } else {
@@ -68,7 +73,7 @@ impl ChunkLayout {
     /// The table's length: 8 bytes a chunk, or none for a body of one chunk.
     pub fn table_len(&self) -> usize {
         if self.chunks > 1 {
-            LEAF_SIZE * self.chunks
+            self.chunks.saturating_mul(LEAF_SIZE)
         } else {
             0
         }
@@ -84,10 +89,11 @@ impl ChunkLayout {
         if index >= self.chunks {
             return None;
         }
-        let start = if index == 0 {
-            0
-        } else {
-            FIRST_CHUNK_SIZE + CHUNK_SIZE * (index - 1)
+        let start = match index.checked_sub(1) {
+            None => 0,
+            Some(before) => CHUNK_SIZE
+                .checked_mul(before)?
+                .checked_add(FIRST_CHUNK_SIZE)?,
         };
         let end = if index == 0 {
             FIRST_CHUNK_SIZE

@@ -104,7 +104,8 @@ impl Scan {
 /// byte incremented; `None` when every byte is `0xFF`.
 fn prefix_end(prefix: &[u8]) -> Option<Vec<u8>> {
     let last = prefix.iter().rposition(|&b| b != 0xFF)?;
-    let mut end = prefix[..=last].to_vec();
-    end[last] += 1;
-    Some(end)
+    let (head, tail) = prefix.split_at_checked(last)?;
+    // The byte at `last` is below 0xFF, so it rises by one.
+    let raised = tail.first()?.checked_add(1)?;
+    Some([head, &[raised]].concat())
 }

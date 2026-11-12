@@ -89,7 +89,7 @@ fn test_golden_sort_order_of_ties() -> TestResult {
         let moved: Vec<Vec<Val>> = c
             .perm
             .iter()
-            .map(|&i| Ok(vec![val(tid, c.keys[i as usize])?]))
+            .map(|&i| Ok(vec![val(tid, c.keys[usize::try_from(i)?])?]))
             .collect::<TestResult<_>>()?;
         assert_eq!(rows, moved, "{}: rows move with their uids", c.name);
     }

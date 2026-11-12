@@ -115,7 +115,11 @@ impl OperationFields {
     /// The number of args a checked operation takes.
     pub(crate) fn arg_count(self) -> u64 {
         match self.kind {
-            1 | 2 => 3 + 2 * u64::from(self.properties) + 3 * u64::from(self.links),
+            // Counts of a u32 field each, so the sum stays within a u64 and never saturates.
+            1 | 2 => u64::from(self.properties)
+                .saturating_mul(2)
+                .saturating_add(u64::from(self.links).saturating_mul(3))
+                .saturating_add(3),
             3 => 5,
             4 => 3,
             // Kinds 5 and 6: the graph and the instance.
@@ -132,9 +136,18 @@ impl OperationFields {
         args: &[u32],
         limit: u32,
     ) -> Result<(), ProtocolError> {
-        let link_start = 3 + 2 * self.properties as usize; // lossless: a `usize` is at least 32 bits
+        // Lossless: a `usize` is at least 32 bits.
+        let link_start = (self.properties as usize)
+            .checked_mul(2)
+            .and_then(|properties| properties.checked_add(3))
+            .ok_or_else(|| {
+                ProtocolError::field_value(command, "properties", self.properties.into())
+            })?;
         for (at, arg) in args.iter().enumerate() {
-            let direction = self.kind == 2 && at >= link_start && (at - link_start) % 3 == 2;
+            let direction = self.kind == 2
+                && at
+                    .checked_sub(link_start)
+                    .is_some_and(|in_links| in_links % 3 == 2);
             if direction {
                 if *arg > 1 {
                     return Err(ProtocolError::field_value(
@@ -147,7 +160,7 @@ impl OperationFields {
                 return Err(ProtocolError::index_out_of_range(
                     command,
                     place.0,
-                    place.1 + at,
+                    place.1.saturating_add(at),
                     *arg,
                     limit,
                 ));
@@ -160,28 +173,26 @@ impl OperationFields {
     pub(crate) fn operation(self, args: &[u32]) -> CommitOperation {
         let arg = |i: usize| args.get(i).copied().unwrap_or(0);
         let graph = (arg(0) != ABSENT).then(|| arg(0));
-        let pairs = |from: usize, n: u32| -> Vec<(u32, u32)> {
-            (0..n as usize) // lossless: a `usize` is at least 32 bits
-                .map(|k| (arg(from + 2 * k), arg(from + 2 * k + 1)))
-                .collect()
-        };
+        // After the graph, the predicate and the value: the property pairs, then the links' triples, read in order; an
+        // arg past the last reads 0.
+        let mut rest = args.iter().copied().skip(3);
+        let mut next = || rest.next().unwrap_or(0);
         match self.kind {
             1 => CommitOperation::InsertIfAbsent {
                 graph,
                 predicate: arg(1),
                 value: arg(2),
-                properties: pairs(3, self.properties),
+                properties: (0..self.properties).map(|_| (next(), next())).collect(),
             },
             2 => {
-                // The casts are lossless: a `usize` is at least 32 bits.
-                let start = 3 + 2 * self.properties as usize;
-                let links = (0..self.links as usize)
-                    .map(|k| {
-                        let at = start + 3 * k;
-                        if arg(at + 2) == 0 {
-                            Link::from_node(arg(at), arg(at + 1))
+                let properties = (0..self.properties).map(|_| (next(), next())).collect();
+                let links = (0..self.links)
+                    .map(|_| {
+                        let (node, other, direction) = (next(), next(), next());
+                        if direction == 0 {
+                            Link::from_node(node, other)
                         } else {
-                            Link::to_node(arg(at), arg(at + 1))
+                            Link::to_node(node, other)
                         }
                     })
                     .collect();
@@ -189,7 +200,7 @@ impl OperationFields {
                     graph,
                     predicate: arg(1),
                     value: arg(2),
-                    properties: pairs(3, self.properties),
+                    properties,
                     links,
                 }
             }
@@ -286,15 +297,18 @@ pub(crate) fn consume_operations(
             .get(1..8)
             .and_then(|zero| zero.iter().position(|b| *b != 0))
         {
-            let start = offset + OPERATION_FIELDS_SIZE * at;
-            return Err(ProtocolError::padding_not_zero(command, start + 1 + j));
+            let start = offset.saturating_add(OPERATION_FIELDS_SIZE.saturating_mul(at));
+            return Err(ProtocolError::padding_not_zero(
+                command,
+                start.saturating_add(1).saturating_add(j),
+            ));
         }
         let fields = OperationFields::read(operation);
         fields.check(command)?;
         let end = usize::try_from(fields.arg_count())
             .ok()
             .and_then(|count| next.checked_add(count));
-        let Some(run) = end.and_then(|end| args.get(next..end)) else {
+        let Some((end, run)) = end.and_then(|end| Some((end, args.get(next..end)?))) else {
             return Err(ProtocolError::field_value(
                 command,
                 "args_start",
@@ -303,7 +317,7 @@ pub(crate) fn consume_operations(
         };
         fields.check_args(command, (args_section, next), run, limit)?;
         starts.push(next);
-        next += run.len();
+        next = end;
     }
     if next != args.len() {
         return Err(ProtocolError::field_value(

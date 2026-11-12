@@ -193,18 +193,21 @@ const FACE_UVW_AXES: [[R3Vector; 3]; 6] = [
     ],
 ];
 
-/// Returns the given axis of the given face. A face past 5, of an invalid cell id, reads as face 5, as the default
-/// arms of the other face functions read it; Go indexes past the table and panics.
-fn uvw_axis(face: usize, axis: usize) -> R3Vector {
-    FACE_UVW_AXES.get(face).unwrap_or(&FACE_UVW_AXES[5])[axis]
+/// Returns the axes of the given face. A face past 5, of an invalid cell id, reads as face 5, as the default arms of
+/// the other face functions read it; Go indexes past the table and panics.
+fn uvw_axes(face: usize) -> [R3Vector; 3] {
+    let [.., last] = FACE_UVW_AXES;
+    FACE_UVW_AXES.get(face).copied().unwrap_or(last)
 }
 
 /// Returns the u-axis for the given face.
 pub(crate) fn u_axis(face: usize) -> R3Vector {
-    uvw_axis(face, 0)
+    let [u, _, _] = uvw_axes(face);
+    u
 }
 
 /// Returns the v-axis for the given face.
 pub(crate) fn v_axis(face: usize) -> R3Vector {
-    uvw_axis(face, 1)
+    let [_, v, _] = uvw_axes(face);
+    v
 }

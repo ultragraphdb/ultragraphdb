@@ -11,7 +11,7 @@ use crate::utils::golden_bodies::golden;
 
 /// generate_bodies.py's session: bytes 0x11 to 0x20.
 pub fn session() -> [u8; 16] {
-    std::array::from_fn(|i| 0x11 + i as u8)
+    std::array::from_fn(|i| 0x11 + i.to_le_bytes()[0])
 }
 
 /// The golden Commit reply: request 7 at commit version (30 << 22) | 100, the token of partition 2's round at

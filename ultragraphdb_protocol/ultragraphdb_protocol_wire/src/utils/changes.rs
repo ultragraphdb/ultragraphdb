@@ -241,9 +241,9 @@ fn record_at(records: &[u8], index: usize) -> Option<Record> {
             ..index.checked_add(1)?.checked_mul(CHANGE_RECORD_SIZE)?,
     )?;
     let u32_at = |at: usize| {
-        r.get(at..at + 4)
-            .and_then(|b| b.try_into().ok())
-            .map_or(0, u32::from_le_bytes)
+        r.get(at..)
+            .and_then(<[u8]>::first_chunk::<4>)
+            .map_or(0, |b| u32::from_le_bytes(*b))
     };
     Some(Record {
         kind: *r.first()?,
@@ -301,7 +301,7 @@ impl Run<'_> {
             Err(ProtocolError::index_out_of_range(
                 self.command,
                 self.section,
-                self.base + i,
+                self.base.saturating_add(i),
                 value,
                 limit,
             ))
@@ -341,12 +341,17 @@ impl Run<'_> {
 
     /// A count at arg `at` followed by that many `per`-name groups; the arg after them.
     fn counted(&self, at: usize, per: usize) -> Result<usize, ProtocolError> {
-        let n = *self.run.get(at).ok_or_else(|| self.mismatch(at + 1))? as usize;
-        let end = (at + 1).saturating_add(n.saturating_mul(per));
-        if end > self.run.len() {
-            return Err(self.mismatch(end));
-        }
-        (at + 1..end).try_for_each(|i| self.name(i))?;
+        let first = at.checked_add(1).ok_or_else(|| self.mismatch(at))?;
+        let n = *self.run.get(at).ok_or_else(|| self.mismatch(first))? as usize;
+        let Some(end) = n
+            .checked_mul(per)
+            .and_then(|groups| first.checked_add(groups))
+            .filter(|end| *end <= self.run.len())
+        else {
+            // The count the args would need, which a refusal only names.
+            return Err(self.mismatch(first.saturating_add(n.saturating_mul(per))));
+        };
+        (first..end).try_for_each(|i| self.name(i))?;
         Ok(end)
     }
 
@@ -359,8 +364,12 @@ impl Run<'_> {
                 self.terms(1..4)
             }
             INSERT_EDGE => {
-                if len < 4 || !(len - 4).is_multiple_of(2) {
-                    return Err(self.mismatch(if len < 4 { 4 } else { len + 1 }));
+                match len.checked_sub(4) {
+                    None => return Err(self.mismatch(4)),
+                    Some(edges) if !edges.is_multiple_of(2) => {
+                        return Err(self.mismatch(len.saturating_add(1)));
+                    }
+                    Some(_) => {}
                 }
                 self.optional_term(0)?;
                 self.terms(1..len)
@@ -377,15 +386,16 @@ impl Run<'_> {
             }
             SET_PROPERTY | DELETE_PROPERTY => {
                 let by_triple = flags & BY_TRIPLE != 0;
-                let at = if by_triple { 4 } else { 2 };
-                self.count(at + 2)?;
+                // The predicate's arg, the value's after it, and the count of args.
+                let (at, value, count) = if by_triple { (4, 5, 6) } else { (2, 3, 4) };
+                self.count(count)?;
                 self.optional_term(0)?;
                 self.terms(1..at)?;
                 self.term(at)?;
                 if kind == SET_PROPERTY {
-                    self.term(at + 1)
+                    self.term(value)
                 } else {
-                    self.optional_term(at + 1)
+                    self.optional_term(value)
                 }
             }
             PREDICATE => {
@@ -397,11 +407,11 @@ impl Run<'_> {
                 let after_tokenizers = self.counted(2, 1)?;
                 let mut at = self.counted(after_tokenizers, 1)?;
                 if flags & VECTOR_INDEX != 0 {
-                    if at + 2 > len {
-                        return Err(self.mismatch(at + 2));
-                    }
+                    let Some(options) = at.checked_add(1).filter(|options| *options < len) else {
+                        return Err(self.mismatch(at.saturating_add(2)));
+                    };
                     self.name(at)?;
-                    at = self.counted(at + 1, 2)?;
+                    at = self.counted(options, 2)?;
                 }
                 self.count(at)
             }
@@ -545,8 +555,8 @@ pub(crate) fn consume_records(
             section: sections.1,
             base: next,
             run,
-            terms: as_u32(terms),
-            names: as_u32(names.len()),
+            terms: crate::utils::fields::count(command, "terms", terms)?,
+            names: crate::utils::fields::count(command, "names", names.len())?,
         }
         .check(r.kind, r.flags)?;
         next = end;
@@ -629,18 +639,19 @@ fn decode_property(r: Record, a: &[u32]) -> Option<WriteChange> {
             reifier: arg(1)?,
         }
     };
-    let at = if by_triple { 4 } else { 2 };
+    // The predicate's arg and the value's after it.
+    let (at, value) = if by_triple { (4, 5) } else { (2, 3) };
     Some(if r.kind == SET_PROPERTY {
         WriteChange::SetProperty {
             statement: target,
             predicate: arg(at)?,
-            value: arg(at + 1)?,
+            value: arg(value)?,
         }
     } else {
         WriteChange::DeleteProperty {
             statement: target,
             predicate: arg(at)?,
-            value: arg(at + 1).filter(|v| *v != ABSENT),
+            value: arg(value).filter(|v| *v != ABSENT),
         }
     })
 }
@@ -661,7 +672,11 @@ pub(crate) fn decode_declaration(
             name(i).map(Some)
         }
     };
-    let list = |from: usize, n: usize| (from..from + n).map(name).collect::<Option<Vec<String>>>();
+    let list = |from: usize, n: usize| {
+        (from..from.checked_add(n)?)
+            .map(name)
+            .collect::<Option<Vec<String>>>()
+    };
     let declaration = match r.kind {
         PREDICATE => {
             let kind = match r.flags & 0b11 {
@@ -679,14 +694,14 @@ pub(crate) fn decode_declaration(
             }
             let tokenizers = *a.get(2)? as usize;
             p = p.with_tokenizers(list(3, tokenizers)?);
-            let at = 3 + tokenizers;
+            let at = tokenizers.checked_add(3)?;
             let domains = *a.get(at)? as usize;
-            p = p.with_domains(list(at + 1, domains)?);
-            let at = at + 1 + domains;
+            p = p.with_domains(list(at.checked_add(1)?, domains)?);
+            let at = at.checked_add(1)?.checked_add(domains)?;
             if r.flags & VECTOR_INDEX != 0 {
                 let factory = name(at)?;
-                let option_count = *a.get(at + 1)? as usize; // lossless: a `usize` is at least 32 bits
-                let pairs = list(at + 2, 2 * option_count)?;
+                let option_count = *a.get(at.checked_add(1)?)? as usize; // lossless: a `usize` is at least 32 bits
+                let pairs = list(at.checked_add(2)?, option_count.checked_mul(2)?)?;
                 let options = pairs
                     .as_chunks::<2>()
                     .0

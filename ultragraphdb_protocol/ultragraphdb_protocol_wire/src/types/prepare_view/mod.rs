@@ -114,7 +114,8 @@ impl<'a> PrepareView<'a> {
                     .iter()
                     .filter(|slot| matches!(slot, PatternSlot::Unbound))
                     .count()
-                    + 1
+                    // At most four slots, so the reifier column never saturates.
+                    .saturating_add(1)
             }
             None => self.result_types.len(),
         };

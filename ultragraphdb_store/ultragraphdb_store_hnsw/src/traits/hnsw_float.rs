@@ -50,51 +50,41 @@ pub trait HnswFloat:
 
     /// `sum(a[i]*b[i])`: `dotF32` and `dotF64`.
     fn dot(a: &[Self], b: &[Self]) -> Self {
-        let n = a.len().min(b.len());
-        let (a, b) = (&a[..n], &b[..n]);
+        let (a, b) = common(a, b);
         let zero = Self::default();
         let (mut s0, mut s1, mut s2, mut s3) = (zero, zero, zero, zero);
-        let mut i = 0;
-        while i + 4 <= n {
-            let (a0, b0) = (a[i], b[i]);
-            let (a1, b1) = (a[i + 1], b[i + 1]);
-            let (a2, b2) = (a[i + 2], b[i + 2]);
-            let (a3, b3) = (a[i + 3], b[i + 3]);
+        let ((a4, a_rest), (b4, b_rest)) = (a.as_chunks::<4>(), b.as_chunks::<4>());
+        for (&[a0, a1, a2, a3], &[b0, b1, b2, b3]) in a4.iter().zip(b4) {
             s0 += a0 * b0;
             s1 += a1 * b1;
             s2 += a2 * b2;
             s3 += a3 * b3;
-            i += 4;
         }
-        while i < n {
-            s0 += a[i] * b[i];
-            i += 1;
+        for (&x, &y) in a_rest.iter().zip(b_rest) {
+            s0 += x * y;
         }
         (s0 + s1) + (s2 + s3)
     }
 
     /// `sum((a[i]-b[i])^2)`, not square-rooted: `euclideanSqF32` and `euclideanSqF64`.
     fn euclidean_sq(a: &[Self], b: &[Self]) -> Self {
-        let n = a.len().min(b.len());
-        let (a, b) = (&a[..n], &b[..n]);
+        let (a, b) = common(a, b);
         let zero = Self::default();
         let (mut s0, mut s1, mut s2, mut s3) = (zero, zero, zero, zero);
-        let mut i = 0;
-        while i + 4 <= n {
-            let d0 = a[i] - b[i];
-            let d1 = a[i + 1] - b[i + 1];
-            let d2 = a[i + 2] - b[i + 2];
-            let d3 = a[i + 3] - b[i + 3];
+        let ((a4, a_rest), (b4, b_rest)) = (a.as_chunks::<4>(), b.as_chunks::<4>());
+        for (&[a0, a1, a2, a3], &[b0, b1, b2, b3]) in a4.iter().zip(b4) {
+            let d0 = a0 - b0;
+            let d1 = a1 - b1;
+            let d2 = a2 - b2;
+            let d3 = a3 - b3;
             s0 += d0 * d0;
             s1 += d1 * d1;
             s2 += d2 * d2;
             s3 += d3 * d3;
-            i += 4;
         }
-        while i < n {
-            let d = a[i] - b[i];
+        for (&x, &y) in a_rest.iter().zip(b_rest) {
+            let d = x - y;
             s0 += d * d;
-            i += 1;
         }
         (s0 + s1) + (s2 + s3)
     }
@@ -107,31 +97,34 @@ pub trait HnswFloat:
     /// `dot(a,b) / sqrt(dot(a,a)*dot(b,b))`, the root taken in float64; NaN for empty or zero vectors:
     /// `cosineSimF32` and `cosineSimF64`.
     fn cosine_sim(a: &[Self], b: &[Self]) -> Self {
-        let n = a.len().min(b.len());
-        let (a, b) = (&a[..n], &b[..n]);
+        let (a, b) = common(a, b);
         let zero = Self::default();
         let (mut d0, mut d1, mut x0, mut x1, mut y0, mut y1) = (zero, zero, zero, zero, zero, zero);
-        let mut i = 0;
-        while i + 2 <= n {
-            let (av0, bv0) = (a[i], b[i]);
-            let (av1, bv1) = (a[i + 1], b[i + 1]);
+        let ((a2, a_rest), (b2, b_rest)) = (a.as_chunks::<2>(), b.as_chunks::<2>());
+        for (&[av0, av1], &[bv0, bv1]) in a2.iter().zip(b2) {
             d0 += av0 * bv0;
             d1 += av1 * bv1;
             x0 += av0 * av0;
             x1 += av1 * av1;
             y0 += bv0 * bv0;
             y1 += bv1 * bv1;
-            i += 2;
         }
-        while i < n {
-            d0 += a[i] * b[i];
-            x0 += a[i] * a[i];
-            y0 += b[i] * b[i];
-            i += 1;
+        for (&x, &y) in a_rest.iter().zip(b_rest) {
+            d0 += x * y;
+            x0 += x * x;
+            y0 += y * y;
         }
         let (dot, na, nb) = (d0 + d1, x0 + x1, y0 + y1);
         dot / Self::from_f64((na.to_f64() * nb.to_f64()).sqrt())
     }
+}
+
+/// The first `min(a.len(), b.len())` elements of each, which a kernel reads: equal lengths, so the two split into
+/// chunks and remainders alike.
+fn common<'v, T>(a: &'v [T], b: &'v [T]) -> (&'v [T], &'v [T]) {
+    let n = a.len().min(b.len());
+    let head = |v: &'v [T]| v.split_at_checked(n).map_or(v, |(head, _)| head);
+    (head(a), head(b))
 }
 
 impl HnswFloat for f32 {

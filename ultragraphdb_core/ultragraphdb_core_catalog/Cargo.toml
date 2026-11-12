@@ -25,12 +25,14 @@ ultragraphdb_core_tok = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_error_store = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
+# External crates
 oxrdf = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 ultragraphdb_traits_catalog = { workspace = true }
+# External crates
 cucumber = { workspace = true }
 futures = { workspace = true }
 

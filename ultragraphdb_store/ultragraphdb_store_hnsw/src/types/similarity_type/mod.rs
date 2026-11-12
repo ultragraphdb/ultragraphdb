@@ -80,11 +80,14 @@ impl SimilarityType {
     ) {
         let similarity = self.is_similarity_metric();
         let found = go_sort::search(slice.len(), |i| {
-            Ok::<_, std::convert::Infallible>(if similarity {
-                slice[i].value() < val.value()
-            } else {
-                slice[i].value() > val.value()
-            })
+            // The search asks only indexes below the length.
+            Ok::<_, std::convert::Infallible>(slice.get(i).is_some_and(|e| {
+                if similarity {
+                    e.value() < val.value()
+                } else {
+                    e.value() > val.value()
+                }
+            }))
         });
         let i = match found {
             Ok(i) => i,

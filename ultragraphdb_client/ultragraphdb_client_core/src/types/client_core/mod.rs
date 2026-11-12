@@ -369,7 +369,8 @@ impl<L: Login> ClientCore<L> {
     /// The wall clock at `now`, microseconds of Unix time, from the clocks the connection was opened at.
     fn unix_at(&self, now: Instant) -> u64 {
         self.clock.map_or(0, |(at, unix)| {
-            unix.saturating_add(now.saturating_duration_since(at).as_micros() as u64)
+            let since = now.saturating_duration_since(at).as_micros();
+            unix.saturating_add(u64::try_from(since).unwrap_or(u64::MAX))
         })
     }
 

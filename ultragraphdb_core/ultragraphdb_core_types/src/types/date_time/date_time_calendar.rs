@@ -27,7 +27,8 @@ pub(crate) fn date_to_abs_days(year: i64, month: u32, day: i64) -> u64 {
     let mut amonth = month;
     let jan_feb: u32 = u32::from(amonth < 3);
     amonth = amonth.wrapping_add(12 * jan_feb);
-    let y = (year as u64)
+    let y = year
+        .cast_unsigned()
         .wrapping_sub(u64::from(jan_feb))
         .wrapping_add(ABSOLUTE_YEARS);
     let ayday = 979u32.wrapping_mul(amonth).wrapping_sub(2919) >> 5;
@@ -38,7 +39,8 @@ pub(crate) fn date_to_abs_days(year: i64, month: u32, day: i64) -> u64 {
     centurydays.wrapping_add(
         i64::from(cday.wrapping_add(ayday))
             .wrapping_add(day)
-            .wrapping_sub(1) as u64,
+            .wrapping_sub(1)
+            .cast_unsigned(),
     )
 }
 
@@ -50,7 +52,8 @@ impl DateTime {
         };
         self.unix()
             .wrapping_add(offset)
-            .wrapping_add(UNIX_TO_ABSOLUTE) as u64
+            .wrapping_add(UNIX_TO_ABSOLUTE)
+            .cast_unsigned()
     }
 
     /// Go's `Date()`, `Clock()` and `Nanosecond()`: the civil time presented in the time's zone, every field in
@@ -63,7 +66,9 @@ impl DateTime {
         let cd = ((d % 146097) as u32) | 3;
         let prod = u64::from(2939745u32) * u64::from(cd);
         let cyear = (prod >> 32) as u32;
-        let ayday = (prod as u32) / 2939745 / 4;
+        // Go's uint32(prod): the low 32 bits.
+        let [b0, b1, b2, b3, ..] = prod.to_le_bytes();
+        let ayday = u32::from_le_bytes([b0, b1, b2, b3]) / 2939745 / 4;
         let md = 2141 * ayday + 197913;
         let amonth = i64::from(md >> 16);
         let day = 1 + i64::from((md & 0xffff) / 2141);

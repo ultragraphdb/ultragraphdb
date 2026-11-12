@@ -13,10 +13,10 @@ pub(crate) fn stem(term: &str) -> String {
         return s.iter().collect();
     }
     s = remove_suffix(s);
-    if s.len() > 3 && s[s.len() - 1] == 'a' {
+    if s.len() > 3 && s.last() == Some(&'a') {
         s = norm_feminine(s);
     }
-    if s.len() > 4 && matches!(s[s.len() - 1], 'e' | 'a' | 'o') {
+    if s.len() > 4 && matches!(s.last(), Some('e' | 'a' | 'o')) {
         let _last: Option<char> = s.pop();
     }
     for r in s.iter_mut() {
@@ -38,58 +38,52 @@ fn ends_with(s: &[char], suffix: &str) -> bool {
     s.ends_with(&suffix)
 }
 
+/// The plural and adverb endings removed: the first ending matched, where the word is long enough, decides.
 fn remove_suffix(mut s: Vec<char>) -> Vec<char> {
     let l = s.len();
-    if l > 4 && ends_with(&s, "es") && matches!(s[l - 3], 'r' | 's' | 'l' | 'z') {
-        s.truncate(l - 2);
-        return s;
-    }
-    if l > 3 && ends_with(&s, "ns") {
-        s[l - 2] = 'm';
-        s.truncate(l - 1);
-        return s;
-    }
-    if l > 4 && (ends_with(&s, "eis") || ends_with(&s, "éis")) {
-        s[l - 3] = 'e';
-        s[l - 2] = 'l';
-        s.truncate(l - 1);
-        return s;
-    }
-    if l > 4 && ends_with(&s, "ais") {
-        s[l - 2] = 'l';
-        s.truncate(l - 1);
-        return s;
-    }
-    if l > 4 && ends_with(&s, "óis") {
-        s[l - 3] = 'o';
-        s[l - 2] = 'l';
-        s.truncate(l - 1);
-        return s;
-    }
-    if l > 4 && ends_with(&s, "is") {
-        s[l - 1] = 'l';
-        return s;
-    }
-    if l > 3 && (ends_with(&s, "ões") || ends_with(&s, "ães")) {
-        s.truncate(l - 1);
-        s[l - 3] = 'ã';
-        s[l - 2] = 'o';
-        return s;
-    }
-    if l > 6 && ends_with(&s, "mente") {
-        s.truncate(l - 5);
-        return s;
-    }
-    if l > 3 && s[l - 1] == 's' {
-        s.truncate(l - 1);
-    }
+    let keep = match s.as_mut_slice() {
+        [.., 'r' | 's' | 'l' | 'z', 'e', 's'] if l > 4 => l - 2,
+        [.., n @ 'n', 's'] if l > 3 => {
+            *n = 'm';
+            l - 1
+        }
+        [.., e @ ('e' | 'é'), i @ 'i', 's'] if l > 4 => {
+            *e = 'e';
+            *i = 'l';
+            l - 1
+        }
+        [.., 'a', i @ 'i', 's'] if l > 4 => {
+            *i = 'l';
+            l - 1
+        }
+        [.., o @ 'ó', i @ 'i', 's'] if l > 4 => {
+            *o = 'o';
+            *i = 'l';
+            l - 1
+        }
+        [.., 'i', last @ 's'] if l > 4 => {
+            *last = 'l';
+            l
+        }
+        [.., a @ ('õ' | 'ã'), e @ 'e', 's'] if l > 3 => {
+            *a = 'ã';
+            *e = 'o';
+            l - 1
+        }
+        [.., 'm', 'e', 'n', 't', 'e'] if l > 6 => l - 5,
+        [.., 's'] if l > 3 => l - 1,
+        _ => l,
+    };
+    s.truncate(keep);
     s
 }
 
 fn norm_feminine(mut s: Vec<char>) -> Vec<char> {
     let l = s.len();
     if l > 7 && (ends_with(&s, "inha") || ends_with(&s, "iaca") || ends_with(&s, "eira")) {
-        s[l - 1] = 'o';
+        if let Some(last) = s.last_mut() {
+            *last = 'o';
+        }
         return s;
     }
     if l > 6 {
@@ -97,28 +91,29 @@ fn norm_feminine(mut s: Vec<char>) -> Vec<char> {
             .iter()
             .any(|x| ends_with(&s, x))
         {
-            s[l - 1] = 'o';
+            if let Some(last) = s.last_mut() {
+                *last = 'o';
+            }
             return s;
         }
-        if ends_with(&s, "ona") {
-            s[l - 3] = 'ã';
-            s[l - 2] = 'o';
-            s.truncate(l - 1);
-            return s;
-        }
-        if ends_with(&s, "ora") {
-            s.truncate(l - 1);
-            return s;
-        }
-        if ends_with(&s, "esa") {
-            s[l - 3] = 'ê';
-            s.truncate(l - 1);
-            return s;
-        }
-        if ends_with(&s, "na") {
-            s[l - 1] = 'o';
-            return s;
-        }
+        let keep = match s.as_mut_slice() {
+            [.., o @ 'o', n @ 'n', 'a'] => {
+                *o = 'ã';
+                *n = 'o';
+                l - 1
+            }
+            [.., 'o', 'r', 'a'] => l - 1,
+            [.., e @ 'e', 's', 'a'] => {
+                *e = 'ê';
+                l - 1
+            }
+            [.., 'n', last @ 'a'] => {
+                *last = 'o';
+                l
+            }
+            _ => l,
+        };
+        s.truncate(keep);
     }
     s
 }

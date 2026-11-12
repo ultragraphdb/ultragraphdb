@@ -286,9 +286,49 @@ fn rebuilt_equals(bytes: &[u8]) -> TestResult<bool> {
         Command::Reference => ultragraphdb_protocol_wire::ReferenceView::from_frame(&view)?
             .to_body()?
             .frame(header)?,
-        other => {
+        Command::Hello
+        | Command::Welcome
+        | Command::Register
+        | Command::Begin
+        | Command::Commit
+        | Command::Abort
+        | Command::Read
+        | Command::Write
+        | Command::Operation
+        | Command::Execute
+        | Command::Credit
+        | Command::Cancel
+        | Command::Error
+        | Command::Round
+        | Command::Authenticate
+        | Command::Drop
+        | Command::DirectWrite
+        | Command::ConditionalWrite
+        | Command::Query
+        | Command::Purge
+        | Command::Migrate
+        | Command::Join
+        | Command::Members
+        | Command::Subscribe
+        | Command::EpochClose
+        | Command::Lease
+        | Command::Placement
+        | Command::Catalog
+        | Command::Challenge
+        | Command::Verify
+        | Command::Bind
+        | Command::Recall
+        | Command::ComputeRead
+        | Command::Scan
+        | Command::Entries
+        | Command::CloseRequest
+        | Command::Closed
+        | Command::DefaultEntry
+        | Command::Report
+        | Command::Held => {
             return Err(ultragraphdb_tool_bdd::TestError::new(format!(
-                "a golden frame of {other:?}"
+                "a golden frame of {:?}",
+                view.command()
             )));
         }
     };

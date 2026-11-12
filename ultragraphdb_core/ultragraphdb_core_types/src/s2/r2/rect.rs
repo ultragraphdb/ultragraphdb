@@ -56,7 +56,7 @@ impl R2Rect {
             x: R1Interval::from_point(first.x),
             y: R1Interval::from_point(first.y),
         };
-        for p in &pts[1..] {
+        for p in pts.iter().skip(1) {
             r = r.add_point(*p);
         }
         r

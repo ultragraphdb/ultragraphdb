@@ -15,9 +15,9 @@ use crate::utils::json;
 
 /// Dgraph's `edgesCrossPoints`: whether an edge of the closed chain `pts` crosses an edge of `l`.
 fn edges_cross_points(l: &Loop, pts: &[Point]) -> bool {
-    let n = pts.len();
-    for i in 0..n {
-        let mut crosser = EdgeCrosser::new_chain(pts[i], pts[(i + 1) % n], l.vertex(0));
+    // Each point and the next, the last closing the chain on the first.
+    for (&a, &b) in pts.iter().zip(pts.iter().cycle().skip(1)) {
+        let mut crosser = EdgeCrosser::new_chain(a, b, l.vertex(0));
         for j in 1..=l.num_edges() {
             if crosser.edge_or_vertex_chain_crossing(l.vertex(j)) {
                 return true;
@@ -84,9 +84,14 @@ fn validate(g: Geometry) -> Result<Geometry, TypesError> {
         }
         let c = p.linear_ring(0);
         let s = p.stride();
-        let l = c.len();
         // Go indexes an empty first ring and panics; this port refuses it as unclosed.
-        if l >= s && s >= 2 && c[0] == c[l - s] && c[1] == c[l - s + 1] {
+        let first = c.first_chunk::<2>();
+        let last = c
+            .len()
+            .checked_sub(s)
+            .and_then(|i| c.get(i..))
+            .and_then(<[f64]>::first_chunk::<2>);
+        if s >= 2 && first.is_some() && first == last {
             return Ok(());
         }
         Err(TypesError::geo("Last coord not same as first"))

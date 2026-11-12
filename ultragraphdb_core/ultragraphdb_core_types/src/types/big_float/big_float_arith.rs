@@ -46,9 +46,8 @@ impl BigFloat {
         Some(match (&self.form, &y.form) {
             (Form::Finite { mant: a, exp: ea }, Form::Finite { mant: b, exp: eb }) => {
                 // Shift the dividend so the quotient has at least prec + 2 bits; the remainder is the sticky bit.
-                // The shift is at least 0, so its cast loses no sign, and an i64 fits a 64-bit usize.
-                let shift = (i64::from(prec) + 2 + go_int(b.bit_len()) - go_int(a.bit_len())).max(0)
-                    as usize;
+                // Go's `prec + 2 + len(b) - len(a)`, none when negative.
+                let shift = (prec as usize + 2 + b.bit_len()).saturating_sub(a.bit_len());
                 let (q, r) = (a << shift).div_rem(b);
                 let mut z = BigFloat {
                     prec,
@@ -111,17 +110,17 @@ impl BigFloat {
             Form::Finite { mant, exp } => (mant, *exp),
         };
         let e = self.go_exp() - 1;
-        let mut p: i64 = 53;
+        let mut p: u32 = 53;
         if e < -1022 {
-            p = 53 + 1022 + e;
-            if p < 0 || p == 0 && mant.is_power_of_two() {
-                return sign * 0.0;
-            }
-            if p == 0 {
-                return sign * f64::from_bits(1);
-            }
+            // Go's `p := mantBits + 1 - emin + e`, below 53 here; a negative one underflows to zero.
+            p = match u32::try_from(53 + 1022 + e) {
+                Err(_) => return sign * 0.0,
+                Ok(0) if mant.is_power_of_two() => return sign * 0.0,
+                Ok(0) => return sign * f64::from_bits(1),
+                Ok(bits) => bits,
+            };
         }
-        let r = BigFloat::from_parts(self.neg, mant.clone(), exp, p as u32);
+        let r = BigFloat::from_parts(self.neg, mant.clone(), exp, p);
         if r.go_exp() - 1 > 1023 {
             return sign * f64::INFINITY;
         }
@@ -138,10 +137,10 @@ impl BigFloat {
         let n = 64 - i64::from(m.leading_zeros());
         let (m53, e53) = (m << (53 - n), me - (53 - n));
         let unbiased = e53 + 52;
-        let bits = if unbiased >= -1022 {
-            (((unbiased + 1023) as u64) << 52) | (m53 & ((1 << 52) - 1))
-        } else {
-            m << (me + 1074)
+        // A biased exponent of at least 1 is normal; below, the value is denormal.
+        let bits = match u64::try_from(unbiased + 1023) {
+            Ok(biased @ 1..) => (biased << 52) | (m53 & ((1 << 52) - 1)),
+            _ => m << (me + 1074),
         };
         sign * f64::from_bits(bits)
     }
@@ -157,16 +156,20 @@ impl BigFloat {
                     i64::MAX
                 }
             }
-            Form::Finite { mant, exp } => {
+            Form::Finite { mant, .. } => {
                 let ge = self.go_exp();
                 if ge <= 0 {
                     return 0;
                 }
-                if ge <= 63 {
-                    let i = if *exp >= 0 {
-                        mant << *exp as usize
+                // A Go exponent past usize is a magnitude past int64, which saturates as one above 63 does.
+                let bits = usize::try_from(ge).unwrap_or(usize::MAX);
+                if bits <= 63 {
+                    // The integer part: the mantissa's top `bits` bits, or the mantissa widened to them.
+                    let len = mant.bit_len();
+                    let i = if bits >= len {
+                        mant << (bits - len)
                     } else {
-                        mant >> (-*exp) as usize
+                        mant >> (len - bits)
                     };
                     let i = i64::try_from(&i);
                     debug_assert!(i.is_ok(), "a value of go_exp <= 63, checked above, fits");
@@ -185,6 +188,8 @@ fn cmp_abs(a: &UBig, ea: i64, b: &UBig, eb: i64) -> Ordering {
     if ga != gb {
         return ga.cmp(&gb);
     }
-    let e = ea.min(eb);
-    (a << (ea - e) as usize).cmp(&(b << (eb - e) as usize))
+    // Equal Go exponents make the exponents differ by the bit lengths' difference the other way, so aligning both
+    // to the smaller exponent widens the shorter mantissa by it.
+    let (la, lb) = (a.bit_len(), b.bit_len());
+    (a << lb.saturating_sub(la)).cmp(&(b << la.saturating_sub(lb)))
 }

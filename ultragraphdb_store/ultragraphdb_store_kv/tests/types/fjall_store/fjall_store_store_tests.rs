@@ -15,7 +15,7 @@ use ultragraphdb_tool_test::{TestDir, put, scanned, tenant_key, versions, write}
 
 /// `len` bytes of `0x00 0x01` repeated: every zero byte a run of one, the densest the stored key's codes get.
 fn alternating(len: usize) -> Vec<u8> {
-    (0..len).map(|i| (i % 2) as u8).collect()
+    (0..len).map(|i| u8::from(i % 2 == 1)).collect()
 }
 
 /// The first 1,024 stored bytes of such a key: `0x00 0xFE 0x01` repeated.
@@ -32,8 +32,8 @@ fn dense_head() -> Vec<u8> {
 fn test_a_keys_versions_iterate_newest_first_with_their_meta() -> TestResult {
     let dir = TestDir::new("versions");
     let s = dir.open()?;
-    for v in [3, 7, 5] {
-        write(&s, vec![Entry::put(b"k".to_vec(), v, v as u8, vec![])])?;
+    for v in [3u8, 7, 5] {
+        write(&s, vec![Entry::put(b"k".to_vec(), u64::from(v), v, vec![])])?;
     }
     let snapshot = s.snapshot(10)?;
     let items: Vec<(u64, u8)> = snapshot
@@ -764,13 +764,13 @@ fn test_empty_keys_and_keys_of_zero_and_code_bytes_keep_byte_order() -> TestResu
     let dir = TestDir::new("code-order");
     let s = dir.open()?;
     // Written in reverse order, so that the store's order is not the order of the batch.
-    for v in [1, 2] {
+    for v in [1u8, 2] {
         write(
             &s,
             ordered
                 .iter()
                 .rev()
-                .map(|k| put(k, v, &[*k, &[v as u8]].concat()))
+                .map(|k| put(k, u64::from(v), &[*k, &[v]].concat()))
                 .collect(),
         )?;
     }
@@ -796,10 +796,10 @@ fn test_empty_keys_and_keys_of_zero_and_code_bytes_keep_byte_order() -> TestResu
         reverse
     );
     for k in ordered {
-        for v in [1u64, 2] {
+        for v in [1u8, 2] {
             assert_eq!(
-                s.get_at(k, v)?.map(Item::into_value),
-                Some([k, &[v as u8][..]].concat::<u8>()),
+                s.get_at(k, u64::from(v))?.map(Item::into_value),
+                Some([k, &[v][..]].concat::<u8>()),
                 "{k:?} at {v}"
             );
         }

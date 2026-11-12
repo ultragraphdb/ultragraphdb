@@ -549,3 +549,27 @@ fn test_a_delete_in_a_blank_node_graph_finds_only_the_graph_its_changeset_named(
     );
     Ok(())
 }
+
+#[test]
+fn test_a_datatype_iri_past_the_statistics_kind_length_is_refused_and_nothing_is_stored()
+-> TestResult {
+    let a = changesets()?;
+    let longest = usize::from(u16::MAX);
+    // The datatype IRI is the statistics kind: one byte past the u16 length its stored format counts.
+    let datatype = ex(&"d".repeat(longest + 1 - ex("").as_str().len()));
+    let change = Change::Insert {
+        graph: GraphName::DefaultGraph,
+        subject: NamedOrBlankNode::from(ex("a")),
+        predicate: ex("p"),
+        object: oxrdf::Literal::new_typed_literal("x", datatype).into(),
+    };
+    let refused = apply(&a, vec![change])
+        .err()
+        .context("the error of apply(..)")?;
+    assert!(
+        matches!(&refused.0, ChangesetErrorEnum::Quad(q) if q.0 == QuadErrorEnum::KindTooLong { len: longest + 1 }),
+        "{refused:?}"
+    );
+    assert!(quad_keys(&a).is_empty(), "{:?}", quad_keys(&a));
+    Ok(())
+}

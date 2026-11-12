@@ -18,7 +18,8 @@ impl ServerMechanism for TestExchange {
         Ok(match (self.inner.step(message)?, self.life) {
             (MechanismStep::Done(message, credential), Some(life)) => {
                 let now = self.clock.load(Ordering::Relaxed);
-                let expires = now.saturating_add(life.as_micros() as u64);
+                let expires =
+                    now.saturating_add(u64::try_from(life.as_micros()).unwrap_or(u64::MAX));
                 MechanismStep::Done(
                     message,
                     Credential::expiring(credential.principal(), expires, life),

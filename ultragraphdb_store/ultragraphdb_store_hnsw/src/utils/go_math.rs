@@ -95,6 +95,7 @@ fn ldexp(frac: f64, exp: i64) -> f64 {
         m = 1.0 / (1u64 << 53) as f64;
     }
     x &= !(MASK << SHIFT);
-    x |= ((exp + BIAS) as u64) << SHIFT;
+    // `exp` lies in -1022..=1023 here, so the biased exponent is positive and reading it as unsigned is its value.
+    x |= (exp + BIAS).cast_unsigned() << SHIFT;
     m * f64::from_bits(x)
 }

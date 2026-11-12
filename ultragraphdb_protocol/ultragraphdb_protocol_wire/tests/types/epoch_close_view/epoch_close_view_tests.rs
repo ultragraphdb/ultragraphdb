@@ -51,11 +51,11 @@ fn test_the_golden_close_reads_its_values() -> TestResult {
     assert_eq!(view.eviction_count(), 2);
     assert_eq!(
         view.eviction(0),
-        Some(std::array::from_fn(|i| 0x11 + i as u8))
+        Some(std::array::from_fn(|i| 0x11 + i.to_le_bytes()[0]))
     );
     assert_eq!(
         view.eviction(1),
-        Some(std::array::from_fn(|i| 0x31 + i as u8))
+        Some(std::array::from_fn(|i| 0x31 + i.to_le_bytes()[0]))
     );
     assert_eq!(view.eviction(2), None);
     assert_eq!(view.placement(), 0);

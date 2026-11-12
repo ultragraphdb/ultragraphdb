@@ -81,7 +81,9 @@ fn now() -> Instant {
 fn unix_micros() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_micros() as u64)
+        .map_or(0, |since| {
+            u64::try_from(since.as_micros()).unwrap_or(u64::MAX)
+        })
 }
 
 /// The Rust client on compio: the I/O shell of [`ClientCore`]. It connects through its [`Connect`]or when a request

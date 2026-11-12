@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_body::{StringList, as_u32};
+use ultragraphdb_core_body::StringList;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -15,6 +15,7 @@ use crate::utils::body::read_sections;
 use crate::utils::changes::{RecordKinds, consume_records};
 use crate::utils::command_header::expect_command;
 use crate::utils::commit_operation_layout::{OPERATION_FIELDS_SIZE, consume_operations};
+use crate::utils::fields::count;
 use crate::utils::whole_records::whole_records;
 use crate::utils::write_frame::WriteHeader;
 use crate::utils::write_sections::WriteSections;
@@ -85,7 +86,7 @@ impl<'a> ConditionalWriteView<'a> {
             operations,
             &sections.args,
             first,
-            as_u32(sections.terms.len()),
+            count(command, "terms", sections.terms.len())?,
         )?;
         Ok(Self {
             header,

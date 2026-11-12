@@ -670,7 +670,7 @@ fn test_delete_star_multi_part_list() -> TestResult {
     let store = new_store();
     let num_edges = 10_000;
     let (mut list, _) = create_multi_part_list(&store, "delete-star", num_edges, false)?;
-    assert_eq!(count(&list, u64::MAX)?, num_edges as usize);
+    assert_eq!(count(&list, u64::MAX)?, usize::try_from(num_edges)?);
 
     let read_ts = list.max_ts() + 1;
     add(&mut list, read_ts, &delete_all());
@@ -705,7 +705,7 @@ fn test_bin_split() -> TestResult {
     let (ol, version) = roll_up(&store, &ol, u64::MAX, usize::MAX)?;
     assert_eq!(version, size + 1);
     assert!(ol.plist().splits().is_empty());
-    assert_eq!(ol.plist().postings().len(), size as usize);
+    assert_eq!(ol.plist().postings().len(), usize::try_from(size)?);
 
     let verify =
         |plist: &PostingList, starts: [u128; 2], halves: &[PostingList; 2]| -> TestResult {
@@ -731,7 +731,7 @@ fn test_bin_split() -> TestResult {
 
     // The postings cut down to a third, and to none.
     let mut third = plist.clone();
-    third.postings_mut().truncate(size as usize / 3);
+    third.postings_mut().truncate(usize::try_from(size)? / 3);
     let (third_starts, third_halves) = bin_split(0, &third)?;
     verify(&third, third_starts, &third_halves)?;
 
@@ -825,7 +825,7 @@ fn test_multi_part_list_delete() -> TestResult {
     let store = new_store();
     let size = 10_000u64;
     let (ol, commits) = create_and_delete_multi_part_list(&store, size)?;
-    assert_eq!(commits, size as usize * 2);
+    assert_eq!(commits, usize::try_from(size)? * 2);
     assert_eq!(count(&ol, u64::MAX)?, 0);
 
     let (_, entries) = ol
@@ -909,7 +909,7 @@ fn test_single_list_rollup() -> TestResult {
     assert!(plist.splits().is_empty());
     assert_eq!(
         decode(plist.pack().context("a pack")?, 0).len(),
-        size as usize
+        usize::try_from(size)?
     );
     Ok(())
 }
@@ -956,7 +956,7 @@ fn test_recursive_splits() -> TestResult {
     let size = 100_000u64;
     let ol = recursively_split(&store, "recursive-splits", size)?;
     let facets = facet_keys(&ol, size + 1)?;
-    assert_eq!(facets.len(), size as usize);
+    assert_eq!(facets.len(), usize::try_from(size)?);
     for (i, facet) in facets.iter().enumerate() {
         assert_eq!(*facet, (i + 1).to_string());
     }

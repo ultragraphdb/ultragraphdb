@@ -14,8 +14,8 @@ pub fn golden_epoch_close() -> EpochClose {
     for (tenant, version) in [(3, 11), (3, 12), (7, 4)] {
         close.push_announcement(CatalogAnnouncement::new(tenant, version));
     }
-    close.push_eviction(std::array::from_fn(|i| 0x11 + i as u8));
-    close.push_eviction(std::array::from_fn(|i| 0x31 + i as u8));
+    close.push_eviction(std::array::from_fn(|i| 0x11 + i.to_le_bytes()[0]));
+    close.push_eviction(std::array::from_fn(|i| 0x31 + i.to_le_bytes()[0]));
     close
 }
 
@@ -45,8 +45,8 @@ fn test_the_getters_give_back_what_the_constructor_and_pushes_took() {
         ]
         .as_slice()
     );
-    let first: [u8; 16] = std::array::from_fn(|i| 0x11 + i as u8);
-    let second: [u8; 16] = std::array::from_fn(|i| 0x31 + i as u8);
+    let first: [u8; 16] = std::array::from_fn(|i| 0x11 + i.to_le_bytes()[0]);
+    let second: [u8; 16] = std::array::from_fn(|i| 0x31 + i.to_le_bytes()[0]);
     assert_eq!(close.evictions(), [first, second].as_slice());
     assert_eq!(close.placement(), 0);
     // Without `with_more`, no frame follows; nothing pushed, nothing held.

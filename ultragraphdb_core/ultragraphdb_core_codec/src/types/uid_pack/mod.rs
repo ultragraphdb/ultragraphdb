@@ -27,11 +27,10 @@ impl UidPack {
     /// [`CodecError::blocks_out_of_order`] naming the first block whose first ID is not above the previous block's
     /// last, or its first when that block is empty.
     pub fn new(block_size: u32, blocks: Vec<UidBlock>) -> Result<Self, CodecError> {
-        if let Some(block) = blocks
-            .windows(2)
-            .position(|pair| matches!(pair, [before, after] if after.first() <= before.last()))
-        {
-            return Err(CodecError::blocks_out_of_order(block + 1));
+        if let Some(block) = (1..).zip(blocks.windows(2)).find_map(|(after_idx, pair)| {
+            matches!(pair, [before, after] if after.first() <= before.last()).then_some(after_idx)
+        }) {
+            return Err(CodecError::blocks_out_of_order(block));
         }
         Ok(Self { block_size, blocks })
     }

@@ -14,7 +14,8 @@ use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::Graph;
 use ultragraphdb_core_terms::{EncodedTerm, TermError};
 use ultragraphdb_protocol_wire::{
-    Credit, ErrorCode, MAX_FRAME_FLOOR, ResultBatch, ResultTerm, ResumeKey, ResumeRow, TermTable,
+    Credit, ErrorCode, MAX_FRAME_FLOOR, MAX_FRAME_FLOOR_U32, ResultBatch, ResultTerm, ResumeKey,
+    ResumeRow, TermTable,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -233,8 +234,8 @@ fn test_a_read_holds_its_batches_to_its_clients_credit() -> TestResult {
         let objects: Vec<String> = (0..4).map(|i| long_iri(i, 200_000)).collect();
         hold_rows(played.partition(1)?, &objects)?;
         let mut client = played.client().await?;
-        let read = snapshot(&Pattern::of(None, Some(P), None))?
-            .with_client_limits(MAX_FRAME_FLOOR as u32, 1);
+        let read =
+            snapshot(&Pattern::of(None, Some(P), None))?.with_client_limits(MAX_FRAME_FLOOR_U32, 1);
         client.send_only(&read).await?;
         let stream = client.last_stream();
         let first = next_of(&mut client)
@@ -369,8 +370,8 @@ fn test_a_read_waiting_for_credit_ends_with_its_connection() -> TestResult {
         let objects: Vec<String> = (0..4).map(|i| long_iri(i, 200_000)).collect();
         hold_rows(played.partition(1)?, &objects)?;
         let mut client = played.client().await?;
-        let read = snapshot(&Pattern::of(None, Some(P), None))?
-            .with_client_limits(MAX_FRAME_FLOOR as u32, 1);
+        let read =
+            snapshot(&Pattern::of(None, Some(P), None))?.with_client_limits(MAX_FRAME_FLOOR_U32, 1);
         client.send_only(&read).await?;
         let first = next_of(&mut client)
             .await?

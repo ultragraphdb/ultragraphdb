@@ -10,7 +10,13 @@ use crate::utils::golden_bodies::{RELEASE, golden};
 
 #[test]
 fn test_hello_builds_the_golden_frame() -> TestResult {
-    let hello = Hello::new(1, 1, RELEASE, MAX_FRAME_SIZE as u32, "ultragraph-test");
+    let hello = Hello::new(
+        1,
+        1,
+        RELEASE,
+        u32::try_from(MAX_FRAME_SIZE)?,
+        "ultragraph-test",
+    );
     assert_eq!(
         hello.frame(golden("hello")?.header())?,
         golden("hello")?.bytes()?

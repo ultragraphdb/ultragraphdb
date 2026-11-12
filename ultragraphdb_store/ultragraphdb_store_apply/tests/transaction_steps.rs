@@ -162,7 +162,7 @@ fn insert_into(w: &mut Write<'_>, text: &str) -> TestResult {
 
 /// Commits `w` on its own.
 fn commit(a: &TestChangesets, w: Write<'_>) -> TestResult {
-    let (request, terms) = w.finish();
+    let (request, terms) = w.finish()?;
     let mut batch = a.quads().lists().batch();
     batch.push(request);
     let _committed_at: Vec<u64> = a

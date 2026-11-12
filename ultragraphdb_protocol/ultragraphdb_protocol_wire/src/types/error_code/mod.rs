@@ -155,8 +155,9 @@ impl ErrorCode {
         // The numbers of the table: ALL lists the codes in their order, from 1.
         ErrorCode::ALL
             .iter()
-            .position(|c| *c == self)
-            .map_or(0, |i| i as u16 + 1)
+            .zip(1..)
+            .find(|(c, _)| **c == self)
+            .map_or(0, |(_, number)| number)
     }
 
     /// The code numbered `number`; `None` for a number no code has.

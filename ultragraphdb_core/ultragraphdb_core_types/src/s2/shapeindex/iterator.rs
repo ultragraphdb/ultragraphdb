@@ -78,12 +78,18 @@ impl<'a> ShapeIndexIterator<'a> {
 
     /// Updates the stored internal iterator values.
     fn refresh(&mut self) {
-        if self.position < self.index.cells.len() {
-            self.id = self.index.cells[self.position];
-            self.cell = Some(&self.index.cell_map[self.position]);
-        } else {
-            self.id = CellId::SENTINEL;
-            self.cell = None;
+        match (
+            self.index.cells.get(self.position),
+            self.index.cell_map.get(self.position),
+        ) {
+            (Some(&id), Some(cell)) => {
+                self.id = id;
+                self.cell = Some(cell);
+            }
+            _ => {
+                self.id = CellId::SENTINEL;
+                self.cell = None;
+            }
         }
     }
 

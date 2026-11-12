@@ -34,7 +34,7 @@ use ultragraphdb_store_posting::{CachedList, DEL, Lists, ListsConfig, PostingErr
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimListCache, SimRng, SimStore, Stream};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_index::{
-    CacheType, KeyValue, LocalCache, Metric, Options, Txn, VectorIndexOptions, accept_all,
+    CacheType, Float, KeyValue, LocalCache, Metric, Options, Txn, VectorIndexOptions, accept_all,
 };
 use ultragraphdb_traits_store::{ListCache, Store};
 
@@ -177,7 +177,7 @@ pub fn vec_bytes<T: HnswFloat>(v: &[T]) -> Vec<u8> {
     v.iter()
         .flat_map(|f| {
             if T::BITS == 32 {
-                (f.to_f64() as f32).to_le_bytes().to_vec()
+                f32::from_f64(f.to_f64()).to_le_bytes().to_vec()
             } else {
                 f.to_f64().to_le_bytes().to_vec()
             }
@@ -385,12 +385,14 @@ impl TsDbs {
 
     /// The value of `key` at `ts`.
     pub fn get(&self, ts: u64, key: &[u8]) -> Option<Vec<u8>> {
-        self.dbs.borrow()[ts as usize].get(key).cloned()
+        self.dbs.borrow()[usize::try_from(ts).unwrap_or(usize::MAX)]
+            .get(key)
+            .cloned()
     }
 
     /// Writes `value` to `key` from `from` on: a commit at `from`.
     pub fn write_from(&self, from: u64, key: &[u8], value: &[u8]) {
-        self.dbs.borrow_mut()[from as usize..]
+        self.dbs.borrow_mut()[usize::try_from(from).unwrap_or(usize::MAX)..]
             .iter_mut()
             .for_each(|db| {
                 let _previous: Option<Vec<u8>> = db.insert(key.to_vec(), value.to_vec());
@@ -403,7 +405,9 @@ impl TsDbs {
         ts: u64,
         filter: impl Fn(&[u8]) -> bool,
     ) -> Result<Option<SystemId>, HnswError> {
-        let passes = self.dbs.borrow()[ts as usize].values().any(|b| filter(b));
+        let passes = self.dbs.borrow()[usize::try_from(ts).unwrap_or(usize::MAX)]
+            .values()
+            .any(|b| filter(b));
         // The ID numbered 1, from its layout: type 1 in bits 127-112, sequence 1 in bits 111-48.
         passes
             .then(|| SystemId::from_u128((1 << 112) | (1 << 48)))

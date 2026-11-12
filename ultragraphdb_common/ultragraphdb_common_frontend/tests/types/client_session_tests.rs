@@ -23,8 +23,8 @@ use ultragraphdb_protocol_scram::{Credentials, ScramVerifier};
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportErrorEnum};
 use ultragraphdb_protocol_wire::{
     Begin, BodyView, ColumnType, Command, Commit, DirectWrite, DropCommand, ErrorCode, Execute,
-    Join, MAX_FRAME_FLOOR, Members, PatternSlot, Prepare, PrepareView, QuadPattern, Read,
-    StatementCache, TermTable, Write, WriteChange,
+    Join, MAX_FRAME_FLOOR, MAX_FRAME_FLOOR_U32, Members, PatternSlot, Prepare, PrepareView,
+    QuadPattern, Read, StatementCache, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -493,8 +493,7 @@ fn test_a_refusal_naming_a_term_past_the_client_s_frame_fits_it() -> TestResult 
         let address = endpoint(owner.handle().clone()).await?;
         // 2^19, lossless.
         let mut alice =
-            RoleClient::dial_taking(&address, CLUSTER, "alice", "pw", MAX_FRAME_FLOOR as u32)
-                .await?;
+            RoleClient::dial_taking(&address, CLUSTER, "alice", "pw", MAX_FRAME_FLOOR_U32).await?;
         let relative = "u".repeat(MAX_FRAME_FLOOR);
         let mut terms = TermTable::new();
         let change = WriteChange::Insert {

@@ -34,16 +34,15 @@ impl<'a> BodyView<'a> for MigrateView<'a> {
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 18), (20, 32)])?;
         let staged = at_least_one(command, "staged", header.u64_at(8))?;
-        let number = header.u8_at(16);
-        let action = MigrateAction::from_number(number)
-            .ok_or_else(|| ProtocolError::field_value(command, "action", number.into()))?;
-        let number = header.u8_at(17);
-        let state = match number {
+        let action_number = header.u8_at(16);
+        let action = MigrateAction::from_number(action_number)
+            .ok_or_else(|| ProtocolError::field_value(command, "action", action_number.into()))?;
+        let state_number = header.u8_at(17);
+        let state = match state_number {
             0 => None,
-            _ => Some(
-                MigrateState::from_number(number)
-                    .ok_or_else(|| ProtocolError::field_value(command, "state", number.into()))?,
-            ),
+            _ => Some(MigrateState::from_number(state_number).ok_or_else(|| {
+                ProtocolError::field_value(command, "state", state_number.into())
+            })?),
         };
         let refusal = header.u32_at(20);
         let failed = state == Some(MigrateState::Failed);

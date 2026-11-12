@@ -388,16 +388,19 @@ impl Geometry {
     /// The point coordinates of each member of a multipoint, `None` for an empty point.
     pub(crate) fn multi_point_coords(&self) -> Vec<Option<&[f64]>> {
         let stride = self.layout.stride();
-        let mut offset = 0;
+        let mut rest = self.flat_coords.as_slice();
         let mut prev = 0;
         self.ends
             .iter()
             .map(|&end| {
-                let c = (end != prev).then(|| {
-                    let c = &self.flat_coords[offset..offset + stride];
-                    offset += stride;
-                    c
-                });
+                // A point's coordinates are the next `stride` values; a multipoint this crate built holds them.
+                let c = (end != prev)
+                    .then(|| {
+                        let (c, after) = rest.split_at_checked(stride)?;
+                        rest = after;
+                        Some(c)
+                    })
+                    .flatten();
                 prev = end;
                 c
             })

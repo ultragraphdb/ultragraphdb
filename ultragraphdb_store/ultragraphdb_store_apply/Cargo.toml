@@ -19,8 +19,6 @@ autotests = false
 workspace = true
 
 [dependencies]
-oxrdf = { workspace = true }
-oxsdatatypes = { workspace = true }
 ultragraphdb_core_mapping = { workspace = true }
 ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_store_quads = { workspace = true }
@@ -38,12 +36,16 @@ ultragraphdb_traits_blocks = { workspace = true }
 ultragraphdb_traits_catalog = { workspace = true }
 ultragraphdb_traits_index = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
+# External crates
+oxrdf = { workspace = true }
+oxsdatatypes = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 ultragraphdb_tool_test = { workspace = true }
+# External crates
 cucumber = { workspace = true }
 futures = { workspace = true }
 

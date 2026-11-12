@@ -32,7 +32,7 @@ use ultragraphdb_store_sim::{
     Event, FaultConfig, RunOutcome, Seed, SimContext, SimListCache, SimRng, Simulation, Stream,
     Violation,
 };
-use ultragraphdb_traits_index::{KeyValue, Metric, Options};
+use ultragraphdb_traits_index::{Float, KeyValue, Metric, Options};
 use ultragraphdb_traits_store::{PersistMode, Scan, Store, StoreSnapshot};
 
 use ultragraphdb_core_keys::QuadKey;
@@ -352,7 +352,7 @@ impl HnswWorkload {
             lists.applied_ts(),
         );
         let query = random_vector(ctx.rng());
-        let k = ctx.rng().between(1, 5) as usize;
+        let k = 1 + ctx.rng().index(5);
         let result = {
             let mut request = lists.request(read_ts);
             let txn = ViTxn::new(&mut request);
@@ -457,7 +457,9 @@ fn widen(v: &[f32]) -> Vec<f64> {
 }
 
 fn random_vector(rng: &mut SimRng) -> Vec<f32> {
-    (0..DIMS).map(|_| (draw(rng) * 2.0 - 1.0) as f32).collect()
+    (0..DIMS)
+        .map(|_| f32::from_f64(draw(rng) * 2.0 - 1.0))
+        .collect()
 }
 
 /// The first neighbour list among `edges` naming a node numbered in `dead`.

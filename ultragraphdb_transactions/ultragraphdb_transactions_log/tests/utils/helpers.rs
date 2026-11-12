@@ -93,8 +93,11 @@ pub fn open(storage: &SimStorage) -> Result<(Wal<SimStorage>, Recovery), LogErro
 
 /// The body of round `position`: byte i is `position * 31 + i * 7`, so no two rounds' bodies agree.
 pub fn body(position: u64, len: usize) -> Vec<u8> {
-    (0..len)
-        .map(|i| (position.wrapping_mul(31) as usize).wrapping_add(i * 7) as u8)
+    let [start, ..] = position.wrapping_mul(31).to_le_bytes();
+    (0..=u8::MAX)
+        .cycle()
+        .take(len)
+        .map(|i| start.wrapping_add(i.wrapping_mul(7)))
         .collect()
 }
 

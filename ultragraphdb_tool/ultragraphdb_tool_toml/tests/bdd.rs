@@ -273,7 +273,10 @@ fn next(state: &mut u64) -> u64 {
 /// replaced, inserted and cut.
 fn arbitrary_input(index: usize, state: &mut u64, seeds: &[Vec<u8>]) -> Vec<u8> {
     const ALPHABET: &[u8] = b"[]=\"'#.\\ \t\r\nabtuxU0123456789+-_:eE{},";
-    let roll = |generator: &mut u64, bound: usize| (next(generator) % bound as u64) as usize;
+    // Below `bound`, a `usize`, so it converts.
+    let roll = |generator: &mut u64, bound: usize| {
+        usize::try_from(next(generator) % bound as u64).unwrap_or(0)
+    };
     if index % 2 == 1 || seeds.is_empty() {
         let len = roll(state, 256);
         return (0..len)

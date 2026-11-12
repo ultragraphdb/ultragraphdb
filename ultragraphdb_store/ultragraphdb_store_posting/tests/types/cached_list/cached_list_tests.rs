@@ -27,7 +27,7 @@ fn test_the_weigher_counts_the_lists_bytes() -> TestResult {
     let big = CachedList::new(Arc::new(List::new(k.clone(), complete.clone(), 1)), 1, 0);
     assert_eq!(
         big.weight(),
-        64 + 57 + complete.encoded_len() as u32,
+        64 + 57 + u32::try_from(complete.encoded_len())?,
         "the complete list is weighed in place of the empty one"
     );
     assert!(complete.encoded_len() > 10_000);
@@ -46,7 +46,7 @@ fn test_the_weigher_counts_the_lists_bytes() -> TestResult {
     assert!(delta_len > 0);
     assert_eq!(
         deltas.weight(),
-        big.weight() + delta_len as u32,
+        big.weight() + u32::try_from(delta_len)?,
         "the deltas are weighed"
     );
     assert_eq!((deltas.ts(), deltas.epoch()), (3, 0));

@@ -37,7 +37,10 @@ impl CommandHeader<'_> {
         match self.0.iter().enumerate().find(|(at, byte)| {
             **byte != 0 && !used.iter().any(|(start, end)| (*start..*end).contains(at))
         }) {
-            Some((at, _)) => Err(ProtocolError::reserved_not_zero(COMMAND_HEADER_SIZE + at)),
+            // Within the 128-byte command header, so the header offset never saturates.
+            Some((at, _)) => Err(ProtocolError::reserved_not_zero(
+                COMMAND_HEADER_SIZE.saturating_add(at),
+            )),
             None => Ok(()),
         }
     }

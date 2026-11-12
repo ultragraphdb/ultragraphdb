@@ -31,16 +31,16 @@ fn test_a_request_and_its_reply_are_built() -> TestResult {
     );
     assert_eq!(request.iris(), &[A.to_string(), B.to_string()]);
     let [records, text] = iri_terms(&[A, B]);
-    let expected = frame(
+    let expected_request = frame(
         Command::Purge,
         &[(0, &2u64.to_le_bytes())],
         &[records.clone(), text.clone()],
         true,
     )?;
-    assert_eq!(request.frame(header())?, expected);
+    assert_eq!(request.frame(header())?, expected_request);
     let reply = request.purged(30, 1);
     assert_eq!((reply.epoch(), reply.removed()), (30, 1));
-    let expected = frame(
+    let expected_reply = frame(
         Command::Purge,
         &[
             (0, &2u64.to_le_bytes()),
@@ -50,6 +50,6 @@ fn test_a_request_and_its_reply_are_built() -> TestResult {
         &[records, text],
         true,
     )?;
-    assert_eq!(reply.frame(header())?, expected);
+    assert_eq!(reply.frame(header())?, expected_reply);
     Ok(())
 }

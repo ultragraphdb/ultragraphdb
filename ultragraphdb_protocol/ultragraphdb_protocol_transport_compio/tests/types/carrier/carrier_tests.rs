@@ -123,7 +123,7 @@ fn test_a_connection_runs_its_handshake_over_a_unix_socket() -> TestResult {
         let welcome = Welcome::new(1, 0, "s")
             .with_max_streams(8)
             .with_initial_credit(2);
-        let hello = Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c");
+        let hello = Hello::new(1, 1, 0, u32::try_from(MAX_FRAME_SIZE)?, "c");
         let (client_side, server_side) =
             futures::future::join(client.hello(&pool, &hello), server.welcome(&pool, &welcome))
                 .await;

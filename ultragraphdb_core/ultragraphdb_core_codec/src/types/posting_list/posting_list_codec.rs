@@ -89,8 +89,8 @@ impl PostingList {
         let checksum = xxh3_64(w.get(start..).unwrap_or_default());
         w.extend_from_slice(&checksum.to_le_bytes());
         debug_assert_eq!(
-            w.len() - start,
-            self.encoded_len(),
+            w.get(start..).map(<[u8]>::len),
+            Some(self.encoded_len()),
             "the length is the bytes'"
         );
     }
@@ -98,19 +98,22 @@ impl PostingList {
     /// The number of bytes [`PostingList::encode`] writes, without writing them.
     #[must_use]
     pub fn encoded_len(&self) -> usize {
+        // The lengths of a list held in memory, far below usize::MAX, so no sum saturates.
         let pack = self.pack.as_ref().map_or(0, UidPack::encoded_len);
-        let postings: usize = self
-            .postings
-            .iter()
-            .map(|p| {
-                POSTING_LEN
-                    + p.value().len()
-                    + p.lang_tag().len()
-                    + p.facets().iter().map(|f| 4 + f.key().len()).sum::<usize>()
-                    + U128_LEN * p.statement_ids().len()
-            })
-            .sum();
-        EMPTY_LEN + pack + postings + U128_LEN * self.splits.len()
+        let postings = self.postings.iter().fold(0usize, |sum, p| {
+            let facets = p.facets().iter().fold(0usize, |len, f| {
+                len.saturating_add(4).saturating_add(f.key().len())
+            });
+            sum.saturating_add(POSTING_LEN)
+                .saturating_add(p.value().len())
+                .saturating_add(p.lang_tag().len())
+                .saturating_add(facets)
+                .saturating_add(U128_LEN.saturating_mul(p.statement_ids().len()))
+        });
+        EMPTY_LEN
+            .saturating_add(pack)
+            .saturating_add(postings)
+            .saturating_add(U128_LEN.saturating_mul(self.splits.len()))
     }
 
     /// The list stored as `bytes` under `key`.
@@ -157,7 +160,7 @@ impl PostingList {
         if r.at != body.len() {
             return Err(corrupted(format!(
                 "trailing bytes after the splits: {}",
-                body.len() - r.at
+                body.get(r.at..).map_or(0, <[u8]>::len)
             )));
         }
         Ok(plist)
@@ -190,11 +193,11 @@ impl Reader<'_> {
 
     fn take(&mut self, n: usize) -> Result<&[u8], StoreError> {
         let at = self.at;
-        let field = at
+        let (field, end) = at
             .checked_add(n)
-            .and_then(|end| self.bytes.get(at..end))
+            .and_then(|end| Some((self.bytes.get(at..end)?, end)))
             .ok_or_else(|| self.corrupted(format!("a field at byte {at} overruns the value")))?;
-        self.at += n;
+        self.at = end;
         Ok(field)
     }
 
@@ -226,7 +229,8 @@ impl Reader<'_> {
     /// A count, as many as the bytes left could hold of items of at least `item_len` bytes, for an allocation.
     fn count(&mut self, item_len: usize) -> Result<(usize, usize), StoreError> {
         let n = usize::try_from(self.u32()?).unwrap_or(usize::MAX);
-        let room = self.bytes.len().saturating_sub(self.at) / item_len.max(1);
+        let left = self.bytes.len().saturating_sub(self.at);
+        let room = left.checked_div(item_len).unwrap_or(left);
         Ok((n, n.min(room)))
     }
 

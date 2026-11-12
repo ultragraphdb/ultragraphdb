@@ -91,11 +91,17 @@ impl NetworkState {
                 else {
                     break;
                 };
-                let chunks = if message.len() > 1 && self.rng.chance(self.faults.split_rate()) {
-                    self.stats.split = self.stats.split.saturating_add(1);
+                let split = if message.len() > 1 && self.rng.chance(self.faults.split_rate()) {
                     self.split(&message)
                 } else {
-                    vec![message]
+                    None
+                };
+                let chunks = match split {
+                    Some(chunks) => {
+                        self.stats.split = self.stats.split.saturating_add(1);
+                        chunks
+                    }
+                    None => vec![message],
                 };
                 if let Some(state) = self.links.get_mut(link) {
                     state.arrived.extend(chunks);
@@ -109,27 +115,32 @@ impl NetworkState {
 }
 
 impl NetworkState {
-    /// `message`, of at least two bytes, cut at one to three distinct points drawn in `1..len`, so no chunk is empty.
-    fn split(&mut self, message: &[u8]) -> Vec<Vec<u8>> {
+    /// `message`, of at least two bytes, cut at one to three distinct points drawn in `1..len`, so no chunk is empty;
+    /// `None` for a draw that does not convert back to a place in it, which a draw below its length never is.
+    fn split(&mut self, message: &[u8]) -> Option<Vec<Vec<u8>>> {
         debug_assert!(message.len() > 1);
         let len = message.len() as u64; // lossless: a `usize` is at most 64 bits
-        // `below(3)` is under 3 and `below(len - 1)` under `len - 1`, so both casts are lossless.
-        let pieces = 2 + self.rng.below(3) as usize;
-        let mut cuts: Vec<usize> = (1..pieces)
-            .map(|_| 1 + self.rng.below(len.saturating_sub(1)) as usize)
-            .collect();
+        // One to three cuts: one more than `below(3)` draws.
+        let cuts_drawn = self.rng.below(3);
+        // `below(len - 1)` is under `len - 1`, a `usize` length, so every draw converts back and one more fits.
+        let mut cuts = (0..=cuts_drawn)
+            .map(|_| {
+                usize::try_from(self.rng.below(len.saturating_sub(1)))
+                    .ok()?
+                    .checked_add(1)
+            })
+            .collect::<Option<Vec<usize>>>()?;
         cuts.sort_unstable();
         cuts.dedup();
-        let mut chunks = Vec::with_capacity(pieces);
-        let mut start = 0;
-        for cut in cuts.into_iter().chain([message.len()]) {
-            if let Some(chunk) = message.get(start..cut) {
-                chunks.push(chunk.to_vec());
-            }
-            start = cut;
-        }
+        let starts = [0].into_iter().chain(cuts.iter().copied());
+        let ends = cuts.iter().copied().chain([message.len()]);
+        let chunks: Vec<Vec<u8>> = starts
+            .zip(ends)
+            .filter_map(|(start, end)| message.get(start..end))
+            .map(<[u8]>::to_vec)
+            .collect();
         debug_assert_eq!(chunks.iter().map(Vec::len).sum::<usize>(), message.len());
-        chunks
+        Some(chunks)
     }
 }
 
@@ -161,11 +172,12 @@ impl SimNetwork {
         let mut state = self.state.borrow_mut();
         let to_server = state.links.len();
         state.links.push(LinkState::default());
+        let to_client = state.links.len();
         state.links.push(LinkState::default());
         drop(state);
         (
-            SimStream::new(Rc::clone(&self.state), to_server + 1, to_server),
-            SimStream::new(Rc::clone(&self.state), to_server, to_server + 1),
+            SimStream::new(Rc::clone(&self.state), to_client, to_server),
+            SimStream::new(Rc::clone(&self.state), to_server, to_client),
         )
     }
 

@@ -285,7 +285,7 @@ fn test_a_second_text_is_what_the_kind_takes() -> TestResult {
     let text = format!("x{xsd}");
     assert_eq!(
         refused(
-            &[record(3, 0, [0, 1, 1, xsd.len() as u32])],
+            &[record(3, 0, [0, 1, 1, u32::try_from(xsd.len())?])],
             text.as_bytes()
         )?,
         ProtocolErrorEnum::BadTerm {
@@ -406,15 +406,15 @@ fn test_no_term_appears_twice() -> TestResult {
 
 /// `<a>` and a chain of `depth` triple terms, entry k + 1 naming entry k at the place `at` (0 subject, 2 object), the
 /// others `<a>`.
-fn chain(depth: usize, at: usize) -> Vec<Vec<u8>> {
+fn chain(depth: usize, at: usize) -> TestResult<Vec<Vec<u8>>> {
     let mut records = vec![record(1, 0, [0, 1, 1, 0])];
-    for k in 0..depth as u32 {
+    for k in 0..u32::try_from(depth)? {
         let mut parts = [0u32; 3];
         parts[at] = k;
         // Each triple term differs from the one before, so none repeats: the first names <a> everywhere.
         records.push(record(5, 0, [parts[0], parts[1], parts[2], 0]));
     }
-    records
+    Ok(records)
 }
 
 #[test]
@@ -422,12 +422,12 @@ fn test_triple_terms_nest_at_most_the_maximum_through_any_part() -> TestResult {
     for at in [0, 2] {
         // <a> and 32 triple terms: 33 entries.
         assert_eq!(
-            read(&chain(MAX_TERM_DEPTH, at), b"a")?.map(|table| table.len()),
+            read(&chain(MAX_TERM_DEPTH, at)?, b"a")?.map(|table| table.len()),
             Ok(33),
             "depth 32 through part {at}"
         );
         assert_eq!(
-            refused(&chain(MAX_TERM_DEPTH + 1, at), b"a")?,
+            refused(&chain(MAX_TERM_DEPTH + 1, at)?, b"a")?,
             ProtocolErrorEnum::TermTooDeep {
                 command: 11,
                 section: 0,

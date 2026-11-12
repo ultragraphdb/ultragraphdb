@@ -42,14 +42,23 @@ pub(crate) fn read(
     header: CommandHeader<'_>,
     at: usize,
 ) -> Result<Option<SessionToken>, ProtocolError> {
-    if let Some(i) = (4..8).find(|i| header.u8_at(at + i) != 0) {
-        return Err(ProtocolError::reserved_not_zero(
-            COMMAND_HEADER_SIZE + at + i,
-        ));
+    // `at` is a field's place within the 128-byte command header.
+    let field = |offset: usize| {
+        at.checked_add(offset)
+            .ok_or_else(|| ProtocolError::field_value(command, "token", at as u64)) // lossless: a `usize` is at most 64 bits
+    };
+    for i in 4..8 {
+        let place = field(i)?;
+        if header.u8_at(place) != 0 {
+            // A place within the command header, which the refusal only names.
+            return Err(ProtocolError::reserved_not_zero(
+                COMMAND_HEADER_SIZE.saturating_add(place),
+            ));
+        }
     }
     let partition = header.u32_at(at);
-    let position = header.u64_at(at + 8);
-    let epoch = header.u64_at(at + 16);
+    let position = header.u64_at(field(8)?);
+    let epoch = header.u64_at(field(16)?);
     if partition == 0 && position == 0 && epoch == 0 {
         return Ok(None);
     }

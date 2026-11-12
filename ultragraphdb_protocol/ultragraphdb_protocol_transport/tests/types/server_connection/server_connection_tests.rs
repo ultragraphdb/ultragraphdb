@@ -100,8 +100,14 @@ fn error(frame: &[u8]) -> TestResult<(ErrorCode, u64)> {
     Ok((error.code(), error.detail()))
 }
 
-fn hello() -> Hello {
-    Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "client")
+fn hello() -> TestResult<Hello> {
+    Ok(Hello::new(
+        1,
+        1,
+        0,
+        u32::try_from(MAX_FRAME_SIZE)?,
+        "client",
+    ))
 }
 
 /// Sends `body` on `stream`, a request the connection takes as one, at `now`.
@@ -126,10 +132,10 @@ fn request<B: BodyBuilder>(
 fn welcomed(mechanisms: &[&str], peer: &mut Peer, now: Instant) -> TestResult<Connection> {
     let mut connection = connection(mechanisms, now);
     assert_eq!(
-        connection.receive(&peer.send(0, &hello())?, now)?,
+        connection.receive(&peer.send(0, &hello()?)?, now)?,
         Inbound::Welcomed {
             protocol: 1,
-            max_frame: MAX_FRAME_SIZE as u32
+            max_frame: u32::try_from(MAX_FRAME_SIZE)?
         }
     );
     drain(&mut connection)?;
@@ -198,10 +204,10 @@ fn test_a_hello_is_welcomed_with_the_servers_mechanisms_at_sequence_one() -> Tes
     let mut connection = connection(&[TEST], now);
     assert!(connection.welcome().is_none());
     assert_eq!(
-        connection.receive(&peer.send(0, &hello())?, now)?,
+        connection.receive(&peer.send(0, &hello()?)?, now)?,
         Inbound::Welcomed {
             protocol: 1,
-            max_frame: MAX_FRAME_SIZE as u32
+            max_frame: u32::try_from(MAX_FRAME_SIZE)?
         }
     );
     let frames = sent(&mut connection)?;
@@ -384,7 +390,7 @@ fn test_a_connection_past_the_bound_is_refused_in_place_of_its_welcome() -> Test
     let mut peer = Peer::default();
     let mut connection = connection(&[], now).past_connection_bound(2);
     assert_eq!(
-        connection.receive(&peer.send(0, &hello())?, now)?,
+        connection.receive(&peer.send(0, &hello()?)?, now)?,
         Inbound::Closing {
             code: Some(ErrorCode::StreamLimit)
         }
@@ -435,10 +441,10 @@ fn test_a_server_without_authentication_serves_at_once() -> TestResult {
     let mut peer = Peer::default();
     let mut connection = connection(&[], now);
     assert_eq!(
-        connection.receive(&peer.send(0, &hello())?, now)?,
+        connection.receive(&peer.send(0, &hello()?)?, now)?,
         Inbound::Welcomed {
             protocol: 1,
-            max_frame: MAX_FRAME_SIZE as u32
+            max_frame: u32::try_from(MAX_FRAME_SIZE)?
         }
     );
     let out = sent(&mut connection)?;
@@ -953,7 +959,7 @@ fn test_a_welcome_carries_the_clients_max_frame() -> TestResult {
     let now = start();
     let mut peer = Peer::default();
     let mut connection = connection(&[], now);
-    let max_frame = MAX_FRAME_FLOOR as u32;
+    let max_frame = u32::try_from(MAX_FRAME_FLOOR)?;
     assert_eq!(
         connection.receive(
             &peer.send(0, &Hello::new(1, 1, 0, max_frame, "client"))?,
@@ -976,7 +982,10 @@ fn test_a_hello_above_the_servers_protocols_closes_with_code_16() -> TestResult 
     let mut connection = connection(&[], now);
     assert_eq!(
         connection.receive(
-            &peer.send(0, &Hello::new(2, 3, 0, MAX_FRAME_SIZE as u32, "client"))?,
+            &peer.send(
+                0,
+                &Hello::new(2, 3, 0, u32::try_from(MAX_FRAME_SIZE)?, "client")
+            )?,
             now
         )?,
         Inbound::Closing {
@@ -1045,10 +1054,10 @@ fn test_limits_set_the_authentication_timeout_and_the_idle_limit() -> TestResult
     let idle = Duration::from_secs(20);
     let mut connection = connection(&[TEST], now).with_limits(authentication, idle);
     assert_eq!(
-        connection.receive(&peer.send(0, &hello())?, now)?,
+        connection.receive(&peer.send(0, &hello()?)?, now)?,
         Inbound::Welcomed {
             protocol: 1,
-            max_frame: MAX_FRAME_SIZE as u32
+            max_frame: u32::try_from(MAX_FRAME_SIZE)?
         }
     );
     assert_eq!(connection.next_deadline(), Some(now + authentication));
@@ -1066,10 +1075,10 @@ fn test_limits_set_the_authentication_timeout_and_the_idle_limit() -> TestResult
     let mut authenticated_peer = Peer::default();
     let mut authenticated = self::connection(&[TEST], now).with_limits(authentication, idle);
     assert_eq!(
-        authenticated.receive(&authenticated_peer.send(0, &hello())?, now)?,
+        authenticated.receive(&authenticated_peer.send(0, &hello()?)?, now)?,
         Inbound::Welcomed {
             protocol: 1,
-            max_frame: MAX_FRAME_SIZE as u32
+            max_frame: u32::try_from(MAX_FRAME_SIZE)?
         }
     );
     drain(&mut authenticated)?;
@@ -1105,10 +1114,10 @@ fn test_the_deadline_is_the_earlier_of_the_idle_limit_and_the_expiry() -> TestRe
     let mut connection =
         connection(&[TEST], now).with_limits(AUTHENTICATION_TIMEOUT, Duration::from_secs(30));
     assert_eq!(
-        connection.receive(&peer.send(0, &hello())?, now)?,
+        connection.receive(&peer.send(0, &hello()?)?, now)?,
         Inbound::Welcomed {
             protocol: 1,
-            max_frame: MAX_FRAME_SIZE as u32
+            max_frame: u32::try_from(MAX_FRAME_SIZE)?
         }
     );
     drain(&mut connection)?;
@@ -1181,10 +1190,10 @@ fn test_the_authentication_timeout_runs_from_the_welcome() -> TestResult {
     let mut connection = connection(&[TEST], now);
     let hello_at = now + Duration::from_secs(30);
     assert_eq!(
-        connection.receive(&peer.send(0, &hello())?, hello_at)?,
+        connection.receive(&peer.send(0, &hello()?)?, hello_at)?,
         Inbound::Welcomed {
             protocol: 1,
-            max_frame: MAX_FRAME_SIZE as u32
+            max_frame: u32::try_from(MAX_FRAME_SIZE)?
         }
     );
     assert_eq!(
@@ -1500,10 +1509,10 @@ fn test_renewing_with_a_credential_that_never_expires_clears_the_expiry() -> Tes
         now,
     );
     assert_eq!(
-        connection.receive(&peer.send(0, &hello())?, now)?,
+        connection.receive(&peer.send(0, &hello()?)?, now)?,
         Inbound::Welcomed {
             protocol: 1,
-            max_frame: MAX_FRAME_SIZE as u32
+            max_frame: u32::try_from(MAX_FRAME_SIZE)?
         }
     );
     drain(&mut connection)?;
@@ -1591,10 +1600,10 @@ fn test_limits_past_what_an_instant_holds_set_no_deadline() -> TestResult {
         None
     );
     assert_eq!(
-        connection.receive(&peer.send(0, &hello())?, now)?,
+        connection.receive(&peer.send(0, &hello()?)?, now)?,
         Inbound::Welcomed {
             protocol: 1,
-            max_frame: MAX_FRAME_SIZE as u32
+            max_frame: u32::try_from(MAX_FRAME_SIZE)?
         }
     );
     drain(&mut connection)?;
@@ -1629,7 +1638,7 @@ fn test_a_welcome_too_large_to_frame_is_an_error_and_sends_nothing() -> TestResu
         TestAuthenticator::default(),
         now,
     );
-    let Err(error) = connection.receive(&peer.send(0, &hello())?, now) else {
+    let Err(error) = connection.receive(&peer.send(0, &hello()?)?, now) else {
         return Err(TestError::new("a Welcome past the largest frame was taken"));
     };
     assert!(not_built(&error, Command::Welcome), "{error:?}");
@@ -1639,7 +1648,7 @@ fn test_a_welcome_too_large_to_frame_is_an_error_and_sends_nothing() -> TestResu
     assert_eq!(connection.next_frame(), None, "no frame could be built");
     // A closing connection reads nothing more.
     assert_eq!(
-        connection.receive(&peer.send(0, &hello())?, now)?,
+        connection.receive(&peer.send(0, &hello()?)?, now)?,
         Inbound::Closing { code: None }
     );
     Ok(())
@@ -1829,7 +1838,7 @@ fn test_a_compute_read_opens_its_stream_with_its_credit() -> TestResult {
     );
     let credit = connection.welcome().context("a Welcome")?.initial_credit() + 3;
     let read = ComputeRead::new(1, true, ReadLevel::Snapshot, terms, pattern, Vec::new())
-        .with_client_limits(MAX_FRAME_SIZE as u32, credit);
+        .with_client_limits(u32::try_from(MAX_FRAME_SIZE)?, credit);
     assert_eq!(
         connection.receive(&peer.send(1, &read)?, now)?,
         Inbound::Request {

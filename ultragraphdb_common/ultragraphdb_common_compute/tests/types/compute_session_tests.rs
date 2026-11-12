@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use ultragraphdb_common_role::OpenRequests;
 use ultragraphdb_core_keys::{Graph, Keyspace, key_prefix};
-use ultragraphdb_protocol_wire::MAX_FRAME_FLOOR;
+use ultragraphdb_protocol_wire::{MAX_FRAME_FLOOR, MAX_FRAME_FLOOR_U32};
 use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 use crate::apart::apart_cluster::{ApartCluster, run, times};
@@ -34,7 +34,7 @@ fn test_a_read_larger_than_a_frame_is_answered_batch_after_batch() -> TestResult
         let mut client = cluster
             .compute(times(Duration::from_secs(1)), OpenRequests::default())
             .await?;
-        let read = of_p(0, Vec::new()).with_client_limits(MAX_FRAME_FLOOR as u32, 4);
+        let read = of_p(0, Vec::new()).with_client_limits(MAX_FRAME_FLOOR_U32, 4);
         let answer = answer_on(&mut client, &read).await?;
         let pairs: Vec<(&str, &str)> = named
             .iter()

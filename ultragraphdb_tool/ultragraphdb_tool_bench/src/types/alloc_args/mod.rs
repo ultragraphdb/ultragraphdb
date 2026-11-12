@@ -43,8 +43,10 @@ impl AllocArgs {
         Ok(Self {
             dir: dir(&flags)?,
             frames: number(&flags, "--frames", Some(10_000), 1)?,
-            // At most `RELATIONS_MAX`, so the cast is lossless.
-            relations: relations as usize,
+            // At most `RELATIONS_MAX`, so it converts.
+            relations: usize::try_from(relations).map_err(|_| {
+                BenchError::usage(format!("--relations takes at most {RELATIONS_MAX}"))
+            })?,
             hubs: number(&flags, "--hubs", Some(1_000), 1)?,
         })
     }

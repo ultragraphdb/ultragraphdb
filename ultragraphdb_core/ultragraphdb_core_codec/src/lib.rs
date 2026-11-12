@@ -17,6 +17,11 @@
 //! stored in a versioned, checksummed format of the repository's own: [`PostingList::encode`] and
 //! [`PostingList::decode`].
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 mod codec;
 mod errors;
 mod types;

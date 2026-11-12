@@ -6,6 +6,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+// Arithmetic on decoded text and store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use crate::types::type_id::TypeId;
 use crate::types::value::Value;
 use crate::utils::scalar_types::parse_time;
@@ -40,10 +45,9 @@ fn is_sign(d: u8) -> bool {
 }
 
 fn strip_sign(s: &[u8]) -> &[u8] {
-    if is_sign(s[0]) && s.len() > 1 {
-        &s[1..]
-    } else {
-        s
+    match s.split_first() {
+        Some((&c, rest)) if is_sign(c) && !rest.is_empty() => rest,
+        _ => s,
     }
 }
 
@@ -52,20 +56,22 @@ fn contains_any(s: &[u8], chars: &[u8]) -> bool {
 }
 
 fn check_int(s: &[u8]) -> bool {
-    let s = strip_sign(s);
-    s[0].is_ascii_digit() && !contains_any(&s[1..], b".Ee")
+    match strip_sign(s) {
+        [c, rest @ ..] => c.is_ascii_digit() && !contains_any(rest, b".Ee"),
+        [] => false,
+    }
 }
 
 fn check_float(s: &[u8]) -> bool {
-    let s = strip_sign(s);
-    if s[0] == b'.' && s.len() > 1 {
-        return s[1].is_ascii_digit();
+    match strip_sign(s) {
+        [b'.', next, ..] => next.is_ascii_digit(),
+        [c, rest @ ..] => c.is_ascii_digit() && contains_any(rest, b".Ee"),
+        [] => false,
     }
-    s[0].is_ascii_digit() && contains_any(&s[1..], b".Ee")
 }
 
 fn check_date_time(s: &[u8]) -> bool {
-    s.len() >= 5 && s[..4].iter().all(u8::is_ascii_digit) && s[4] == b'-'
+    matches!(s.first_chunk::<5>(), Some([year @ .., b'-']) if year.iter().all(u8::is_ascii_digit))
 }
 
 /// Dgraph's `TypeForValue`: the likely type of an untyped value and the parsed value, in Dgraph's order: bool
@@ -75,7 +81,7 @@ pub fn type_for_value(v: &[u8]) -> (TypeId, Option<Value>) {
     if b.is_empty() {
         return (TypeId::DEFAULT, None);
     }
-    if matches!(b[0], b't' | b'T' | b'f' | b'F') {
+    if matches!(b.first(), Some(b't' | b'T' | b'f' | b'F')) {
         return match b {
             b"true" | b"TRUE" | b"True" => (TypeId::BOOL, Some(Value::Bool(true))),
             b"false" | b"FALSE" | b"False" => (TypeId::BOOL, Some(Value::Bool(false))),

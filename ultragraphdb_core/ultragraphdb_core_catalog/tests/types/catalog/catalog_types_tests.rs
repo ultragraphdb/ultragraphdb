@@ -162,7 +162,7 @@ fn loaded(types: &[(u64, &str, Option<&str>)]) -> TestResult<Catalog> {
     for (uid, name, parent) in types {
         let declaration =
             Declaration::EntityType(TypeDeclaration::new(ex(name), parent.map(ex), false));
-        batch.push(Catalog::entry(0, id(*uid)?, &declaration, 1));
+        batch.push(Catalog::entry(0, id(*uid)?, &declaration, 1)?);
     }
     store.apply(batch, PersistMode::Buffer)?;
     Ok(Catalog::load(&store.snapshot(u64::MAX)?, 0)?)

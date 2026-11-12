@@ -334,9 +334,11 @@ impl Connection {
             ClientOp::Transaction => Request::Transaction(self.shape.next_write()?),
             ClientOp::Read => {
                 let held = self.written.len() as u64;
-                // Below the subjects' count, which fits a `usize`.
-                let at = self.shape.draw_below(held) as usize;
-                let subject = self.written.get(at).map_or("", String::as_str);
+                // Below the subjects' count, a `usize`, so it converts.
+                let at = usize::try_from(self.shape.draw_below(held)).ok();
+                let subject = at
+                    .and_then(|at| self.written.get(at))
+                    .map_or("", String::as_str);
                 Request::Read(ClientShape::read_of(subject, 0))
             }
             ClientOp::Scan => Request::Read(ClientShape::scan_of(0)),

@@ -11,20 +11,17 @@ pub(crate) fn stem(term: &str) -> String {
     let mut s: Vec<char> = term.chars().collect();
     let l = s.len();
     if l >= 5 {
-        match s[l - 1] {
-            'o' | 'a' | 'e' => s.truncate(l - 1),
-            's' => {
-                if s[l - 2] == 'e' && s[l - 3] == 's' && s[l - 4] == 'e' {
-                    s.truncate(l - 2);
-                } else if s[l - 2] == 'e' && s[l - 3] == 'c' {
-                    s[l - 3] = 'z';
-                    s.truncate(l - 2);
-                } else if matches!(s[l - 2], 'o' | 'a' | 'e') {
-                    s.truncate(l - 2);
-                }
+        let keep = match s.as_mut_slice() {
+            [.., 'o' | 'a' | 'e'] => l - 1,
+            [.., 'e', 's', 'e', 's'] => l - 2,
+            [.., c @ 'c', 'e', 's'] => {
+                *c = 'z';
+                l - 2
             }
-            _ => {}
-        }
+            [.., 'o' | 'a' | 'e', 's'] => l - 2,
+            _ => l,
+        };
+        s.truncate(keep);
     }
     s.iter().collect()
 }

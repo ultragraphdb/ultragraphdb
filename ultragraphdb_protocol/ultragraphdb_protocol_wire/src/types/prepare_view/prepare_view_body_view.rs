@@ -60,8 +60,8 @@ fn check_pattern_types(
         .iter()
         .filter(|slot| matches!(slot, PatternSlot::Unbound))
         .count();
-    // The unbound slots, then the reifier column.
-    let columns = unbound + 1;
+    // The unbound slots, at most four, then the reifier column.
+    let columns = unbound.saturating_add(1);
     if !result_types.is_empty() && result_types.len() != columns {
         return Err(ProtocolError::count_mismatch(
             command,

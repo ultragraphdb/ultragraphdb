@@ -59,10 +59,15 @@ impl<'a> KeyValues<'a> {
                 .get(end..next)
                 .and_then(|padding| padding.iter().position(|b| *b != 0))
             {
-                return Err(ProtocolError::padding_not_zero(command, base + end + i));
+                return Err(ProtocolError::padding_not_zero(
+                    command,
+                    base.saturating_add(end).saturating_add(i),
+                ));
             }
+            len = len
+                .checked_add(1)
+                .ok_or_else(|| ProtocolError::entry_out_of_bounds(command, section, len, at))?;
             at = next;
-            len += 1;
         }
         Ok(Self { bytes, len })
     }

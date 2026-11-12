@@ -19,7 +19,14 @@ use crate::types::region_id::RegionId;
 use crate::types::script_id::ScriptId;
 use crate::utils::lookup::get_region_id;
 use crate::utils::parse;
-use crate::utils::tag_index::partition_point;
+
+const _: () = assert!(CORE_TAGS.len() <= 0xFFFF, "a compact identifier is a u16");
+/// The number of core tags, the compact identifier of the first special tag: its low 16 bits, the whole of it by the
+/// assertion above, so every identifier is a u16 by construction.
+const CORE_TAG_COUNT: u16 = {
+    let [low, high, ..] = CORE_TAGS.len().to_le_bytes();
+    u16::from_le_bytes([low, high])
+};
 
 /// The tags with a compact index after the core tags.
 ///
@@ -61,20 +68,30 @@ fn core_tag(c: u32) -> FullTag {
 
 fn get_core_index(t: &FullTag) -> Option<u16> {
     let cci = get_compact_core(t)?;
-    let i = partition_point(CORE_TAGS.len(), |i| CORE_TAGS[i] < cci);
-    if i == CORE_TAGS.len() || CORE_TAGS[i] != cci {
-        return None;
+    // Go's sort.Search over the core tags, by their u16 identifiers.
+    let (mut lo, mut hi) = (0u16, CORE_TAG_COUNT);
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        if CORE_TAGS.get(usize::from(mid)).is_some_and(|&c| c < cci) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
     }
-    Some(i as u16)
+    (CORE_TAGS.get(usize::from(lo)) == Some(&cci)).then_some(lo)
 }
 
 /// The internal tag of a compact identifier.
 fn id_tag(id: u16) -> FullTag {
-    let id = usize::from(id);
-    if id >= CORE_TAGS.len() {
-        return SPECIAL_TAGS[id - CORE_TAGS.len()].clone();
+    match id.checked_sub(CORE_TAG_COUNT) {
+        Some(special) => SPECIAL_TAGS
+            .get(usize::from(special))
+            .cloned()
+            .unwrap_or_default(),
+        None => CORE_TAGS
+            .get(usize::from(id))
+            .map_or_else(FullTag::default, |&c| core_tag(c)),
     }
-    core_tag(CORE_TAGS[id])
 }
 
 /// The closest compact identifier of an internal tag, and whether it matches exactly.
@@ -114,8 +131,11 @@ fn from_tag(t: &FullTag) -> (u16, bool) {
         }
         if has_extra {
             // We have some variants.
-            if let Some(i) = SPECIAL_TAGS.iter().position(|special| *special == t) {
-                return ((i + CORE_TAGS.len()) as u16, exact);
+            if let Some(id) = (CORE_TAG_COUNT..=u16::MAX)
+                .zip(SPECIAL_TAGS.iter())
+                .find_map(|(id, special)| (*special == t).then_some(id))
+            {
+                return (id, exact);
             }
             exact = false;
         }
@@ -146,8 +166,8 @@ impl Tag {
     /// `compact.Make`: the compact form of an internal tag.
     pub(crate) fn make(t: FullTag) -> Tag {
         let region = t.type_for_key("rg");
-        if region.len() == 6 && &region[2..] == "zzzz" {
-            let mut code = region.as_bytes()[..2].to_vec();
+        if region.len() == 6 && region.get(2..) == Some("zzzz") {
+            let mut code = region.as_bytes().get(..2).unwrap_or_default().to_vec();
             if let Ok(r) = get_region_id_iso2(&mut code) {
                 let t_full = t.clone();
                 let mut t = match t.set_type_for_key("rg", "") {

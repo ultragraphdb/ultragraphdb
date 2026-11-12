@@ -297,7 +297,7 @@ fn test_a_reverse_read_past_the_limit_ends_the_transaction() -> TestResult {
     let applier = applier()?;
     let limits = TxnLimits::default();
     let mut txn = begin_with(&applier, Mode::ReadWrite, limits)?;
-    let past = limits.read_write().as_micros() as u64 + 1;
+    let past = u64::try_from(limits.read_write().as_micros())? + 1;
     let (p, o) = (ex("knows"), ex("b"));
     let mut out = Vec::new();
     let error = txn

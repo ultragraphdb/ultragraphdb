@@ -323,9 +323,13 @@ impl ShapeIndex {
         // all insertions into cellMap are at the end (which is much faster).
         for pos in 0..4 {
             let (i, j) = pcell.child_ij(pos);
-            if !child_edges[i][j].is_empty() || !t.shape_ids.is_empty() {
+            // A child's (i,j) are 0 or 1, so its edges are always present.
+            let Some(bucket) = child_edges.get_mut(i).and_then(|row| row.get_mut(j)) else {
+                continue;
+            };
+            if !bucket.is_empty() || !t.shape_ids.is_empty() {
                 let child = PaddedCell::from_parent_ij(pcell, i, j);
-                let ce = core::mem::take(&mut child_edges[i][j]);
+                let ce = core::mem::take(bucket);
                 self.update_edges(&child, &ce, face_edges, t);
             }
         }
@@ -391,11 +395,11 @@ impl ShapeIndex {
             let mut eshape_id = self.len();
             let mut cshape_id = eshape_id; // Sentinels
 
-            if e_next != edges.len() {
-                eshape_id = face_edges[edges[e_next].face_edge].shape_id;
+            if let Some(id) = shape_at(edges, face_edges, e_next) {
+                eshape_id = id;
             }
-            if c_next_idx < cshape_ids.len() {
-                cshape_id = cshape_ids[c_next_idx];
+            if let Some(&id) = cshape_ids.get(c_next_idx) {
+                cshape_id = id;
             }
             let e_begin = e_next;
             let clipped = if cshape_id < eshape_id {
@@ -408,14 +412,15 @@ impl ShapeIndex {
                 }
             } else {
                 // Count the number of edges for this shape and allocate space for them.
-                while e_next < edges.len()
-                    && face_edges[edges[e_next].face_edge].shape_id == eshape_id
-                {
+                while shape_at(edges, face_edges, e_next) == Some(eshape_id) {
                     e_next += 1;
                 }
-                let ids = edges[e_begin..e_next]
+                let ids = edges
+                    .get(e_begin..e_next)
+                    .unwrap_or_default()
                     .iter()
-                    .map(|e| face_edges[e.face_edge].edge_id)
+                    .filter_map(|e| face_edges.get(e.face_edge))
+                    .map(|fe| fe.edge_id)
                     .collect();
                 let mut clipped = ClippedShape {
                     shape_id: eshape_id,
@@ -445,12 +450,24 @@ impl ShapeIndex {
     }
 }
 
+/// The shape of the clipped edge at `k`, `None` past the last; each clipped edge names one of the face edges it was
+/// clipped from.
+fn shape_at(edges: &[ClippedEdge], face_edges: &[FaceEdge], k: usize) -> Option<i32> {
+    edges
+        .get(k)
+        .and_then(|e| face_edges.get(e.face_edge))
+        .map(|fe| fe.shape_id)
+}
+
 /// Counts the edges that have not reached their maximum level yet, and reports whether there
 /// are more than MAX_EDGES_PER_CELL of them.
 fn too_many_edges(p: &PaddedCell, edges: &[ClippedEdge], face_edges: &[FaceEdge]) -> bool {
     let mut count = 0;
     for ce in edges {
-        if p.level() < face_edges[ce.face_edge].max_level {
+        if face_edges
+            .get(ce.face_edge)
+            .is_some_and(|fe| p.level() < fe.max_level)
+        {
             count += 1;
         }
 
@@ -478,8 +495,11 @@ fn add_face_edge(fe: FaceEdge, all_edges: &mut [Vec<FaceEdge>; NUM_FACES]) {
             && fe.b.x.abs() <= MAX_UV
             && fe.b.y.abs() <= MAX_UV
         {
-            all_edges[a_face].push(fe);
-            return;
+            // A face is 0 to 5, so its edges are always present.
+            if let Some(face_edges) = all_edges.get_mut(a_face) {
+                face_edges.push(fe);
+                return;
+            }
         }
     }
 
@@ -539,7 +559,10 @@ fn clip_u_bound(edge: ClippedEdge, u_end: usize, u: f64, face_edges: &[FaceEdge]
     // at all, just their bounding box; and (2) it avoids the accumulation of
     // roundoff errors due to repeated interpolations. The result needs to be
     // clamped to ensure that it is in the appropriate range.
-    let e = &face_edges[edge.face_edge];
+    // Each clipped edge names one of the face edges it was clipped from.
+    let Some(e) = face_edges.get(edge.face_edge) else {
+        return edge;
+    };
     let v = edge
         .bound
         .y
@@ -569,7 +592,10 @@ fn clip_v_bound(edge: ClippedEdge, v_end: usize, v: f64, face_edges: &[FaceEdge]
     // at all, just their bounding box; and (2) it avoids the accumulation of
     // roundoff errors due to repeated interpolations. The result needs to be
     // clamped to ensure that it is in the appropriate range.
-    let e = &face_edges[edge.face_edge];
+    // Each clipped edge names one of the face edges it was clipped from.
+    let Some(e) = face_edges.get(edge.face_edge) else {
+        return edge;
+    };
     let u = edge
         .bound
         .x
@@ -607,7 +633,9 @@ fn clip_v_axis(
 /// Calls the trackers testEdge on all edges from shapes that have interiors.
 fn test_all_edges(edges: &[ClippedEdge], face_edges: &[FaceEdge], t: &mut Tracker) {
     for edge in edges {
-        let fe = &face_edges[edge.face_edge];
+        let Some(fe) = face_edges.get(edge.face_edge) else {
+            continue;
+        };
         if fe.has_interior {
             t.test_edge(fe.shape_id, fe.edge);
         }
@@ -623,7 +651,9 @@ fn count_shapes(edges: &[ClippedEdge], face_edges: &[FaceEdge], shape_ids: &[i32
     // index of the current element in the shapeIDs list.
     let mut shape_id_idx = 0;
     for edge in edges {
-        let shape_id = face_edges[edge.face_edge].shape_id;
+        let Some(shape_id) = face_edges.get(edge.face_edge).map(|fe| fe.shape_id) else {
+            continue;
+        };
         if shape_id == last_shape_id {
             continue;
         }
@@ -633,8 +663,7 @@ fn count_shapes(edges: &[ClippedEdge], face_edges: &[FaceEdge], shape_ids: &[i32
 
         // Skip over any containing shapes up to and including this one,
         // updating count as appropriate.
-        while shape_id_idx < shape_ids.len() {
-            let clipped_next = shape_ids[shape_id_idx];
+        while let Some(&clipped_next) = shape_ids.get(shape_id_idx) {
             if clipped_next > last_shape_id {
                 break;
             }

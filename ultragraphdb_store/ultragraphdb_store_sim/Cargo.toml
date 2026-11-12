@@ -22,11 +22,13 @@ workspace = true
 [dependencies]
 ultragraphdb_error_store = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
+# External crates
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_tool_bdd = { workspace = true }
+# External crates
 cucumber = { workspace = true }
 futures = { workspace = true }
 

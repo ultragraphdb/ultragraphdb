@@ -23,6 +23,14 @@ pub const MAX_FRAME_SIZE: usize = 1 << 20;
 /// of 65,535 dimensions (262,143 bytes), fits with room to spare.
 pub const MAX_FRAME_FLOOR: usize = 1 << 19;
 
+/// [`MAX_FRAME_SIZE`] at the width of a Hello's and a Welcome's `max_frame` field.
+pub const MAX_FRAME_SIZE_U32: u32 = 1 << 20;
+const _: () = assert!(MAX_FRAME_SIZE_U32 as usize == MAX_FRAME_SIZE);
+
+/// [`MAX_FRAME_FLOOR`] at the width of a Hello's and a Welcome's `max_frame` field.
+pub const MAX_FRAME_FLOOR_U32: u32 = 1 << 19;
+const _: () = assert!(MAX_FRAME_FLOOR_U32 as usize == MAX_FRAME_FLOOR);
+
 /// The largest write-set record a transaction commits by default, the Welcome's `max_write_set`: what one Round frame
 /// holds beside its header, its command header's sections and one decision.
 pub const DEFAULT_MAX_WRITE_SET: u32 = 1_040_384;

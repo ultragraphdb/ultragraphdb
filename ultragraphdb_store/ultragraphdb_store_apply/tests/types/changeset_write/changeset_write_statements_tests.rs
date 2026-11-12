@@ -292,7 +292,7 @@ fn held_under(a: &TestChangesets, count: u64) -> TestResult<Vec<SystemId>> {
     let mut batch = quads.lists().batch();
     let mut write = QuadWrite::new(quads, TENANT, batch.request(quads.lists().applied_ts()));
     write.set_statement_ids(DEFAULT_GRAPH, subject, knows, &object, &ids);
-    let (request, terms) = write.finish();
+    let (request, terms) = write.finish()?;
     batch.push(request);
     let _committed: Vec<u64> = quads.commit(batch, &[terms])?;
     Ok(ids)

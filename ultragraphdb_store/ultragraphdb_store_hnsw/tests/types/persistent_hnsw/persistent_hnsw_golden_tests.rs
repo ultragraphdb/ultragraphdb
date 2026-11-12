@@ -173,16 +173,16 @@ pub fn go_result(op: &GraphOp) -> TestResult<Vec<SystemId>> {
 }
 
 /// An op's vector at the run's width.
-pub fn vector<T: HnswFloat>(op: &GraphOp) -> Vec<T> {
+pub fn vector<T: HnswFloat>(op: &GraphOp) -> TestResult<Vec<T>> {
     op.vector
         .iter()
         .flatten()
         .map(|&bits| {
-            if T::BITS == 32 {
-                T::from_f32(f32::from_bits(bits as u32))
+            Ok(if T::BITS == 32 {
+                T::from_f32(f32::from_bits(u32::try_from(bits)?))
             } else {
                 T::from_f64(f64::from_bits(bits))
-            }
+            })
         })
         .collect()
 }
@@ -214,7 +214,7 @@ fn run<T: HnswFloat>(c: &GraphCase) -> TestResult<bool> {
         let at = format!("{} op {i} ({} {})", c.name, op.op, op.uid);
         match op.op.as_str() {
             "insert" => {
-                let v = vector::<T>(op);
+                let v = vector::<T>(op)?;
                 txn.put(key(&c.pred, op.uid)?, vec_bytes(&v));
                 let index = PersistentHnsw::<T>::new(vkeys(&c.pred)?, &o, c.bits)?;
                 let edges = index.insert(&TxnCache::new(&txn, 1), id(op.uid)?, &v, &mut draw);
@@ -272,7 +272,7 @@ fn run_search<T: HnswFloat>(
     at: &str,
 ) -> TestResult {
     let qc = QueryCache::new(txn, 1);
-    let query = vector::<T>(op);
+    let query = vector::<T>(op)?;
     let result = match search {
         "search" => Ok(index.search(&qc, &query, op.k, accept_all::<T>)),
         "search_options" => Ok(index.search_with_options(

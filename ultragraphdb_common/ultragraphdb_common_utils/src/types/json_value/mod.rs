@@ -65,29 +65,30 @@ impl JsonValue {
     /// The value of one JSON value the decoder has checked; `b` holds it alone, whitespace aside.
     pub(crate) fn from_valid(b: &[u8]) -> JsonValue {
         let mut open: Vec<Open> = Vec::new();
-        let mut i = 0;
+        // What is left of `b`: each step takes from its front, and what runs past its end leaves it empty.
+        let mut rest = b;
         loop {
-            i += json_wire::consume_whitespace(&b[i.min(b.len())..]);
-            let Some(&c) = b.get(i) else {
+            rest = json_wire::skip_whitespace(rest);
+            let Some((&c, after)) = rest.split_first() else {
                 return JsonValue::Null;
             };
             let value = match c {
                 b'{' => {
                     open.push(Open::Object(Vec::new(), None));
-                    i += 1;
+                    rest = after;
                     continue;
                 }
                 b'[' => {
                     open.push(Open::Array(Vec::new()));
-                    i += 1;
+                    rest = after;
                     continue;
                 }
                 b',' | b':' => {
-                    i += 1;
+                    rest = after;
                     continue;
                 }
                 b'}' | b']' => {
-                    i += 1;
+                    rest = after;
                     match open.pop() {
                         Some(Open::Array(items)) => JsonValue::Array(items),
                         Some(Open::Object(members, _)) => JsonValue::Object(members),
@@ -95,10 +96,11 @@ impl JsonValue {
                     }
                 }
                 b'"' => {
-                    let (n, _) = json_wire::consume_string_resumable(&b[i..], 0);
+                    let (n, _) = json_wire::consume_string_resumable(rest, 0);
+                    let (quoted, tail) = rest.split_at_checked(n).unwrap_or((rest, &[]));
                     let mut s = Vec::with_capacity(n);
-                    json_wire::append_unquote(&mut s, &b[i..i + n]);
-                    i += n;
+                    json_wire::append_unquote(&mut s, quoted);
+                    rest = tail;
                     let s = String::from_utf8(s)
                         .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
                     if let Some(Open::Object(_, name @ None)) = open.last_mut() {
@@ -108,20 +110,20 @@ impl JsonValue {
                     JsonValue::String(s)
                 }
                 b'n' => {
-                    i += 4;
+                    rest = rest.get(4..).unwrap_or_default();
                     JsonValue::Null
                 }
                 b't' => {
-                    i += 4;
+                    rest = rest.get(4..).unwrap_or_default();
                     JsonValue::Bool(true)
                 }
                 b'f' => {
-                    i += 5;
+                    rest = rest.get(5..).unwrap_or_default();
                     JsonValue::Bool(false)
                 }
                 _ => {
-                    let (value, n) = number_at(&b[i..]);
-                    i += n;
+                    let (value, n) = number_at(rest);
+                    rest = rest.get(n..).unwrap_or_default();
                     value
                 }
             };
@@ -139,6 +141,6 @@ impl JsonValue {
 /// The number `b` starts with and the bytes it takes, at least one.
 fn number_at(b: &[u8]) -> (JsonValue, usize) {
     let (n, _, _) = json_wire::consume_number_resumable(b, 0, NumberState::Init);
-    let text = String::from_utf8_lossy(&b[..n]).into_owned();
+    let text = String::from_utf8_lossy(b.get(..n).unwrap_or(b)).into_owned();
     (JsonValue::Number(text), n.max(1))
 }

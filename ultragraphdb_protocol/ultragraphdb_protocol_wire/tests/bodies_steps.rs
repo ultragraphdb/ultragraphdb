@@ -85,7 +85,7 @@ impl Dictionary {
             predicate,
             &Declaration::Predicate(declaration),
             version,
-        ));
+        )?);
         self.store
             .apply(batch, PersistMode::Sync)
             .context("the declaration is written")?;
@@ -167,7 +167,7 @@ fn offset_past_the_end(w: &mut Steps) -> TestResult {
     // The golden Read: section 2, the pattern's term text, moved past the body's end.
     let bytes = golden("read")?.bytes()?;
     let mut data = body_data(&bytes).to_vec();
-    let past = (data.len() + 16) as u32;
+    let past = u32::try_from(data.len() + 16)?;
     data[16..20].copy_from_slice(&past.to_le_bytes());
     w.refusals = view_any(&reframe(&bytes, &data))?
         .err()
@@ -185,7 +185,7 @@ fn section_named(w: &mut Steps) -> TestResult {
         vec![ProtocolErrorEnum::SectionOutOfBounds {
             command: 7,
             section: 2,
-            offset: (w.bytes.len() + 16) as u32,
+            offset: u32::try_from(w.bytes.len() + 16)?,
             len,
             body: w.bytes.len(),
         }]
@@ -342,7 +342,7 @@ fn iri_once(w: &mut Steps) -> TestResult {
     // 1,000 distinct objects and the one IRI.
     assert_eq!(view.term_count(), 1_001);
     let mut same: Vec<u32> = Vec::new();
-    for i in 0..view.term_count() as u32 {
+    for i in 0..u32::try_from(view.term_count())? {
         let term = view.term(i).context("each term of the batch")?;
         if term.text() == Some("http://ex.org/same") {
             same.push(i);

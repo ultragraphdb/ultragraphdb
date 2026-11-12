@@ -25,7 +25,7 @@ fn test_the_builder_lays_out_the_golden_catalog() -> TestResult {
 
 /// The golden Catalog reply.
 pub fn golden_catalog_reply() -> Catalog {
-    let bytes = (0u32..37).map(|i| ((i * 37 + 5) % 256) as u8).collect();
+    let bytes = (0u32..37).map(|i| (i * 37 + 5).to_le_bytes()[0]).collect();
     Catalog::reply(3, 12, 44, 1_240, bytes)
 }
 
@@ -62,6 +62,6 @@ fn test_the_getters_give_back_what_the_constructors_took() {
         ),
         (3, 12, 44, 1_240)
     );
-    let bytes: Vec<u8> = (0u32..37).map(|i| ((i * 37 + 5) % 256) as u8).collect();
+    let bytes: Vec<u8> = (0u32..37).map(|i| (i * 37 + 5).to_le_bytes()[0]).collect();
     assert_eq!(reply.bytes(), bytes.as_slice());
 }

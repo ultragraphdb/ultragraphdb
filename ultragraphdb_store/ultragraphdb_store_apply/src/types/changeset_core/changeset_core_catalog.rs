@@ -163,7 +163,7 @@ where
             .map(|predicate| {
                 let iri = self.quads.iri_of(tenant, predicate)?.0;
                 let default = PredicateDeclaration::new(NamedNode::new_unchecked(iri.clone()));
-                let entry = encode_declaration(&Declaration::Predicate(default));
+                let entry = encode_declaration(&Declaration::Predicate(default))?;
                 Ok(DefaultEntry::new(tenant, iri, entry))
             })
             .collect()

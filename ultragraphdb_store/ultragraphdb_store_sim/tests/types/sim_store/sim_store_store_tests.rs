@@ -57,8 +57,8 @@ fn scanned(store: &SimStore, scan: &Scan, ts: u64) -> TestResult<Vec<(Vec<u8>, u
 #[test]
 fn test_a_keys_versions_iterate_newest_first_with_their_meta() -> TestResult {
     let s = store();
-    for v in [3, 7, 5] {
-        write(&s, vec![Entry::put(b"k".to_vec(), v, v as u8, vec![])])?;
+    for v in [3u8, 7, 5] {
+        write(&s, vec![Entry::put(b"k".to_vec(), u64::from(v), v, vec![])])?;
     }
     let snapshot = s.snapshot(10)?;
     let items: Vec<(u64, u8)> = snapshot
@@ -126,7 +126,9 @@ fn test_an_oversized_key_refuses_its_whole_batch() -> TestResult {
     encoded.push(put(b"fine", 1, b""));
     // 44,000 bytes of `0x00 0x01`: every zero byte a run of one, 66,010 bytes once encoded and versioned.
     encoded.push(put(
-        &(0..44_000).map(|i| (i % 2) as u8).collect::<Vec<u8>>(),
+        &(0..44_000)
+            .map(|i| u8::from(i % 2 == 1))
+            .collect::<Vec<u8>>(),
         1,
         b"",
     ));

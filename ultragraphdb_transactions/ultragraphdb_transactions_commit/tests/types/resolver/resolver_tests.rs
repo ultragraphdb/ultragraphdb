@@ -13,7 +13,7 @@ use crate::utils::proposal_double::{Reads, Writes, read_set, record};
 fn admit(resolver: &mut Resolver, version: u64, writes: &Writes) -> TestResult {
     let bytes = record(0, 0, writes, 0);
     let view = WriteSetRecordView::new(&bytes).context("the record reads")?;
-    resolver.admit(version, &view);
+    resolver.admit(version, &view)?;
     Ok(())
 }
 
@@ -123,7 +123,7 @@ fn test_the_record_list_deltas_and_dictionary_alone_are_not_conflict_keys() -> T
     let bytes = record.encode();
     let view = WriteSetRecordView::new(&bytes).context("the record reads")?;
     let mut resolver = Resolver::new(0);
-    resolver.admit(12, &view);
+    resolver.admit(12, &view)?;
     assert_eq!(
         resolver.check(&read_set(0, 10, &Reads::list(b"k"))?),
         Ok(())

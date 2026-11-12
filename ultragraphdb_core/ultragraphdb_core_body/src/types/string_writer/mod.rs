@@ -21,9 +21,10 @@ pub struct StringWriter {
 impl StringWriter {
     /// The index of `s`, appended.
     pub fn push(&mut self, s: &str) -> u32 {
+        let index = as_u32(self.ends.len());
         self.text.extend_from_slice(s.as_bytes());
         self.ends.push(as_u32(self.text.len()));
-        as_u32(self.ends.len() - 1)
+        index
     }
 
     /// The index of `s`, appended the first time only.

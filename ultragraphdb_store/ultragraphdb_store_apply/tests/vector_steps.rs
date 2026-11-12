@@ -482,9 +482,9 @@ fn exponent_four(w: &mut Steps) -> TestResult {
     let index = PersistentHnsw::<f32>::new(keys(&a, "emb", "")?, &options, factory.float_bits())
         .context("the index opens")?;
     w.counts = vec![vec![
-        index.max_levels() as u32,
-        index.ef_construction() as u32,
-        index.ef_search() as u32,
+        u32::try_from(index.max_levels())?,
+        u32::try_from(index.ef_construction())?,
+        u32::try_from(index.ef_search())?,
     ]];
     Ok(())
 }
@@ -611,8 +611,14 @@ fn eight_writers(w: &mut Steps) -> TestResult {
     let versions: Vec<u64> = round.iter().map(|(v, _)| *v).collect();
     let applied = a.apply_round(round).context("the round commits")?;
     w.counts = vec![
-        applied.iter().map(|c| c.commit_ts() as u32).collect(),
-        versions.iter().map(|v| *v as u32).collect(),
+        applied
+            .iter()
+            .map(|c| u32::try_from(c.commit_ts()))
+            .collect::<Result<_, _>>()?,
+        versions
+            .iter()
+            .map(|v| u32::try_from(*v))
+            .collect::<Result<_, _>>()?,
     ];
     Ok(())
 }
@@ -688,10 +694,11 @@ fn levels(a: &TestChangesets, nodes: &[String]) -> TestResult<Vec<u32>> {
     nodes
         .iter()
         .map(|n| {
-            Ok(neighbours(a, &keys, uid(a, n)?)?
+            let level = neighbours(a, &keys, uid(a, n)?)?
                 .iter()
                 .position(|l| !l.is_empty())
-                .context("a node with neighbours")? as u32)
+                .context("a node with neighbours")?;
+            Ok(u32::try_from(level)?)
         })
         .collect()
 }

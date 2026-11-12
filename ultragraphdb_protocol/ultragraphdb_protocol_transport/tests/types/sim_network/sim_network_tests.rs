@@ -36,7 +36,7 @@ fn drain(stream: &mut SimStream) -> Vec<Vec<u8>> {
 fn run(
     seed: u64,
     faults: NetworkFaults,
-    messages: usize,
+    messages: u8,
 ) -> (
     Vec<Vec<u8>>,
     u64,
@@ -45,7 +45,7 @@ fn run(
     let network = SimNetwork::new(seed, faults);
     let (mut client, mut server) = network.connect();
     for i in 0..messages {
-        send(&mut client, &vec![i as u8; 10 + i]);
+        send(&mut client, &vec![i; 10 + usize::from(i)]);
     }
     network.run_until_idle();
     (drain(&mut server), network.now(), network.stats())
@@ -113,13 +113,17 @@ fn test_each_fault_does_what_it_says() {
     assert!(split.len() > 5);
     assert_eq!(split_stats.split(), 5);
     let joined: Vec<u8> = split.concat();
-    let sent: Vec<u8> = (0..5).flat_map(|i| vec![i as u8; 10 + i]).collect();
+    let sent: Vec<u8> = (0..5u8)
+        .flat_map(|i| vec![i; 10 + usize::from(i)])
+        .collect();
     assert_eq!(joined, sent);
     // Every message delayed, the order kept and the clock advanced past one step.
     let (delayed, now, delayed_stats) = run(1, NetworkFaults::none().with_delay(1_000_000, 8), 6);
     assert_eq!(
         delayed,
-        (0..6).map(|i| vec![i as u8; 10 + i]).collect::<Vec<_>>()
+        (0..6u8)
+            .map(|i| vec![i; 10 + usize::from(i)])
+            .collect::<Vec<_>>()
     );
     assert_eq!(delayed_stats.delayed(), 6);
     assert!(now > 1 && now <= 9, "{now}");

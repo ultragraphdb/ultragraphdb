@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_protocol_wire::{ConflictKind, WriteSetRecordView};
 use ultragraphdb_transactions_txn::ReadSet;
 
@@ -78,7 +79,15 @@ impl Resolver {
     }
 
     /// Adds the conflict points, statements and ranges of `record`, admitted at `version`, to the history.
-    pub fn admit(&mut self, version: u64, record: &WriteSetRecordView<'_>) {
+    ///
+    /// # Errors
+    ///
+    /// As [`ConflictHistory::insert`] refuses.
+    pub fn admit(
+        &mut self,
+        version: u64,
+        record: &WriteSetRecordView<'_>,
+    ) -> Result<(), InvariantError> {
         // A range's end key is its value; an empty end reaches past the last key.
         self.history.insert(
             version,
@@ -91,7 +100,7 @@ impl Resolver {
                 .conflict_ranges()
                 .iter()
                 .map(|e| (e.key(), e.value().filter(|end| !end.is_empty()))),
-        );
+        )
     }
 
     /// Prunes the history below `floor`.

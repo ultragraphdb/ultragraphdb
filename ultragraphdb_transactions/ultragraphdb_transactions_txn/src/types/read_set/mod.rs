@@ -100,15 +100,16 @@ impl ReadSet {
         Ok(())
     }
 
-    /// Appends `bytes` to the arena: their span. The limit keeps the arena within u32 offsets.
+    /// Appends `bytes` to the arena: their span. The limit, which [`ReadSet::room`] checks first, keeps the arena within
+    /// u32 offsets, so neither conversion saturates.
     fn add(&mut self, bytes: &[u8]) -> Span {
         // The cast is lossless: a `usize` holds 32 bits on every target the repository builds for.
         debug_assert!(self.arena.len() + bytes.len() <= u32::MAX as usize);
-        let at = self.arena.len() as u32;
+        let at = u32::try_from(self.arena.len()).unwrap_or(u32::MAX);
         self.arena.extend_from_slice(bytes);
         Span {
             at,
-            len: bytes.len() as u32,
+            len: u32::try_from(bytes.len()).unwrap_or(u32::MAX),
         }
     }
 

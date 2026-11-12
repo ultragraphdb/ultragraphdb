@@ -12,7 +12,7 @@ use ultragraphdb_core_terms::{TermView, Text};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Command, ComputeRead, ComputeReadView, Credit, ErrorCode,
-    ErrorReplyView, FLAG_LAST, FrameView, Header, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, PatternSlot,
+    ErrorReplyView, FLAG_LAST, FrameView, Header, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE, PatternSlot,
     QuadPattern, ReadLevel, RequestTerm, ResultTermView, ResultView, TermTable,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -101,7 +101,7 @@ pub fn read_of(
         ComputeRead::new(TENANT, read_only, level, terms, slots, resume)
             .with_principal(PRINCIPAL)
             .with_deadline_ms(DEADLINE_MS)
-            .with_client_limits(MAX_FRAME_FLOOR as u32, 4),
+            .with_client_limits(MAX_FRAME_FLOOR_U32, 4),
     )
 }
 

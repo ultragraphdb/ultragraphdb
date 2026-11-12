@@ -10,7 +10,8 @@
 use dashu_int::UBig;
 use dashu_int::ops::BitTest;
 
-use crate::types::big_float::{BigFloat, Form, go_int};
+use crate::errors::types_error::TypesError;
+use crate::types::big_float::{BigFloat, Form, go_int, go_uint};
 
 /// Go's `decimal`: digits without trailing zeros and the decimal point position (value = 0.mant × 10^exp).
 struct Decimal {
@@ -20,26 +21,29 @@ struct Decimal {
 
 impl Decimal {
     /// Go's `decimal.init`: the exact digits of `m × 2^shift`.
-    fn new(m: &UBig, shift: i64) -> Decimal {
+    fn new(m: &UBig, shift: i64) -> Result<Decimal, TypesError> {
         if *m == UBig::ZERO {
-            return Decimal {
+            return Ok(Decimal {
                 mant: Vec::new(),
                 exp: 0,
-            };
+            });
         }
+        let down = go_uint(shift.unsigned_abs())?;
         let (n, exp10) = if shift >= 0 {
-            (m << shift as usize, 0)
+            (m << down, 0)
         } else {
-            let tz = m.trailing_zeros().unwrap_or(0).min((-shift) as usize);
-            let (m, shift) = (m >> tz, shift + go_int(tz));
-            (m * UBig::from(5u8).pow((-shift) as usize), shift)
+            let tz = m.trailing_zeros().unwrap_or(0).min(down);
+            (
+                (m >> tz) * UBig::from(5u8).pow(down - tz),
+                shift + go_int(tz),
+            )
         };
         let s = n.to_string();
         let digits = s.trim_end_matches('0');
-        Decimal {
+        Ok(Decimal {
             mant: digits.as_bytes().to_vec(),
             exp: go_int(s.len()) + exp10,
-        }
+        })
     }
 
     fn at(&self, i: usize) -> u8 {
@@ -47,20 +51,27 @@ impl Decimal {
     }
 
     fn should_round_up(&self, n: usize) -> bool {
-        if self.mant[n] == b'5' && n + 1 == self.mant.len() {
-            return n > 0 && (self.mant[n - 1] - b'0') & 1 != 0;
+        match self.mant.get(n) {
+            Some(b'5') if n + 1 == self.mant.len() => n
+                .checked_sub(1)
+                .and_then(|p| self.mant.get(p))
+                .is_some_and(|&p| (p - b'0') & 1 != 0),
+            Some(&c) => c >= b'5',
+            None => false,
         }
-        self.mant[n] >= b'5'
     }
 
     fn round(&mut self, n: i64) {
-        if n < 0 || n as usize >= self.mant.len() {
+        let Ok(n) = usize::try_from(n) else {
+            return;
+        };
+        if n >= self.mant.len() {
             return;
         }
-        if self.should_round_up(n as usize) {
-            self.round_up(n as usize)
+        if self.should_round_up(n) {
+            self.round_up(n)
         } else {
-            self.round_down(n as usize)
+            self.round_down(n)
         }
     }
 
@@ -69,16 +80,20 @@ impl Decimal {
             return;
         }
         let mut n = n;
-        while n > 0 && self.mant[n - 1] >= b'9' {
+        while n > 0 && self.mant.get(n - 1).is_some_and(|&c| c >= b'9') {
             n -= 1;
         }
         if n == 0 {
             self.mant.truncate(1);
-            self.mant[0] = b'1';
+            if let Some(first) = self.mant.first_mut() {
+                *first = b'1';
+            }
             self.exp += 1;
             return;
         }
-        self.mant[n - 1] += 1;
+        if let Some(c) = self.mant.get_mut(n - 1) {
+            *c += 1;
+        }
         self.mant.truncate(n);
     }
 
@@ -98,12 +113,12 @@ impl Decimal {
 
 impl BigFloat {
     /// Go's `MarshalText`: `Text('g', -1)`, the shortest decimal that rounds back to this value at its precision.
-    pub fn marshal_text(&self) -> String {
+    pub fn marshal_text(&self) -> Result<String, TypesError> {
         self.text_g(-1)
     }
 
     /// Go's `Text('g', prec)`; `String()` is `Text('g', 10)`.
-    pub fn text_g(&self, prec: i64) -> String {
+    pub fn text_g(&self, prec: i64) -> Result<String, TypesError> {
         let mut buf = String::new();
         if self.neg {
             buf.push('-');
@@ -114,16 +129,16 @@ impl BigFloat {
                     buf.push('+');
                 }
                 buf.push_str("Inf");
-                return buf;
+                return Ok(buf);
             }
             Form::Zero => (UBig::ZERO, 0),
             Form::Finite { mant, exp } => (mant.clone(), *exp),
         };
-        let mut d = Decimal::new(&mant, exp);
+        let mut d = Decimal::new(&mant, exp)?;
         let shortest = prec < 0;
         let mut prec = prec;
         if shortest {
-            self.round_shortest(&mut d, &mant, exp);
+            self.round_shortest(&mut d, &mant, exp)?;
             prec = go_int(d.mant.len());
         } else {
             if prec == 0 {
@@ -143,32 +158,35 @@ impl BigFloat {
             if prec > go_int(d.mant.len()) {
                 prec = go_int(d.mant.len());
             }
-            fmt_e(&mut buf, prec - 1, &d);
+            fmt_e(&mut buf, prec - 1, &d)?;
         } else {
             if prec > d.exp {
                 prec = go_int(d.mant.len());
             }
-            fmt_f(&mut buf, (prec - d.exp).max(0), &d);
+            fmt_f(&mut buf, (prec - d.exp).max(0), &d)?;
         }
-        buf
+        Ok(buf)
     }
 
     /// Go's `roundShortest`: the shortest digits within the symmetric interval of half an ulp, digit by digit.
-    fn round_shortest(&self, d: &mut Decimal, m: &UBig, exp: i64) {
+    fn round_shortest(&self, d: &mut Decimal, m: &UBig, exp: i64) -> Result<(), TypesError> {
         if d.mant.is_empty() {
-            return;
+            return Ok(());
         }
         let s = go_int(m.bit_len()) - (i64::from(self.prec) + 1);
+        let bits = go_uint(s.unsigned_abs())?;
         let (mant, exp) = if s < 0 {
-            (m << (-s) as usize, exp + s)
+            (m << bits, exp + s)
         } else {
-            (m >> s as usize, exp + s)
+            (m >> bits, exp + s)
         };
-        let lower = Decimal::new(&(&mant - UBig::ONE), exp);
-        let upper = Decimal::new(&(&mant + UBig::ONE), exp);
+        let lower = Decimal::new(&(&mant - UBig::ONE), exp)?;
+        let upper = Decimal::new(&(&mant + UBig::ONE), exp)?;
         let inclusive = !mant.bit(1);
         for i in 0..d.mant.len() {
-            let digit = d.mant[i];
+            let Some(&digit) = d.mant.get(i) else {
+                break;
+            };
             let l = lower.at(i);
             let u = upper.at(i);
             let okdown = l != digit || inclusive && i + 1 == lower.mant.len();
@@ -181,15 +199,16 @@ impl BigFloat {
                     || i >= upper.mant.len() && digit < b'9');
             if okdown && okup {
                 d.round(go_int(i) + 1);
-                return;
+                return Ok(());
             } else if okdown {
                 d.round_down(i + 1);
-                return;
+                return Ok(());
             } else if okup {
                 d.round_up(i + 1);
-                return;
+                return Ok(());
             }
         }
+        Ok(())
     }
 
     /// Go's `Text('p', 0)`: `0x.<hex mantissa>p<exponent>`, the exact value.
@@ -225,19 +244,16 @@ impl BigFloat {
 }
 
 /// Go's `fmtE`: `d.dddde±dd`.
-fn fmt_e(buf: &mut String, prec: i64, d: &Decimal) {
-    buf.push(if d.mant.is_empty() {
-        '0'
-    } else {
-        d.mant[0] as char
-    });
+fn fmt_e(buf: &mut String, prec: i64, d: &Decimal) -> Result<(), TypesError> {
+    buf.push(d.mant.first().map_or('0', |&c| c as char));
     if prec > 0 {
         buf.push('.');
+        // The digits after the first, at most `prec` of them.
+        let shown = d.mant.iter().skip(1).take(go_uint(prec.unsigned_abs())?);
         let mut i = 1usize;
-        let m = d.mant.len().min(prec as usize + 1);
-        if i < m {
-            d.mant[i..m].iter().for_each(|&c| buf.push(c as char));
-            i = m;
+        for &c in shown {
+            buf.push(c as char);
+            i += 1;
         }
         // Pads with zeros to `prec` digits: `i` rises by one a turn, and the loop ends past `prec`.
         while go_int(i) <= prec {
@@ -257,22 +273,24 @@ fn fmt_e(buf: &mut String, prec: i64, d: &Decimal) {
         buf.push('0');
     }
     buf.push_str(&exp.to_string());
+    Ok(())
 }
 
 /// Go's `fmtF`: `ddddd.dddd`.
-fn fmt_f(buf: &mut String, prec: i64, d: &Decimal) {
+fn fmt_f(buf: &mut String, prec: i64, d: &Decimal) -> Result<(), TypesError> {
     if d.exp > 0 {
-        let m = d.mant.len().min(d.exp as usize);
-        d.mant[..m].iter().for_each(|&c| buf.push(c as char));
-        (m..d.exp as usize).for_each(|_| buf.push('0'));
+        let exp = go_uint(d.exp.unsigned_abs())?;
+        d.mant.iter().take(exp).for_each(|&c| buf.push(c as char));
+        (d.mant.len()..exp).for_each(|_| buf.push('0'));
     } else {
         buf.push('0');
     }
     if prec > 0 {
         buf.push('.');
         for i in 0..prec {
-            let j = d.exp + i;
-            buf.push(if j >= 0 { d.at(j as usize) } else { b'0' } as char);
+            let digit = usize::try_from(d.exp + i).map_or(b'0', |j| d.at(j));
+            buf.push(digit as char);
         }
     }
+    Ok(())
 }

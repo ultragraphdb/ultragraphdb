@@ -3,7 +3,6 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -14,6 +13,7 @@ use crate::types::frame_view::FrameView;
 use crate::types::term_table_view::TermTableView;
 use crate::utils::body::{read_sections, u32s};
 use crate::utils::command_header::expect_command;
+use crate::utils::fields::count;
 
 impl<'a> BodyView<'a> for ExecuteView<'a> {
     const COMMAND: Command = Command::Execute;
@@ -33,7 +33,7 @@ impl<'a> BodyView<'a> for ExecuteView<'a> {
             sections.get(1),
         )?;
         let parameters = u32s(command, 2, sections.get(2))?;
-        let limit = as_u32(terms.len());
+        let limit = count(command, "terms", terms.len())?;
         if let Some((at, index)) = parameters.iter().enumerate().find(|(_, i)| **i >= limit) {
             return Err(ProtocolError::index_out_of_range(
                 command, 2, at, *index, limit,

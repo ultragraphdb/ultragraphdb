@@ -22,8 +22,9 @@ use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     Abort, Bind, BindKind, BindView, BodyView, Closed, ClosedView, Command, Commit, CommitView,
     Credit, DETAIL_TRANSACTION_NOT_HELD, EntriesEnd, EntriesSequence, ErrorCode, ErrorReplyView,
-    FLAG_LAST, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, ObjectRecords, Recall, Reference, ReferenceView,
-    RequestTerm, Scan, ScanAt, ScanRange, TermTable, Write, WriteChange,
+    FLAG_LAST, MAX_FRAME_FLOOR, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE, MAX_FRAME_SIZE_U32,
+    ObjectRecords, Recall, Reference, ReferenceView, RequestTerm, Scan, ScanAt, ScanRange,
+    TermTable, Write, WriteChange,
 };
 use ultragraphdb_store_quads::{ReferrerSet, iri_bucket, literal_key, tenant_base, term_key};
 use ultragraphdb_tests::{CLUSTER, SECRET, STORAGE_ROLE_ADDRESS, scratch, with};
@@ -435,7 +436,7 @@ fn hub_read_through(w: &mut Steps, objects: u64, max_frame: u32) -> TestResult {
 #[when("a reverse list holds more objects than one frame carries, and compute scans it")]
 fn hub_scanned(w: &mut Steps) -> TestResult {
     let objects = hub_held(w)?;
-    hub_read_through(w, objects, MAX_FRAME_FLOOR as u32)
+    hub_read_through(w, objects, MAX_FRAME_FLOOR_U32)
 }
 
 #[when(
@@ -444,7 +445,7 @@ fn hub_scanned(w: &mut Steps) -> TestResult {
 fn hub_past_a_turn(w: &mut Steps) -> TestResult {
     let objects = hub_held(w)?;
     const { assert!(MAX_FRAME_FLOOR > TURN_BYTES, "the list outgrows a turn") };
-    hub_read_through(w, objects, MAX_FRAME_SIZE as u32)
+    hub_read_through(w, objects, MAX_FRAME_SIZE_U32)
 }
 
 #[then("every Entries frame holds no more than a turn builds, and the list arrives whole")]
@@ -475,7 +476,7 @@ fn commit_beside_scans(w: &mut Steps) -> TestResult {
     run(async {
         let target = Address::parse(&address())?;
         let mut client =
-            RoleClient::dial_taking(&target, CLUSTER, "compute", SECRET, MAX_FRAME_SIZE as u32)
+            RoleClient::dial_taking(&target, CLUSTER, "compute", SECRET, MAX_FRAME_SIZE_U32)
                 .await?;
         let scan = plain(
             ScanAt::Latest,
@@ -920,7 +921,10 @@ fn across_a_close(w: &mut Steps) -> TestResult {
 #[then("both ranges read the version chosen first, and every frame names its epoch")]
 fn one_version(w: &mut Steps) -> TestResult {
     let chosen = w.kernel.numbers.first().context("the epoch")?;
-    assert_eq!(w.kernel.batches.len() as u32, PARTITION_INITIAL_CREDIT + 1);
+    assert_eq!(
+        u32::try_from(w.kernel.batches.len())?,
+        PARTITION_INITIAL_CREDIT + 1
+    );
     assert!(
         w.kernel.batches.iter().all(|batch| batch.epoch == *chosen),
         "{:?}",
@@ -1542,7 +1546,7 @@ fn too_large_value(w: &mut Steps) -> TestResult {
     run(async {
         let _version = commit_at(&address(), PARTITION, &write).await?;
         let target = Address::parse(&address())?;
-        let taking = MAX_FRAME_FLOOR as u32;
+        let taking = MAX_FRAME_FLOOR_U32;
         let mut small =
             RoleClient::dial_taking(&target, CLUSTER, "compute", SECRET, taking).await?;
         let scan = plain(ScanAt::Latest, 0, 0, 0, std::slice::from_ref(&alone(key)));

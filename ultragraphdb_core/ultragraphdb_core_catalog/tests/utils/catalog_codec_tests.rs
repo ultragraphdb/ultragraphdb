@@ -45,7 +45,7 @@ fn test_every_declaration_round_trips_and_every_truncation_is_refused() -> TestR
         Declaration::Relation(RelationDeclaration::new(ex("R"), vec![ex("a"), ex("b")])),
     ];
     for declaration in declarations {
-        let bytes = encode_declaration(&declaration);
+        let bytes = encode_declaration(&declaration)?;
         assert_eq!(decode_declaration(b"k", &bytes), Ok(declaration.clone()));
         for end in 0..bytes.len() {
             assert_eq!(
@@ -65,8 +65,8 @@ fn test_every_declaration_round_trips_and_every_truncation_is_refused() -> TestR
 }
 
 #[test]
-fn test_unknown_codes_are_refused() {
-    let bytes = encode_declaration(&Declaration::Predicate(PredicateDeclaration::new(ex("p"))));
+fn test_unknown_codes_are_refused() -> TestResult {
+    let bytes = encode_declaration(&Declaration::Predicate(PredicateDeclaration::new(ex("p"))))?;
     let kind_at = 2 + 4 + "http://ex.org/p".len();
     // After the kind and cardinality bytes: the datatype's presence flag, then the unique flag.
     for (at, value, reason) in [
@@ -85,6 +85,7 @@ fn test_unknown_codes_are_refused() {
             "byte {at} = {value}"
         );
     }
+    Ok(())
 }
 
 #[test]
@@ -96,7 +97,7 @@ fn test_a_vector_index_s_dimension_is_two_big_endian_bytes_after_its_factory() -
         }
         Ok(encode_declaration(&Declaration::Predicate(
             PredicateDeclaration::new(ex("p")).with_vector_index(spec),
-        )))
+        ))?)
     };
     // After the factory's name, a u32 big-endian length and "hnsw": 768 is 0x0300, none is 0.
     let factory_end = |bytes: &[u8]| {
@@ -117,8 +118,9 @@ fn test_a_vector_index_s_dimension_is_two_big_endian_bytes_after_its_factory() -
 }
 
 #[test]
-fn test_an_entry_of_the_format_before_the_dimension_is_refused() {
-    let mut bytes = encode_declaration(&Declaration::Predicate(PredicateDeclaration::new(ex("p"))));
+fn test_an_entry_of_the_format_before_the_dimension_is_refused() -> TestResult {
+    let mut bytes =
+        encode_declaration(&Declaration::Predicate(PredicateDeclaration::new(ex("p"))))?;
     assert_eq!(
         bytes[0], 2,
         "the format carrying a vector index's dimension"
@@ -128,6 +130,7 @@ fn test_an_entry_of_the_format_before_the_dimension_is_refused() {
         decode_declaration(b"k", &bytes),
         Err(corrupted("unknown format 1"))
     );
+    Ok(())
 }
 
 /// The corruption of the entry under the key `k`, as `reason` says.
@@ -136,11 +139,11 @@ fn corrupted(reason: &str) -> CatalogError {
 }
 
 #[test]
-fn test_a_string_that_is_not_utf8_or_an_iri_that_does_not_parse_is_refused() {
+fn test_a_string_that_is_not_utf8_or_an_iri_that_does_not_parse_is_refused() -> TestResult {
     let bytes = encode_declaration(&Declaration::Relation(RelationDeclaration::new(
         ex("R"),
         Vec::new(),
-    )));
+    )))?;
     // The IRI's bytes begin after the format, the kind and the 4-byte length.
     let mut not_utf8 = bytes.clone();
     not_utf8[6] = 0xFF;
@@ -157,4 +160,5 @@ fn test_a_string_that_is_not_utf8_or_an_iri_that_does_not_parse_is_refused() {
         .unwrap_or_default();
     assert!(!reason.is_empty());
     assert_eq!(refused, Err(corrupted(&reason)));
+    Ok(())
 }

@@ -43,7 +43,8 @@ fn columns(pattern: &QuadPattern) -> u32 {
         .slots()
         .into_iter()
         .filter(|slot| matches!(slot, PatternSlot::Unbound))
-        .count() as u32; // a pattern's slots, at most four, lossless
+        .map(|_| 1_u32)
+        .sum::<u32>(); // a pattern's slots, at most four
     unbound + 1
 }
 

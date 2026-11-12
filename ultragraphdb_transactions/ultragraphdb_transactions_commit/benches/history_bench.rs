@@ -13,10 +13,12 @@
 //! body.
 
 use std::collections::{BTreeMap, VecDeque};
+use std::error::Error;
 use std::hint::black_box;
 
 use criterion::measurement::WallTime;
 use criterion::{BenchmarkGroup, BenchmarkId, Criterion};
+use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_transactions_commit::ConflictHistory;
 use ultragraphdb_transactions_txn::{ReadSet, TxnError};
 
@@ -133,7 +135,7 @@ impl BTreeHistory {
     }
 }
 
-fn insert_runs(h: &mut ConflictHistory, version: u64, w: &Writes) {
+fn insert_runs(h: &mut ConflictHistory, version: u64, w: &Writes) -> Result<(), InvariantError> {
     h.insert(
         version,
         w.points.iter().map(Vec::as_slice),
@@ -141,18 +143,23 @@ fn insert_runs(h: &mut ConflictHistory, version: u64, w: &Writes) {
             .iter()
             .map(|(k, o)| (k.as_slice(), o.as_slice())),
         std::iter::empty(),
-    );
+    )
 }
 
-fn history(c: &mut Criterion) -> Result<(), TxnError> {
+fn history(c: &mut Criterion) -> Result<(), Box<dyn Error>> {
     let mut admit = c.benchmark_group("history_admit");
     for window in [1_000u64, 10_000] {
         let mut rng = Lcg(1);
         let pool: Vec<Writes> = (0..4_096).map(|_| writes(&mut rng)).collect();
         let mut runs = ConflictHistory::new(0);
         let mut tree = BTreeHistory::default();
-        for (i, w) in pool.iter().cycle().take(window as usize).enumerate() {
-            insert_runs(&mut runs, 2 * (i as u64 + 1), w);
+        for (i, w) in pool
+            .iter()
+            .cycle()
+            .take(usize::try_from(window)?)
+            .enumerate()
+        {
+            insert_runs(&mut runs, 2 * (i as u64 + 1), w)?;
             tree.insert(2 * (i as u64 + 1), w);
         }
         let mut version = 2 * window;
@@ -162,9 +169,9 @@ fn history(c: &mut Criterion) -> Result<(), TxnError> {
                 b.iter(|| {
                     version += 2;
                     at = (at + 1) % pool.len();
-                    insert_runs(&mut runs, version, &pool[at]);
+                    let admitted = insert_runs(&mut runs, version, &pool[at]);
                     runs.prune(version - 2 * window);
-                    black_box(runs.runs())
+                    black_box((admitted, runs.runs()))
                 })
             });
         let mut tree_version = 2 * window;
@@ -181,7 +188,10 @@ fn history(c: &mut Criterion) -> Result<(), TxnError> {
             });
     }
     admit.finish();
+    history_check(c)
+}
 
+fn history_check(c: &mut Criterion) -> Result<(), Box<dyn Error>> {
     let mut check = c.benchmark_group("history_check");
     for window in [1_000u64, 10_000] {
         let mut rng = Lcg(2);
@@ -189,7 +199,7 @@ fn history(c: &mut Criterion) -> Result<(), TxnError> {
         let mut tree = BTreeHistory::default();
         for i in 0..window {
             let w = writes(&mut rng);
-            insert_runs(&mut runs, 2 * (i + 1), &w);
+            insert_runs(&mut runs, 2 * (i + 1), &w)?;
             tree.insert(2 * (i + 1), &w);
         }
         for (name, rv) in [("recent", 2 * window - 8), ("old", 0)] {
@@ -219,7 +229,7 @@ fn history(c: &mut Criterion) -> Result<(), TxnError> {
 
 /// Runs the benchmarks with criterion's command-line configuration, as `criterion_main!` would, and fails on a read
 /// set refused.
-fn main() -> Result<(), TxnError> {
+fn main() -> Result<(), Box<dyn Error>> {
     let mut criterion = Criterion::default().configure_from_args();
     history(&mut criterion)?;
     criterion.final_summary();

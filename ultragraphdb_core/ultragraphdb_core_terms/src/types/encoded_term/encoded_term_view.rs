@@ -185,14 +185,22 @@ fn fixed_at<const N: usize>(bytes: &[u8], at: usize) -> Result<[u8; N], TermErro
 /// The inline part at `at` of the body of `bytes`, and where the next part begins.
 fn inline(bytes: &[u8], at: usize) -> Result<(&str, usize), TermError> {
     let truncated = || TermError::truncated(bytes.to_vec());
-    let [n] = fixed_at::<1>(bytes, at)?;
-    let start = at + 2;
-    let end = start + usize::from(n);
-    let text = std::str::from_utf8(bytes.get(start..end).ok_or_else(truncated)?)
+    // The part's length byte, after the tag at body offset `at`, then its text; the next part follows the text.
+    let (n, rest) = at
+        .checked_add(1)
+        .and_then(|start| bytes.get(start..))
+        .and_then(<[u8]>::split_first)
+        .ok_or_else(truncated)?;
+    let n = usize::from(*n);
+    let text = std::str::from_utf8(rest.get(..n).ok_or_else(truncated)?)
         .map_err(|_| TermError::malformed(bytes.to_vec(), "an inline part is not UTF-8"))?;
     debug_assert!(
         text.len() <= INLINE_MAX,
         "an inline part is at most 15 bytes"
     );
-    Ok((text, at + 1 + usize::from(n)))
+    let next = at
+        .checked_add(1)
+        .and_then(|after| after.checked_add(n))
+        .ok_or_else(truncated)?;
+    Ok((text, next))
 }

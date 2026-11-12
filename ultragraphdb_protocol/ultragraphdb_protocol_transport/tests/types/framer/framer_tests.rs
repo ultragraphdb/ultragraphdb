@@ -23,7 +23,7 @@ fn hello() -> TestResult<Vec<u8>> {
         1,
         1,
         3,
-        MAX_FRAME_SIZE as u32,
+        u32::try_from(MAX_FRAME_SIZE)?,
         "a client named at some length",
     )
     .frame(Header::new(CLUSTER, Command::Hello))?)

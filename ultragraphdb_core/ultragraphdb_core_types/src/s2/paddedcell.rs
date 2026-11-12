@@ -8,12 +8,13 @@
 
 use crate::s2::cellid::{
     CellId, IJ_TO_POS, INVERT_MASK, MAX_LEVEL, POS_TO_IJ, POS_TO_ORIENTATION, SWAP_MASK,
-    cell_id_from_face_ij, ij_level_to_bound_uv, size_ij,
+    cell_id_from_face_ij, ij_level_to_bound_uv, quad, size_ij,
 };
 use crate::s2::point::Point;
 use crate::s2::r1::R1Interval;
 use crate::s2::r2::R2Rect;
 use crate::s2::stuv::{face_si_ti_to_xyz, si_ti_to_st, st_to_ij, st_to_uv, uv_to_st};
+use crate::utils::go_conv::go_uint32;
 
 /// Represents a Cell whose (u,v)-range has been expanded on all sides by a given amount of
 /// "padding". Unlike Cell, its methods and representation are optimized for clipping edges
@@ -77,13 +78,13 @@ impl PaddedCell {
     pub(crate) fn from_parent_ij(parent: &PaddedCell, i: usize, j: usize) -> PaddedCell {
         // Compute the position and orientation of the child incrementally from the
         // orientation of the parent.
-        let pos = IJ_TO_POS[parent.orientation][2 * i + j];
+        let pos = quad(quad(IJ_TO_POS, parent.orientation), 2 * i + j);
 
         let mut p = PaddedCell {
-            id: parent.id.children()[pos],
+            id: quad(parent.id.children(), pos),
             padding: parent.padding,
             bound: parent.bound,
-            orientation: parent.orientation ^ POS_TO_ORIENTATION[pos],
+            orientation: parent.orientation ^ quad(POS_TO_ORIENTATION, pos),
             level: parent.level + 1,
             middle: R2Rect::empty(),
             i_lo: 0,
@@ -123,8 +124,8 @@ impl PaddedCell {
     /// Returns the center of this cell.
     pub(crate) fn center(&self) -> Point {
         let ij_size = size_ij(self.level);
-        let si = (2 * self.i_lo + ij_size) as u32;
-        let ti = (2 * self.j_lo + ij_size) as u32;
+        let si = go_uint32(2 * self.i_lo + ij_size);
+        let ti = go_uint32(2 * self.j_lo + ij_size);
         Point(face_si_ti_to_xyz(self.id.face(), si, ti).0.normalize())
     }
 
@@ -137,8 +138,8 @@ impl PaddedCell {
 
     fn compute_middle(&self) -> R2Rect {
         let ij_size = size_ij(self.level);
-        let u = st_to_uv(si_ti_to_st((2 * self.i_lo + ij_size) as u32));
-        let v = st_to_uv(si_ti_to_st((2 * self.j_lo + ij_size) as u32));
+        let u = st_to_uv(si_ti_to_st(go_uint32(2 * self.i_lo + ij_size)));
+        let v = st_to_uv(si_ti_to_st(go_uint32(2 * self.j_lo + ij_size)));
         R2Rect::new(
             R1Interval::new(u - self.padding, u + self.padding),
             R1Interval::new(v - self.padding, v + self.padding),
@@ -149,7 +150,7 @@ impl PaddedCell {
     /// traversal position corresponds to the order in which child cells are visited by the
     /// Hilbert curve.
     pub(crate) fn child_ij(&self, pos: usize) -> (usize, usize) {
-        let ij = POS_TO_IJ[self.orientation][pos];
+        let ij = quad(quad(POS_TO_IJ, self.orientation), pos);
         (ij >> 1, ij & 1)
     }
 
@@ -165,7 +166,7 @@ impl PaddedCell {
             j += ij_size;
         }
         Point(
-            face_si_ti_to_xyz(self.id.face(), (2 * i) as u32, (2 * j) as u32)
+            face_si_ti_to_xyz(self.id.face(), go_uint32(2 * i), go_uint32(2 * j))
                 .0
                 .normalize(),
         )
@@ -184,7 +185,7 @@ impl PaddedCell {
             j += ij_size;
         }
         Point(
-            face_si_ti_to_xyz(self.id.face(), (2 * i) as u32, (2 * j) as u32)
+            face_si_ti_to_xyz(self.id.face(), go_uint32(2 * i), go_uint32(2 * j))
                 .0
                 .normalize(),
         )
@@ -214,10 +215,10 @@ impl PaddedCell {
         let ij_size = size_ij(self.level);
         if rect
             .x
-            .contains(st_to_uv(si_ti_to_st((2 * self.i_lo + ij_size) as u32)))
+            .contains(st_to_uv(si_ti_to_st(go_uint32(2 * self.i_lo + ij_size))))
             || rect
                 .y
-                .contains(st_to_uv(si_ti_to_st((2 * self.j_lo + ij_size) as u32)))
+                .contains(st_to_uv(si_ti_to_st(go_uint32(2 * self.j_lo + ij_size))))
         {
             return self.id;
         }
@@ -260,7 +261,8 @@ impl PaddedCell {
         // and then choose the cell level that includes both of these endpoints. So
         // if both pairs of endpoints are equal we choose MaxLevel; if they differ
         // only at bit 0, we choose (MaxLevel - 1), and so on.
-        let level_msb = (((i_xor | j_xor) << 1) + 1) as u64;
+        // Go's uint64(int): the value read as two's complement.
+        let level_msb = (((i_xor | j_xor) << 1) + 1).cast_unsigned();
         let level = MAX_LEVEL - (64 - i64::from(level_msb.leading_zeros()) - 1);
         if level <= self.level {
             return self.id;

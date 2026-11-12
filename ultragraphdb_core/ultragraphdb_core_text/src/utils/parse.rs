@@ -18,6 +18,7 @@ use crate::tables::language_tables::{
 use crate::types::full_tag::FullTag;
 use crate::types::lang_id::LangId;
 use crate::types::scanner::Scanner;
+use crate::utils::go_int::{go_byte, go_uint16};
 use crate::utils::lookup::{get_lang_id, get_region_id, get_script_id};
 
 const MAX_ALT_TAG_LEN: usize = "en-US-POSIX".len();
@@ -64,15 +65,19 @@ const ALT_TAGS: &str = "xtg-x-cel-gaulishen-GB-oxendicten-x-i-defaultund-x-i-eno
 fn grandfathered(s: &[u8; MAX_ALT_TAG_LEN]) -> Option<FullTag> {
     let (_, v) = GRANDFATHERED.iter().find(|(k, _)| {
         let mut key = [0u8; MAX_ALT_TAG_LEN];
-        key[..k.len()].copy_from_slice(k);
+        key.iter_mut().zip(*k).for_each(|(slot, &c)| *slot = c);
         &key == s
     })?;
     if *v < 0 {
-        let i = (-*v) as usize;
-        return Some(make(&ALT_TAGS[ALT_TAG_INDEX[i - 1]..ALT_TAG_INDEX[i]]));
+        let i = usize::try_from(v.unsigned_abs()).ok()?;
+        let (start, end) = (
+            *ALT_TAG_INDEX.get(i.checked_sub(1)?)?,
+            *ALT_TAG_INDEX.get(i)?,
+        );
+        return Some(make(ALT_TAGS.get(start..end)?));
     }
     Some(FullTag {
-        lang_id: LangId(*v as u16),
+        lang_id: LangId(u16::try_from(*v).ok()?),
         ..FullTag::default()
     })
 }
@@ -100,7 +105,11 @@ pub(crate) fn parse(s: &str) -> Result<FullTag, (FullTag, LanguageError)> {
                 '_' => '-',
                 _ => c,
             };
-            b[i] = c as u32 as u8;
+            // Go's byte(c): the rune's low byte.
+            let [low, ..] = u32::from(c).to_le_bytes();
+            if let Some(slot) = b.get_mut(i) {
+                *slot = low;
+            }
         }
         if let Some(t) = grandfathered(&b) {
             return Ok(t);
@@ -121,7 +130,7 @@ pub(crate) fn parse_scanner(
     let end = if n <= 1 {
         let len = scan.len();
         scan.lower_case(0, len);
-        if n == 0 || scan.token()[0] != b'x' {
+        if n == 0 || scan.token().first() != Some(&b'x') {
             return Err((t, LanguageError::syntax()));
         }
         parse_extensions(scan)
@@ -132,7 +141,7 @@ pub(crate) fn parse_scanner(
         let (tag, mut e) = parse_tag(scan, true);
         t = tag;
         if scan.token_len() == 1 {
-            t.p_ext = e as u16;
+            t.p_ext = go_uint16(e);
             e = parse_extensions(scan);
         } else if e < scan.len() {
             scan.set_error(Some(LanguageError::syntax()));
@@ -141,7 +150,7 @@ pub(crate) fn parse_scanner(
         e
     };
     if usize::from(t.p_variant) < scan.len() {
-        let s = if end < s.len() { &s[..end] } else { s };
+        let s = s.get(..end).unwrap_or(s);
         if !s.is_empty() && s == scan.b() {
             t.str = String::from_utf8_lossy(s).into_owned();
         } else {
@@ -167,7 +176,7 @@ pub(crate) fn parse_tag(scan: &mut Scanner, do_norm: bool) -> (FullTag, usize) {
     scan.replace(t.lang_id.as_string().as_bytes());
     let lang_start = scan.start;
     let mut end = scan.scan();
-    while scan.token_len() == 3 && is_alpha(scan.token()[0]) {
+    while scan.token_len() == 3 && scan.token().first().is_some_and(|&c| is_alpha(c)) {
         // <lang>-<extlang> tags are equivalent to a tag of the form <extlang>.
         if do_norm {
             let extlang_id = get_lang_id(scan.token_mut());
@@ -177,15 +186,19 @@ pub(crate) fn parse_tag(scan: &mut Scanner, do_norm: bool) -> (FullTag, usize) {
                 let lang_str = lang.as_string();
                 let n = lang_str.len();
                 let b = scan.b_mut();
-                b[lang_start..lang_start + n].copy_from_slice(lang_str.as_bytes());
-                b[lang_start + n] = b'-';
+                if let Some(slot) = b.get_mut(lang_start..lang_start + n) {
+                    slot.copy_from_slice(lang_str.as_bytes());
+                }
+                if let Some(dash) = b.get_mut(lang_start + n) {
+                    *dash = b'-';
+                }
                 scan.start = lang_start + n + 1;
             }
             scan.gobble(extlang_id.err());
         }
         end = scan.scan();
     }
-    if scan.token_len() == 4 && is_alpha(scan.token()[0]) {
+    if scan.token_len() == 4 && scan.token().first().is_some_and(|&c| is_alpha(c)) {
         let script_id = get_script_id(scan.token_mut());
         t.script_id = script_id.as_ref().copied().unwrap_or_default();
         if t.script_id.0 == 0 {
@@ -206,9 +219,9 @@ pub(crate) fn parse_tag(scan: &mut Scanner, do_norm: bool) -> (FullTag, usize) {
     }
     let (start, len) = (scan.start, scan.len());
     scan.lower_case(start, len);
-    t.p_variant = end as u8;
+    t.p_variant = go_byte(end);
     end = parse_variants(scan, end);
-    t.p_ext = end as u16;
+    t.p_ext = go_uint16(end);
     (t, end)
 }
 
@@ -221,7 +234,8 @@ fn variant_id(v: &[u8]) -> Option<u8> {
     VARIANT_INDEX
         .binary_search_by(|(k, _)| k.as_bytes().cmp(v))
         .ok()
-        .map(|i| VARIANT_INDEX[i].1)
+        .and_then(|i| VARIANT_INDEX.get(i))
+        .map(|&(_, id)| id)
 }
 
 /// Scans tokens as long as each is a valid variant; duplicate variants are removed.
@@ -286,9 +300,11 @@ pub(crate) fn parse_extensions(scan: &mut Scanner) -> usize {
     let mut end = scan.end;
     while scan.token_len() == 1 {
         let ext_start = scan.start;
-        let ext = scan.token()[0];
+        let Some(&ext) = scan.token().first() else {
+            break;
+        };
         end = parse_extension(scan);
-        let extension = scan.b()[ext_start..end].to_vec();
+        let extension = scan.b().get(ext_start..end).unwrap_or_default().to_vec();
         if extension.len() < 3 || (ext != b'x' && extension.len() < 4) {
             scan.set_error(Some(LanguageError::syntax()));
             end = ext_start;
@@ -302,7 +318,7 @@ pub(crate) fn parse_extensions(scan: &mut Scanner) -> usize {
         }
         exts.push(extension);
     }
-    exts.sort_by_key(|e| e[0]);
+    exts.sort_by_key(|e| e.first().copied());
     if !private.is_empty() {
         exts.push(private);
     }
@@ -320,24 +336,24 @@ pub(crate) fn parse_extensions(scan: &mut Scanner) -> usize {
 /// Parses a single extension and returns the position of its end.
 fn parse_extension(scan: &mut Scanner) -> usize {
     let (start, mut end) = (scan.start, scan.end);
-    match scan.token()[0] {
-        b'u' => {
+    match scan.token().first() {
+        Some(b'u') => {
             end = parse_u_attributes(scan, end);
             end = parse_u_keys(scan, end);
         }
-        b't' => {
+        Some(b't') => {
             scan.advance();
             let n = scan.token_len();
-            if (2..=3).contains(&n) && is_alpha(scan.token()[1]) {
+            if (2..=3).contains(&n) && scan.token().get(1).is_some_and(|&c| is_alpha(c)) {
                 let (_, e) = parse_tag(scan, false);
                 end = e;
                 scan.lower_case(start, end);
             }
-            while scan.token_len() == 2 && !is_alpha(scan.token()[1]) {
+            while scan.token_len() == 2 && scan.token().get(1).is_some_and(|&c| !is_alpha(c)) {
                 end = scan.accept_min_size(3);
             }
         }
-        b'x' => {
+        Some(b'x') => {
             end = scan.accept_min_size(1);
         }
         _ => {
@@ -366,7 +382,7 @@ fn parse_u_attributes(scan: &mut Scanner, mut end: usize) -> usize {
                 end = scan.end;
                 scan.advance();
             }
-            attrs.sort_by(|a, b| a[..3].cmp(&b[..3]));
+            attrs.sort_by(|a, b| a.get(..3).cmp(&b.get(..3)));
             scan.copy_at(p, &attrs.join(&b'-'));
             break;
         }
@@ -409,20 +425,18 @@ fn parse_u_keys(scan: &mut Scanner, mut end: usize) -> usize {
                     end = scan.end;
                     scan.advance();
                 }
-                keys.push(scan.b()[key_start..end].to_vec());
+                keys.push(scan.b().get(key_start..end).unwrap_or_default().to_vec());
             }
-            keys.sort_by(|a, b| a[..2].cmp(&b[..2]));
-            if !keys.is_empty() {
-                let mut k = 0;
-                for i in 1..keys.len() {
-                    if keys[k][..2] != keys[i][..2] {
-                        k += 1;
-                        keys[k] = keys[i].clone();
-                    } else if keys[k] != keys[i] {
-                        scan.set_error(Some(LanguageError::new(LanguageErrorEnum::DuplicateKey)));
-                    }
-                }
-                keys.truncate(k + 1);
+            keys.sort_by(|a, b| a.get(..2).cmp(&b.get(..2)));
+            // Go keeps the first of each key; a later one with another type is a duplicate key.
+            let mut duplicate = false;
+            keys.dedup_by(|later, kept| {
+                let same_key = later.get(..2) == kept.get(..2);
+                duplicate |= same_key && later != kept;
+                same_key
+            });
+            if duplicate {
+                scan.set_error(Some(LanguageError::new(LanguageErrorEnum::DuplicateKey)));
             }
             let reordered = keys.join(&b'-');
             let e = p + reordered.len();
@@ -440,22 +454,22 @@ fn parse_u_keys(scan: &mut Scanner, mut end: usize) -> usize {
 
 /// The end position and the text of the extension at `p`.
 pub(crate) fn get_extension(s: &[u8], mut p: usize) -> (usize, &[u8]) {
-    if s[p] == b'-' {
+    if s.get(p) == Some(&b'-') {
         p += 1;
     }
-    if s[p] == b'x' {
-        return (s.len(), &s[p..]);
+    if s.get(p) == Some(&b'x') {
+        return (s.len(), s.get(p..).unwrap_or_default());
     }
     let end = next_extension(s, p);
-    (end, &s[p..end])
+    (end, s.get(p..end).unwrap_or_default())
 }
 
 /// The position of the next extension, the next `-<char>-` from `p`.
 pub(crate) fn next_extension(s: &[u8], mut p: usize) -> usize {
     let n = s.len().saturating_sub(3);
     while p < n {
-        if s[p] == b'-' {
-            if s[p + 2] == b'-' {
+        if s.get(p) == Some(&b'-') {
+            if s.get(p + 2) == Some(&b'-') {
                 return p;
             }
             p += 3;

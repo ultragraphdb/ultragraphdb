@@ -9,6 +9,7 @@
 
 use std::fs;
 
+use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
     AbortView, AuthenticateView, BeginView, BodyBuilder, BodyView, CancelView, Command, CommitView,
@@ -192,7 +193,7 @@ pub fn reframe(frame: &[u8], data: &[u8]) -> Vec<u8> {
     let mut out = frame[..256].to_vec();
     out.extend_from_slice(data);
     out.extend_from_slice(&table);
-    let size = out.len() as u32;
+    let size = as_u32(out.len());
     out[40..44].copy_from_slice(&size.to_le_bytes());
     out[8..16].copy_from_slice(&checksum_body.to_le_bytes());
     let checksum = xxh3_64(&out[8..256]);
@@ -362,8 +363,8 @@ pub fn join_sections(fixed: &[u8], secs: &[Vec<u8>]) -> Vec<u8> {
     }
     let mut out = fixed.to_vec();
     for (offset, len) in &table {
-        out.extend_from_slice(&(*offset as u32).to_le_bytes());
-        out.extend_from_slice(&(*len as u32).to_le_bytes());
+        out.extend_from_slice(&as_u32(*offset).to_le_bytes());
+        out.extend_from_slice(&as_u32(*len).to_le_bytes());
     }
     for ((offset, _), s) in table.iter().zip(secs) {
         out.resize(*offset, 0);

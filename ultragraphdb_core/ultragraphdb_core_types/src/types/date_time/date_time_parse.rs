@@ -7,6 +7,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+// Arithmetic on decoded text input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use crate::errors::types_error::TypesError;
 use crate::types::civil_time::CivilTime;
 use crate::types::date_time::date_time_calendar::days_in;
@@ -53,9 +58,12 @@ fn next_std_chunk(layout: &str) -> (&str, Option<(Std, &str)>, &str) {
         ("MST", Std::Tz),
     ];
     for i in 0..layout.len() {
+        let Some((before, rest)) = layout.split_at_checked(i) else {
+            continue;
+        };
         for (text, std) in ELEMENTS {
-            if layout[i..].starts_with(text) {
-                return (&layout[..i], Some((std, text)), &layout[i + text.len()..]);
+            if let Some(after) = rest.strip_prefix(text) {
+                return (before, Some((std, text)), after);
             }
         }
     }
@@ -101,43 +109,42 @@ fn parse_error(
 }
 
 fn is_digit(s: &[u8], i: usize) -> bool {
-    i < s.len() && s[i].is_ascii_digit()
+    s.get(i).is_some_and(u8::is_ascii_digit)
+}
+
+/// The value of an ASCII decimal digit.
+fn digit(c: u8) -> Option<u32> {
+    char::from(c).to_digit(10)
 }
 
 /// Go's `getnum`: one or two digits (`fixed`: exactly two).
 fn getnum(s: &[u8], fixed: bool) -> Option<(i64, &[u8])> {
-    let b = s;
-    if !is_digit(b, 0) {
-        return None;
+    let (&c0, rest) = s.split_first()?;
+    let d0 = i64::from(digit(c0)?);
+    match rest.split_first() {
+        Some((&c1, rest)) if c1.is_ascii_digit() => Some((
+            d0.checked_mul(10)?.checked_add(i64::from(digit(c1)?))?,
+            rest,
+        )),
+        _ if fixed => None,
+        _ => Some((d0, rest)),
     }
-    if !is_digit(b, 1) {
-        if fixed {
-            return None;
-        }
-        return Some((i64::from(b[0] - b'0'), &s[1..]));
-    }
-    Some((
-        i64::from(b[0] - b'0') * 10 + i64::from(b[1] - b'0'),
-        &s[2..],
-    ))
 }
 
 /// Go's `atoi`: an optional sign and decimal digits, nothing else.
 fn atoi(s: &[u8]) -> Option<i64> {
-    let (neg, digits) = match s.first() {
-        Some(b'-') => (true, &s[1..]),
-        Some(b'+') => (false, &s[1..]),
+    let (neg, digits) = match s.split_first() {
+        Some((b'-', rest)) => (true, rest),
+        Some((b'+', rest)) => (false, rest),
         _ => (false, s),
     };
     let mut x: u64 = 0;
     for &c in digits {
-        if !c.is_ascii_digit() {
-            return None;
-        }
+        let d = digit(c)?;
         if x > (1 << 63) / 10 {
             return None;
         }
-        x = x * 10 + u64::from(c - b'0');
+        x = x.checked_mul(10)?.checked_add(u64::from(d))?;
         if x > 1 << 63 {
             return None;
         }
@@ -150,84 +157,92 @@ fn atoi(s: &[u8]) -> Option<i64> {
 /// Go's `skip`: removes `prefix` from `value`, a space in the prefix matching any run of spaces.
 fn skip<'a>(value: &'a [u8], prefix: &str) -> Result<&'a [u8], &'a [u8]> {
     let (mut value, mut prefix) = (value, prefix.as_bytes());
-    while !prefix.is_empty() {
-        if prefix[0] == b' ' {
-            if !value.is_empty() && value[0] != b' ' {
+    while let Some((&p, prefix_rest)) = prefix.split_first() {
+        if p == b' ' {
+            if value.first().is_some_and(|&v| v != b' ') {
                 return Err(value);
             }
             prefix = cutspace(prefix);
             value = cutspace(value);
             continue;
         }
-        if value.is_empty() || value[0] != prefix[0] {
-            return Err(value);
+        match value.split_first() {
+            Some((&v, value_rest)) if v == p => {
+                prefix = prefix_rest;
+                value = value_rest;
+            }
+            _ => return Err(value),
         }
-        prefix = &prefix[1..];
-        value = &value[1..];
     }
     Ok(value)
 }
 
 fn cutspace(s: &[u8]) -> &[u8] {
-    let n = s.iter().take_while(|&&c| c == b' ').count();
-    &s[n..]
+    let mut s = s;
+    while let Some((b' ', rest)) = s.split_first() {
+        s = rest;
+    }
+    s
 }
 
 /// Go's `parseNanoseconds`: a separator and digits, at most nine of them significant.
 fn parse_nanoseconds(value: &[u8], nbytes: usize) -> Result<(i64, &'static str), ()> {
-    let b = value;
-    if b[0] != b'.' && b[0] != b',' {
-        return Err(());
-    }
     let nbytes = nbytes.min(10);
-    let ns = atoi(&value[1..nbytes]).ok_or(())?;
+    let Some(([b'.' | b','], digits)) = value.get(..nbytes).and_then(<[u8]>::split_first_chunk)
+    else {
+        return Err(());
+    };
+    let ns = atoi(digits).ok_or(())?;
     if ns < 0 {
         return Ok((0, "fractional second"));
     }
-    Ok((ns * 10i64.pow((10 - nbytes) as u32), ""))
+    // `nbytes` is at most 10, so the exponent fits u32 and the scaled value stays below 10^9.
+    let exp = u32::try_from(10usize.checked_sub(nbytes).ok_or(())?).map_err(|_| ())?;
+    let scaled = 10i64.checked_pow(exp).and_then(|p| ns.checked_mul(p));
+    Ok((scaled.ok_or(())?, ""))
 }
 
 /// Go's `parseSignedOffset`: a signed hour offset in -23..=23 excluding 0; its length, or 0.
 fn parse_signed_offset(value: &[u8]) -> usize {
-    let b = value;
-    if b.is_empty() || (b[0] != b'-' && b[0] != b'+') {
+    let Some((b'-' | b'+', after)) = value.split_first() else {
         return 0;
-    }
-    let digits = b[1..].iter().take_while(|c| c.is_ascii_digit()).count();
-    let rem = &value[1 + digits..];
-    let Some(x) = (digits > 0).then(|| atoi(&value[1..1 + digits])).flatten() else {
+    };
+    let digits = after.iter().take_while(|c| c.is_ascii_digit()).count();
+    let Some((number, _)) = after.split_at_checked(digits) else {
+        return 0;
+    };
+    let Some(x) = (digits > 0).then(|| atoi(number)).flatten() else {
         return 0;
     };
     if x > 23 {
         return 0;
     }
-    value.len() - rem.len()
+    // The sign and the digits.
+    digits.checked_add(1).unwrap_or(0)
 }
 
 /// Go's `parseTimeZone`: the length of a zone abbreviation at the start of `value`.
 fn parse_time_zone(value: &[u8]) -> Option<usize> {
-    let b = value;
-    if b.len() < 3 {
-        return None;
-    }
-    if b.len() >= 4 && (&value[..4] == b"ChST" || &value[..4] == b"MeST") {
+    let (head, after) = value.split_first_chunk::<3>()?;
+    let head4 = value.first_chunk::<4>();
+    if matches!(head4, Some(b"ChST" | b"MeST")) {
         return Some(4);
     }
-    if &value[..3] == b"GMT" {
-        return Some(3 + parse_signed_offset(&value[3..]));
+    if head == b"GMT" {
+        return 3usize.checked_add(parse_signed_offset(after));
     }
-    if b[0] == b'+' || b[0] == b'-' {
+    if let [b'+' | b'-', ..] = head {
         let n = parse_signed_offset(value);
         return (n > 0).then_some(n);
     }
-    let upper = b
+    let upper = value
         .iter()
         .take(6)
         .take_while(|c| c.is_ascii_uppercase())
         .count();
     match upper {
-        5 if b[4] == b'T' => Some(5),
-        4 if b[3] == b'T' || &value[..4] == b"WITA" => Some(4),
+        5 if value.get(4) == Some(&b'T') => Some(5),
+        4 if value.get(3) == Some(&b'T') || head4 == Some(b"WITA") => Some(4),
         3 => Some(3),
         _ => None,
     }
@@ -374,11 +389,16 @@ impl<'a> Fields<'a> {
             self.range_err = "second";
             return (value, true);
         }
-        let b = value;
         let mut ok = true;
         // A fractional second in the input although the layout has none.
-        if b.len() >= 2 && (b[0] == b'.' || b[0] == b',') && is_digit(b, 1) {
-            let n = 2 + b[2..].iter().take_while(|c| c.is_ascii_digit()).count();
+        if let Some(([b'.' | b',', first], frac)) = value.split_first_chunk::<2>()
+            && first.is_ascii_digit()
+        {
+            let digits = frac.iter().take_while(|c| c.is_ascii_digit()).count();
+            let Some(((_, rest), n)) = frac.split_at_checked(digits).zip(digits.checked_add(2))
+            else {
+                return (value, false);
+            };
             match parse_nanoseconds(value, n) {
                 Ok((ns, rerr)) => {
                     self.nsec = ns;
@@ -386,39 +406,36 @@ impl<'a> Fields<'a> {
                 }
                 Err(()) => ok = false,
             }
-            value = &value[n..];
+            value = rest;
         }
         (value, ok)
     }
 
     /// The `Z07:00` and `-0700` elements.
     fn parse_num_tz(&mut self, std: Std, input: &'a [u8]) -> (&'a [u8], bool) {
-        if std == Std::Iso8601ColonTz && input.first() == Some(&b'Z') {
+        if std == Std::Iso8601ColonTz
+            && let Some((b'Z', rest)) = input.split_first()
+        {
             self.utc = true;
-            return (&input[1..], true);
+            return (rest, true);
         }
-        let b = input;
         let (parts, value) = if std == Std::Iso8601ColonTz {
-            if b.len() < 6 || b[3] != b':' {
-                (None, input)
-            } else {
-                (
-                    Some((&input[0..1], &input[1..3], &input[4..6])),
-                    &input[6..],
-                )
+            match input.split_first_chunk::<6>() {
+                Some((&[sign, h1, h2, b':', m1, m2], rest)) => {
+                    (Some((sign, [h1, h2], [m1, m2])), rest)
+                }
+                _ => (None, input),
             }
-        } else if b.len() < 5 {
-            (None, input)
         } else {
-            (
-                Some((&input[0..1], &input[1..3], &input[3..5])),
-                &input[5..],
-            )
+            match input.split_first_chunk::<5>() {
+                Some((&[sign, h1, h2, m1, m2], rest)) => (Some((sign, [h1, h2], [m1, m2])), rest),
+                None => (None, input),
+            }
         };
         let Some((sign, hh, mm)) = parts else {
             return (value, false);
         };
-        let (Some((hr, _)), Some((mi, _))) = (getnum(hh, true), getnum(mm, true)) else {
+        let (Some((hr, _)), Some((mi, _))) = (getnum(&hh, true), getnum(&mm, true)) else {
             return (value, false);
         };
         if hr > 24 {
@@ -427,11 +444,18 @@ impl<'a> Fields<'a> {
         if mi > 60 {
             self.range_err = "time zone offset minute";
         }
-        // Lossless: `getnum` reads two digits each, so the offset is at most 359,940 seconds.
-        let off = ((hr * 60 + mi) * 60) as i32;
+        // `getnum` reads two digits each, so the offset is at most 359,940 seconds and fits i32.
+        let off = hr
+            .checked_mul(60)
+            .and_then(|m| m.checked_add(mi))
+            .and_then(|m| m.checked_mul(60))
+            .and_then(|s| i32::try_from(s).ok());
+        let Some(off) = off else {
+            return (value, false);
+        };
         match sign {
-            b"+" => self.zone_offset = Some(off),
-            b"-" => self.zone_offset = Some(-off),
+            b'+' => self.zone_offset = Some(off),
+            b'-' => self.zone_offset = off.checked_neg(),
             _ => return (value, false),
         }
         (value, true)
@@ -439,14 +463,14 @@ impl<'a> Fields<'a> {
 
     /// The `MST` element: `UTC` or a zone abbreviation.
     fn parse_tz(&mut self, value: &'a [u8]) -> (&'a [u8], bool) {
-        if value.len() >= 3 && &value[..3] == b"UTC" {
+        if let Some((b"UTC", rest)) = value.split_first_chunk::<3>() {
             self.utc = true;
-            return (&value[3..], true);
+            return (rest, true);
         }
-        match parse_time_zone(value) {
-            Some(n) => {
-                self.zone_name = &value[..n];
-                (&value[n..], true)
+        match parse_time_zone(value).and_then(|n| value.split_at_checked(n)) {
+            Some((name, rest)) => {
+                self.zone_name = name;
+                (rest, true)
             }
             None => (value, false),
         }
@@ -480,17 +504,32 @@ impl<'a> Fields<'a> {
             return Ok(t);
         }
         if let Some(offset) = self.zone_offset {
+            // A four-digit year and an offset below 100 hours stay far inside i64.
+            let unix = t.unix().checked_sub(i64::from(offset)).ok_or_else(|| {
+                parse_error(
+                    layout_in,
+                    value_in,
+                    "",
+                    value,
+                    ": time zone offset out of range",
+                )
+            })?;
             return Ok(DateTime::from_unix_zone(
-                t.unix() - i64::from(offset),
+                unix,
                 t.nanosecond(),
                 Zone::Fixed(offset),
             ));
         }
         if !self.zone_name.is_empty() {
             let mut offset = 0;
-            if self.zone_name.len() > 3 && &self.zone_name[..3] == b"GMT" {
-                // Lossless: `parse_signed_offset` admitted the hours only within 23 of zero.
-                offset = atoi(&self.zone_name[3..]).unwrap_or(0) as i32 * 3600;
+            if let Some((b"GMT", hours)) = self.zone_name.split_first_chunk::<3>()
+                && !hours.is_empty()
+            {
+                // `parse_signed_offset` admitted the hours only within 23 of zero, so they fit i32.
+                offset = i32::try_from(atoi(hours).unwrap_or(0))
+                    .ok()
+                    .and_then(|h| h.checked_mul(3600))
+                    .unwrap_or(0);
             }
             return Ok(t.with_zone(Zone::Fixed(offset)));
         }

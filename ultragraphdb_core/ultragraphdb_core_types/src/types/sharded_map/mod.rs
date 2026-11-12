@@ -59,14 +59,15 @@ impl ShardedMap {
 
     /// Dgraph's `Set`.
     pub fn set(&mut self, key: u64, value: Val) {
-        // Lossless both ways: NUM_SHARDS is 30, and the remainder is below it.
-        let _replaced: Option<Val> =
-            self.shards[(key % NUM_SHARDS as u64) as usize].insert(key, value);
+        // `shard_of` is below NUM_SHARDS, so the shard is always present.
+        if let Some(shard) = self.shards.get_mut(shard_of(key)) {
+            let _replaced: Option<Val> = shard.insert(key, value);
+        }
     }
 
     /// Dgraph's `Get`.
     pub fn get(&self, key: u64) -> Option<&Val> {
-        self.shards[(key % NUM_SHARDS as u64) as usize].get(&key)
+        self.shards.get(shard_of(key))?.get(&key)
     }
 
     /// Dgraph's `Len`: the number of values.
@@ -81,4 +82,10 @@ impl ShardedMap {
             .flat_map(|s| s.iter())
             .try_for_each(|(k, v)| f(*k, v))
     }
+}
+
+/// A uid's shard, `uid % NUM_SHARDS`: the remainder is below 30, so the cast is lossless.
+fn shard_of(key: u64) -> usize {
+    const SHARDS: u64 = NUM_SHARDS as u64;
+    (key % SHARDS) as usize
 }

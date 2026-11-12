@@ -18,9 +18,10 @@ const PI4: f64 = f64::from_bits(0x3fe921fb54442d18);
 
 /// Implements Payne-Hanek range reduction by Pi/4 for x > 0. It returns the integer part mod 8
 /// (j) and the fractional part (z) of x / (Pi/4).
-pub(crate) fn trig_reduce(x: f64) -> (u64, f64) {
+/// `None` only for an exponent outside the table, which a finite x of at least Pi/4 never has.
+pub(crate) fn trig_reduce(x: f64) -> Option<(u64, f64)> {
     if x < PI4 {
-        return (0, x);
+        return Some((0, x));
     }
     // Extract out the integer and exponent such that, x = ix * 2 ** exp.
     let mut ix = x.to_bits();
@@ -31,11 +32,13 @@ pub(crate) fn trig_reduce(x: f64) -> (u64, f64) {
     // Use the exponent to extract the 3 appropriate uint64 digits from mPi4,
     // B ~ (z0, z1, z2), such that the product leading digit has the exponent -61.
     // Note, exp >= -53 since x >= PI4 and exp < 971 for maximum float64.
-    let digit = ((exp + 61) / 64) as usize;
-    let bitshift = ((exp + 61) % 64) as u32;
-    let z0 = (M_PI4[digit] << bitshift) | shr(M_PI4[digit + 1], 64 - bitshift);
-    let z1 = (M_PI4[digit + 1] << bitshift) | shr(M_PI4[digit + 2], 64 - bitshift);
-    let z2 = (M_PI4[digit + 2] << bitshift) | shr(M_PI4[digit + 3], 64 - bitshift);
+    // Go's uint(exp+61): positive, as exp >= -53, and at most 1032, so its four digits lie within the table.
+    let off = usize::try_from(exp + 61).ok()?;
+    let bitshift = u32::try_from(off % 64).ok()?;
+    let &[d0, d1, d2, d3] = M_PI4.get(off / 64..)?.first_chunk::<4>()?;
+    let z0 = (d0 << bitshift) | shr(d1, 64 - bitshift);
+    let z1 = (d1 << bitshift) | shr(d2, 64 - bitshift);
+    let z2 = (d2 << bitshift) | shr(d3, 64 - bitshift);
     // Multiply mantissa by the digits and extract the upper two digits (hi, lo).
     let (z2hi, _) = mul64(z2, ix);
     let (z1hi, z1lo) = mul64(z1, ix);
@@ -62,7 +65,7 @@ pub(crate) fn trig_reduce(x: f64) -> (u64, f64) {
         z -= 1.0;
     }
     // Multiply the fractional part by pi/4.
-    (j, z * PI4)
+    Some((j, z * PI4))
 }
 
 /// Go's `<<` on uint64, which yields 0 for shifts of 64 or more.
@@ -78,7 +81,8 @@ fn shr(x: u64, s: u32) -> u64 {
 /// Go's `bits.Mul64`: the 128-bit product as (hi, lo).
 fn mul64(x: u64, y: u64) -> (u64, u64) {
     let p = u128::from(x) * u128::from(y);
-    ((p >> 64) as u64, p as u64)
+    // The low half of the product is the wrapping product.
+    ((p >> 64) as u64, x.wrapping_mul(y))
 }
 
 /// The binary digits of 4/pi as a uint64 array, that is, 4/pi = Sum mPi4[i]*2^(-64*i).

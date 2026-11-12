@@ -271,12 +271,12 @@ impl KnownDatatype {
 
     /// The stored code.
     pub fn code(self) -> u8 {
-        self.entry().1
+        self.entry().map_or(0, |entry| entry.1)
     }
 
     /// The datatype's IRI.
     pub fn iri(self) -> &'static str {
-        self.entry().2
+        self.entry().map_or("", |entry| entry.2)
     }
 
     /// Whether a canonical literal of the datatype is encoded by value.
@@ -284,7 +284,8 @@ impl KnownDatatype {
         self.code() <= KnownDatatype::DayTimeDuration.code()
     }
 
-    fn entry(self) -> &'static (KnownDatatype, u8, &'static str) {
-        &TABLE[self as usize]
+    /// The datatype's row: the table holds every datatype in declaration order, so there is always one.
+    fn entry(self) -> Option<&'static (KnownDatatype, u8, &'static str)> {
+        TABLE.get(self as usize)
     }
 }

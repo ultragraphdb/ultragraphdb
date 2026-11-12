@@ -32,12 +32,18 @@ impl<'a> BodyView<'a> for ClosedView<'a> {
         }
         let mut previous = 0u32;
         for (index, record) in whole.enumerate() {
-            let base = sections.offset(0) + PARTITION_SIZE * index;
             if let Some(at) = record
                 .get(4..8)
                 .and_then(|zero| zero.iter().position(|b| *b != 0))
             {
-                return Err(ProtocolError::padding_not_zero(command, base + 4 + at));
+                // A place within one frame, which a refusal names: far below `usize::MAX`, so it never saturates.
+                let base = sections
+                    .offset(0)
+                    .saturating_add(PARTITION_SIZE.saturating_mul(index));
+                return Err(ProtocolError::padding_not_zero(
+                    command,
+                    base.saturating_add(4).saturating_add(at),
+                ));
             }
             let bytes: [u8; PARTITION_SIZE] = record.try_into().unwrap_or([0; PARTITION_SIZE]);
             let partition = ClosedPartition::decode(&bytes);

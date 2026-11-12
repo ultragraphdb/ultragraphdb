@@ -37,10 +37,10 @@ fn test_entries_carry_the_discard_flag_and_load_reads_one_tenant() -> TestResult
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
     let a = Catalog::initial(1, id(10)?);
     let b = Catalog::initial(2, id(20)?);
-    let entries = a.entries(5);
+    let entries = a.entries(5)?;
     assert!(entries.iter().all(|e| e.discard() && e.version() == 5));
     write(&store, entries)?;
-    write(&store, b.entries(5))?;
+    write(&store, b.entries(5)?)?;
     let snapshot = store.snapshot(u64::MAX)?;
     assert_eq!(Catalog::load(&snapshot, 1)?, a);
     assert_eq!(Catalog::load(&snapshot, 2)?, b);
@@ -60,7 +60,7 @@ fn test_an_entry_under_the_wrong_kind_or_undecodable_is_refused() -> TestResult 
             Catalog::key(0, ENTITY_TYPE, id(3)?),
             2,
             1,
-            encode_declaration(&declaration),
+            encode_declaration(&declaration)?,
         )],
     )?;
     let Err(wrong_kind) = Catalog::load(&store.snapshot(u64::MAX)?, 0) else {
@@ -125,7 +125,7 @@ fn test_a_catalog_of_every_kind_reads_back_as_written() -> TestResult {
         id(5)?,
         RelationDeclaration::new(ex("marriage"), vec![ex("a")]),
     )?;
-    let entries = catalog.entries(9);
+    let entries = catalog.entries(9)?;
     assert_eq!(entries.len(), 5);
     write(&store, entries)?;
     let loaded = Catalog::load(&store.snapshot(u64::MAX)?, 7)?;
@@ -152,10 +152,10 @@ fn test_keys_name_the_tenant_the_kind_and_the_id() -> TestResult {
 #[test]
 fn test_a_stored_entry_is_written_as_a_declarations_entry() -> TestResult {
     let declaration = Declaration::Predicate(PredicateDeclaration::new(ex("p")));
-    let entry = Catalog::entry(2, id(4)?, &declaration, 11);
+    let entry = Catalog::entry(2, id(4)?, &declaration, 11)?;
     let replayed = Catalog::stored_entry(
         Catalog::predicate_key(2, id(4)?),
-        encode_declaration(&declaration),
+        encode_declaration(&declaration)?,
         11,
     );
     assert_eq!(replayed, entry);
@@ -168,7 +168,7 @@ fn test_a_stored_entry_is_written_as_a_declarations_entry() -> TestResult {
 fn test_a_removal_hides_the_declaration_from_the_load() -> TestResult {
     let store = SimStore::new(Seed::new(4), FaultConfig::none(), SimClock::new());
     let catalog = Catalog::initial(1, id(10)?);
-    write(&store, catalog.entries(5))?;
+    write(&store, catalog.entries(5)?)?;
     write(&store, vec![Catalog::removal(1, PREDICATE, id(10)?, 6)])?;
     assert_eq!(
         Catalog::load(&store.snapshot(u64::MAX)?, 1)?,
@@ -191,7 +191,7 @@ fn test_a_key_under_the_prefix_that_is_no_catalog_key_is_refused() -> TestResult
             key.clone(),
             2,
             1,
-            encode_declaration(&declaration),
+            encode_declaration(&declaration)?,
         )],
     )?;
     let refused = Catalog::load(&store.snapshot(u64::MAX)?, 0)

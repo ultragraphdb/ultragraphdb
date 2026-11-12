@@ -114,7 +114,8 @@ impl ResultBatch {
             return Err(ProtocolError::field_value(
                 Command::Result.number(),
                 "reifier",
-                row.len() as u64 - 1, // lossless: a `usize` is at most 64 bits
+                // Lossless: a `usize` is at most 64 bits; the row holds the reifier, so it never saturates.
+                (row.len() as u64).saturating_sub(1),
             ));
         }
         self.push_cells(row)
@@ -234,9 +235,11 @@ impl ResultBatch {
         if column >= self.columns || row >= self.rows {
             return None;
         }
-        self.cells
-            .get(row as usize * self.columns as usize + column as usize)
-            .copied()
+        // The casts are lossless: a `usize` is at least 32 bits.
+        let at = (row as usize)
+            .checked_mul(self.columns as usize)?
+            .checked_add(column as usize)?;
+        self.cells.get(at).copied()
     }
 
     /// The resume key a limited read continues from; empty for none.
@@ -260,7 +263,7 @@ impl ResultBatch {
             }
         }
         // The casts are lossless: a `usize` is at least 32 bits.
-        let rows = self.rows as usize + usize::from(!row.is_empty());
+        let rows = (self.rows as usize).saturating_add(usize::from(!row.is_empty()));
         let cells = rows.saturating_mul(self.columns as usize);
         // Each column name's end and bytes (sections 7 and 8).
         let names = self.column_names.iter().fold(0usize, |sum, name| {

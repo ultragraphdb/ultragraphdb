@@ -282,7 +282,7 @@ fn test_a_first_write_asks_for_its_default_entry_once() -> TestResult {
     let asked = a.take_default_entries();
     let entry = ultragraphdb_core_catalog::encode_declaration(&Declaration::Predicate(
         PredicateDeclaration::new(ex("nickname")),
-    ));
+    ))?;
     assert_eq!(
         asked,
         vec![DefaultEntry::new(
@@ -399,7 +399,7 @@ fn test_a_partition_reconciles_its_default_entries_at_start() -> TestResult {
         ex("knows").as_str().to_string(),
         ultragraphdb_core_catalog::encode_declaration(&Declaration::Predicate(
             PredicateDeclaration::new(ex("knows")),
-        )),
+        ))?,
     );
     assert!(
         group.record_default(&knows)?,

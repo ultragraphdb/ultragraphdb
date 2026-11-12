@@ -21,7 +21,7 @@ use ultragraphdb_protocol_transport::{
 use ultragraphdb_protocol_transport_compio::Connection;
 use ultragraphdb_protocol_wire::{
     AuthenticateView, BodyView, Command, CreditView, ErrorCode, ErrorReply, MAX_FRAME_SIZE,
-    ROLE_MAX_STREAMS, Welcome,
+    MAX_FRAME_SIZE_U32, ROLE_MAX_STREAMS, Welcome,
 };
 
 use crate::traits::session::{Answer, Push, Session};
@@ -139,7 +139,7 @@ impl Server {
             limits
         } else {
             limits
-                .with_max_frame(MAX_FRAME_SIZE as u32) // 2^20, lossless
+                .with_max_frame(MAX_FRAME_SIZE_U32)
                 .with_max_streams(ROLE_MAX_STREAMS)
         };
         let connection = ServerConnection::new(self.cluster, welcome, authenticator, at)

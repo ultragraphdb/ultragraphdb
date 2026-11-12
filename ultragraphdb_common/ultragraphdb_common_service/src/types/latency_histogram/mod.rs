@@ -108,13 +108,13 @@ impl LatencyHistogram {
 /// placed by the four bits below the highest.
 const fn index_of(value: u64) -> usize {
     if value < SUB_BUCKETS {
-        // Below 16: lossless.
-        return value as usize;
+        // Below 16, so the mask keeps the value: lossless.
+        return (value & (SUB_BUCKETS - 1)) as usize;
     }
     let octave = u64::BITS - 1 - value.leading_zeros();
     let sub = (value >> (octave - SUB_BITS)) & (SUB_BUCKETS - 1);
     // At most 16 · 28 + 15 = 463 for a value of 32 bits: lossless.
-    ((octave - SUB_BITS + 1) as usize) * (SUB_BUCKETS as usize) + sub as usize
+    (((octave - SUB_BITS + 1) as usize) << SUB_BITS) + sub as usize
 }
 
 /// The highest value bucket `index` holds.

@@ -3,6 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+// Arithmetic on decoded store input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use ultragraphdb_core_ids::{Epoch, SessionToken};
 use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_error_store::StoreError;
@@ -48,10 +53,7 @@ impl SessionEntry {
     /// identity.
     #[must_use]
     pub fn key(session: u128) -> Vec<u8> {
-        let mut key = Vec::with_capacity(Self::KEY_PREFIX.len() + 16);
-        key.extend_from_slice(Self::KEY_PREFIX);
-        key.extend_from_slice(&session.to_be_bytes());
-        key
+        [Self::KEY_PREFIX, &session.to_be_bytes()].concat()
     }
 
     /// The session's last committed request number in the partition.
@@ -77,15 +79,27 @@ impl SessionEntry {
     ///
     /// [`InvariantError::violated`] when the reply's term table holds a term that is no IRI: a Commit reply's terms are
     /// IRIs (`PROTOCOL.md` §6.3), and the record view refuses any other in a record's results' term table, logged or
-    /// left by commit-time operations, so only a bug reaches it. Written, the results would name shifted indexes.
+    /// left by commit-time operations, so only a bug reaches it. Written, the results would name shifted indexes. The
+    /// same when a count or a node's length passes u32: a reply is one transaction's, within a frame.
     pub fn encode(&self) -> Result<Vec<u8>, InvariantError> {
+        let fits = |n: usize| {
+            u32::try_from(n).map_err(|_| {
+                InvariantError::violated("a stored reply's counts and lengths fit u32")
+            })
+        };
         let reply = &self.reply;
         let nodes: Vec<&str> = node_texts(reply.terms())?;
-        let mut bytes = Vec::with_capacity(
-            FIXED
-                + RESULT * reply.results().len()
-                + nodes.iter().map(|n| 4 + n.len()).sum::<usize>(),
-        );
+        // A capacity hint: none past `usize`.
+        let hint = RESULT
+            .checked_mul(reply.results().len())
+            .and_then(|results| results.checked_add(FIXED))
+            .and_then(|fixed| {
+                nodes
+                    .iter()
+                    .try_fold(fixed, |sum, n| sum.checked_add(n.len())?.checked_add(4))
+            })
+            .unwrap_or(0);
+        let mut bytes = Vec::with_capacity(hint);
         bytes.extend_from_slice(&self.request.to_le_bytes());
         bytes.extend_from_slice(&reply.version().to_le_bytes());
         bytes.extend_from_slice(&reply.token().partition().to_le_bytes());
@@ -93,14 +107,14 @@ impl SessionEntry {
         bytes.extend_from_slice(&reply.token().position().to_le_bytes());
         bytes.extend_from_slice(&reply.token().epoch().get().to_le_bytes());
         // A reply's results and nodes are one transaction's operations', far below u32.
-        bytes.extend_from_slice(&(reply.results().len() as u32).to_le_bytes());
-        bytes.extend_from_slice(&(nodes.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&fits(reply.results().len())?.to_le_bytes());
+        bytes.extend_from_slice(&fits(nodes.len())?.to_le_bytes());
         for result in reply.results() {
             bytes.extend_from_slice(&result.encode());
         }
         for node in nodes {
             // A node's IRI is at most a frame long, far below u32.
-            bytes.extend_from_slice(&(node.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(&fits(node.len())?.to_le_bytes());
             bytes.extend_from_slice(node.as_bytes());
         }
         debug_assert!(bytes.len() >= FIXED);
@@ -120,19 +134,18 @@ impl SessionEntry {
         let Some((fixed, rest)) = bytes.split_first_chunk::<FIXED>() else {
             return Err(corrupted("a session entry shorter than its fixed part"));
         };
+        // Each field lies within the fixed part, so `get` and `first_chunk` always find it.
         let word = |at: usize| -> u64 {
-            let mut le = [0; 8];
-            if let Some(src) = fixed.get(at..at + 8) {
-                le.copy_from_slice(src);
-            }
-            u64::from_le_bytes(le)
+            fixed
+                .get(at..)
+                .and_then(<[u8]>::first_chunk::<8>)
+                .map_or(0, |le| u64::from_le_bytes(*le))
         };
         let half = |at: usize| -> u32 {
-            let mut le = [0; 4];
-            if let Some(src) = fixed.get(at..at + 4) {
-                le.copy_from_slice(src);
-            }
-            u32::from_le_bytes(le)
+            fixed
+                .get(at..)
+                .and_then(<[u8]>::first_chunk::<4>)
+                .map_or(0, |le| u32::from_le_bytes(*le))
         };
         let (request, version, partition, padding) = (word(0), word(8), half(16), half(20));
         let (position, epoch, results, nodes) = (word(24), word(32), half(40), half(44));

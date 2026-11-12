@@ -13,7 +13,7 @@ use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Version};
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::{
-    ComputeRead, ErrorCode, MAX_FRAME_SIZE, PatternSlot, QuadPattern, ReadLevel, RequestTerm,
+    ComputeRead, ErrorCode, MAX_FRAME_SIZE_U32, PatternSlot, QuadPattern, ReadLevel, RequestTerm,
     ResumeKeyView, TermTable,
 };
 use ultragraphdb_store_quads::{ReferrerSet, term_key};
@@ -284,7 +284,7 @@ fn test_a_slot_bound_to_a_term_it_cannot_hold_is_refused_naming_the_term() -> Te
                 ComputeRead::new(tenant, true, ReadLevel::Latest, terms, pattern, Vec::new())
                     .with_principal(1)
                     .with_deadline_ms(DEADLINE_MS)
-                    .with_client_limits(MAX_FRAME_SIZE as u32, 4);
+                    .with_client_limits(MAX_FRAME_SIZE_U32, 4);
             let answer = answer_on(&mut cluster.client().await?, &read).await?;
             let refused = answer.refusal()?;
             assert_eq!(

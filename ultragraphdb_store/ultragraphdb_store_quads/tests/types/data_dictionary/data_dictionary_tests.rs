@@ -93,7 +93,7 @@ fn declare(store: &TestQuads, iri: &NamedNode, declaration: &Declaration) -> Tes
     let uid = terms.iri(q, iri.as_str()).context("an ID")?;
     write
         .request()
-        .add_entry(Catalog::entry(0, uid, declaration, 0));
+        .add_entry(Catalog::entry(0, uid, declaration, 0)?);
     let _versions: Vec<u64> = commit(store, vec![write])?;
     Ok(())
 }

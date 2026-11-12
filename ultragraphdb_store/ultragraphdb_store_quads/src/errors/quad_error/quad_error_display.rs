@@ -50,6 +50,14 @@ impl fmt::Display for QuadError {
                     "{draws} skolem IRIs drawn in turn each named an IRI the dictionary holds"
                 )
             }
+            QuadErrorEnum::KindTooLong { len } => write!(
+                f,
+                "A statistics kind of {len} bytes is past the 65535 its stored length counts"
+            ),
+            QuadErrorEnum::TooManyKinds { count } => write!(
+                f,
+                "A statistics delta of {count} kinds is past the 65535 its stored count holds"
+            ),
             QuadErrorEnum::UnknownSkolem { iri } => write!(
                 f,
                 "{iri} lies under the skolem base, and the dictionary holds no blank node or reifier by it"

@@ -34,12 +34,39 @@ pub(crate) const POS_TO_IJ: [[usize; 4]; 4] = [
 /// posToOrientation[pos] -> orientation_modifier
 pub(crate) const POS_TO_ORIENTATION: [usize; 4] = [SWAP_MASK, 0, 0, INVERT_MASK | SWAP_MASK];
 
+/// The entry of a four-entry table at a two-bit index; an orientation holds two mask bits and a child position two
+/// bits, so the masked index is the index itself.
+pub(crate) fn quad<T: Copy>(table: [T; 4], index: usize) -> T {
+    let [t0, t1, t2, t3] = table;
+    match index & 3 {
+        0 => t0,
+        1 => t1,
+        2 => t2,
+        _ => t3,
+    }
+}
+
+/// The entry of a lookup table at a ten-bit index: a key or value of the form "iiiijjjjoo" or "ppppppppoo" is
+/// below TABLE_SIZE, so the masked index is the index itself and the entry is always present.
+pub(crate) fn lookup(table: &[usize; TABLE_SIZE], index: usize) -> usize {
+    table
+        .get(index & (TABLE_SIZE - 1))
+        .copied()
+        .unwrap_or_default()
+}
+
 struct Tables {
     pos: [usize; TABLE_SIZE],
     ij: [usize; TABLE_SIZE],
+    /// Whether every entry the recursion wrote lay within its table; the assertion below fails the build otherwise.
+    complete: bool,
 }
 
 const TABLES: Tables = build();
+const _: () = assert!(
+    TABLES.complete,
+    "a Hilbert curve lookup entry lies outside its table"
+);
 
 pub(crate) const LOOKUP_POS: [usize; TABLE_SIZE] = TABLES.pos;
 pub(crate) const LOOKUP_IJ: [usize; TABLE_SIZE] = TABLES.ij;
@@ -48,6 +75,7 @@ const fn build() -> Tables {
     let mut t = Tables {
         pos: [0; TABLE_SIZE],
         ij: [0; TABLE_SIZE],
+        complete: true,
     };
     init_lookup_cell(&mut t, 0, 0, 0, 0, 0, 0);
     init_lookup_cell(&mut t, 0, 0, 0, SWAP_MASK, 0, SWAP_MASK);
@@ -64,6 +92,17 @@ const fn build() -> Tables {
     t
 }
 
+/// Writes `value` at `at`, reporting whether `at` lies within the table.
+const fn put(table: &mut [usize; TABLE_SIZE], at: usize, value: usize) -> bool {
+    match table.split_at_mut_checked(at) {
+        Some((_, [slot, ..])) => {
+            *slot = value;
+            true
+        }
+        _ => false,
+    }
+}
+
 /// Initializes the lookupIJ table at init time.
 const fn init_lookup_cell(
     t: &mut Tables,
@@ -76,8 +115,17 @@ const fn init_lookup_cell(
 ) {
     if level == LOOKUP_BITS {
         let ij = (i << LOOKUP_BITS) + j;
-        t.pos[(ij << 2) + orig_orientation] = (pos << 2) + orientation;
-        t.ij[(pos << 2) + orig_orientation] = (ij << 2) + orientation;
+        let pos_ok = put(
+            &mut t.pos,
+            (ij << 2) + orig_orientation,
+            (pos << 2) + orientation,
+        );
+        let ij_ok = put(
+            &mut t.ij,
+            (pos << 2) + orig_orientation,
+            (ij << 2) + orientation,
+        );
+        t.complete = t.complete && pos_ok && ij_ok;
         return;
     }
 
@@ -85,18 +133,26 @@ const fn init_lookup_cell(
     let i = i << 1;
     let j = j << 1;
     let pos = pos << 2;
-    let r = POS_TO_IJ[orientation];
+    let Some((_, [r, ..])) = POS_TO_IJ.split_at_checked(orientation) else {
+        t.complete = false;
+        return;
+    };
+    let [r0, r1, r2, r3] = *r;
+    let [o0, o1, o2, o3] = POS_TO_ORIENTATION;
+    let quadrants = [(r0, o0), (r1, o1), (r2, o2), (r3, o3)];
+    let mut rest: &[(usize, usize)] = &quadrants;
     let mut k = 0;
-    while k < 4 {
+    while let [(rk, ok), tail @ ..] = rest {
         init_lookup_cell(
             t,
             level,
-            i + (r[k] >> 1),
-            j + (r[k] & 1),
+            i + (*rk >> 1),
+            j + (*rk & 1),
             orig_orientation,
             pos + k,
-            orientation ^ POS_TO_ORIENTATION[k],
+            orientation ^ *ok,
         );
+        rest = tail;
         k += 1;
     }
 }

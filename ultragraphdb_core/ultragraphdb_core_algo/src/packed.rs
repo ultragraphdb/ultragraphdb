@@ -83,14 +83,11 @@ pub fn intersect_with_lin_packed(u: Option<&UidPack>, v: Option<&UidPack>) -> Op
         }
 
         let (uuids, vuids) = (u_dec.ids(), v_dec.ids());
-        let (u_len, v_len) = (uuids.len(), vuids.len());
 
-        while u_idx < u_len && v_idx < v_len {
-            let uid = uuids[u_idx];
-            let vid = vuids[v_idx];
+        while let (Some(&uid), Some(&vid)) = (uuids.get(u_idx), vuids.get(v_idx)) {
             if uid > vid {
                 v_idx += 1;
-                while v_idx < v_len && vuids[v_idx] < uid {
+                while vuids.get(v_idx).is_some_and(|&x| x < uid) {
                     v_idx += 1;
                 }
             } else if uid == vid {
@@ -99,7 +96,7 @@ pub fn intersect_with_lin_packed(u: Option<&UidPack>, v: Option<&UidPack>) -> Op
                 u_idx += 1;
             } else {
                 u_idx += 1;
-                while u_idx < u_len && uuids[u_idx] < vid {
+                while uuids.get(u_idx).is_some_and(|&x| x < vid) {
                     u_idx += 1;
                 }
             }
@@ -120,14 +117,16 @@ pub fn intersect_sorted_packed(lists: &[Option<&UidPack>]) -> Option<UidPack> {
     // Sort the lists based on length.
     ls.sort_by_key(|&(_, length)| length);
 
-    if ls.len() == 1 {
+    let (smallest, second, rest) = match ls.as_slice() {
+        [] => return Encoder::new(10).done(),
         // Return a copy of the UidPack.
-        return copy_uid_pack(ls[0].0);
-    }
+        [(only, _)] => return copy_uid_pack(*only),
+        [(smallest, _), (second, _), rest @ ..] => (*smallest, *second, rest),
+    };
 
-    let mut out = intersect_with_lin_packed(ls[0].0, ls[1].0);
+    let mut out = intersect_with_lin_packed(smallest, second);
     // Intersect from smallest to largest.
-    for &(l, _) in &ls[2..] {
+    for &(l, _) in rest {
         out = intersect_with_lin_packed(out.as_ref(), l);
         // Break if we reach size 0 as we can no longer
         // add any element.

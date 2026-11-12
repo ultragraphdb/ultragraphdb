@@ -28,14 +28,23 @@ impl Catalog {
 
     /// The entry writing `declaration` of `uid` at `version`, with the discard flag: a request's commit writes it at
     /// its commit timestamp.
-    pub fn entry(tenant: u64, uid: SystemId, declaration: &Declaration, version: u64) -> Entry {
-        Entry::put(
+    ///
+    /// # Errors
+    ///
+    /// [`CatalogError::too_large`] for a string or list of the declaration past its width.
+    pub fn entry(
+        tenant: u64,
+        uid: SystemId,
+        declaration: &Declaration,
+        version: u64,
+    ) -> Result<Entry, CatalogError> {
+        Ok(Entry::put(
             Self::key(tenant, kind_of(declaration), uid),
             version,
             CATALOG_META,
-            encode(declaration),
+            encode(declaration)?,
         )
-        .with_discard()
+        .with_discard())
     }
 
     /// The entry writing a declaration's stored bytes `value` under its catalog key `key` at `version`, with the
@@ -55,7 +64,11 @@ impl Catalog {
     }
 
     /// Every entry of the catalog at `version`, as a drop of everything in the tenant writes its initial catalog.
-    pub fn entries(&self, version: u64) -> Vec<Entry> {
+    ///
+    /// # Errors
+    ///
+    /// [`CatalogError::too_large`] for a declaration's string or list past its width, as [`Catalog::entry`] refuses it.
+    pub fn entries(&self, version: u64) -> Result<Vec<Entry>, CatalogError> {
         let tenant = self.tenant;
         let predicates = self
             .predicates

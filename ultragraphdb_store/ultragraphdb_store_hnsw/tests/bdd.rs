@@ -13,7 +13,7 @@ use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD};
 use ultragraphdb_store_hnsw::{HnswError, VectorKeys, bytes_to_id, decode_id_matrix, parse_edges};
 use ultragraphdb_store_sim::SimRng;
-use ultragraphdb_traits_index::{KeyValue, Metric, VectorIndexOptions, accept_all};
+use ultragraphdb_traits_index::{Float, KeyValue, Metric, VectorIndexOptions, accept_all};
 use ultragraphdb_traits_store::{Scan, Store, StoreSnapshot};
 
 /// The unit tests' helpers, shared by path.
@@ -68,7 +68,9 @@ fn rows(matrix: &[u8]) -> TestResult<Vec<Vec<u64>>> {
 }
 
 fn random_vector(rng: &mut SimRng, dims: usize) -> Vec<f32> {
-    (0..dims).map(|_| (draw(rng) * 2.0 - 1.0) as f32).collect()
+    (0..dims)
+        .map(|_| f32::from_f64(draw(rng) * 2.0 - 1.0))
+        .collect()
 }
 
 #[when("the first vector is inserted into an empty index")]

@@ -767,13 +767,20 @@ mod stage_6 {
         let view = ResultView::from_frame(&frame_of(&bytes)?)?;
         let warning = view.warnings().get(0).context("the warning")?;
         assert_eq!((warning.number(), warning.message()), (902, "m"));
-        let [records, ends, text] = warning_sections(&[(UGS0902, 1, "m")]);
+        let [sourced_records, sourced_ends, sourced_text] = warning_sections(&[(UGS0902, 1, "m")]);
         let sourced = result_frame(
             0,
             0,
             &[],
             &[],
-            [vec![], vec![], vec![], records, ends, text],
+            [
+                vec![],
+                vec![],
+                vec![],
+                sourced_records,
+                sourced_ends,
+                sourced_text,
+            ],
             true,
         )?;
         assert_eq!(

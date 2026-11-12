@@ -67,7 +67,8 @@ impl Encoder {
             "the pack takes the encoder's block size"
         );
         self.ids.push(id);
-        self.added += 1;
+        // One per ID held in memory, so it never saturates.
+        self.added = self.added.saturating_add(1);
         if self.ids.len() >= self.block_size {
             self.pack_block();
         }
@@ -90,7 +91,8 @@ impl Encoder {
         let (Some(&first), Some(&last)) = (self.ids.first(), self.ids.last()) else {
             return;
         };
-        let mut block_deltas = Vec::with_capacity(self.ids.len().saturating_sub(1) * 4);
+        let mut block_deltas =
+            Vec::with_capacity(self.ids.len().saturating_sub(1).saturating_mul(4));
         for pair in self.ids.windows(2) {
             if let [previous, next] = pair {
                 deltas::put(&mut block_deltas, *previous, *next);

@@ -86,9 +86,9 @@ impl Tokenizer {
             // The first 64 characters hold a query's SHA-256 in hex.
             Kind::Sha256 => Ok(
                 if let Value::Str(s) = v
-                    && s.len() >= 64
+                    && let Some(hex) = s.as_bytes().get(..64)
                 {
-                    vec![s.as_bytes()[..64].to_vec()]
+                    vec![hex.to_vec()]
                 } else {
                     Vec::new()
                 },
@@ -171,7 +171,7 @@ fn wrong(v: &Value, want: &str) -> TokError {
 pub(crate) fn encode_int(val: i64) -> Vec<u8> {
     let mut buf = Vec::with_capacity(9);
     buf.push(u8::from(val >= 0));
-    buf.extend_from_slice(&(val as u64).to_be_bytes());
+    buf.extend_from_slice(&val.cast_unsigned().to_be_bytes());
     buf
 }
 
@@ -182,17 +182,26 @@ fn date_token(v: &Value, fields: usize) -> Result<Vec<Vec<u8>>, TokError> {
         return Err(wrong(v, "time.Time"));
     };
     let (year, month, day, hour) = utc_fields(t);
-    let all = [year as u16, month as u16, day as u16, hour as u16];
+    let all = [year, month, day, hour].map(go_uint16);
     Ok(vec![
-        all[..fields].iter().flat_map(|f| f.to_be_bytes()).collect(),
+        all.iter()
+            .take(fields)
+            .flat_map(|f| f.to_be_bytes())
+            .collect(),
     ])
 }
 
+/// Go's `uint16` conversion: the low 16 bits of `v`.
+fn go_uint16(v: i128) -> u16 {
+    let [.., high, low] = v.to_be_bytes();
+    u16::from_be_bytes([high, low])
+}
+
 /// Go's `UTC().Year()`, `Month()`, `Day()` and `Hour()`, from the proleptic Gregorian calendar.
-fn utc_fields(t: &DateTime) -> (i64, i64, i64, i64) {
+fn utc_fields(t: &DateTime) -> (i128, i128, i128, i128) {
     let unix = i128::from(t.unix());
     let days = unix.div_euclid(86_400);
-    let hour = (unix.rem_euclid(86_400) / 3600) as i64;
+    let hour = unix.rem_euclid(86_400) / 3600;
     // Days since 1970-01-01 to a civil date (H. Hinnant's days_to_civil).
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -203,7 +212,7 @@ fn utc_fields(t: &DateTime) -> (i64, i64, i64, i64) {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i128::from(month <= 2);
-    (year as i64, month as i64, day as i64, hour)
+    (year, month, day, hour)
 }
 
 /// The term tokenizer: the value split on spaces for the languages written without them, its analyzed terms for
@@ -233,9 +242,11 @@ fn analyzed(lang: &str, v: &Value) -> Option<Vec<AnalysisToken>> {
 /// Dgraph's `generateNGrams`: the shingles of `terms` at the `(first word, words)` spans, each of 30 bytes or more
 /// as its SHA-256 digest, deduplicated and, in this port, sorted.
 fn shingles(terms: &[&str], spans: impl Iterator<Item = (usize, usize)>) -> Vec<Vec<u8>> {
+    // Every span lies within the terms.
     let set: HashSet<Vec<u8>> = spans
-        .map(|(i, n)| {
-            let shingle = terms[i..i + n].join(" ").into_bytes();
+        .filter_map(|(i, n)| terms.get(i..i + n))
+        .map(|span| {
+            let shingle = span.join(" ").into_bytes();
             if shingle.len() < MAX_SHINGLE_LEN {
                 shingle
             } else {

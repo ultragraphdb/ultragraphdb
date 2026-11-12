@@ -407,7 +407,8 @@ impl TestServer {
     fn tick(&mut self, now: Instant) {
         self.now = Some(now);
         if let Some((at, unix)) = self.origin {
-            let since = now.saturating_duration_since(at).as_micros() as u64;
+            let since =
+                u64::try_from(now.saturating_duration_since(at).as_micros()).unwrap_or(u64::MAX);
             self.clock
                 .store(unix.saturating_add(since), Ordering::Relaxed);
         }
@@ -419,13 +420,15 @@ impl TestServer {
         self.framer.reset();
         loop {
             let want = self.framer.want();
-            if want > bytes.len() {
-                // The framer wants a header's 256 bytes or a frame's `size`, a `u32`, so the cast is lossless.
-                return Err(ProtocolError::length_mismatch(want as u32, bytes.len()));
-            }
+            let Some(wanted) = bytes.get(..want) else {
+                // The framer wants a header's 256 bytes or a frame's `size`, a `u32`.
+                let size = u32::try_from(want)
+                    .map_err(|_| ProtocolError::frame_too_large(want, MAX_FRAME_SIZE))?;
+                return Err(ProtocolError::length_mismatch(size, bytes.len()));
+            };
             let mut data = buffer.take();
             data.clear();
-            data.extend_from_slice(&bytes[..want]);
+            data.extend_from_slice(wanted);
             buffer.restore(data);
             if let FrameStep::Frame = self.framer.advance(&buffer).map_err(rule)? {
                 return Ok(self.framer.finish(buffer));

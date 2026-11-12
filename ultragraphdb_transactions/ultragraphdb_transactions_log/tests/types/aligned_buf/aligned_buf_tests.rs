@@ -23,7 +23,11 @@ fn test_zeroed_bytes_are_aligned_zeros_of_the_length() {
 
 #[test]
 fn test_from_slice_copies_into_aligned_bytes() {
-    let source: Vec<u8> = (0..5_000u32).map(|i| (i * 7) as u8).collect();
+    let source: Vec<u8> = (0..=u8::MAX)
+        .cycle()
+        .take(5_000)
+        .map(|i| i.wrapping_mul(7))
+        .collect();
     let buf = AlignedBuf::from_slice(&source);
     assert_eq!(buf.as_slice(), source.as_slice());
     assert!(aligned(&buf));

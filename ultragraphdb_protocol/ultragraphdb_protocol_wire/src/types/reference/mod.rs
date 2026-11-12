@@ -93,8 +93,9 @@ impl Reference {
 
     /// Appends `registration`; its index.
     fn push(&mut self, registration: ReferenceRegistration) -> usize {
+        let index = self.registrations.len();
         self.registrations.push(registration);
-        self.registrations.len() - 1
+        index
     }
 
     /// The batch in `tenant`, whose dictionary the home resolves its IRIs in.

@@ -51,6 +51,9 @@ impl BucketGroup {
     #[must_use]
     pub fn first_bucket(self) -> Bucket {
         // Below 2^18, so 64 times it is below 2^24 and every value is a bucket.
-        Bucket::new(self.0 * Self::BUCKETS).unwrap_or(Bucket::MAX)
+        self.0
+            .checked_mul(Self::BUCKETS)
+            .and_then(|first| Bucket::new(first).ok())
+            .unwrap_or(Bucket::MAX)
     }
 }

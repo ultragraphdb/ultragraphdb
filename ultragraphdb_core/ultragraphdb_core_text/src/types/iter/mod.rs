@@ -50,9 +50,10 @@ impl<'a> Iter<'a> {
         if self.done() {
             return false;
         }
-        let mut sz = self
-            .weighter
-            .append_next(&mut self.elems, &self.bytes[self.p_next..]);
+        let mut sz = self.weighter.append_next(
+            &mut self.elems,
+            self.bytes.get(self.p_next..).unwrap_or_default(),
+        );
         if sz == 0 {
             sz = 1;
         }
@@ -68,15 +69,15 @@ impl<'a> Iter<'a> {
         }
 
         // Check if the current segment starts with a starter.
-        let mut prev_ccc = self.elems[self.elems.len() - 1].ccc();
+        let mut prev_ccc = self.elems.last().map_or(0, |e| e.ccc());
         if prev_ccc == 0 {
             self.n = self.elems.len();
             self.p_end = self.p_next;
             return true;
-        } else if self.elems[self.n].ccc() == 0 {
+        } else if self.elems.get(self.n).is_some_and(|e| e.ccc() == 0) {
             // Set n to cover only the part of elems for which prev_ccc == 0 and use the rest for the next call.
             self.n += 1;
-            while self.n < self.elems.len() && self.elems[self.n].ccc() == 0 {
+            while self.elems.get(self.n).is_some_and(|e| e.ccc() == 0) {
                 self.n += 1;
             }
             self.p_end = self.p_next;
@@ -91,7 +92,7 @@ impl<'a> Iter<'a> {
             if !self.append_next() {
                 break;
             }
-            let ccc = self.elems[p].ccc();
+            let ccc = self.elems.get(p).map_or(0, |e| e.ccc());
             if ccc == 0 || self.elems.len() - self.n > MAX_COMBINING_CHARACTERS {
                 // Leave the starter for the next iteration, so that no sequence of elements crosses two
                 // segments.
@@ -114,16 +115,18 @@ impl<'a> Iter<'a> {
     fn do_norm(&mut self, mut p: usize, ccc: u8) {
         let k = p;
         p -= 1;
-        while p > self.n && ccc < self.elems[p - 1].ccc() {
+        while p > self.n && self.elems.get(p - 1).is_some_and(|e| ccc < e.ccc()) {
             p -= 1;
         }
-        self.elems[p..].rotate_left(k - p);
+        if let Some(block) = self.elems.get_mut(p..) {
+            block.rotate_left(k - p);
+        }
     }
 
     pub(crate) fn next_primary(&mut self) -> i32 {
         loop {
             while self.pce < self.n {
-                let v = self.elems[self.pce].primary();
+                let v = self.elems.get(self.pce).map_or(0, |e| e.primary());
                 self.pce += 1;
                 if v != 0 {
                     return v;
@@ -137,7 +140,7 @@ impl<'a> Iter<'a> {
 
     pub(crate) fn next_secondary(&mut self) -> i32 {
         while self.pce < self.elems.len() {
-            let v = self.elems[self.pce].secondary();
+            let v = self.elems.get(self.pce).map_or(0, |e| e.secondary());
             self.pce += 1;
             if v != 0 {
                 return v;
@@ -148,7 +151,12 @@ impl<'a> Iter<'a> {
 
     pub(crate) fn prev_secondary(&mut self) -> i32 {
         while self.pce < self.elems.len() {
-            let v = self.elems[self.elems.len() - self.pce - 1].secondary();
+            let v = self
+                .elems
+                .iter()
+                .rev()
+                .nth(self.pce)
+                .map_or(0, |e| e.secondary());
             self.pce += 1;
             if v != 0 {
                 return v;
@@ -159,7 +167,7 @@ impl<'a> Iter<'a> {
 
     pub(crate) fn next_tertiary(&mut self) -> i32 {
         while self.pce < self.elems.len() {
-            let v = self.elems[self.pce].tertiary();
+            let v = self.elems.get(self.pce).map_or(0, |e| e.tertiary());
             self.pce += 1;
             if v != 0 {
                 return i32::from(v);
@@ -170,7 +178,7 @@ impl<'a> Iter<'a> {
 
     pub(crate) fn next_quaternary(&mut self) -> i32 {
         while self.pce < self.elems.len() {
-            let v = self.elems[self.pce].quaternary();
+            let v = self.elems.get(self.pce).map_or(0, |e| e.quaternary());
             self.pce += 1;
             if v != 0 {
                 return v;

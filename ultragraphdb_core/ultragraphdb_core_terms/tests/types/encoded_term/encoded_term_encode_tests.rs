@@ -502,7 +502,7 @@ fn language_forms() -> TestResult<Vec<KeptForm>> {
         .into_iter()
         .enumerate()
     {
-        let shift = 3 * set as u8;
+        let shift = 3 * u8::try_from(set)?;
         cases.push((
             lang("chat", "fr", direction)?,
             [&[0x22 + shift, 4][..], b"chat", &[2, b'f', b'r']].concat(),

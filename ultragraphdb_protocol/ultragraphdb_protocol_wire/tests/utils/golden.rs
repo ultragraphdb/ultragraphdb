@@ -197,7 +197,7 @@ impl GoldenFrame {
 
     /// The 128-byte command header the generator wrote.
     pub fn command_header(&self) -> [u8; 128] {
-        std::array::from_fn(|i| ((i * 7 + 3) as u8) ^ self.command_header_xor)
+        std::array::from_fn(|i| (i * 7 + 3).to_le_bytes()[0] ^ self.command_header_xor)
     }
 }
 

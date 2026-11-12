@@ -51,10 +51,11 @@ impl RandomSource {
         // fewer than half of all draws are rejected, so a turn ends with probability above one half.
         let threshold = bound.wrapping_neg() % bound;
         for _ in 0..BELOW_DRAWS_MAX {
-            let product = u128::from(self.next_u64()) * u128::from(bound);
-            // The first cast keeps the product's low 64 bits, the truncation Lemire's method reads; the second takes
+            let draw = self.next_u64();
+            let product = u128::from(draw) * u128::from(bound);
+            // The wrapping product is the full product's low 64 bits, the part Lemire's method reads; the cast takes
             // the high 64 bits, which the shift leaves below 2^64, so it loses nothing.
-            if (product as u64) >= threshold {
+            if draw.wrapping_mul(bound) >= threshold {
                 let value = (product >> 64) as u64;
                 debug_assert!(value < bound, "a draw lies below its bound");
                 return value;

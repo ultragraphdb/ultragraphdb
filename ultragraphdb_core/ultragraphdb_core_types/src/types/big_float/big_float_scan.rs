@@ -7,6 +7,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+// Arithmetic on decoded text input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 use dashu_int::UBig;
 use dashu_int::ops::BitTest;
 
@@ -24,15 +29,15 @@ struct Scanner<'a> {
 
 impl Scanner<'_> {
     fn read(&mut self) -> Option<u8> {
-        let c = self.s.get(self.pos).copied();
-        if c.is_some() {
-            self.pos += 1;
-        }
-        c
+        let c = self.s.get(self.pos).copied()?;
+        // The byte read lies at `pos`, below the length, so the step cannot overflow.
+        self.pos = self.pos.checked_add(1)?;
+        Some(c)
     }
 
+    /// Go's `UnreadByte`, which leaves the position at the start as it is.
     fn unread(&mut self) {
-        self.pos -= 1;
+        self.pos = self.pos.saturating_sub(1);
     }
 }
 
@@ -83,7 +88,9 @@ fn scan_mantissa(r: &mut Scanner<'_>) -> Result<(UBig, u32, i64), &'static str> 
                 break;
             }
             prev = b'0';
-            count += 1;
+            count = count
+                .checked_add(1)
+                .ok_or("invariant violated: the digit count stays below the input length")?;
             digits.push(char::from(c));
         }
         ch = r.read();
@@ -103,19 +110,17 @@ fn scan_mantissa(r: &mut Scanner<'_>) -> Result<(UBig, u32, i64), &'static str> 
             .map_err(|_| "invariant violated: the mantissa holds digits below its base alone")?
     };
     if dp >= 0 {
-        count = dp - count;
+        // The point lies among the digits, 0 <= dp <= count.
+        count = dp
+            .checked_sub(count)
+            .ok_or("invariant violated: the decimal point lies among the digits")?;
     }
     Ok((mant, b, count))
 }
 
 /// The value of a digit in bases up to 36, `u32::MAX` for a byte that is no digit.
 fn digit_value(c: u8) -> u32 {
-    match c {
-        b'0'..=b'9' => u32::from(c - b'0'),
-        b'a'..=b'z' => u32::from(c - b'a') + 10,
-        b'A'..=b'Z' => u32::from(c - b'A') + 10,
-        _ => u32::MAX,
-    }
+    char::from(c).to_digit(36).unwrap_or(u32::MAX)
 }
 
 /// Go's `scanExponent(r, true, true)`: the exponent and its base, 10 for `e`/`E`, 2 for `p`/`P`.
@@ -172,19 +177,21 @@ impl BigFloat {
     /// Go's `pow5`: 5^n at this precision, multiplying by squares of 5 held at 64 more bits. `None` only where a
     /// product is zero times infinity, which no power of 5 reaches.
     fn pow5(n: u64, prec: u32) -> Option<BigFloat> {
-        const POW5_MAX: u64 = 27;
-        if n <= POW5_MAX {
+        const POW5_MAX: usize = 27;
+        if let Ok(small) = usize::try_from(n)
+            && small <= POW5_MAX
+        {
             return Some(BigFloat::from_parts(
                 false,
-                UBig::from(5u8).pow(n as usize),
+                UBig::from(5u8).pow(small),
                 0,
                 prec,
             ));
         }
         let wide = prec.saturating_add(64);
-        let mut z = BigFloat::from_parts(false, UBig::from(5u8).pow(POW5_MAX as usize), 0, prec);
+        let mut z = BigFloat::from_parts(false, UBig::from(5u8).pow(POW5_MAX), 0, prec);
         let mut f = BigFloat::from_parts(false, UBig::from(5u8), 0, wide);
-        let mut n = n - POW5_MAX;
+        let mut n = n.checked_sub(POW5_MAX as u64)?;
         while n > 0 {
             if n & 1 != 0 {
                 z = z.mul(&f, prec)?;
@@ -216,21 +223,21 @@ impl BigFloat {
                 form: Form::Zero,
             });
         }
+        // Go's int64 sums wrap on an exponent near its limits; the port refuses them as the overflow they are.
+        const OVERFLOW: &str = "exponent overflow";
         let mut exp2: i64 = 0;
         let mut exp5: i64 = 0;
         if fcount < 0 {
             match b {
                 10 => {
                     exp5 = fcount;
-                    exp2 += fcount;
+                    exp2 = fcount;
                 }
-                2 => exp2 += fcount,
-                8 => exp2 += fcount * 3,
-                _ => exp2 += fcount * 4,
+                2 => exp2 = fcount,
+                8 => exp2 = fcount.checked_mul(3).ok_or(OVERFLOW)?,
+                _ => exp2 = fcount.checked_mul(4).ok_or(OVERFLOW)?,
             }
         }
-        // Go's int64 sums wrap on an exponent near its limits; the port refuses them as the overflow they are.
-        const OVERFLOW: &str = "exponent overflow";
         if ebase == 10 {
             exp5 = exp5.checked_add(exp).ok_or(OVERFLOW)?;
         }

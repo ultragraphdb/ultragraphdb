@@ -107,10 +107,14 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             )?;
             entry = layer.best_neighbor()?.index();
             for nn in &layer.neighbors {
-                inbound
+                // `level` enumerates `outbound`, as long as each node's levels.
+                if let Some(at_level) = inbound
                     .entry(nn.index())
-                    .or_insert_with(|| vec![Vec::new(); self.max_levels])[level]
-                    .push(in_uuid);
+                    .or_insert_with(|| vec![Vec::new(); self.max_levels])
+                    .get_mut(level)
+                {
+                    at_level.push(in_uuid);
+                }
                 out.push(nn.index());
             }
         }

@@ -18,9 +18,11 @@ fn ends_with(s: &[char], suffix: &str) -> bool {
     s.ends_with(&suffix)
 }
 
+/// Sets the letter `from_end` places from the end, 1 the last; every caller has checked that the word is that long.
 fn set(s: &mut [char], from_end: usize, c: char) {
-    let n = s.len();
-    s[n - from_end] = c;
+    if let Some(slot) = s.len().checked_sub(from_end).and_then(|i| s.get_mut(i)) {
+        *slot = c;
+    }
 }
 
 fn cut(mut s: Vec<char>, n: usize) -> Vec<char> {
@@ -54,18 +56,20 @@ fn stem_runes(s: Vec<char>) -> Vec<char> {
 /// The plural and `-aux` endings removed, and the length the stages read.
 fn plural(mut s: Vec<char>) -> (Vec<char>, usize) {
     let mut l = s.len();
-    if l > 5 && s[l - 1] == 'x' {
-        if s[l - 3] == 'a' && s[l - 2] == 'u' && s[l - 4] != 'e' {
-            s[l - 2] = 'l';
+    if l > 5 && s.last() == Some(&'x') {
+        if let [.., before, 'a', u @ 'u', 'x'] = s.as_mut_slice()
+            && *before != 'e'
+        {
+            *u = 'l';
         }
         s.truncate(l - 1);
         l = s.len();
     }
-    if l > 3 && s[l - 1] == 'x' {
+    if l > 3 && s.last() == Some(&'x') {
         s.truncate(l - 1);
         l = s.len();
     }
-    if l > 3 && s[l - 1] == 's' {
+    if l > 3 && s.last() == Some(&'s') {
         s.truncate(l - 1);
         l = s.len();
     }
@@ -228,8 +232,8 @@ fn nouns(mut s: Vec<char>, l: usize) -> Vec<char> {
 fn norm(mut s: Vec<char>) -> Vec<char> {
     if s.len() > 4 {
         let mut i = 0;
-        while i < s.len() {
-            s[i] = match s[i] {
+        while let Some(r) = s.get_mut(i) {
+            *r = match *r {
                 'à' | 'á' | 'â' => 'a',
                 'ô' => 'o',
                 'è' | 'é' | 'ê' => 'e',
@@ -238,16 +242,7 @@ fn norm(mut s: Vec<char>) -> Vec<char> {
                 'ç' => 'c',
                 c => c,
             };
-            let mut ch = s[0];
-            let mut j = 1;
-            while j < s.len() {
-                if s[j] == ch && go_unicode::is_letter(ch) {
-                    let _duplicate: char = s.remove(j);
-                } else {
-                    ch = s[j];
-                    j += 1;
-                }
-            }
+            remove_doubled_letters(&mut s);
             i += 1;
         }
     }
@@ -256,19 +251,35 @@ fn norm(mut s: Vec<char>) -> Vec<char> {
         s.truncate(n - 2);
     }
     if s.len() > 4 {
-        if s[s.len() - 1] == 'r' {
+        if s.last() == Some(&'r') {
             let _last: Option<char> = s.pop();
         }
-        if s[s.len() - 1] == 'e' {
+        if s.last() == Some(&'e') {
             let _last: Option<char> = s.pop();
         }
-        if s[s.len() - 1] == 'e' {
+        if s.last() == Some(&'e') {
             let _last: Option<char> = s.pop();
         }
-        let n = s.len();
-        if s[n - 1] == s[n - 2] && go_unicode::is_letter(s[n - 1]) {
+        if matches!(s.as_slice(), [.., a, b] if a == b && go_unicode::is_letter(*b)) {
             let _last: Option<char> = s.pop();
         }
     }
     s
+}
+
+/// bleve's doubled-letter removal: a letter that repeats the one kept before it is removed.
+fn remove_doubled_letters(s: &mut Vec<char>) {
+    let Some(&first) = s.first() else {
+        return;
+    };
+    let mut ch = first;
+    let mut j = 1;
+    while let Some(&c) = s.get(j) {
+        if c == ch && go_unicode::is_letter(ch) {
+            let _duplicate: char = s.remove(j);
+        } else {
+            ch = c;
+            j += 1;
+        }
+    }
 }

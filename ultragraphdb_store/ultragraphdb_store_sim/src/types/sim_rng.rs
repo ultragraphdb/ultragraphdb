@@ -32,7 +32,8 @@ impl SimRng {
 
     /// An index into a collection of `len` elements, or 0 when it is empty.
     pub fn index(&mut self, len: usize) -> usize {
-        self.below(len as u64) as usize
+        // Below `len`, so it fits back and the fallback is never taken.
+        usize::try_from(self.below(len as u64)).unwrap_or(0)
     }
 
     /// A number in `lo..=hi`, or `lo` when `hi` is below it. A range of every `u64` is the next output itself.

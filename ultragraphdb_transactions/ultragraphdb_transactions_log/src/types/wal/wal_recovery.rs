@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::io::ErrorKind;
+
 use ultragraphdb_error_log::LogError;
 use ultragraphdb_traits_log::Position;
 
@@ -32,10 +34,14 @@ impl<S: DurableStorage> Wal<S> {
         };
         let len = file.length().await.map_err(io_error("length"))?;
         let len = len.min(self.config.segment_size()) / BLOCK as u64 * BLOCK as u64;
-        let bytes = file
-            .read_at(0, len as usize)
-            .await
-            .map_err(io_error("read"))?;
+        let len = usize::try_from(len).map_err(|_| {
+            LogError::io(
+                "read",
+                ErrorKind::OutOfMemory,
+                "a segment longer than memory addresses",
+            )
+        })?;
+        let bytes = file.read_at(0, len).await.map_err(io_error("read"))?;
         Ok(Some(bytes))
     }
 
@@ -174,7 +180,11 @@ impl<S: DurableStorage> Wal<S> {
             .next_back()
             .copied()
             .unwrap_or(stop.segment);
-        let mut from = stop.offset as usize + 1;
+        // The stop is an offset into a segment's bytes, read into memory, so it and the byte after it fit a `usize`.
+        let mut from = usize::try_from(stop.offset)
+            .ok()
+            .and_then(|offset| offset.checked_add(1))
+            .ok_or_else(|| LogError::corrupt(expected, stop.segment, stop.offset))?;
         for segment in stop.segment..=last {
             if let Some(bytes) = self.segment_bytes(segment).await?
                 && find_complete_round(bytes.as_slice(), from, cluster, incarnation, at).is_some()

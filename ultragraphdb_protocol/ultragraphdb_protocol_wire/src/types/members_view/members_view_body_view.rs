@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_body::{StringList, as_u32};
+use ultragraphdb_core_body::StringList;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
@@ -15,6 +15,7 @@ use crate::types::members_view::MembersView;
 use crate::types::role_kind::RoleKind;
 use crate::utils::body::{read_sections, read_string_list};
 use crate::utils::command_header::expect_command;
+use crate::utils::fields::count;
 use crate::utils::whole_records::whole_records;
 
 impl<'a> BodyView<'a> for MembersView<'a> {
@@ -30,13 +31,14 @@ impl<'a> BodyView<'a> for MembersView<'a> {
         let addresses = read_string_list(command, (1, 2), sections.get(1), sections.get(2))?;
         let members = sections.get(0);
         let start = sections.offset(0);
-        let limit = as_u32(addresses.len());
+        let limit = count(command, "addresses", addresses.len())?;
         let mut previous: Option<Member> = None;
         for (i, bytes) in whole_records::<{ Member::SIZE }>(command, 0, members)?
             .iter()
             .enumerate()
         {
-            let member = Member::decode(command, start + Member::SIZE * i, bytes)?;
+            let at = start.saturating_add(Member::SIZE.saturating_mul(i));
+            let member = Member::decode(command, at, bytes)?;
             if member.address() >= limit {
                 return Err(ProtocolError::index_out_of_range(
                     command,

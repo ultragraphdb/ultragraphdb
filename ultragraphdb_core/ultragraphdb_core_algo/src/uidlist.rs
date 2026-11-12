@@ -72,22 +72,21 @@ pub fn intersect_compressed_with_lin_jump(
     v: &[SystemId],
     o: &mut Vec<SystemId>,
 ) {
-    let m = v.len();
-    let mut k = 0;
-    let (_, off) = intersect_with_lin(dec.ids(), &v[k..], o);
-    k += off;
+    // An intersection reaches no further than its list's end, so each rest is a suffix of v.
+    let (_, off) = intersect_with_lin(dec.ids(), v, o);
+    let mut rest = v.get(off..).unwrap_or_default();
 
-    while k < m {
-        let u = dec.linear_seek(v[k].to_u128());
+    while let Some(&first) = rest.first() {
+        let u = dec.linear_seek(first.to_u128());
         if u.is_empty() {
             break;
         }
-        let (_, mut step) = intersect_with_lin(u, &v[k..], o);
+        let (_, mut step) = intersect_with_lin(u, rest, o);
         if step == 0 {
             step = 1; // If v[k] isn't in u, move forward.
         }
 
-        k += step;
+        rest = rest.get(step..).unwrap_or_default();
     }
 }
 
@@ -111,7 +110,7 @@ pub fn intersect_compressed_with_bin(dec: &mut Decoder, q: &[SystemId], o: &mut 
         // Each pass moves to the next block, so the loop ends after the pack's last block.
         while !block_uids.is_empty() {
             let (_, off) = intersect_with_jump(block_uids, q, o);
-            q = &q[off..];
+            q = q.get(off..).unwrap_or_default();
             if q.is_empty() {
                 return;
             }
@@ -121,9 +120,9 @@ pub fn intersect_compressed_with_bin(dec: &mut Decoder, q: &[SystemId], o: &mut 
     }
 
     let mut uids = dec.ids();
-    let mut qidx = 0;
-    // Each pass moves qidx forward by at least one, so the loop ends after q's last UID.
-    while let Some(&u) = q.get(qidx) {
+    let mut rest = q;
+    // Each pass moves rest's start forward by at least one, so the loop ends after q's last UID.
+    while let Some(&u) = rest.first() {
         if uids.last().is_none_or(|&last| u > last) {
             uids = if lq * LIN_VS_BIN_RATIO < ld {
                 dec.linear_seek(u.to_u128())
@@ -134,11 +133,11 @@ pub fn intersect_compressed_with_bin(dec: &mut Decoder, q: &[SystemId], o: &mut 
                 return;
             }
         }
-        let (_, mut off) = intersect_with_jump(uids, &q[qidx..], o);
+        let (_, mut off) = intersect_with_jump(uids, rest, o);
         if off == 0 {
             off = 1; // if v[k] isn't in u, move forward
         }
-        qidx += off;
+        rest = rest.get(off..).unwrap_or_default();
     }
 }
 
@@ -172,15 +171,11 @@ pub fn intersect_with(u: &List, v: &List, o: &mut List) {
 pub fn intersect_with_lin(u: &[SystemId], v: &[SystemId], o: &mut Vec<SystemId>) -> (usize, usize) {
     debug_assert!(u.is_sorted(), "the first list is sorted");
     debug_assert!(v.is_sorted(), "the second list is sorted");
-    let n = u.len();
-    let m = v.len();
     let (mut i, mut k) = (0, 0);
-    while i < n && k < m {
-        let uid = u[i];
-        let vid = v[k];
+    while let (Some(&uid), Some(&vid)) = (u.get(i), v.get(k)) {
         if uid > vid {
             k += 1;
-            while k < m && v[k] < uid {
+            while v.get(k).is_some_and(|&x| x < uid) {
                 k += 1;
             }
         } else if uid == vid {
@@ -189,7 +184,7 @@ pub fn intersect_with_lin(u: &[SystemId], v: &[SystemId], o: &mut Vec<SystemId>)
             i += 1;
         } else {
             i += 1;
-            while i < n && u[i] < vid {
+            while u.get(i).is_some_and(|&x| x < vid) {
                 i += 1;
             }
         }
@@ -206,28 +201,24 @@ pub fn intersect_with_jump(
 ) -> (usize, usize) {
     debug_assert!(u.is_sorted(), "the first list is sorted");
     debug_assert!(v.is_sorted(), "the second list is sorted");
-    let n = u.len();
-    let m = v.len();
     let (mut i, mut k) = (0, 0);
-    while i < n && k < m {
-        let uid = u[i];
-        let vid = v[k];
+    while let (Some(&uid), Some(&vid)) = (u.get(i), v.get(k)) {
         if uid == vid {
             o.push(uid);
             k += 1;
             i += 1;
-        } else if k + JUMP < m && uid > v[k + JUMP] {
+        } else if v.get(k + JUMP).is_some_and(|&x| uid > x) {
             k += JUMP;
-        } else if i + JUMP < n && vid > u[i + JUMP] {
+        } else if u.get(i + JUMP).is_some_and(|&x| vid > x) {
             i += JUMP;
         } else if uid > vid {
             k += 1;
-            while k < m && v[k] < uid {
+            while v.get(k).is_some_and(|&x| x < uid) {
                 k += 1;
             }
         } else {
             i += 1;
-            while i < n && u[i] < vid {
+            while u.get(i).is_some_and(|&x| x < vid) {
                 i += 1;
             }
         }
@@ -242,18 +233,20 @@ pub fn intersect_with_bin(d: &[SystemId], q: &[SystemId], o: &mut Vec<SystemId>)
     debug_assert!(d.is_sorted(), "the first list is sorted");
     debug_assert!(q.is_sorted(), "the second list is sorted");
     let (d, q) = if d.len() < q.len() { (q, d) } else { (d, q) };
-    let (ld, lq) = (d.len(), q.len());
-    if ld == 0 || lq == 0 || d[ld - 1] < q[0] || q[lq - 1] < d[0] {
+    let (Some(&first), Some(&last), Some(&q_first), Some(&q_last)) =
+        (d.first(), d.last(), q.first(), q.last())
+    else {
+        return 0;
+    };
+    if last < q_first || q_last < first {
         return 0;
     }
 
-    let first = d[0];
     let minq = q.partition_point(|&x| x < first);
-
-    let last = d[ld - 1];
     let maxq = q.partition_point(|&x| x <= last);
 
-    bin_intersect(d, &q[minq..maxq], o);
+    // first <= last, so minq <= maxq and the range is in q.
+    bin_intersect(d, q.get(minq..maxq).unwrap_or_default(), o);
     maxq
 }
 
@@ -296,23 +289,28 @@ fn bin_intersect(d_whole: &[SystemId], q_whole: &[SystemId], fin: &mut Vec<Syste
             }
             BinTask::Pair(d, q) => (d, q),
         };
-        let midq = q.len() / 2;
-        let Some(&qval) = q.get(midq) else {
+        let Some((q_left, [qval, q_right @ ..])) = q.split_at_checked(q.len() / 2) else {
             continue;
         };
+        let qval = *qval;
         // Each pair is pushed with the longer slice first, so d holds at least q's IDs and is not empty here.
         debug_assert!(d.len() >= q.len(), "the longer slice is searched");
-        let midd = d.partition_point(|&x| x < qval);
+        // A partition point is at most d's length, so the split always succeeds.
+        let Some((d_left, d_from_midd)) = d.split_at_checked(d.partition_point(|&x| x < qval))
+        else {
+            continue;
+        };
         // Go steps midd back on a miss and resumes at midd + 1, so the right half starts after a match and at midd
         // otherwise; with midd past d's end there is no match and no right half.
-        if let Some(&at_midd) = d.get(midd) {
-            let rest = if at_midd == qval { midd + 1 } else { midd };
-            stack.push(longer_first(&d[rest..], &q[midq + 1..]));
-            if at_midd == qval {
+        if let [at_midd, d_after_midd @ ..] = d_from_midd {
+            let found = *at_midd == qval;
+            let d_right = if found { d_after_midd } else { d_from_midd };
+            stack.push(longer_first(d_right, q_right));
+            if found {
                 stack.push(BinTask::Match(qval));
             }
         }
-        stack.push(longer_first(&d[..midd], &q[..midq]));
+        stack.push(longer_first(d_left, q_left));
     }
 }
 
@@ -325,15 +323,17 @@ pub fn intersect_sorted(lists: &[&List]) -> List {
     let mut ls: Vec<&List> = lists.to_vec();
     // Sort the lists based on length.
     ls.sort_by_key(|l| l.ids().len());
-    if ls.len() == 1 {
-        return ls[0].clone();
-    }
+    let (smallest, second, rest) = match ls.as_slice() {
+        [] => return List::default(),
+        [only] => return (*only).clone(),
+        [smallest, second, rest @ ..] => (*smallest, *second, rest),
+    };
 
     let mut out = List::default();
-    intersect_with(ls[0], ls[1], &mut out);
+    intersect_with(smallest, second, &mut out);
     // Intersect from smallest to largest.
     let mut scratch = List::default();
-    for l in &ls[2..] {
+    for l in rest {
         intersect_with(&out, l, &mut scratch);
         std::mem::swap(&mut out, &mut scratch);
         // Break if we reach size 0 as we can no longer
@@ -352,15 +352,12 @@ pub fn difference(u: &List, v: &List) -> List {
     debug_assert!(u.is_sorted(), "the first list is sorted");
     debug_assert!(v.is_sorted(), "the second list is sorted");
     let n = u.len();
-    let m = v.len();
     let mut out = Vec::with_capacity(n / 2);
     let (mut i, mut k) = (0, 0);
-    while i < n && k < m {
-        let uid = u[i];
-        let vid = v[k];
+    while let (Some(&uid), Some(&vid)) = (u.get(i), v.get(k)) {
         if uid < vid {
-            while i < n && u[i] < vid {
-                out.push(u[i]);
+            while let Some(&x) = u.get(i).filter(|&&x| x < vid) {
+                out.push(x);
                 i += 1;
             }
         } else if uid == vid {
@@ -368,15 +365,13 @@ pub fn difference(u: &List, v: &List) -> List {
             k += 1;
         } else {
             k += 1;
-            while k < m && v[k] < uid {
+            while v.get(k).is_some_and(|&x| x < uid) {
                 k += 1;
             }
         }
     }
-    while i < n && k >= m {
-        out.push(u[i]);
-        i += 1;
-    }
+    // The loop ends with one list consumed; when it is v, the rest of u is kept.
+    out.extend_from_slice(u.get(i..).unwrap_or_default());
     debug_assert!(out.is_sorted(), "a difference of sorted lists is sorted");
     debug_assert!(
         out.len() <= n,
@@ -403,7 +398,8 @@ pub fn merge_sorted_more_mem(lists: &[&List]) -> List {
         let handles: Vec<_> = (0..k)
             .map(|i| {
                 let end = ((i + 1) * lists.len() / k).min(lists.len());
-                let chunk = &lists[i * lists.len() / k..end];
+                // The start is at most the end, which is at most the length, so the chunk is in lists.
+                let chunk = lists.get(i * lists.len() / k..end).unwrap_or_default();
                 s.spawn(move || internal_merge_sort(chunk))
             })
             .collect();
@@ -442,27 +438,37 @@ fn internal_merge_sort_with_buffer(lists: &[&List], mut output: Vec<SystemId>) -
         .collect();
     let mut h = IdHeap::new(elems);
 
-    let mut idx = vec![0usize; lists.len()];
+    // Each list's IDs after the one the heap holds, indexed by the heap elements' list index.
+    let mut rests: Vec<&[SystemId]> = lists
+        .iter()
+        .map(|l| l.ids().get(1..).unwrap_or_default())
+        .collect();
 
     // Each pass takes an ID out of one list or removes an exhausted list, so the loop ends after every ID.
     while let Some((val, list_idx)) = h.get(0).map(|me| (me.val(), me.list_idx())) {
         if output.last() != Some(&val) {
             output.push(val);
         }
-        let l = lists[list_idx].ids();
+        let next = rests.get_mut(list_idx).and_then(|rest| {
+            let (&next, tail) = rest.split_first()?;
+            *rest = tail;
+            Some(next)
+        });
         // The heap's smallest element is the one removed or replaced.
-        if idx[list_idx] >= l.len() - 1 {
-            let _exhausted: Option<Elem> = h.pop();
-        } else {
-            idx[list_idx] += 1;
-            let _advanced: Option<Elem> = h.set(0, Elem::new(l[idx[list_idx]], list_idx));
-            h.fix(0);
+        match next {
+            Some(next) => {
+                let _advanced: Option<Elem> = h.set(0, Elem::new(next, list_idx));
+                h.fix(0);
+            }
+            None => {
+                let _exhausted: Option<Elem> = h.pop();
+            }
         }
     }
 
     debug_assert!(output.is_sorted(), "a merge of sorted lists is sorted");
     debug_assert!(
-        output.windows(2).all(|w| w[0] != w[1]),
+        output.windows(2).all(|w| w.first() != w.last()),
         "a merge holds no duplicate"
     );
     List::new(output)
@@ -488,10 +494,8 @@ pub fn merge_sorted(lists: &[&List]) -> List {
             .filter_map(|i| {
                 let start = i * chunk_size;
                 let end = ((i + 1) * chunk_size).min(lists.len());
-                if start > lists.len() {
-                    return None;
-                }
-                let chunk = &lists[start..end];
+                // A start past the length is past the end too, and that thread has no chunk.
+                let chunk = lists.get(start..end)?;
                 Some(s.spawn(move || {
                     let cap = chunk.iter().map(|l| l.ids().len()).sum();
                     internal_merge_sort_with_buffer(chunk, Vec::with_capacity(cap))

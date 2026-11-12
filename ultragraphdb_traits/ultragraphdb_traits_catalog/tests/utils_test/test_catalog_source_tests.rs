@@ -9,7 +9,7 @@ use ultragraphdb_traits_catalog::{
 };
 
 fn held(tenant: u64, version: u64, effective: u64) -> HeldVersion {
-    HeldVersion::new(tenant, version, effective, vec![version as u8])
+    HeldVersion::new(tenant, version, effective, vec![version.to_le_bytes()[0]])
 }
 
 fn default(tenant: u64, predicate: &str, entry: u8) -> DefaultEntry {

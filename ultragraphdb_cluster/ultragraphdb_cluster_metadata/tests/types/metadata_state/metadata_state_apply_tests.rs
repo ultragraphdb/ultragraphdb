@@ -968,7 +968,7 @@ fn test_pending_placement_versions_keep_room_in_the_map() -> TestResult {
     // The map holds 256 layouts: the first and 255 changes. Announce 245, then 10 more fit pending, and no 11th.
     let mut state = placed_at_5()?;
     for (i, closed) in (6..6 + 245).enumerate() {
-        state.apply(&change_to(1 + (i % 2) as u32)?)?;
+        state.apply(&change_to(1 + u32::try_from(i % 2)?)?)?;
         state.apply(&placing(closed, i as u64 + 1)?)?;
     }
     assert_eq!(state.placement().context("the map")?.layouts_free(), 10);

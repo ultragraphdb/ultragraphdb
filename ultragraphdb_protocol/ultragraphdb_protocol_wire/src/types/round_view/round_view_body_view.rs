@@ -135,7 +135,11 @@ fn read_decisions(
         {
             return Err(ProtocolError::padding_not_zero(
                 command,
-                sections.offset(0) + DECISION_SIZE * i + 2 + j,
+                sections
+                    .offset(0)
+                    .saturating_add(DECISION_SIZE.saturating_mul(i))
+                    .saturating_add(2)
+                    .saturating_add(j),
             ));
         }
         if outcome == 0 {
@@ -235,7 +239,10 @@ fn read_records<'a>(
             .get(end..start)
             .and_then(|p| p.iter().position(|b| *b != 0))
         {
-            return Err(ProtocolError::padding_not_zero(command, base + end + j));
+            return Err(ProtocolError::padding_not_zero(
+                command,
+                base.saturating_add(end).saturating_add(j),
+            ));
         }
         let view = WriteSetRecordView::new(data.get(start..stop).unwrap_or_default())
             .map_err(|cause| ProtocolError::record(index, cause))?;
@@ -246,8 +253,8 @@ fn read_records<'a>(
     if end != data.len() {
         return Err(ProtocolError::trailing_bytes(
             command,
-            base + end,
-            base + data.len(),
+            base.saturating_add(end),
+            base.saturating_add(data.len()),
         ));
     }
     Ok(views)

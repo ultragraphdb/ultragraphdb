@@ -11,8 +11,9 @@ use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_core_terms::{TermView, Text};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
-    BodyView, Command, ComputeRead, Credit, ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_SIZE,
-    PatternSlot, QuadPattern, ReadLevel, RequestTerm, ResultTermView, ResultView, TermTable,
+    BodyView, Command, ComputeRead, Credit, ErrorCode, ErrorReplyView, FLAG_LAST,
+    MAX_FRAME_SIZE_U32, PatternSlot, QuadPattern, ReadLevel, RequestTerm, ResultTermView,
+    ResultView, TermTable,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -261,7 +262,7 @@ impl Pattern {
             ComputeRead::new(tenant, read_only, level, terms, slots, Vec::new())
                 .with_principal(1)
                 .with_deadline_ms(DEADLINE_MS)
-                .with_client_limits(MAX_FRAME_SIZE as u32, 4),
+                .with_client_limits(MAX_FRAME_SIZE_U32, 4),
         )
     }
 }

@@ -8,6 +8,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+// Arithmetic on decoded text input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 mod json_decoder_consume;
 mod json_decoder_fetch;
 
@@ -67,9 +72,12 @@ impl<R: Read> JsonDecoder<R> {
             return Err(e.clone());
         }
         match self.read_value() {
-            Ok((start, end)) => Ok(JsonValue::from_valid(
-                &self.buf[start - self.base..end - self.base],
-            )),
+            // `read_value` ends the value it returns in the buffer; a value not held whole is reported as cut short.
+            Ok((start, end)) => end
+                .checked_sub(start)
+                .and_then(|len| self.from(start).get(..len))
+                .map(JsonValue::from_valid)
+                .ok_or_else(JsonError::unexpected_eof),
             Err(e) => {
                 // Decode has always reported truncated input as io.ErrUnexpectedEOF, unlike Unmarshal.
                 let e = match e.0 {
@@ -114,7 +122,7 @@ impl<R: Read> JsonDecoder<R> {
 
     /// Go's `Decoder.Buffered`: the bytes read from the stream and not yet decoded.
     pub fn buffered(&self) -> &[u8] {
-        &self.buf[self.prev_end - self.base..]
+        self.from(self.prev_end)
     }
 
     /// Go's `Decoder.InputOffset`: the offset in the stream just after the last value decoded.
@@ -123,21 +131,23 @@ impl<R: Read> JsonDecoder<R> {
         i64::try_from(self.prev_end).unwrap_or(i64::MAX)
     }
 
-    /// The buffer from the absolute offset `pos`.
+    /// The buffer from the absolute offset `pos`, empty where `pos` lies outside it.
     fn from(&self, pos: usize) -> &[u8] {
-        &self.buf[pos - self.base..]
+        pos.checked_sub(self.base)
+            .and_then(|at| self.buf.get(at..))
+            .unwrap_or_default()
     }
 
     /// Go's `needMore`: whether no byte is buffered at the absolute offset `pos`.
     fn need_more(&self, pos: usize) -> bool {
-        pos >= self.base + self.buf.len()
+        self.from(pos).is_empty()
     }
 }
 
 impl<'a> JsonDecoder<&'a [u8]> {
     /// Go's buffered decoder of `json.Unmarshal` and `json.Valid`: all of `data` in its buffer, nothing to read.
     pub(crate) fn of_bytes(data: &'a [u8]) -> Self {
-        let mut d = Self::new(&data[..0]);
+        let mut d = Self::new(&[][..]);
         d.stream = false;
         d.buf = data.to_vec();
         d.cap = data.len();

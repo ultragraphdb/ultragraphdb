@@ -44,8 +44,9 @@ impl ConflictKind {
     pub fn number(self) -> u64 {
         ConflictKind::ALL
             .iter()
-            .position(|k| *k == self)
-            .map_or(0, |i| i as u64 + 1)
+            .zip(1..)
+            .find(|(k, _)| **k == self)
+            .map_or(0, |(_, number)| number)
     }
 
     /// The kind numbered `number`; `None` for a number no kind has.

@@ -19,8 +19,8 @@ fn test_a_record_is_laid_out_from_the_protocols_table() -> TestResult {
     let (encoding, statements) = objects.first().context("an object")?;
     let mut builder = ObjectRecordsBuilder::new();
     builder.push(encoding, statements);
-    let mut expected = (encoding.len() as u32).to_le_bytes().to_vec();
-    expected.extend_from_slice(&(statements.len() as u32).to_le_bytes());
+    let mut expected = u32::try_from(encoding.len())?.to_le_bytes().to_vec();
+    expected.extend_from_slice(&u32::try_from(statements.len())?.to_le_bytes());
     expected.extend_from_slice(encoding);
     statements
         .iter()

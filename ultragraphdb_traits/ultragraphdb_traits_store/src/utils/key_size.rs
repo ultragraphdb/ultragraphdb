@@ -15,7 +15,7 @@ pub const MAX_STORED_KEY_SIZE: usize = 65_535;
 const DUMPED_BYTES: usize = 1 << 10;
 
 /// The longest run of zero bytes one code of the stored key stands for.
-const RUN: usize = 126;
+const RUN: u8 = 126;
 
 /// The length of `user_key` as the store keeps it: every non-zero byte as itself, every run of zero bytes as two bytes
 /// for each 126 it holds or begins, the two bytes ending the key, then the eight bytes of the version.
@@ -34,13 +34,14 @@ pub fn stored_key_size(user_key: &[u8]) -> usize {
 
 /// The bytes of the codes a run of `run` zero bytes takes.
 fn codes(run: usize) -> usize {
-    2 * run.div_ceil(RUN)
+    2 * run.div_ceil(usize::from(RUN))
 }
 
 /// The first `limit` bytes of the stored form of `user_key`, as the store's encoding writes them.
 fn stored_head(user_key: &[u8], limit: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(limit + 2);
-    let mut run = 0usize;
+    // Reset past `RUN`, so it and the codes made of it fit a byte.
+    let mut run = 0u8;
     for &b in user_key {
         if out.len() >= limit {
             break;
@@ -48,13 +49,13 @@ fn stored_head(user_key: &[u8], limit: usize) -> Vec<u8> {
         if b == 0 {
             run += 1;
             if run > RUN {
-                out.extend_from_slice(&[0x00, RUN as u8 + 2]);
+                out.extend_from_slice(&[0x00, RUN + 2]);
                 run = 1;
             }
             continue;
         }
         if run > 0 {
-            out.extend_from_slice(&[0x00, 0xFF - run as u8]);
+            out.extend_from_slice(&[0x00, 0xFF - run]);
             run = 0;
         }
         out.push(b);
@@ -67,7 +68,8 @@ fn stored_head(user_key: &[u8], limit: usize) -> Vec<u8> {
 /// stored form exceeds [`MAX_STORED_KEY_SIZE`], with the same error over the stored key.
 pub fn check_key_size(user_key: &[u8]) -> Result<(), StoreError> {
     if user_key.len() > MAX_USER_KEY_SIZE {
-        let head = user_key[..DUMPED_BYTES].to_vec();
+        // The key is longer than the bytes dumped, so `get` always finds them.
+        let head = user_key.get(..DUMPED_BYTES).unwrap_or(user_key).to_vec();
         return Err(StoreError::key_too_large(
             user_key.len(),
             MAX_USER_KEY_SIZE,

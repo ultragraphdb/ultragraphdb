@@ -9,6 +9,7 @@
 use crate::tables::language_tables::VARIANT_INDEX;
 use crate::types::full_tag::{FullTag, MAX_CORE_SIZE};
 use crate::types::scanner::Scanner;
+use crate::utils::go_int::{go_byte, go_uint16};
 use crate::utils::parse::parse_scanner;
 
 /// Constructs a tag from individual components.
@@ -34,9 +35,9 @@ impl Builder {
             let n = MAX_CORE_SIZE + token_len(&self.variants) + token_len(&self.extensions);
             let mut buf = Vec::with_capacity(n);
             buf.extend_from_slice(&t.gen_core_bytes());
-            t.p_variant = buf.len() as u8;
+            t.p_variant = go_byte(buf.len());
             append_tokens(&mut buf, &self.variants);
-            t.p_ext = buf.len() as u16;
+            t.p_ext = go_uint16(buf.len());
             append_tokens(&mut buf, &self.extensions);
             t.str = String::from_utf8_lossy(&buf).into_owned();
             // The string is parsed again, as remaking it is not always needed but tricky to decide.
@@ -72,16 +73,16 @@ impl Builder {
     /// Adds the extension `e`. An extension already present is kept, except that a `-u` extension gains the
     /// key-type pairs of `e`.
     pub(crate) fn add_ext(&mut self, e: &str) {
-        if e.as_bytes()[0] == b'x' {
+        if e.as_bytes().first() == Some(&b'x') {
             if self.private.is_empty() {
                 self.private = e.to_string();
             }
             return;
         }
         for s in self.extensions.iter_mut() {
-            if s.as_bytes()[0] == e.as_bytes()[0] {
-                if e.as_bytes()[0] == b'u' {
-                    s.push_str(&e[1..]);
+            if s.as_bytes().first() == e.as_bytes().first() {
+                if e.as_bytes().first() == Some(&b'u') {
+                    s.push_str(e.get(1..).unwrap_or_default());
                 }
                 return;
             }
@@ -92,14 +93,14 @@ impl Builder {
     /// Sets the extension `e`, overwriting one of the same type, except that a `-u` extension's key-type pairs
     /// are set individually.
     pub(crate) fn set_ext(&mut self, e: &str) {
-        if e.as_bytes()[0] == b'x' {
+        if e.as_bytes().first() == Some(&b'x') {
             self.private = e.to_string();
             return;
         }
         for s in self.extensions.iter_mut() {
-            if s.as_bytes()[0] == e.as_bytes()[0] {
-                if e.as_bytes()[0] == b'u' {
-                    *s = format!("{}{}", e, &s[1..]);
+            if s.as_bytes().first() == e.as_bytes().first() {
+                if e.as_bytes().first() == Some(&b'u') {
+                    *s = format!("{}{}", e, s.get(1..).unwrap_or_default());
                 } else {
                     *s = e.to_string();
                 }
@@ -127,7 +128,9 @@ impl Builder {
 fn variant_order(v: &str) -> u8 {
     VARIANT_INDEX
         .binary_search_by(|(k, _)| (*k).cmp(v))
-        .map_or(0, |i| VARIANT_INDEX[i].1)
+        .ok()
+        .and_then(|i| VARIANT_INDEX.get(i))
+        .map_or(0, |&(_, id)| id)
 }
 
 fn token_len(tokens: &[String]) -> usize {

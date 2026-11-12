@@ -11,7 +11,7 @@ use ultragraphdb_traits_store::{
 
 /// `len` bytes of `0x00 0x01` repeated: every zero byte a run of one, the densest the stored key's codes get.
 fn alternating(len: usize) -> Vec<u8> {
-    (0..len).map(|i| (i % 2) as u8).collect()
+    (0..len).map(|i| u8::from(i % 2 == 1)).collect()
 }
 
 /// The first 1,024 stored bytes of such a key: `0x00 0xFE 0x01` repeated.

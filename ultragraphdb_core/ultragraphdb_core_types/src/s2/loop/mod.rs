@@ -134,17 +134,7 @@ impl Loop {
     /// Sets the origin containment for the given point and then calls the initialization for
     /// the bounds objects and the internal index.
     fn init_origin_and_bound(&mut self) {
-        if self.vertices.len() < 3 {
-            // Check for the special "empty" and "full" loops (which have one vertex).
-            if !self.is_empty_or_full() {
-                self.origin_inside = false;
-                return;
-            }
-
-            // This is the special empty or full loop, so the origin depends on if
-            // the vertex is in the southern hemisphere or not.
-            self.origin_inside = self.vertices[0].0.z < 0.0;
-        } else {
+        if let Some(&[v0, v1, v2]) = self.vertices.first_chunk::<3>() {
             // The brute force point containment algorithm works by counting edge
             // crossings starting at a fixed reference point (chosen as OriginPoint()
             // for historical reasons).  Loop initialization would be more efficient
@@ -157,17 +147,26 @@ impl Loop {
             // for vertex 1.  If the result is incorrect, the origin must be inside
             // the loop instead.  Note that the Loop is not necessarily valid and so
             // we need to check the requirements of AngleContainsVertex first.
-            let v = &self.vertices;
-            let v1_inside = v[0] != v[1] && v[2] != v[1] && angle_contains_vertex(v[0], v[1], v[2]);
+            let v1_inside = v0 != v1 && v2 != v1 && angle_contains_vertex(v0, v1, v2);
 
             // initialize before calling ContainsPoint
             self.origin_inside = false;
 
             // Note that ContainsPoint only does a bounds check once initIndex
             // has been called, so it doesn't matter that bound is undefined here.
-            if v1_inside != self.brute_force_contains_point(self.vertices[1]) {
+            if v1_inside != self.brute_force_contains_point(v1) {
                 self.origin_inside = true;
             }
+        } else {
+            // Check for the special "empty" and "full" loops (which have one vertex).
+            if !self.is_empty_or_full() {
+                self.origin_inside = false;
+                return;
+            }
+
+            // This is the special empty or full loop, so the origin depends on if
+            // the vertex is in the southern hemisphere or not.
+            self.origin_inside = self.vertices.first().is_some_and(|v| v.0.z < 0.0);
         }
 
         // We *must* call initBound before initializing the index, because
@@ -299,8 +298,11 @@ impl Loop {
     /// automatically for methods that do index math such as Edge. i.e., Vertex(NumEdges() + n)
     /// is the same as Vertex(n).
     pub fn vertex(&self, i: usize) -> Point {
-        // from_points never builds a loop of no vertices.
-        self.vertices[i % self.vertices.len()]
+        // from_points never builds a loop of no vertices; one would read as the empty loop's single vertex.
+        i.checked_rem(self.vertices.len())
+            .and_then(|k| self.vertices.get(k))
+            .copied()
+            .unwrap_or(EMPTY_LOOP_POINT)
     }
 
     /// Reports if the given point is contained by this loop. This method does not use the
@@ -473,10 +475,13 @@ impl Loop {
         self.index = OnceLock::new();
         self.index_has_shape = false;
         if self.is_empty_or_full() {
-            if self.is_full() {
-                self.vertices[0] = EMPTY_LOOP_POINT;
+            let point = if self.is_full() {
+                EMPTY_LOOP_POINT
             } else {
-                self.vertices[0] = FULL_LOOP_POINT;
+                FULL_LOOP_POINT
+            };
+            if let Some(first) = self.vertices.first_mut() {
+                *first = point;
             }
         } else {
             // For non-special loops, reverse the slice of vertices.

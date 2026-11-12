@@ -301,7 +301,7 @@ fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() -> Test
     for seed in 0..200u64 {
         let mut rng = Rng::new(seed);
         // Small limits so refusals happen, large ones so they do not.
-        let limit = CATALOG_BYTES + rng.below(400) as usize;
+        let limit = CATALOG_BYTES + usize::try_from(rng.below(400))?;
         let tenant = rng.below(4);
         r.reset(tenant, seed, limit);
         let mut model = Model {

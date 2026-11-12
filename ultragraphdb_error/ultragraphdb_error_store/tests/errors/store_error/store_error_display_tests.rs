@@ -37,7 +37,11 @@ fn test_key_too_large_is_badgers_text() {
         "  20 27 2e 35 3c 43 4a 51  58 5f 66 6d 74 7b 82 89  | '.5<CJQX_fmt{..|\n",
         "  90 97 9e a5 ac b3 ba c1  c8 cf d6 dd e4 eb f2 f9  |................|\n",
     ];
-    let key: Vec<u8> = (0..65_001usize).map(|i| (i * 7) as u8).collect();
+    let key: Vec<u8> = (0..=u8::MAX)
+        .cycle()
+        .take(65_001)
+        .map(|i| i.wrapping_mul(7))
+        .collect();
     let text = StoreError::key_too_large(key.len(), 65_000, key[..1024].to_vec()).to_string();
     let want: String =
         std::iter::once("Key with size 65001 exceeded 65000 limit. Key:\n".to_string())

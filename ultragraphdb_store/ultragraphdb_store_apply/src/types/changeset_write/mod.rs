@@ -197,9 +197,10 @@ where
     ///
     /// # Errors
     ///
-    /// The store's error, or the corruption of a list or dictionary entry the derivation reads. The write will not
-    /// commit, so before the error is returned what it holds is released once, as [`ChangesetWrite::release`] does with
-    /// `base`: every hold of a write of its own (`None`), or those it took beyond `base`, the terms it continues.
+    /// The store's error, the corruption of a list or dictionary entry the derivation reads, or a statistics delta its
+    /// stored format cannot hold ([`QuadWrite::add_statistics`]). The write will not commit, so before the error is
+    /// returned what it holds is released once, as [`ChangesetWrite::release`] does with `base`: every hold of a write
+    /// of its own (`None`), or those it took beyond `base`, the terms it continues.
     pub fn finish(
         mut self,
         base: Option<&WriteTerms>,
@@ -208,7 +209,11 @@ where
             self.release(base);
             return Err(e);
         }
-        Ok(self.outcome())
+        if let Err(e) = self.write.add_statistics() {
+            self.release(base);
+            return Err(e.into());
+        }
+        self.outcome()
     }
 
     /// Derives the write's keys from its net effect, every list and statistics delta its changes wrote dropped.
@@ -240,7 +245,11 @@ where
     /// What the write leaves to commit as it is: its count moves written, and the statement records added to its
     /// request. Its catalog entries reach no store: a partition holds no catalog key, and the catalog the write leaves
     /// is installed in memory once its round is written (schema-storage, "The schema persists in the metadata group").
-    pub fn outcome(mut self) -> WriteOutcome<'a, S, C> {
+    ///
+    /// # Errors
+    ///
+    /// A statistics delta its stored format cannot hold, as [`QuadWrite::finish`] refuses; nothing is released.
+    pub fn outcome(mut self) -> Result<WriteOutcome<'a, S, C>, ChangesetError> {
         self.write_counts();
         for ((graph, id), record) in std::mem::take(&mut self.records) {
             match record {
@@ -248,8 +257,8 @@ where
                 None => self.write.delete_statement(graph, id),
             }
         }
-        let (request, terms) = self.write.finish();
-        WriteOutcome {
+        let (request, terms) = self.write.finish()?;
+        Ok(WriteOutcome {
             request,
             terms,
             catalog: self.catalog,
@@ -260,7 +269,7 @@ where
             touched: self.touched,
             removals: self.removals,
             net: self.net,
-        }
+        })
     }
 
     fn tenant(&self) -> u64 {
@@ -492,7 +501,9 @@ fn literal_refusal(predicate: NamedNodeRef<'_>, e: QuadError) -> ChangesetError 
         | QuadErrorEnum::NoOwnedBucket { .. }
         | QuadErrorEnum::SkolemDraws { .. }
         | QuadErrorEnum::NotOwned { .. }
-        | QuadErrorEnum::UnknownSkolem { .. } => e.into(),
+        | QuadErrorEnum::UnknownSkolem { .. }
+        | QuadErrorEnum::KindTooLong { .. }
+        | QuadErrorEnum::TooManyKinds { .. } => e.into(),
     }
 }
 

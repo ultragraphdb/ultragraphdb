@@ -34,6 +34,13 @@ pub(crate) fn version(command: u16, field: &'static str, value: u64) -> Result<u
     Ok(value)
 }
 
+/// `len`, the entries of a decoded section, as the u32 an index into them is checked against: refused as
+/// [`ProtocolError::field_value`] naming `field` past `u32::MAX`, which no frame within 1 MiB reaches.
+pub(crate) fn count(command: u16, field: &'static str, len: usize) -> Result<u32, ProtocolError> {
+    // Lossless: a `usize` is at most 64 bits.
+    u32::try_from(len).map_err(|_| ProtocolError::field_value(command, field, len as u64))
+}
+
 /// `value` as a boolean byte: 0 or 1.
 pub(crate) fn boolean(command: u16, field: &'static str, value: u8) -> Result<bool, ProtocolError> {
     match value {

@@ -69,7 +69,9 @@ pub(crate) fn walk(
             .map_err(|e| CodecError::invalid_id(position, e))?;
         each(last);
         previous = next;
-        offset += len;
+        offset = offset
+            .checked_add(len)
+            .ok_or_else(|| CodecError::truncated_varint(offset))?;
     }
     if offset != deltas.len() {
         return Err(CodecError::trailing_deltas(offset));

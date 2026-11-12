@@ -23,6 +23,7 @@ workspace = true
 [dependencies]
 ultragraphdb_error_store = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
+# External crates
 fjall = { workspace = true }
 moka = { workspace = true }
 tracing = { workspace = true }
@@ -31,6 +32,7 @@ tracing = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 ultragraphdb_tool_test = { workspace = true }
+# External crates
 criterion = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }

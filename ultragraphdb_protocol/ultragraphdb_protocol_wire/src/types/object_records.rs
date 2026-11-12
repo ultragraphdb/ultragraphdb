@@ -61,8 +61,10 @@ impl<'a> ObjectRecords<'a> {
             let (_, next) = record_at(value, at).ok_or_else(|| {
                 ProtocolError::entry_out_of_bounds(Command::Entries.number(), 0, len, at)
             })?;
+            len = len.checked_add(1).ok_or_else(|| {
+                ProtocolError::entry_out_of_bounds(Command::Entries.number(), 0, len, at)
+            })?;
             at = next;
-            len += 1;
         }
         Ok(Self { value, len })
     }

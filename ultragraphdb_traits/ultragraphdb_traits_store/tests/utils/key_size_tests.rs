@@ -29,7 +29,7 @@ fn test_the_limits_are_badgers_and_fjalls() {
 
 /// `len` bytes of `0x00 0x01` repeated: every zero byte a run of one, the densest the stored key's codes get.
 fn alternating(len: usize) -> Vec<u8> {
-    (0..len).map(|i| (i % 2) as u8).collect()
+    (0..len).map(|i| u8::from(i % 2 == 1)).collect()
 }
 
 #[test]
@@ -69,9 +69,7 @@ fn test_a_key_within_both_limits_is_accepted() {
 
 #[test]
 fn test_a_user_key_over_badgers_limit_is_refused_with_badgers_text() -> TestResult {
-    let key: Vec<u8> = (0..MAX_USER_KEY_SIZE + 1)
-        .map(|i| (i % 251) as u8)
-        .collect();
+    let key: Vec<u8> = (0..=250u8).cycle().take(MAX_USER_KEY_SIZE + 1).collect();
     let err = check_key_size(&key)
         .err()
         .context("the error of check_key_size(&key)")?;

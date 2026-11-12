@@ -18,13 +18,13 @@ use crate::utils::tok::{
 };
 
 fn one_arg<S: AsRef<str>>(func_args: &[S]) -> Result<Value, TokError> {
-    if func_args.len() != 1 {
+    let [arg] = func_args else {
         return Err(TokError::arguments(format!(
             "Function requires 1 arguments, but got {}",
             func_args.len()
         )));
-    }
-    Ok(Value::str(func_args[0].as_ref()))
+    };
+    Ok(Value::str(arg.as_ref()))
 }
 
 /// Dgraph's `GetTokens`: the tokens of the one string argument by the tokenizer with identifier `id`.

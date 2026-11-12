@@ -53,7 +53,9 @@ pub fn server() -> Rc<RefCell<TestServer>> {
 fn clocks() -> (Instant, u64) {
     let unix = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_micros() as u64);
+        .map_or(0, |since| {
+            u64::try_from(since.as_micros()).unwrap_or(u64::MAX)
+        });
     (Instant::now(), unix)
 }
 

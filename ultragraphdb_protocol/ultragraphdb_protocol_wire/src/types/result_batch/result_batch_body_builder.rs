@@ -34,7 +34,7 @@ impl BodyBuilder for ResultBatch {
             .collect();
         let mut offsets = Vec::with_capacity(self.terms().len());
         let mut encodings = Vec::new();
-        let mut texts = Vec::with_capacity(2 * self.terms().len());
+        let mut texts = Vec::with_capacity(self.terms().len().saturating_mul(2));
         let mut strings = StringWriter::default();
         for term in self.terms() {
             offsets.push(as_u32(encodings.len()));

@@ -9,12 +9,19 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+// Arithmetic on decoded text input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 //! Go's `strconv`: `ParseUint`, `ParseInt` and `Atoi` (64-bit), `ParseBool` and `FormatBool`, `ParseFloat`,
 //! `FormatFloat(f, 'e'|'E'|'f'|'g'|'G', -1, 64|32)`, `Quote`, `QuoteRune`, `Unquote` of a double-quoted string and
 //! `IsPrint`.
 //!
 //! Go's strings hold any bytes, so the parsers and `quote` take anything that is bytes, a `str` included; a byte
 //! that is not UTF-8 is quoted as `\x` and its hexadecimal value, as Go quotes it.
+
+use std::ops::{Mul, Shl};
 
 use dashu_int::UBig;
 use ultragraphdb_error_num::{NumError, NumErrorEnum};
@@ -44,20 +51,24 @@ pub fn parse_uint<S: AsRef<[u8]> + ?Sized>(s: &S, base: u32) -> Result<u64, NumE
 }
 
 fn parse_uint_as(func: &'static str, s: &[u8], base: u32) -> Result<u64, NumError> {
-    if s.is_empty() {
+    let Some((&first, tail)) = s.split_first() else {
         return Err(syntax_error(func, s));
-    }
+    };
     let base0 = base == 0;
-    let (base, digits): (u64, &[u8]) = match (base0, s[0], s.get(1).map(|&c| lower(c))) {
+    // A base prefix counts only with a digit after it.
+    let prefixed = tail
+        .split_first()
+        .filter(|(_, rest)| !rest.is_empty())
+        .map(|(&c, rest)| (lower(c), rest));
+    let (base, digits): (u64, &[u8]) = match (base0, first, prefixed) {
         (false, _, _) if (2..=36).contains(&base) => (u64::from(base), s),
         (false, _, _) => return Err(base_error(func, s, base)),
-        (true, b'0', Some(b'b')) if s.len() >= 3 => (2, &s[2..]),
-        (true, b'0', Some(b'o')) if s.len() >= 3 => (8, &s[2..]),
-        (true, b'0', Some(b'x')) if s.len() >= 3 => (16, &s[2..]),
-        (true, b'0', _) => (8, &s[1..]),
+        (true, b'0', Some((b'b', rest))) => (2, rest),
+        (true, b'0', Some((b'o', rest))) => (8, rest),
+        (true, b'0', Some((b'x', rest))) => (16, rest),
+        (true, b'0', _) => (8, tail),
         (true, _, _) => (10, s),
     };
-    let cutoff = u64::MAX / base + 1;
     let mut underscores = false;
     let mut n: u64 = 0;
     for &c in digits {
@@ -66,18 +77,19 @@ fn parse_uint_as(func: &'static str, s: &[u8], base: u32) -> Result<u64, NumErro
                 underscores = true;
                 continue;
             }
-            b'0'..=b'9' => c - b'0',
-            _ if lower(c).is_ascii_lowercase() => lower(c) - b'a' + 10,
-            _ => return Err(syntax_error(func, s)),
+            // A digit or a letter of either case, a letter from 10: Go's digit, `lower(c) - 'a' + 10`.
+            _ => match char::from(c).to_digit(36) {
+                Some(d) => u64::from(d),
+                None => return Err(syntax_error(func, s)),
+            },
         };
-        if u64::from(d) >= base {
+        if d >= base {
             return Err(syntax_error(func, s));
         }
-        if n >= cutoff {
-            return Err(range_error(func, s));
-        }
-        n = (n * base)
-            .checked_add(u64::from(d))
+        // Go's cutoff, `n >= maxUint64/base + 1`, is the product's overflow.
+        n = n
+            .checked_mul(base)
+            .and_then(|n| n.checked_add(d))
             .ok_or_else(|| range_error(func, s))?;
     }
     if underscores && !underscore_ok(s) {
@@ -87,10 +99,10 @@ fn parse_uint_as(func: &'static str, s: &[u8], base: u32) -> Result<u64, NumErro
 }
 
 fn parse_int_as(func: &'static str, s: &[u8], base: u32) -> Result<i64, NumError> {
-    let (neg, rest) = match s.first() {
+    let (neg, rest) = match s.split_first() {
         None => return Err(syntax_error(func, s)),
-        Some(b'+') => (false, &s[1..]),
-        Some(b'-') => (true, &s[1..]),
+        Some((b'+', rest)) => (false, rest),
+        Some((b'-', rest)) => (true, rest),
         Some(_) => (false, s),
     };
     let un = match parse_uint_as(func, rest, base) {
@@ -151,8 +163,10 @@ pub fn parse_float<S: AsRef<[u8]> + ?Sized>(s: &S, bit_size: u32) -> Result<f64,
             Some(r) => {
                 let (v, range) = if r.hex {
                     atof_hex(r.mantissa, r.exp, r.neg, r.trunc, bits)
+                        .ok_or_else(|| syntax_error("ParseFloat", s))?
                 } else {
-                    atof_decimal(&s[..r.n], bits)
+                    let read = s.get(..r.n).ok_or_else(|| syntax_error("ParseFloat", s))?;
+                    atof_decimal(read, bits)
                 };
                 (v, r.n, range)
             }
@@ -179,21 +193,23 @@ const GO_NAN: f64 = f64::from_bits(0x7ff8_0000_0000_0001);
 
 /// Go's `special`: NaN, Inf and Infinity, signed, any case; the value and the bytes consumed.
 fn special(s: &[u8]) -> Option<(f64, usize)> {
-    let first = *s.first()?;
-    let (sign, nsign, rest) = match first {
-        b'+' => (1.0, 1, &s[1..]),
-        b'-' => (-1.0, 1, &s[1..]),
-        b'n' | b'N' => {
+    let (infinity, nsign, rest) = match s.split_first()? {
+        (b'+', rest) => (f64::INFINITY, 1_usize, rest),
+        (b'-', rest) => (f64::NEG_INFINITY, 1, rest),
+        (b'n' | b'N', _) => {
             return (common_prefix_len_ignore_case(s, b"nan") == 3).then_some((GO_NAN, 3));
         }
-        b'i' | b'I' => (1.0, 0, s),
+        (b'i' | b'I', _) => (f64::INFINITY, 0, s),
         _ => return None,
     };
     let mut n = common_prefix_len_ignore_case(rest, b"infinity");
     if 3 < n && n < 8 {
         n = 3;
     }
-    (n == 3 || n == 8).then_some((sign * f64::INFINITY, nsign + n))
+    if n != 3 && n != 8 {
+        return None;
+    }
+    Some((infinity, nsign.checked_add(n)?))
 }
 
 struct ReadFloat {
@@ -207,30 +223,18 @@ struct ReadFloat {
 
 /// Go's `readFloat`: the syntax of a decimal or hexadecimal float, its leading mantissa digits and exponent.
 fn read_float(s: &[u8]) -> Option<ReadFloat> {
-    let mut i = 0;
-    let mut neg = false;
-    if i >= s.len() {
-        return None;
-    }
-    match s[i] {
-        b'+' => i += 1,
-        b'-' => {
-            i += 1;
-            neg = true;
-        }
-        _ => {}
-    }
-    let mut base: u64 = 10;
-    let mut max_mant_digits: i64 = 19;
-    let mut exp_char = b'e';
-    let mut hex = false;
-    if i + 2 < s.len() && s[i] == b'0' && s[i + 1].eq_ignore_ascii_case(&b'x') {
-        base = 16;
-        max_mant_digits = 16;
-        i += 2;
-        exp_char = b'p';
-        hex = true;
-    }
+    let (neg, i) = match s.first()? {
+        b'+' => (false, 1),
+        b'-' => (true, 1),
+        _ => (false, 0),
+    };
+    // A `0x` counts only with a byte after it.
+    let hex = matches!(s.get(i..)?, [b'0', x, _, ..] if x.eq_ignore_ascii_case(&b'x'));
+    let (base, max_mant_digits, exp_char, i): (u64, i64, u8, usize) = if hex {
+        (16, 16, b'p', i.checked_add(2)?)
+    } else {
+        (10, 19, b'e', i)
+    };
     let Mantissa {
         mantissa,
         nd,
@@ -241,7 +245,7 @@ fn read_float(s: &[u8]) -> Option<ReadFloat> {
         trunc,
         mut underscores,
         mut i,
-    } = read_mantissa(s, i, base, max_mant_digits);
+    } = read_mantissa(s, i, base, max_mant_digits)?;
     if !sawdigits {
         return None;
     }
@@ -249,18 +253,22 @@ fn read_float(s: &[u8]) -> Option<ReadFloat> {
         dp = nd;
     }
     if base == 16 {
-        dp *= 4;
-        nd_mant *= 4;
+        dp = dp.checked_mul(4)?;
+        nd_mant = nd_mant.checked_mul(4)?;
     }
-    if i < s.len() && s[i].to_ascii_lowercase() == exp_char {
-        let (e, end) = read_exponent(s, i + 1, &mut underscores)?;
-        dp += e;
+    if s.get(i).is_some_and(|c| c.to_ascii_lowercase() == exp_char) {
+        let (e, end) = read_exponent(s, i.checked_add(1)?, &mut underscores)?;
+        dp = dp.checked_add(e)?;
         i = end;
     } else if base == 16 {
         return None;
     }
-    let exp = if mantissa != 0 { dp - nd_mant } else { 0 };
-    if underscores && !underscore_ok(&s[..i]) {
+    let exp = if mantissa != 0 {
+        dp.checked_sub(nd_mant)?
+    } else {
+        0
+    };
+    if underscores && !underscore_ok(s.get(..i)?) {
         return None;
     }
     Some(ReadFloat {
@@ -287,8 +295,9 @@ struct Mantissa {
     i: usize,
 }
 
-/// `readFloat`'s digit loop, from `i`: digits of `base`, one dot and underscores, up to the first other byte.
-fn read_mantissa(s: &[u8], mut i: usize, base: u64, max_mant_digits: i64) -> Mantissa {
+/// `readFloat`'s digit loop, from `i`: digits of `base`, one dot and underscores, up to the first other byte; `None`
+/// where a count overflows.
+fn read_mantissa(s: &[u8], i: usize, base: u64, max_mant_digits: i64) -> Option<Mantissa> {
     let mut m = Mantissa {
         mantissa: 0,
         nd: 0,
@@ -300,8 +309,7 @@ fn read_mantissa(s: &[u8], mut i: usize, base: u64, max_mant_digits: i64) -> Man
         underscores: false,
         i,
     };
-    while i < s.len() {
-        let c = s[i];
+    for &c in s.get(i..)? {
         let lc = c.to_ascii_lowercase();
         if c == b'_' {
             m.underscores = true;
@@ -311,91 +319,73 @@ fn read_mantissa(s: &[u8], mut i: usize, base: u64, max_mant_digits: i64) -> Man
             }
             m.sawdot = true;
             m.dp = m.nd;
-        } else if c.is_ascii_digit() {
+        } else if c.is_ascii_digit() || base == 16 && (b'a'..=b'f').contains(&lc) {
             m.sawdigits = true;
             if c == b'0' && m.nd == 0 {
-                m.dp -= 1;
-                i += 1;
-                continue;
-            }
-            m.nd += 1;
-            if m.nd_mant < max_mant_digits {
-                m.mantissa = m
-                    .mantissa
-                    .wrapping_mul(base)
-                    .wrapping_add(u64::from(c - b'0'));
-                m.nd_mant += 1;
-            } else if c != b'0' {
-                m.trunc = true;
-            }
-        } else if base == 16 && (b'a'..=b'f').contains(&lc) {
-            m.sawdigits = true;
-            m.nd += 1;
-            if m.nd_mant < max_mant_digits {
-                m.mantissa = m
-                    .mantissa
-                    .wrapping_mul(16)
-                    .wrapping_add(u64::from(lc - b'a' + 10));
-                m.nd_mant += 1;
+                // A leading zero moves the point and counts as no digit.
+                m.dp = m.dp.checked_sub(1)?;
             } else {
-                m.trunc = true;
+                m.nd = m.nd.checked_add(1)?;
+                if m.nd_mant < max_mant_digits {
+                    // At most 19 decimal or 16 hexadecimal digits, so the mantissa cannot wrap.
+                    let d = u64::from(char::from(lc).to_digit(16)?);
+                    m.mantissa = m.mantissa.wrapping_mul(base).wrapping_add(d);
+                    m.nd_mant = m.nd_mant.checked_add(1)?;
+                } else if c != b'0' {
+                    m.trunc = true;
+                }
             }
         } else {
             break;
         }
-        i += 1;
+        m.i = m.i.checked_add(1)?;
     }
-    m.i = i;
-    m
+    Some(m)
 }
 
 /// `readFloat`'s exponent, from `i` just past the exponent character: its signed value, digits past 10000 ignored,
 /// and where it ends; `None` without a digit. An underscore sets `underscores`.
-fn read_exponent(s: &[u8], mut i: usize, underscores: &mut bool) -> Option<(i64, usize)> {
-    if i >= s.len() {
+fn read_exponent(s: &[u8], i: usize, underscores: &mut bool) -> Option<(i64, usize)> {
+    let rest = s.get(i..)?;
+    let (negative, digits) = match rest.split_first()? {
+        (b'+', digits) => (false, digits),
+        (b'-', digits) => (true, digits),
+        _ => (false, rest),
+    };
+    if !digits.first()?.is_ascii_digit() {
         return None;
     }
-    let mut esign = 1;
-    match s[i] {
-        b'+' => i += 1,
-        b'-' => {
-            i += 1;
-            esign = -1;
-        }
-        _ => {}
-    }
-    if i >= s.len() || !s[i].is_ascii_digit() {
-        return None;
-    }
+    let used = digits
+        .iter()
+        .take_while(|&&c| c.is_ascii_digit() || c == b'_')
+        .count();
     let mut e: i64 = 0;
-    while i < s.len() && (s[i].is_ascii_digit() || s[i] == b'_') {
-        if s[i] == b'_' {
+    for &c in digits.get(..used)? {
+        if c == b'_' {
             *underscores = true;
         } else if e < 10000 {
-            e = e * 10 + i64::from(s[i] - b'0');
+            let d = i64::from(char::from(c).to_digit(10)?);
+            e = e.checked_mul(10)?.checked_add(d)?;
         }
-        i += 1;
     }
-    Some((e * esign, i))
+    // `digits` ends `s`, so its start is the length before it.
+    let end = s.len().checked_sub(digits.len())?.checked_add(used)?;
+    Some((if negative { e.checked_neg()? } else { e }, end))
 }
 
 /// Go's `underscoreOK`: underscores only between digits, or between a base prefix and a digit.
 fn underscore_ok(s: &[u8]) -> bool {
-    let mut saw = b'^';
-    let mut i = 0;
-    let s = if !s.is_empty() && (s[0] == b'-' || s[0] == b'+') {
-        &s[1..]
-    } else {
-        s
+    let s = match s.split_first() {
+        Some((b'-' | b'+', rest)) => rest,
+        _ => s,
     };
-    let mut hex = false;
-    if s.len() >= 2 && s[0] == b'0' && matches!(s[1].to_ascii_lowercase(), b'b' | b'o' | b'x') {
-        i = 2;
-        saw = b'0';
-        hex = s[1].eq_ignore_ascii_case(&b'x');
-    }
-    while i < s.len() {
-        let c = s[i];
+    let (mut saw, hex, rest) = match s {
+        [b'0', prefix, rest @ ..] if matches!(prefix.to_ascii_lowercase(), b'b' | b'o' | b'x') => {
+            (b'0', prefix.eq_ignore_ascii_case(&b'x'), rest)
+        }
+        _ => (b'^', false, s),
+    };
+    for &c in rest {
         if c.is_ascii_digit() || hex && (b'a'..=b'f').contains(&c.to_ascii_lowercase()) {
             saw = b'0';
         } else if c == b'_' {
@@ -409,7 +399,6 @@ fn underscore_ok(s: &[u8]) -> bool {
             }
             saw = b'!';
         }
-        i += 1;
     }
     saw != b'_'
 }
@@ -430,40 +419,43 @@ fn atof_decimal(s: &[u8], bits: u32) -> (f64, bool) {
     }
 }
 
-/// Go's `atofHex`: rounds a hexadecimal mantissa and binary exponent to the float's bits, half to even.
-fn atof_hex(mut mantissa: u64, exp: i64, neg: bool, trunc: bool, bits: u32) -> (f64, bool) {
-    let (mantbits, expbits, bias): (u32, u32, i64) = if bits == 32 {
-        (23, 8, -127)
+/// Go's `atofHex`: rounds a hexadecimal mantissa and binary exponent to the float's bits, half to even; `None` where
+/// the exponent overflows.
+fn atof_hex(mut mantissa: u64, exp: i64, neg: bool, trunc: bool, bits: u32) -> Option<(f64, bool)> {
+    // Go's float32info and float64info, with the exponents they bound: `bias + 1` and `1 << expbits + bias - 2`.
+    let (mantbits, expbits, bias, min_exp, max_exp): (u32, u32, i64, i64, i64) = if bits == 32 {
+        (23, 8, -127, -126, 127)
     } else {
-        (52, 11, -1023)
+        (52, 11, -1023, -1022, 1023)
     };
-    let max_exp = (1i64 << expbits) + bias - 2;
-    let min_exp = bias + 1;
-    let mut exp = exp + i64::from(mantbits);
-    while mantissa != 0 && mantissa >> (mantbits + 2) == 0 {
+    // The mantissa is rounded with two bits below it, and normalised while a third sits above it.
+    let (rounding, above) = (mantbits.checked_add(2)?, mantbits.checked_add(3)?);
+    let mut exp = exp.checked_add(i64::from(mantbits))?;
+    while mantissa != 0 && mantissa >> rounding == 0 {
         mantissa <<= 1;
-        exp -= 1;
+        exp = exp.checked_sub(1)?;
     }
     if trunc {
         mantissa |= 1;
     }
-    while mantissa >> (1 + mantbits + 2) != 0 {
+    while mantissa >> above != 0 {
         mantissa = (mantissa >> 1) | (mantissa & 1);
-        exp += 1;
+        exp = exp.checked_add(1)?;
     }
-    while mantissa > 1 && exp < min_exp - 2 {
+    let denormal = min_exp.checked_sub(2)?;
+    while mantissa > 1 && exp < denormal {
         mantissa = (mantissa >> 1) | (mantissa & 1);
-        exp += 1;
+        exp = exp.checked_add(1)?;
     }
     let mut round = mantissa & 3;
     mantissa >>= 2;
     round |= mantissa & 1;
-    exp += 2;
+    exp = exp.checked_add(2)?;
     if round == 3 {
-        mantissa += 1;
-        if mantissa == 1 << (1 + mantbits) {
+        mantissa = mantissa.checked_add(1)?;
+        if mantissa == 1 << mantbits.checked_add(1)? {
             mantissa >>= 1;
-            exp += 1;
+            exp = exp.checked_add(1)?;
         }
     }
     if mantissa >> mantbits == 0 {
@@ -472,18 +464,21 @@ fn atof_hex(mut mantissa: u64, exp: i64, neg: bool, trunc: bool, bits: u32) -> (
     let mut range = false;
     if exp > max_exp {
         mantissa = 1 << mantbits;
-        exp = max_exp + 1;
+        exp = max_exp.checked_add(1)?;
         range = true;
     }
-    let mut b = mantissa & ((1u64 << mantbits) - 1);
-    b |= (((exp - bias) as u64) & ((1u64 << expbits) - 1)) << mantbits;
+    let mut b = mantissa & !(u64::MAX << mantbits);
+    b |= (exp.checked_sub(bias)?.cast_unsigned() & !(u64::MAX << expbits)) << mantbits;
     if neg {
         b |= 1u64 << mantbits << expbits;
     }
     if bits == 32 {
-        (f64::from(f32::from_bits(b as u32)), range)
+        // A float32's bits are the low four bytes.
+        let [b0, b1, b2, b3, ..] = b.to_le_bytes();
+        let f = f32::from_bits(u32::from_le_bytes([b0, b1, b2, b3]));
+        Some((f64::from(f), range))
     } else {
-        (f64::from_bits(b), range)
+        Some((f64::from_bits(b), range))
     }
 }
 
@@ -492,46 +487,35 @@ fn atof_hex(mut mantissa: u64, exp: i64, neg: bool, trunc: bool, bits: u32) -> (
 ///
 /// Rust's shortest search and Go's agree except where two shortest candidates lie exactly as far from the value;
 /// Go takes the even one (its digits are the exact value rounded half to even), so that case is redone here.
-fn shortest_digits(f: f64, bits: u32) -> (Vec<u8>, i64) {
+fn shortest_digits(f: f64, bits: u32) -> Option<(Vec<u8>, i64)> {
     let sci = if bits == 32 {
         format!("{:e}", (f as f32).abs())
     } else {
         format!("{:e}", f.abs())
     };
     // `{:e}` writes `d.ddde-x`: the digits before the `e`, the exponent after it as a decimal integer.
-    let digits: Vec<u8> = sci
-        .bytes()
-        .take_while(|&c| c != b'e')
-        .filter(u8::is_ascii_digit)
-        .collect();
-    let exp_text = sci.bytes().skip_while(|&c| c != b'e');
-    let exp_negative = exp_text.clone().any(|c| c == b'-');
-    let exp_magnitude = exp_text
-        .filter(u8::is_ascii_digit)
-        .fold(0i64, |acc, c| acc * 10 + i64::from(c - b'0'));
-    let exp = if exp_negative {
-        -exp_magnitude
-    } else {
-        exp_magnitude
-    };
-    let dp = exp + 1;
+    let (mantissa, exponent) = sci.split_once('e')?;
+    let digits: Vec<u8> = mantissa.bytes().filter(u8::is_ascii_digit).collect();
+    let dp = exponent.parse::<i64>().ok()?.checked_add(1)?;
     let v = if bits == 32 {
         f64::from(f as f32).abs()
     } else {
         f.abs()
     };
-    let (exact, edp) = exact_digits(v);
-    if exact.len() > digits.len() {
-        let (r, rdp) = round_half_even(&exact, edp, digits.len());
-        if (r.as_slice(), rdp) != (digits.as_slice(), dp) && round_trips(&r, rdp, v, bits) {
-            return (r, rdp);
-        }
+    if let Some((exact, edp)) = exact_digits(v)
+        && exact.len() > digits.len()
+        && let Some((r, rdp)) = round_half_even(&exact, edp, digits.len())
+        && (r.as_slice(), rdp) != (digits.as_slice(), dp)
+        && round_trips(&r, rdp, v, bits)
+    {
+        return Some((r, rdp));
     }
-    (digits, dp)
+    Some((digits, dp))
 }
 
-/// The exact decimal digits of a positive finite float and their decimal point.
-fn exact_digits(v: f64) -> (Vec<u8>, i64) {
+/// The exact decimal digits of a positive finite float and their decimal point; `None` where the shift or power,
+/// at most 1,074, does not fit a `usize`.
+fn exact_digits(v: f64) -> Option<(Vec<u8>, i64)> {
     let b = v.to_bits();
     // Eleven bits, so the value is the bits.
     let biased = ((b >> 52) & 0x7ff).cast_signed();
@@ -539,51 +523,57 @@ fn exact_digits(v: f64) -> (Vec<u8>, i64) {
     let (m, e) = if biased == 0 {
         (frac, -1074)
     } else {
-        (frac | (1 << 52), biased - 1075)
+        (frac | (1 << 52), biased.checked_sub(1075)?)
     };
     let m = UBig::from(m);
+    let shift = usize::try_from(e.unsigned_abs()).ok()?;
+    // A `UBig` grows rather than overflowing, so its operators are called by name: the lint cannot tell it from a
+    // fixed-width integer.
     let (n, exp10) = if e >= 0 {
-        (m << e as usize, 0)
+        (Shl::shl(m, shift), 0)
     } else {
-        (m * UBig::from(5u8).pow((-e) as usize), e)
+        (Mul::mul(m, UBig::from(5u8).pow(shift)), e)
     };
     let s = n.to_string();
     let t = s.trim_end_matches('0');
-    // A string's length is below isize::MAX, so it converts; saturating keeps it from wrapping.
-    (
+    Some((
         t.as_bytes().to_vec(),
-        i64::try_from(s.len()).unwrap_or(i64::MAX) + exp10,
-    )
+        i64::try_from(s.len()).ok()?.checked_add(exp10)?,
+    ))
 }
 
-/// Digits rounded half to even to `n` digits, trailing zeros trimmed.
-fn round_half_even(d: &[u8], dp: i64, n: usize) -> (Vec<u8>, i64) {
-    let rest_zero = d[n + 1..].iter().all(|&c| c == b'0');
-    let up = d[n] > b'5' || d[n] == b'5' && (!rest_zero || (n > 0 && (d[n - 1] - b'0') % 2 == 1));
-    let mut r = d[..n].to_vec();
+/// Digits rounded half to even to `n` digits, trailing zeros trimmed; `None` unless `d` holds more than `n`.
+fn round_half_even(d: &[u8], dp: i64, n: usize) -> Option<(Vec<u8>, i64)> {
+    let (kept, rest) = d.split_at_checked(n)?;
+    let (&next, after) = rest.split_first()?;
+    let rest_zero = after.iter().all(|&c| c == b'0');
+    // An ASCII digit has its value's parity.
+    let odd = kept.last().is_some_and(|&c| c & 1 == 1);
+    let up = next > b'5' || next == b'5' && (!rest_zero || odd);
+    let mut r = kept.to_vec();
     let mut dp = dp;
     if up {
-        let mut i = n;
-        loop {
-            if i == 0 {
+        // The carry turns the trailing nines to zeros and raises the digit before them; nines throughout become a
+        // 1 and zeros, one digit fewer, the point one further.
+        match r.iter().rposition(|&c| c != b'9') {
+            Some(at) => {
+                if let Some((raised, nines)) = r.get_mut(at..).and_then(<[u8]>::split_first_mut) {
+                    *raised = raised.checked_add(1)?;
+                    nines.fill(b'0');
+                }
+            }
+            None => {
+                r.fill(b'0');
                 r.insert(0, b'1');
                 let _dropped_zero: Option<u8> = r.pop();
-                dp += 1;
-                break;
-            }
-            i -= 1;
-            if r[i] == b'9' {
-                r[i] = b'0';
-            } else {
-                r[i] += 1;
-                break;
+                dp = dp.checked_add(1)?;
             }
         }
     }
-    while let Some(&b'0') = r.last() {
-        r.truncate(r.len() - 1);
+    while r.last() == Some(&b'0') {
+        let _trailing_zero: Option<u8> = r.pop();
     }
-    (r, dp)
+    Some((r, dp))
 }
 
 fn round_trips(d: &[u8], dp: i64, v: f64, bits: u32) -> bool {
@@ -612,26 +602,32 @@ pub fn format_float(f: f64, fmt: u8, bit_size: u32) -> String {
             "-Inf".into()
         };
     }
+    // `None` is unreachable: the decimal exponent is within ±324 and the digits at most 767. Rust's shortest text
+    // of the value stands in for Go's should it be reached.
+    format_finite(f, fmt, bits).unwrap_or_else(|| f.to_string())
+}
+
+/// [`format_float`] of a finite `f`; `None` where a count overflows.
+fn format_finite(f: f64, fmt: u8, bits: u32) -> Option<String> {
     let neg = f.is_sign_negative();
     let (d, dp) = if f == 0.0 {
         (Vec::new(), 0)
     } else {
-        shortest_digits(f, bits)
+        shortest_digits(f, bits)?
     };
-    // At most 767 digits, so it converts; saturating keeps it from wrapping.
-    let nd = i64::try_from(d.len()).unwrap_or(i64::MAX);
+    let nd = i64::try_from(d.len()).ok()?;
     let mut out = String::new();
     match fmt {
-        b'e' | b'E' => fmt_e(&mut out, neg, &d, dp, nd - 1, fmt),
-        b'f' => fmt_f(&mut out, neg, &d, dp, (nd - dp).max(0)),
+        b'e' | b'E' => fmt_e(&mut out, neg, &d, dp, nd.checked_sub(1)?, fmt)?,
+        b'f' => fmt_f(&mut out, neg, &d, dp, nd.checked_sub(dp)?.max(0))?,
         b'g' | b'G' => {
             let prec = nd;
-            let exp = dp - 1;
+            let exp = dp.checked_sub(1)?;
             if !(-4..6).contains(&exp) {
                 let e = if fmt == b'G' { b'E' } else { b'e' };
-                fmt_e(&mut out, neg, &d, dp, prec - 1, e);
+                fmt_e(&mut out, neg, &d, dp, prec.checked_sub(1)?, e)?;
             } else {
-                fmt_f(&mut out, neg, &d, dp, (prec - dp).max(0));
+                fmt_f(&mut out, neg, &d, dp, prec.checked_sub(dp)?.max(0))?;
             }
         }
         // Unknown format.
@@ -640,71 +636,67 @@ pub fn format_float(f: f64, fmt: u8, bit_size: u32) -> String {
             out.push(char::from(fmt));
         }
     }
-    out
+    Some(out)
 }
 
-fn fmt_e(out: &mut String, neg: bool, d: &[u8], dp: i64, prec: i64, fmt: u8) {
+fn fmt_e(out: &mut String, neg: bool, d: &[u8], dp: i64, prec: i64, fmt: u8) -> Option<()> {
     if neg {
         out.push('-');
     }
-    out.push(if d.is_empty() { '0' } else { d[0] as char });
-    if prec > 0 {
+    let (first, rest) = d
+        .split_first()
+        .map_or(('0', &[][..]), |(&c, rest)| (char::from(c), rest));
+    out.push(first);
+    if let Some(prec) = usize::try_from(prec).ok().filter(|&prec| prec > 0) {
         out.push('.');
-        let mut i = 1;
-        let m = d.len().min(prec as usize + 1);
-        if i < m {
-            d[i..m].iter().for_each(|&c| out.push(c as char));
-            i = m;
-        }
-        // `prec` is positive here.
-        while i <= prec as usize {
-            out.push('0');
-            i += 1;
-        }
+        // `prec` digits past the point: those after the first, then zeros.
+        let shown = rest.get(..prec).unwrap_or(rest);
+        shown.iter().for_each(|&c| out.push(char::from(c)));
+        (shown.len()..prec).for_each(|_| out.push('0'));
     }
-    out.push(fmt as char);
-    let mut exp = if d.is_empty() { 0 } else { dp - 1 };
-    if exp < 0 {
-        out.push('-');
-        exp = -exp;
-    } else {
-        out.push('+');
-    }
+    out.push(char::from(fmt));
+    let exp = if d.is_empty() { 0 } else { dp.checked_sub(1)? };
+    out.push(if exp < 0 { '-' } else { '+' });
+    let exp = exp.unsigned_abs();
     if exp < 10 {
         out.push('0');
     }
     out.push_str(&exp.to_string());
+    Some(())
 }
 
-fn fmt_f(out: &mut String, neg: bool, d: &[u8], dp: i64, prec: i64) {
+fn fmt_f(out: &mut String, neg: bool, d: &[u8], dp: i64, prec: i64) -> Option<()> {
     if neg {
         out.push('-');
     }
-    if dp > 0 {
-        let m = d.len().min(dp as usize);
-        d[..m].iter().for_each(|&c| out.push(c as char));
-        (m..dp as usize).for_each(|_| out.push('0'));
+    if let Some(whole) = usize::try_from(dp).ok().filter(|&whole| whole > 0) {
+        let shown = d.get(..whole).unwrap_or(d);
+        shown.iter().for_each(|&c| out.push(char::from(c)));
+        (shown.len()..whole).for_each(|_| out.push('0'));
     } else {
         out.push('0');
     }
     if prec > 0 {
         out.push('.');
         for i in 0..prec {
-            let j = dp + i;
-            out.push(if j >= 0 && (j as usize) < d.len() {
-                d[j as usize] as char
-            } else {
-                '0'
-            });
+            let j = dp.checked_add(i)?;
+            out.push(
+                usize::try_from(j)
+                    .ok()
+                    .and_then(|j| d.get(j))
+                    .map_or('0', |&c| char::from(c)),
+            );
         }
     }
+    Some(())
 }
 
 /// Go's `strconv.Quote`: the bytes in double quotes, the runes Go's `IsPrint` rejects escaped and each byte that is
 /// not UTF-8 as a `\x` escape.
 pub fn quote<S: AsRef<[u8]> + ?Sized>(s: &S) -> String {
     let s = s.as_ref();
-    let mut out = String::with_capacity(s.len() + 2);
+    // A capacity hint: the bytes and their quotes.
+    let mut out = String::with_capacity(s.len().saturating_add(2));
     out.push('"');
     for chunk in s.utf8_chunks() {
         for r in chunk.valid().chars() {
@@ -766,7 +758,8 @@ fn unquote_char(s: &str) -> Option<(Vec<u8>, &str)> {
         return Some((c.to_string().into_bytes(), chars.as_str()));
     }
     let e = *s.as_bytes().get(1).filter(|e| e.is_ascii())?;
-    let rest = &s[2..];
+    // The backslash and an ASCII byte: a character boundary.
+    let rest = s.get(2..)?;
     let simple = |v: u8| Some((vec![v], rest));
     match e {
         b'a' => simple(7),
@@ -788,21 +781,24 @@ fn unquote_char(s: &str) -> Option<(Vec<u8>, &str)> {
             let v = digits
                 .iter()
                 .try_fold(0u32, |v, &d| Some(v << 4 | unhex(d)?))?;
-            let tail = &rest[n..];
+            // Hexadecimal digits are ASCII: a character boundary.
+            let tail = rest.get(n..)?;
             if e == b'x' {
                 // A single byte, possibly not UTF-8.
-                return Some((vec![v as u8], tail));
+                return Some((vec![u8::try_from(v).ok()?], tail));
             }
             Some((char::from_u32(v)?.to_string().into_bytes(), tail))
         }
         b'0'..=b'7' => {
             let digits = rest.as_bytes().get(..2)?;
-            let v = digits.iter().try_fold(u32::from(e - b'0'), |v, &d| {
-                (b'0'..=b'7')
-                    .contains(&d)
-                    .then(|| v << 3 | u32::from(d - b'0'))
-            })?;
-            u8::try_from(v).ok().map(|v| (vec![v], &rest[2..]))
+            let v = digits
+                .iter()
+                .try_fold(char::from(e).to_digit(8)?, |v, &d| {
+                    Some(v << 3 | char::from(d).to_digit(8)?)
+                })?;
+            // Octal digits are ASCII: a character boundary.
+            let tail = rest.get(2..)?;
+            u8::try_from(v).ok().map(|v| (vec![v], tail))
         }
         _ => None,
     }

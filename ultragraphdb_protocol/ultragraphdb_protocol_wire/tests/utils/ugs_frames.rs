@@ -8,6 +8,7 @@
 //! string lists from §4.3, warnings from §4.9 and Describe's entries from §8.3. Only the frame around the body is the
 //! crate's: `Header::encode_frame`, which the golden frames already pin.
 
+use ultragraphdb_core_body::as_u32;
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{BodyView, Command, FLAG_LAST, Header};
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -77,7 +78,7 @@ pub fn strings(list: &[&str]) -> [Vec<u8>; 2] {
     let mut text = Vec::new();
     for s in list {
         text.extend_from_slice(s.as_bytes());
-        ends.extend_from_slice(&(text.len() as u32).to_le_bytes());
+        ends.extend_from_slice(&as_u32(text.len()).to_le_bytes());
     }
     [ends, text]
 }
@@ -93,7 +94,7 @@ pub fn warning_sections(warnings: &[(u32, u32, &str)]) -> [Vec<u8>; 3] {
     let records: Vec<u8> = warnings
         .iter()
         .enumerate()
-        .flat_map(|(i, (diagnostic, source, _))| warning(*diagnostic, *source, 10, 7, i as u32))
+        .flat_map(|(i, (diagnostic, source, _))| warning(*diagnostic, *source, 10, 7, as_u32(i)))
         .collect();
     let messages: Vec<&str> = warnings.iter().map(|(_, _, m)| *m).collect();
     let [ends, text] = strings(&messages);
@@ -178,12 +179,12 @@ pub fn result_frame(
     let mut pairs = Vec::new();
     let mut texts: Vec<&str> = Vec::new();
     for (encoding, text) in terms {
-        offsets.push(encodings.len() as u32);
+        offsets.push(u32::try_from(encodings.len())?);
         encodings.extend_from_slice(encoding);
         let index = match text {
             Some(text) => {
                 texts.push(text);
-                (texts.len() - 1) as u32
+                u32::try_from(texts.len() - 1)?
             }
             None => u32::MAX,
         };
@@ -270,7 +271,7 @@ pub fn entry_sections(entries: &[EntryRow<'_>]) -> [Vec<u8>; 2] {
     let mut bytes = Vec::new();
     for (kind, name, entry) in entries {
         records.extend_from_slice(&[*kind, 0, 0, 0]);
-        records.extend_from_slice(&u32s(&[*name, bytes.len() as u32, entry.len() as u32]));
+        records.extend_from_slice(&u32s(&[*name, as_u32(bytes.len()), as_u32(entry.len())]));
         bytes.extend_from_slice(entry);
     }
     [records, bytes]

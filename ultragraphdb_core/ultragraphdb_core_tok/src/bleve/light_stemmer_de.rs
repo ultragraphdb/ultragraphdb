@@ -30,32 +30,22 @@ fn st_ending(c: char) -> bool {
 /// The length step 1 keeps.
 fn step1(s: &[char]) -> usize {
     let l = s.len();
-    if l > 5 && s[l - 3] == 'e' && s[l - 2] == 'r' && s[l - 1] == 'n' {
-        return l - 3;
+    match s {
+        [.., 'e', 'r', 'n'] if l > 5 => l - 3,
+        [.., 'e', 'm' | 'n' | 'r' | 's'] if l > 4 => l - 2,
+        [.., 'e'] if l > 3 => l - 1,
+        [.., before, 's'] if l > 3 && st_ending(*before) => l - 1,
+        _ => l,
     }
-    if l > 4 && s[l - 2] == 'e' && matches!(s[l - 1], 'm' | 'n' | 'r' | 's') {
-        return l - 2;
-    }
-    if l > 3 && s[l - 1] == 'e' {
-        return l - 1;
-    }
-    if l > 3 && s[l - 1] == 's' && st_ending(s[l - 2]) {
-        return l - 1;
-    }
-    l
 }
 
 /// The length step 2 keeps.
 fn step2(s: &[char]) -> usize {
     let l = s.len();
-    if l > 5 && s[l - 3] == 'e' && s[l - 2] == 's' && s[l - 1] == 't' {
-        return l - 3;
+    match s {
+        [.., 'e', 's', 't'] if l > 5 => l - 3,
+        [.., 'e', 'r' | 'n'] if l > 4 => l - 2,
+        [.., before, 's', 't'] if l > 4 && st_ending(*before) => l - 2,
+        _ => l,
     }
-    if l > 4 && s[l - 2] == 'e' && (s[l - 1] == 'r' || s[l - 1] == 'n') {
-        return l - 2;
-    }
-    if l > 4 && s[l - 2] == 's' && s[l - 1] == 't' && st_ending(s[l - 3]) {
-        return l - 2;
-    }
-    l
 }

@@ -213,8 +213,14 @@ fn test_kernels_equal_gos_bit_for_bit() -> TestResult {
     assert_eq!(golden.cases().len(), 196);
     for c in golden.cases() {
         let got = if c.bits == 32 {
-            let a: Vec<f32> = c.a.iter().map(|&x| f32::from_bits(x as u32)).collect();
-            let b: Vec<f32> = c.b.iter().map(|&x| f32::from_bits(x as u32)).collect();
+            let a: Vec<f32> =
+                c.a.iter()
+                    .map(|&x| u32::try_from(x).map(f32::from_bits))
+                    .collect::<Result<_, _>>()?;
+            let b: Vec<f32> =
+                c.b.iter()
+                    .map(|&x| u32::try_from(x).map(f32::from_bits))
+                    .collect::<Result<_, _>>()?;
             [
                 f32::dot(&a, &b),
                 f32::euclidean_sq(&a, &b),

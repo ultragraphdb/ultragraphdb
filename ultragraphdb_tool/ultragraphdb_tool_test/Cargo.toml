@@ -18,11 +18,7 @@ autotests = false
 [lints]
 workspace = true
 
-# The helpers the store crates' test targets share: a test crate depends on this one, which is how Bazel reaches a
-# helper from more than one test target.
 [dependencies]
-fjall = { workspace = true }
-oxrdf = { workspace = true }
 tracing = { workspace = true }
 ultragraphdb_cluster_partition = { workspace = true }
 ultragraphdb_cluster_placement = { workspace = true }
@@ -45,6 +41,9 @@ ultragraphdb_transactions_log = { workspace = true }
 ultragraphdb_transactions_txn = { workspace = true }
 ultragraphdb_traits_blocks = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
+# External crates
+fjall = { workspace = true }
+oxrdf = { workspace = true }
 
 [[test]]
 name = "unit"

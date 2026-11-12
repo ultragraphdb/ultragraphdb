@@ -6,10 +6,18 @@
 mod run_check;
 mod run_merge;
 
+use ultragraphdb_error_invariant::{InvariantError, invariant};
+
 use crate::types::span::Span;
 
 /// The bytes an entry accounts for besides its keys: its spans and its versions.
 pub(crate) const ENTRY_BYTES: usize = 24;
+
+/// The invariant [`SPAN_LIMIT`] holds.
+const SPAN_NAME: &str = "a run's arena stays within u32 offsets";
+/// The most bytes a run's arena holds: its spans name keys by u32 offsets.
+// Lossless: a `usize` holds 32 bits on every target the repository builds for.
+pub(crate) const SPAN_LIMIT: usize = u32::MAX as usize;
 
 /// A key written whole (`whole`) or as the list of a statement written (`touched`), each the newest version that did
 /// so, 0 for none: commit versions are at least 2.
@@ -140,24 +148,26 @@ impl Run {
                 * (self.points.capacity() + self.statements.capacity() + self.ranges.capacity())
     }
 
-    /// Appends `bytes` to the arena: their span. A run holds a transaction's or two runs' keys, far below u32 offsets.
+    /// Appends `bytes` to the arena: their span. [`Run::fill`] checks the arena within [`SPAN_LIMIT`] after its keys
+    /// and [`Run::merge`] before them, each once, so a span that saturated is never kept: no check per key.
     fn add(&mut self, bytes: &[u8]) -> Span {
-        let at = self.arena.len() as u32;
+        let at = u32::try_from(self.arena.len()).unwrap_or(u32::MAX);
         self.arena.extend_from_slice(bytes);
         Span {
             at,
-            len: bytes.len() as u32,
+            len: u32::try_from(bytes.len()).unwrap_or(u32::MAX),
         }
     }
 
-    /// Fills the run, cleared, with one transaction's writes at `version`, sorted and each held once.
+    /// Fills the run, cleared, with one transaction's writes at `version`, sorted and each held once; the invariant
+    /// violated when its keys pass [`SPAN_LIMIT`], which one record, at most a frame, never reaches.
     pub fn fill<'k>(
         &mut self,
         version: u64,
         points: impl IntoIterator<Item = &'k [u8]>,
         statements: impl IntoIterator<Item = (&'k [u8], &'k [u8])>,
         ranges: impl IntoIterator<Item = (&'k [u8], Option<&'k [u8]>)>,
-    ) {
+    ) -> Result<(), InvariantError> {
         self.clear();
         for key in points {
             let key = self.add(key);
@@ -190,6 +200,7 @@ impl Run {
                 version,
             });
         }
+        invariant(self.arena.len() <= SPAN_LIMIT, SPAN_NAME)?;
         let arena = self.arena.as_slice();
         self.points
             .sort_unstable_by(|a, b| a.key.of(arena).cmp(b.key.of(arena)));
@@ -210,5 +221,6 @@ impl Run {
         if !self.is_empty() {
             self.newest = version;
         }
+        Ok(())
     }
 }

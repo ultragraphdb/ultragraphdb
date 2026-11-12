@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::num::NonZeroU64;
+
 /// SplitMix64 (Steele, Lea and Flood, "Fast splittable pseudorandom number generators", OOPSLA 2014): the network's
 /// one stream of draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,9 +31,6 @@ impl SplitMix {
 
     /// A draw in `0..n`, zero when `n` is zero.
     pub(crate) fn below(&mut self, n: u64) -> u64 {
-        match n {
-            0 => 0,
-            n => self.next_u64() % n,
-        }
+        NonZeroU64::new(n).map_or(0, |n| self.next_u64() % n)
     }
 }

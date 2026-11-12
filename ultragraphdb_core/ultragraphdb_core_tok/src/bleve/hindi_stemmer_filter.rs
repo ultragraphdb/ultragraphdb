@@ -79,7 +79,7 @@ pub(crate) fn stem(term: &str) -> String {
     let r: Vec<char> = term.chars().collect();
     for (min, n, suffixes) in GROUPS {
         if r.len() > min && suffixes.iter().any(|s| term.ends_with(s)) {
-            return r[..r.len() - n].iter().collect();
+            return r.iter().take(r.len() - n).collect();
         }
     }
     term.to_string()

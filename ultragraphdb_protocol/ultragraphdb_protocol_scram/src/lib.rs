@@ -16,6 +16,11 @@
 //! from it, never the password. A name no principal holds is answered with a verifier derived from the server's
 //! secret, so the exchange fails as a wrong password's does, after the same work.
 
+// Arithmetic on decoded wire input is checked: an overflow here would be a malformed input
+// accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
+// workspace table because elsewhere it flags provably bounded index math).
+#![deny(clippy::arithmetic_side_effects)]
+
 mod errors;
 mod traits;
 mod types;

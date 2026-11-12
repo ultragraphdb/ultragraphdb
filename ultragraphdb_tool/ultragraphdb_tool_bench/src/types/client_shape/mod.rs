@@ -133,8 +133,10 @@ impl ClientShape {
     /// drawn, which a working placement makes all but impossible.
     pub fn next_changes(&mut self) -> Result<(TermTable, Vec<WriteChange>), BenchError> {
         let partitions = self.hubs.len() as u64;
-        // Below the partition count, which fits a `usize`.
-        let at = (self.draw() % partitions) as usize;
+        // Below the partition count, a `usize`, so it converts.
+        let at = usize::try_from(self.draw() % partitions).map_err(|_| {
+            BenchError::usage("a partition past this machine's indices".to_string())
+        })?;
         self.changes_in(at)
     }
 
@@ -154,10 +156,10 @@ impl ClientShape {
         for _ in 0..self.relations {
             let subject = self.name_in(at, partitions)?;
             let held = self.hubs.get(at).map_or(0, Vec::len) as u64;
-            // Below the partition's hub count, which fits a `usize`.
-            let hub = self.draw_below(held) as usize;
+            // Below the partition's hub count, a `usize`, so it converts.
+            let hub = usize::try_from(self.draw_below(held)).ok();
             let hubs = self.hubs.get(at).map_or(&[][..], Vec::as_slice);
-            let object = table.iri(hubs.get(hub).map_or("", String::as_str));
+            let object = table.iri(hub.and_then(|hub| hubs.get(hub)).map_or("", String::as_str));
             let node = table.iri(&subject);
             changes.push(insert(node, linked, object));
             changes.push(insert(node, w, x));

@@ -83,9 +83,9 @@ impl<'a> StringList<'a> {
     #[must_use]
     pub fn get(&self, index: usize) -> Option<&'a str> {
         let end = u32_at(self.ends, index)? as usize;
-        let start = match index {
-            0 => 0,
-            _ => u32_at(self.ends, index - 1)? as usize,
+        let start = match index.checked_sub(1) {
+            None => 0,
+            Some(before) => u32_at(self.ends, before)? as usize,
         };
         self.text.get(start..end)
     }

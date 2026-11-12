@@ -36,7 +36,7 @@ fn test_a_kill_during_a_batch_leaves_it_whole_or_absent() -> TestResult {
         );
         let present = counts.iter().take_while(|&&c| c == KEYS_PER_BATCH).count() as u64;
         assert!(
-            counts[present as usize..].iter().all(|&c| c == 0),
+            counts[usize::try_from(present)?..].iter().all(|&c| c == 0),
             "round {round}: not a prefix: {counts:?}"
         );
         assert!(
@@ -79,7 +79,10 @@ fn test_a_kill_in_log_mode_loses_no_acknowledged_round() -> TestResult {
         );
         let present = counts.iter().take_while(|&&c| c == KEYS_PER_BATCH).count() as u64;
         assert!(
-            counts.iter().skip(present as usize).all(|&c| c == 0),
+            counts
+                .iter()
+                .skip(usize::try_from(present)?)
+                .all(|&c| c == 0),
             "round {round}: not a prefix: {counts:?}"
         );
         assert!(

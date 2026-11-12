@@ -124,8 +124,13 @@ fn versions_of(snapshot: &impl StoreSnapshot, key: &[u8]) -> TestResult<Vec<Item
 
 #[when("a key is written at versions 3, 7 and 5")]
 fn three_versions(w: &mut Steps) -> TestResult {
-    for v in [3, 7, 5] {
-        w.write(vec![Entry::put(b"k".to_vec(), v, 0x04 + v as u8, vec![])])?;
+    for v in [3u8, 7, 5] {
+        w.write(vec![Entry::put(
+            b"k".to_vec(),
+            u64::from(v),
+            0x04 + v,
+            vec![],
+        )])?;
     }
     Ok(())
 }
@@ -224,7 +229,7 @@ fn user_key_too_long(w: &mut Steps) -> TestResult {
     "a batch writes a key whose user key is 44,000 bytes of 0x00 0x01, 66,010 bytes once encoded and versioned"
 )]
 fn stored_key_too_long(w: &mut Steps) -> TestResult {
-    let key: Vec<u8> = (0..44_000).map(|i| (i % 2) as u8).collect();
+    let key: Vec<u8> = (0..44_000).map(|i| u8::from(i % 2 == 1)).collect();
     oversized(w, &key)
 }
 

@@ -36,7 +36,7 @@ impl NumericWeighter {
         let get_elem = |s: &str| {
             let mut elems = Vec::new();
             let _consumed: usize = table.append_next(&mut elems, s.as_bytes());
-            elems[0]
+            elems.first().copied().unwrap_or_default()
         };
         let nine = get_elem("9");
         // Numbers should order before zero, but the DUCET has no room for this.
@@ -87,7 +87,7 @@ impl NumericWeighter {
         let len_index = old_len + 1;
         while n < s.len() {
             w.truncate(kept);
-            n += self.table.append_next(w, &s[n..]);
+            n += self.table.append_next(w, s.get(n..).unwrap_or_default());
             // Go checks the first rune of the whole input as the digit, not the rune just read.
             let digit = self.check_next_digit(kept, w, s);
             if n_digits == 0 && digit == Some(true) {
@@ -103,18 +103,17 @@ impl NumericWeighter {
             }
         }
         w.truncate(kept);
-        w[len_index] =
-            Elem::make(n_digits, DEFAULT_SECONDARY, DEFAULT_TERTIARY, 0).unwrap_or_default();
+        if let Some(slot) = w.get_mut(len_index) {
+            *slot =
+                Elem::make(n_digits, DEFAULT_SECONDARY, DEFAULT_TERTIARY, 0).unwrap_or_default();
+        }
         n
     }
 
     /// Whether the elements of `w` after the first `kept` are a digit, and whether it is zero; `None` when they
     /// are not a digit. `s` is the input whose first rune Go checks for category Nd.
     fn check_next_digit(&self, kept: usize, w: &[Elem], s: &[u8]) -> Option<bool> {
-        if kept >= w.len() {
-            return None;
-        }
-        let e = w[kept];
+        let &e = w.get(kept)?;
         if e < self.zero_special_lo || self.nine < e {
             // Not a number.
             return None;
@@ -131,7 +130,7 @@ impl NumericWeighter {
         };
         // Test the remaining added collation elements have a zero primary value.
         if w.len() - kept > 1 {
-            if w[kept + 1..].iter().any(|elem| elem.primary() != 0) {
+            if w.iter().skip(kept + 1).any(|elem| elem.primary() != 0) {
                 return None;
             }
             // In some rare cases, collation elements encode runes outside Nd as a digit, such as the Ethiopic

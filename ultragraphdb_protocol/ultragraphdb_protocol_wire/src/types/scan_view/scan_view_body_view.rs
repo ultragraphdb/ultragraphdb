@@ -18,7 +18,7 @@ use crate::utils::body::{read_sections, records};
 use crate::utils::command_header::CommandHeader;
 use crate::utils::command_header::expect_command;
 use crate::utils::constants::SCAN_RANGE_SIZE;
-use crate::utils::fields::{epoch, identity, version};
+use crate::utils::fields::{count, epoch, identity, version};
 use crate::utils::le::bytes_at;
 use crate::utils::term_kind::term_kind;
 
@@ -105,7 +105,7 @@ fn term_table<'a>(
             ranges as u64,
         ));
     }
-    let kinds = (0..terms.len()).filter_map(|i| terms.get(as_u32(i)));
+    let kinds = (0..count(command, "terms", terms.len())?).filter_map(|i| terms.get(i));
     if let Some(index) = kinds
         .map(|term| term_kind(&term))
         .position(|k| k != kind::IRI)

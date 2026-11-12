@@ -45,8 +45,10 @@ fn batch_key(i: u64, j: u64) -> Vec<u8> {
 /// Batch `i`: its keys at version `i`, recording `i` as applied.
 fn batch(i: u64) -> WriteBatch {
     let mut batch = WriteBatch::new();
-    (0..KEYS_PER_BATCH)
-        .for_each(|j| batch.push(Entry::put(batch_key(i, j), i, 0x04, vec![i as u8, j as u8])));
+    (0..KEYS_PER_BATCH).for_each(|j| {
+        let value = vec![i.to_le_bytes()[0], j.to_le_bytes()[0]];
+        batch.push(Entry::put(batch_key(i, j), i, 0x04, value));
+    });
     batch.set_applied_ts(i);
     batch
 }
@@ -204,9 +206,10 @@ fn power_loss_kept(w: &mut Steps) {
             counts.iter().all(|&c| c == 0 || c == KEYS_PER_BATCH),
             "a batch is visible in part: {counts:?}"
         );
-        let kept = counts.iter().take_while(|&&c| c == KEYS_PER_BATCH).count() as u64;
+        let kept_len = counts.iter().take_while(|&&c| c == KEYS_PER_BATCH).count();
+        let kept = kept_len as u64;
         assert!(
-            counts[kept as usize..].iter().all(|&c| c == 0),
+            counts[kept_len..].iter().all(|&c| c == 0),
             "not a prefix: {counts:?}"
         );
         assert!(kept >= *synced, "synced batch {synced} lost: {counts:?}");

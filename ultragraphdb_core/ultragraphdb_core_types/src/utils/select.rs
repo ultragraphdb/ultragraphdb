@@ -62,20 +62,19 @@ fn partition<D: SortData>(data: &mut D, a: usize, b: usize, pivot: usize) -> usi
 
 /// Dgraph's `quickSelect`: moves the `k` smallest elements of `[low, high]` before position `k`.
 pub(crate) fn quick_select<D: SortData>(data: &mut D, low: usize, high: usize, k: usize) {
-    // Go's int arithmetic on indices, which are at most isize::MAX.
-    let (mut low, mut high) = (low.cast_signed(), high.cast_signed());
-    let k = k.cast_signed();
-    // Past the first check `0 <= low < high`, so the `usize` casts lose no sign. Each turn moves `low` above or `high`
-    // below the pivot, which lies between them, so the span narrows and the loop ends.
+    let (mut low, mut high) = (low, high);
+    // Go's int indices stay non-negative: `high` falls to `pivot - 1` only when `k < pivot`, so `pivot` is at least 1.
+    // Each turn moves `low` above or `high` below the pivot, which lies between them, so the span narrows and the loop
+    // ends.
     loop {
         if low >= high {
             return;
         } else if high - low <= 8 {
-            insertion_sort(data, low as usize, high as usize + 1);
+            insertion_sort(data, low, high + 1);
             return;
         }
-        let pivot = choose_pivot(data, low as usize, high as usize);
-        let pivot = partition(data, low as usize, high as usize, pivot).cast_signed();
+        let pivot = choose_pivot(data, low, high);
+        let pivot = partition(data, low, high, pivot);
         if k < pivot {
             high = pivot - 1;
         } else if k > pivot {

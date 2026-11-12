@@ -42,14 +42,16 @@ impl<C: Collator> SortData for ByValue<'_, C> {
     }
 
     fn less(&self, i: usize, j: usize) -> bool {
-        let (first, second) = (&self.values[i], &self.values[j]);
+        let (Some(first), Some(second)) = (self.values.get(i), self.values.get(j)) else {
+            return false;
+        };
         if first.is_empty() || second.is_empty() {
             return false;
         }
-        for vidx in 0..first.len() {
-            let (a, b) = (&first[vidx], &second[vidx]);
+        // Every row holds one value per sort key, and `desc` one flag per key.
+        for ((a, b), &desc) in first.iter().zip(second).zip(self.desc) {
             match (a.value(), b.value()) {
-                (None, None) => return self.desc[vidx],
+                (None, None) => return desc,
                 (None, _) => return false,
                 (_, None) => return true,
                 _ => {}
@@ -58,7 +60,7 @@ impl<C: Collator> SortData for ByValue<'_, C> {
                 continue;
             }
             let l = less_vals(a, b, self.cl.as_ref());
-            return if self.desc[vidx] { !l } else { l };
+            return if desc { !l } else { l };
         }
         false
     }
@@ -71,7 +73,10 @@ impl<C: Collator> SortData for ByValue<'_, C> {
 
 impl<C: Collator> ByValue<'_, C> {
     fn is_nil(&self, i: usize) -> bool {
-        self.values[i].first().is_none_or(|v| v.value().is_none())
+        self.values
+            .get(i)
+            .and_then(|row| row.first())
+            .is_none_or(|v| v.value().is_none())
     }
 }
 

@@ -51,7 +51,10 @@ impl Collator {
     /// collation options of the tag's `-u` extension (`kc`, `kb`, `kn`, `ks`, `ka`).
     pub fn new(tag: &Tag) -> Collator {
         let index = match_lang(tag, &TAGS);
-        let mut options = Options::new(Weighter::Table(Table::new(LOCALES[index])));
+        // The root locale's tailoring, where a tag's index names none.
+        let [root, ..] = LOCALES;
+        let locale = *LOCALES.get(index).unwrap_or(&root);
+        let mut options = Options::new(Weighter::Table(Table::new(locale)));
         // Set options from the user-supplied tag.
         options.set_from_tag(tag);
         if options.numeric

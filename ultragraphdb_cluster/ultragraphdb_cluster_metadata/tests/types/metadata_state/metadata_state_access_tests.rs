@@ -15,7 +15,7 @@ fn two_principals() -> TestResult<MetadataState> {
         state.apply(&MetadataCommand::CreatePrincipal {
             id,
             name: name.to_string(),
-            verifier: ScramVerifier::new(vec![id as u8; 16], 4_096, [3; 32], [4; 32]),
+            verifier: ScramVerifier::new(vec![u8::try_from(id)?; 16], 4_096, [3; 32], [4; 32]),
             administrator,
         })?;
     }

@@ -10,8 +10,8 @@ use ultragraphdb_transactions_commit::ConflictHistory;
 use crate::utils::proposal_double::{Reads, Writes, read_set, term_key};
 
 /// Inserts `writes` at `version`.
-fn insert(history: &mut ConflictHistory, version: u64, writes: &Writes) {
-    history.insert(
+fn insert(history: &mut ConflictHistory, version: u64, writes: &Writes) -> TestResult {
+    Ok(history.insert(
         version,
         writes.points.iter().map(Vec::as_slice),
         writes
@@ -22,13 +22,13 @@ fn insert(history: &mut ConflictHistory, version: u64, writes: &Writes) {
             .ranges
             .iter()
             .map(|(s, e)| (s.as_slice(), e.as_deref())),
-    );
+    )?)
 }
 
 /// What a read of `reads` at read version 10 conflicts with after `writes` committed at 12.
 fn after(writes: &Writes, reads: &Reads) -> TestResult<Option<ConflictKind>> {
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 12, writes);
+    insert(&mut history, 12, writes)?;
     Ok(history.conflict(&read_set(0, 10, reads)?))
 }
 
@@ -211,7 +211,7 @@ fn test_kinds_are_reported_in_order_and_ranges_last() -> TestResult {
 #[test]
 fn test_only_writes_above_the_read_version_conflict() -> TestResult {
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 10, &Writes::point(b"k"));
+    insert(&mut history, 10, &Writes::point(b"k"))?;
     let read = Reads::list(b"k");
     assert_eq!(history.conflict(&read_set(0, 10, &read)?), None);
     assert_eq!(history.conflict(&read_set(0, 11, &read)?), None);
@@ -232,7 +232,7 @@ fn test_an_empty_history_and_an_empty_read_set_conflict_with_nothing() -> TestRe
     assert!(history.is_empty());
     assert_eq!(history.conflict(&read_set(0, 0, &Reads::list(b"k"))?), None);
     let mut written = ConflictHistory::new(0);
-    insert(&mut written, 12, &Writes::point(b"k"));
+    insert(&mut written, 12, &Writes::point(b"k"))?;
     assert_eq!(written.conflict(&read_set(0, 0, &Reads::default())?), None);
     Ok(())
 }
@@ -241,11 +241,11 @@ fn test_an_empty_history_and_an_empty_read_set_conflict_with_nothing() -> TestRe
 fn test_the_newest_write_of_a_key_decides() -> TestResult {
     // A key written at 10 and again at 20, in transactions far enough apart to sit in separate runs or merged.
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 10, &Writes::point(b"k"));
+    insert(&mut history, 10, &Writes::point(b"k"))?;
     for version in (12..20).step_by(2) {
-        insert(&mut history, version, &Writes::point(b"other"));
+        insert(&mut history, version, &Writes::point(b"other"))?;
     }
-    insert(&mut history, 20, &Writes::point(b"k"));
+    insert(&mut history, 20, &Writes::point(b"k"))?;
     assert_eq!(
         history.conflict(&read_set(0, 18, &Reads::list(b"k"))?),
         Some(ConflictKind::List)
@@ -260,9 +260,9 @@ fn test_the_newest_write_of_a_key_decides() -> TestResult {
 #[test]
 fn test_pruning_raises_the_floor_and_drops_what_only_older_versions_wrote() -> TestResult {
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 10, &Writes::point(b"a"));
-    insert(&mut history, 20, &Writes::point(b"b"));
-    insert(&mut history, 30, &Writes::point(b"c"));
+    insert(&mut history, 10, &Writes::point(b"a"))?;
+    insert(&mut history, 20, &Writes::point(b"b"))?;
+    insert(&mut history, 30, &Writes::point(b"c"))?;
     let before = history.bytes();
     assert_eq!(history.floor(), 0);
     history.prune(20);
@@ -301,24 +301,24 @@ fn test_a_history_opened_at_a_floor_keeps_it() -> TestResult {
 fn test_the_bytes_count_the_keys_and_24_per_entry() -> TestResult {
     let mut history = ConflictHistory::new(0);
     assert_eq!(history.bytes(), 0);
-    insert(&mut history, 2, &Writes::point(b"abc"));
+    insert(&mut history, 2, &Writes::point(b"abc"))?;
     // 3 bytes of key and one entry.
     assert_eq!(history.bytes(), 27);
     assert_eq!(history.len(), 1);
     let mut statement_history = ConflictHistory::new(0);
-    insert(&mut statement_history, 2, &Writes::statement(b"k", b"o"));
+    insert(&mut statement_history, 2, &Writes::statement(b"k", b"o"))?;
     // Two bytes of key and object, the statement and its list touched.
     assert_eq!(statement_history.bytes(), 50);
     assert_eq!(statement_history.len(), 2);
     let mut range_history = ConflictHistory::new(0);
-    insert(&mut range_history, 2, &Writes::range(b"a", None));
+    insert(&mut range_history, 2, &Writes::range(b"a", None))?;
     assert_eq!(range_history.bytes(), 25);
     let mut bounded_range_history = ConflictHistory::new(0);
     insert(
         &mut bounded_range_history,
         2,
         &Writes::range(b"a", Some(b"bc")),
-    );
+    )?;
     assert_eq!(bounded_range_history.bytes(), 27);
     Ok(())
 }
@@ -334,10 +334,10 @@ fn test_a_key_written_twice_is_held_once() -> TestResult {
         ],
         ..Writes::default()
     };
-    insert(&mut history, 2, &twice);
+    insert(&mut history, 2, &twice)?;
     // `k`, `s` touched by its statement, and the statement.
     assert_eq!(history.len(), 3);
-    insert(&mut history, 4, &twice);
+    insert(&mut history, 4, &twice)?;
     // The second transaction's run merges into the first's, which is no larger, and each key is held once.
     assert_eq!(history.runs(), 1);
     assert_eq!(history.len(), 3);
@@ -352,7 +352,7 @@ fn test_a_key_written_twice_is_held_once() -> TestResult {
 fn test_runs_merge_to_a_logarithmic_number() -> TestResult {
     let mut history = ConflictHistory::new(0);
     for i in 0..1_000u64 {
-        insert(&mut history, 2 * (i + 1), &Writes::point(&i.to_be_bytes()));
+        insert(&mut history, 2 * (i + 1), &Writes::point(&i.to_be_bytes()))?;
     }
     // A binary counter over 1,000 single-entry runs holds at most one run per bit: 10.
     assert!(history.runs() <= 10, "{}", history.runs());
@@ -365,9 +365,9 @@ fn test_a_merge_stops_at_the_run_cap() -> TestResult {
     let cap = ConflictHistory::RUN_CAP as u64;
     let mut history = ConflictHistory::new(0);
     for i in 0..3 * cap {
-        insert(&mut history, 2 * (i + 1), &Writes::point(&i.to_be_bytes()));
+        insert(&mut history, 2 * (i + 1), &Writes::point(&i.to_be_bytes()))?;
     }
-    assert_eq!(history.len(), 3 * cap as usize);
+    assert_eq!(history.len(), 3 * ConflictHistory::RUN_CAP);
     // At least three runs, since none holds more than the cap; at most those and one per bit of the cap below them.
     assert!(history.runs() >= 3, "{}", history.runs());
     assert!(history.runs() <= 3 + 15, "{}", history.runs());
@@ -383,24 +383,25 @@ fn test_a_steady_state_allocates_nothing_more() -> TestResult {
     // Rounds of the same shape, each pruned below the one before: once warm, the buffers are reused.
     let mut history = ConflictHistory::new(0);
     let mut version = 2;
-    let cycle = |cycled: &mut ConflictHistory, next_version: &mut u64| {
+    let cycle = |cycled: &mut ConflictHistory, next_version: &mut u64| -> TestResult {
         for t in 0..32u64 {
             let writes = Writes {
                 points: vec![t.to_be_bytes().to_vec(), (t + 100).to_be_bytes().to_vec()],
                 statements: vec![(b"list".to_vec(), t.to_be_bytes().to_vec())],
                 ..Writes::default()
             };
-            insert(cycled, *next_version, &writes);
+            insert(cycled, *next_version, &writes)?;
             *next_version += 2;
         }
         cycled.prune(*next_version - 2 * 32);
+        Ok(())
     };
     for _ in 0..200 {
-        cycle(&mut history, &mut version);
+        cycle(&mut history, &mut version)?;
     }
     let warm = history.capacity();
     for _ in 0..200 {
-        cycle(&mut history, &mut version);
+        cycle(&mut history, &mut version)?;
     }
     assert_eq!(history.capacity(), warm);
     assert!(history.capacity() >= history.bytes());
@@ -418,7 +419,7 @@ fn test_a_list_written_whole_and_by_statements_in_one_transaction_is_held_as_bot
         ..Writes::default()
     };
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 12, &writes);
+    insert(&mut history, 12, &writes)?;
     for key in &keys {
         assert_eq!(
             history.conflict(&read_set(0, 10, &Reads::statement(key, b"p"))?),
@@ -437,7 +438,7 @@ fn test_a_list_written_whole_and_by_statements_in_one_transaction_is_held_as_bot
 fn test_a_range_written_over_an_absent_terms_key_conflicts_as_a_drop() -> TestResult {
     let rs = read_set(0, 10, &Reads::absent(4))?;
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 12, &Writes::range(&[0xFE], Some(&[0xFF])));
+    insert(&mut history, 12, &Writes::range(&[0xFE], Some(&[0xFF])))?;
     assert_eq!(history.conflict(&rs), Some(ConflictKind::Drop));
     let other = read_set(0, 10, &Reads::list(b"k"))?;
     assert_eq!(history.conflict(&other), None);
@@ -449,12 +450,12 @@ fn test_a_merge_leaves_out_what_is_at_or_below_the_floor() -> TestResult {
     // a at 2 and b at 4 merge; the floor rises to 2; c at 6 and d at 8 merge, then with the run of a and b, which
     // drops a.
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 2, &Writes::point(b"a"));
-    insert(&mut history, 4, &Writes::point(b"b"));
+    insert(&mut history, 2, &Writes::point(b"a"))?;
+    insert(&mut history, 4, &Writes::point(b"b"))?;
     history.prune(2);
     assert_eq!(history.len(), 2);
-    insert(&mut history, 6, &Writes::point(b"c"));
-    insert(&mut history, 8, &Writes::point(b"d"));
+    insert(&mut history, 6, &Writes::point(b"c"))?;
+    insert(&mut history, 8, &Writes::point(b"d"))?;
     assert_eq!(history.runs(), 1);
     assert_eq!(history.len(), 3);
     Ok(())
@@ -466,7 +467,7 @@ fn test_pruning_keeps_only_a_bounded_number_of_runs_for_reuse() -> TestResult {
     // the pool holds, so the capacity falls.
     let mut history = ConflictHistory::new(0);
     for i in 0..511u64 {
-        insert(&mut history, 2 * (i + 1), &Writes::point(&i.to_be_bytes()));
+        insert(&mut history, 2 * (i + 1), &Writes::point(&i.to_be_bytes()))?;
     }
     assert_eq!(history.runs(), 9);
     let before = history.capacity();
@@ -483,10 +484,10 @@ fn test_pruning_keeps_only_a_bounded_number_of_runs_for_reuse() -> TestResult {
 #[test]
 fn test_a_transaction_that_wrote_nothing_adds_no_run() -> TestResult {
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 2, &Writes::default());
+    insert(&mut history, 2, &Writes::default())?;
     assert_eq!(history.runs(), 0);
-    insert(&mut history, 4, &Writes::point(b"a"));
-    insert(&mut history, 6, &Writes::default());
+    insert(&mut history, 4, &Writes::point(b"a"))?;
+    insert(&mut history, 6, &Writes::default())?;
     assert_eq!(history.runs(), 1);
     Ok(())
 }
@@ -503,8 +504,8 @@ fn test_two_runs_that_fill_the_cap_exactly_merge() -> TestResult {
         ..Writes::default()
     };
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 2, &points(0));
-    insert(&mut history, 4, &points(half));
+    insert(&mut history, 2, &points(0))?;
+    insert(&mut history, 4, &points(half))?;
     assert_eq!(history.runs(), 1);
     assert_eq!(history.len(), ConflictHistory::RUN_CAP);
     assert!(!history.is_empty());
@@ -521,13 +522,13 @@ fn test_pruning_keeps_eight_emptied_runs_for_reuse_and_drops_the_ninth() -> Test
             points: (0..9 - i).map(|k| k.to_be_bytes().to_vec()).collect(),
             ..Writes::default()
         };
-        insert(&mut history, 2 * (i + 1), &writes);
+        insert(&mut history, 2 * (i + 1), &writes)?;
     }
     assert_eq!(history.runs(), 9);
     let before = history.capacity();
     // The newest run's capacity: one point filled into a new buffer, as a history of that run alone holds it.
     let mut alone = ConflictHistory::new(0);
-    insert(&mut alone, 2, &Writes::point(&0u64.to_be_bytes()));
+    insert(&mut alone, 2, &Writes::point(&0u64.to_be_bytes()))?;
     let newest = alone.capacity();
     assert!(newest > 0);
     // Pruning drops the runs oldest first and keeps them, emptied with their buffers, while the pool holds fewer than
@@ -547,7 +548,7 @@ fn test_the_capacity_counts_the_arena_and_24_per_entry_of_each_buffers_capacity(
         ranges: vec![(b"a".to_vec(), Some(b"bc".to_vec()))],
     };
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 2, &writes);
+    insert(&mut history, 2, &writes)?;
     // The expected capacity from std's own vectors grown by the same appends, in the order a run fills its buffers: the
     // arena by the point's key, the statement's key and object and the range's start and end; the points by two, the
     // point and the statement's list touched; the statements and the ranges by one each. A point and a statement are 24
@@ -577,9 +578,9 @@ fn test_the_capacity_counts_the_arena_and_24_per_entry_of_each_buffers_capacity(
 #[test]
 fn test_runs_merged_at_or_below_the_floor_leave_the_history_empty() -> TestResult {
     let mut history = ConflictHistory::new(10);
-    insert(&mut history, 9, &Writes::point(b"a"));
+    insert(&mut history, 9, &Writes::point(b"a"))?;
     assert_eq!((history.runs(), history.len()), (1, 1));
-    insert(&mut history, 10, &Writes::point(b"b"));
+    insert(&mut history, 10, &Writes::point(b"b"))?;
     assert_eq!((history.runs(), history.len()), (0, 0));
     assert!(history.is_empty());
     assert_eq!(history.bytes(), 0);
@@ -588,8 +589,8 @@ fn test_runs_merged_at_or_below_the_floor_leave_the_history_empty() -> TestResul
         None
     );
     // One run above the floor merged with one at it keeps the one above alone.
-    insert(&mut history, 10, &Writes::point(b"c"));
-    insert(&mut history, 11, &Writes::point(b"d"));
+    insert(&mut history, 10, &Writes::point(b"c"))?;
+    insert(&mut history, 11, &Writes::point(b"d"))?;
     assert_eq!((history.runs(), history.len()), (1, 1));
     assert_eq!(
         history.conflict(&read_set(0, 10, &Reads::list(b"d"))?),

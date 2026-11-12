@@ -10,7 +10,7 @@ use crate::types::error_reply::ErrorReply;
 use crate::types::hello_view::HelloView;
 use crate::utils::constants::{
     DEFAULT_INITIAL_CREDIT, DEFAULT_MAX_STREAMS, DEFAULT_MAX_WRITE_SET, DEFAULT_TRANSACTION_MS,
-    MAX_FRAME_SIZE,
+    MAX_FRAME_SIZE_U32,
 };
 
 /// The server's answer to Hello: the protocol chosen, its release, whether the connection authenticates and by which
@@ -57,7 +57,7 @@ impl Welcome {
         Self {
             protocol,
             release,
-            max_frame: MAX_FRAME_SIZE as u32,
+            max_frame: MAX_FRAME_SIZE_U32,
             max_streams: DEFAULT_MAX_STREAMS,
             initial_credit: DEFAULT_INITIAL_CREDIT,
             max_write_set: DEFAULT_MAX_WRITE_SET,

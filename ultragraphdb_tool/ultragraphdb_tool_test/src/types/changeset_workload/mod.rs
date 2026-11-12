@@ -837,7 +837,9 @@ pub(crate) fn injected(error: &ChangesetError) -> bool {
         | QuadErrorEnum::NoOwnedBucket { .. }
         | QuadErrorEnum::SkolemDraws { .. }
         | QuadErrorEnum::NotOwned { .. }
-        | QuadErrorEnum::UnknownSkolem { .. } => false,
+        | QuadErrorEnum::UnknownSkolem { .. }
+        | QuadErrorEnum::KindTooLong { .. }
+        | QuadErrorEnum::TooManyKinds { .. } => false,
     };
     match &error.0 {
         ChangesetErrorEnum::Store(s) => store(s),

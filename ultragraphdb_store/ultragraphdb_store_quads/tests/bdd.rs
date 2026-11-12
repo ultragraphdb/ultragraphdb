@@ -95,7 +95,7 @@ fn refused_creator(w: &mut Steps) -> TestResult {
         &[quad("x", "p", ex("gone")), quad("gone", "p", ex("y"))],
     )?;
     // Refused by the commit step: its request is never written, and its terms are released.
-    let (_, terms) = refused.finish();
+    let (_, terms) = refused.finish()?;
     store.release(&terms);
     w.flags = vec![store.id_of(0, ex("gone").as_str())?.is_some()];
     w.read = statements_naming(store, &ex("gone").into(), store.lists().applied_ts())?;
@@ -305,7 +305,7 @@ fn aborted_creator(w: &mut Steps) -> TestResult {
         0,
         &[quad("new", "p", Literal::new_simple_literal("x"))],
     )?;
-    let (_, terms) = aborted.finish();
+    let (_, terms) = aborted.finish()?;
     let created = terms
         .written()
         .find(|(t, _)| *t == ex("new").as_str())

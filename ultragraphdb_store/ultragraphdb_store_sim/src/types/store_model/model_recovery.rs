@@ -182,9 +182,9 @@ impl StoreModel {
 /// entries hold their version with their value and others hold no such version, or its versioned entries survive
 /// without its versionless writes or the other way round.
 pub(super) fn partial_batch(ops: &[ModelOp], contents: &Contents) -> Option<String> {
-    ops.iter()
-        .enumerate()
-        .find_map(|(at, op)| partial(op, &ops[at + 1..], contents))
+    // Each op with the ops written after it.
+    std::iter::successors(ops.split_first(), |(_, later)| later.split_first())
+        .find_map(|(op, later)| partial(op, later, contents))
 }
 
 /// Whether `contents` hold `entry`: its version, a deletion exactly when it is one.
@@ -257,10 +257,9 @@ fn partial(op: &ModelOp, later: &[ModelOp], contents: &Contents) -> Option<Strin
 
 /// The writes of `writes` that no later one of the same `id` replaces, in order.
 fn last_writes<'a, T, K: PartialEq>(writes: &'a [T], id: impl Fn(&'a T) -> K) -> Vec<&'a T> {
-    writes
-        .iter()
-        .enumerate()
-        .filter(|(at, write)| writes[at + 1..].iter().all(|later| id(later) != id(write)))
-        .map(|(_, write)| write)
+    // Each write with the writes after it.
+    std::iter::successors(writes.split_first(), |(_, later)| later.split_first())
+        .filter(|(write, later)| later.iter().all(|l| id(l) != id(write)))
+        .map(|(write, _)| write)
         .collect()
 }

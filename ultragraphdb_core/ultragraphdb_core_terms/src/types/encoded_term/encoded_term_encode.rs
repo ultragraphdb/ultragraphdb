@@ -28,31 +28,39 @@ struct Builder {
 impl Builder {
     fn new(tag: u8) -> Self {
         let mut bytes = [0u8; 33];
-        bytes[0] = tag;
+        let [first, ..] = &mut bytes;
+        *first = tag;
         Self { bytes, len: 1 }
     }
 
-    fn push(mut self, part: &[u8]) -> Self {
-        debug_assert!(
-            self.len + part.len() <= self.bytes.len(),
-            "a literal's encoding fits 33 bytes"
-        );
-        self.bytes[self.len..self.len + part.len()].copy_from_slice(part);
-        self.len += part.len();
-        self
+    /// The builder with `part` appended, refused as malformed past 33 bytes.
+    fn push(mut self, part: &[u8]) -> Result<Self, TermError> {
+        let (slot, end) = self
+            .len
+            .checked_add(part.len())
+            .and_then(|end| Some((self.bytes.get_mut(self.len..end)?, end)))
+            .ok_or_else(|| TermError::malformed(part.to_vec(), "an encoding past 33 bytes"))?;
+        slot.copy_from_slice(part);
+        self.len = end;
+        Ok(self)
     }
 
-    /// An inline part: its length, then its bytes.
-    fn inline(self, part: &str) -> Self {
-        debug_assert!(
-            part.len() <= INLINE_MAX,
-            "an inline part is at most 15 bytes"
-        );
-        self.push(&[part.len() as u8]).push(part.as_bytes())
+    /// An inline part: its length, then its bytes; refused as malformed past 15 bytes.
+    fn inline(self, part: &str) -> Result<Self, TermError> {
+        let len = u8::try_from(part.len())
+            .ok()
+            .filter(|len| usize::from(*len) <= INLINE_MAX)
+            .ok_or_else(|| {
+                TermError::malformed(
+                    part.as_bytes().to_vec(),
+                    "an inline part longer than 15 bytes",
+                )
+            })?;
+        self.push(&[len])?.push(part.as_bytes())
     }
 
-    fn build(self) -> EncodedTerm {
-        EncodedTerm::inline(&self.bytes[..self.len])
+    fn build(self) -> Result<EncodedTerm, TermError> {
+        EncodedTerm::inline(self.bytes.get(..self.len).unwrap_or(&self.bytes))
     }
 }
 
@@ -68,28 +76,35 @@ impl EncodedTerm {
     ) -> Result<EncodedLiteral<'a>, E> {
         let lexical = literal.value();
         if let Some(language) = literal.language() {
-            return Ok(lang_string(lexical, language, literal.direction()));
+            return Ok(lang_string(lexical, language, literal.direction())?);
         }
         let datatype = literal.datatype();
         if datatype == xsd::STRING {
             return Ok(if lexical.len() <= INLINE_MAX {
                 EncodedLiteral::new(
-                    Builder::new(tag::SMALL_STRING).inline(lexical).build(),
+                    Builder::new(tag::SMALL_STRING).inline(lexical)?.build()?,
                     [None, None],
                 )
             } else {
                 let hash = Hash128::of(lexical.as_bytes());
                 EncodedLiteral::new(
-                    Builder::new(tag::BIG_STRING).push(hash.as_bytes()).build(),
+                    Builder::new(tag::BIG_STRING)
+                        .push(hash.as_bytes())?
+                        .build()?,
                     [Some((hash, lexical)), None],
                 )
             });
         }
         if datatype.as_str() == FLOAT32_VECTOR {
             let elements = parse_vector(lexical)?;
-            let mut bytes = Vec::with_capacity(3 + 4 * elements.len());
+            let count = u16::try_from(elements.len()).map_err(|_| {
+                TermError::invalid_vector(lexical.to_string(), "more than 65,535 elements")
+            })?;
+            // A u16 count of 4-byte elements after 3 bytes: the capacity never saturates.
+            let capacity = usize::from(count).saturating_mul(4).saturating_add(3);
+            let mut bytes = Vec::with_capacity(capacity);
             bytes.push(tag::VECTOR);
-            bytes.extend_from_slice(&(elements.len() as u16).to_le_bytes());
+            bytes.extend_from_slice(&count.to_le_bytes());
             elements
                 .iter()
                 .for_each(|e| bytes.extend_from_slice(&e.to_le_bytes()));
@@ -100,7 +115,7 @@ impl EncodedTerm {
         }
         let known = KnownDatatype::from_iri(datatype.as_str());
         if let Some(term) = known.and_then(|k| by_value(k, lexical)) {
-            return Ok(EncodedLiteral::new(term, [None, None]));
+            return Ok(EncodedLiteral::new(term?, [None, None]));
         }
         let (small, big, head) = match known {
             Some(k) => (tag::SMALL_KNOWN, tag::BIG_KNOWN, Head::Code(k.code())),
@@ -116,13 +131,13 @@ impl EncodedTerm {
         };
         Ok(if lexical.len() <= INLINE_MAX {
             EncodedLiteral::new(
-                head(Builder::new(small)).inline(lexical).build(),
+                head(Builder::new(small))?.inline(lexical)?.build()?,
                 [None, None],
             )
         } else {
             let hash = Hash128::of(lexical.as_bytes());
             EncodedLiteral::new(
-                head(Builder::new(big)).push(hash.as_bytes()).build(),
+                head(Builder::new(big))?.push(hash.as_bytes())?.build()?,
                 [Some((hash, lexical)), None],
             )
         })
@@ -140,42 +155,43 @@ fn lang_string<'a>(
     lexical: &'a str,
     language: &'a str,
     direction: Option<BaseDirection>,
-) -> EncodedLiteral<'a> {
-    let set = match direction {
-        None => 0,
-        Some(BaseDirection::Ltr) => 1,
-        Some(BaseDirection::Rtl) => 2,
+) -> Result<EncodedLiteral<'a>, TermError> {
+    // Each set of tags holds the tag of no direction, of ltr and of rtl.
+    let tag_of = |[none, ltr, rtl]: [u8; 3]| match direction {
+        None => none,
+        Some(BaseDirection::Ltr) => ltr,
+        Some(BaseDirection::Rtl) => rtl,
     };
     if language.len() > INLINE_MAX {
         let (lex, lang) = (
             Hash128::of(lexical.as_bytes()),
             Hash128::of(language.as_bytes()),
         );
-        return EncodedLiteral::new(
-            Builder::new(tag::BIG_LANG_BIG_TAG[set])
-                .push(lex.as_bytes())
-                .push(lang.as_bytes())
-                .build(),
+        return Ok(EncodedLiteral::new(
+            Builder::new(tag_of(tag::BIG_LANG_BIG_TAG))
+                .push(lex.as_bytes())?
+                .push(lang.as_bytes())?
+                .build()?,
             [Some((lex, lexical)), Some((lang, language))],
-        );
+        ));
     }
     if lexical.len() > INLINE_MAX {
         let lex = Hash128::of(lexical.as_bytes());
-        return EncodedLiteral::new(
-            Builder::new(tag::BIG_LANG[set])
-                .push(lex.as_bytes())
-                .inline(language)
-                .build(),
+        return Ok(EncodedLiteral::new(
+            Builder::new(tag_of(tag::BIG_LANG))
+                .push(lex.as_bytes())?
+                .inline(language)?
+                .build()?,
             [Some((lex, lexical)), None],
-        );
+        ));
     }
-    EncodedLiteral::new(
-        Builder::new(tag::SMALL_LANG[set])
-            .inline(lexical)
-            .inline(language)
-            .build(),
+    Ok(EncodedLiteral::new(
+        Builder::new(tag_of(tag::SMALL_LANG))
+            .inline(lexical)?
+            .inline(language)?
+            .build()?,
         [None, None],
-    )
+    ))
 }
 
 /// The by-value encoding of `lexical` as `datatype`, when the datatype is encoded by value and the lexical form is
@@ -191,7 +207,7 @@ const FEBRUARY_29: &str = "--02-29";
 /// One day in a by-value payload's seconds × 10¹⁸.
 const DAY: i128 = 86_400 * 1_000_000_000_000_000_000;
 
-fn by_value(datatype: KnownDatatype, lexical: &str) -> Option<EncodedTerm> {
+fn by_value(datatype: KnownDatatype, lexical: &str) -> Option<Result<EncodedTerm, TermError>> {
     let dated = matches!(
         datatype,
         KnownDatatype::DateTime
@@ -220,7 +236,10 @@ fn by_value(datatype: KnownDatatype, lexical: &str) -> Option<EncodedTerm> {
 }
 
 /// The by-value term of `lexical` in its canonical form, `None` for a datatype not kept by value.
-fn canonical_term(datatype: KnownDatatype, lexical: &str) -> Option<EncodedTerm> {
+fn canonical_term(
+    datatype: KnownDatatype,
+    lexical: &str,
+) -> Option<Result<EncodedTerm, TermError>> {
     match datatype {
         KnownDatatype::Boolean => {
             canonical::<Boolean>(lexical).map(|v| encoded(tag::BOOLEAN, &[u8::from(bool::from(v))]))
@@ -289,6 +308,6 @@ fn canonical_term(datatype: KnownDatatype, lexical: &str) -> Option<EncodedTerm>
 }
 
 /// The term of tag `t` with payload `bytes`.
-fn encoded(t: u8, bytes: &[u8]) -> EncodedTerm {
-    Builder::new(t).push(bytes).build()
+fn encoded(t: u8, bytes: &[u8]) -> Result<EncodedTerm, TermError> {
+    Builder::new(t).push(bytes)?.build()
 }

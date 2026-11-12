@@ -672,23 +672,25 @@ fn test_the_three_tags_of_section_10_4s_codes_34_to_36_take_their_tables_lengths
 }
 
 #[test]
-fn test_check_refuses_a_measure_without_a_unit_and_a_precision_outside_1_to_12() {
+fn test_check_refuses_a_measure_without_a_unit_and_a_precision_outside_1_to_12() -> TestResult {
     // PROTOCOL.md sections 10.1 and 10.5: a measure's unit code is at least 1 byte of UTF-8, and a precision's byte is
     // 1 (millennium) to 12 (nanosecond); any other is no whole encoding.
     let number = 1.5f64.to_be_bytes();
-    let measure = |unit: &[u8]| [&[0x50][..], &number, &[unit.len() as u8], unit].concat();
+    let measure = |unit: &[u8]| -> TestResult<Vec<u8>> {
+        Ok([&[0x50][..], &number, &[u8::try_from(unit.len())?], unit].concat())
+    };
     let malformed = |bytes: &[u8], reason| Err(TermError::malformed(bytes.to_vec(), reason));
     let cases: Vec<(Vec<u8>, Result<(), TermError>)> = vec![
         (
-            measure(b""),
-            malformed(&measure(b""), "a measure without a unit"),
+            measure(b"")?,
+            malformed(&measure(b"")?, "a measure without a unit"),
         ),
         (
-            measure(&[0xFF]),
-            malformed(&measure(&[0xFF]), "inline text that is not UTF-8"),
+            measure(&[0xFF])?,
+            malformed(&measure(&[0xFF])?, "inline text that is not UTF-8"),
         ),
-        (measure(b"m"), Ok(())),
-        (measure("µm".as_bytes()), Ok(())),
+        (measure(b"m")?, Ok(())),
+        (measure("µm".as_bytes())?, Ok(())),
         (
             vec![0x51, 0],
             malformed(&[0x51, 0], "a precision other than 1 to 12"),
@@ -703,4 +705,5 @@ fn test_check_refuses_a_measure_without_a_unit_and_a_precision_outside_1_to_12()
     for (bytes, expected) in cases {
         assert_eq!(EncodedTerm::check(&bytes), expected, "{bytes:02x?}");
     }
+    Ok(())
 }

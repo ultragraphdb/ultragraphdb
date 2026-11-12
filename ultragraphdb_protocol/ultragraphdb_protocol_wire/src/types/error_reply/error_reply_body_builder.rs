@@ -69,7 +69,10 @@ impl BodyBuilder for ErrorReply {
             let _index: Option<u32> = terms.intern(value).ok();
         }
         let (records, text) = terms.sections();
-        let message = fitted(&self.message, align8(records.len()) + text.len());
+        let message = fitted(
+            &self.message,
+            align8(records.len()).saturating_add(text.len()),
+        );
         write_sections(&[], &[message.as_bytes(), &records, &text])
     }
 }
@@ -78,25 +81,26 @@ impl BodyBuilder for ErrorReply {
 fn data_room() -> usize {
     let body = MAX_FRAME_FLOOR - HEADER_SIZE;
     // A chunk table of as many leaves as the whole body would take, so the data and its table stay within the body.
-    body - LEAF_SIZE * ChunkLayout::of_data(body).chunks()
+    // Constants: a table of 128 leaves within a 512 KiB body, so neither saturates.
+    body.saturating_sub(LEAF_SIZE.saturating_mul(ChunkLayout::of_data(body).chunks()))
 }
 
 /// The bytes of text a value's one-entry term table holds in a frame at the floor of `max_frame` beside an empty message:
 /// the data less a table of three sections and the entry's 24-byte record, section 2 following it with no padding.
 pub(super) fn value_room() -> usize {
-    data_room() - 3 * 8 - 24
+    data_room().saturating_sub(3 * 8 + 24)
 }
 
 /// The bytes `value`'s texts take in a term table's `text` section: a triple term's none.
 pub(super) fn text_length(value: &RequestTerm) -> usize {
     match value {
         RequestTerm::Iri(text) | RequestTerm::BlankNode(text) => text.len(),
-        RequestTerm::Literal { lexical, datatype } => {
-            lexical.len() + datatype.as_ref().map_or(0, String::len)
-        }
+        RequestTerm::Literal { lexical, datatype } => lexical
+            .len()
+            .saturating_add(datatype.as_ref().map_or(0, String::len)),
         RequestTerm::LanguageLiteral {
             lexical, language, ..
-        } => lexical.len() + language.len(),
+        } => lexical.len().saturating_add(language.len()),
         RequestTerm::Triple { .. } => 0,
     }
 }
@@ -139,8 +143,8 @@ fn carried(value: &RequestTerm) -> Option<RequestTerm> {
 /// three sections and `after` bytes of sections 1 and 2; whole when it fits.
 fn fitted(message: &str, after: usize) -> &str {
     let data = data_room();
-    // Section 1 starts 8-aligned after section 0, so section 0 takes its length rounded up to 8.
-    let room = data.saturating_sub(3 * 8 + after) / 8 * 8;
+    // Section 1 starts 8-aligned after section 0, so section 0 takes its length rounded up to 8: the room rounded down.
+    let room = data.saturating_sub(after.saturating_add(3 * 8)) & !7;
     message
         .get(..message.floor_char_boundary(room))
         .unwrap_or_default()

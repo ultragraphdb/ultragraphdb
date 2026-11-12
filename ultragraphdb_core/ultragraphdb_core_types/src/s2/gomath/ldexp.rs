@@ -40,6 +40,7 @@ pub(crate) fn ldexp(frac: f64, exp: i64) -> f64 {
         m = 1.0 / (1u64 << 53) as f64; // 2**-53
     }
     x &= !(MASK << SHIFT);
-    x |= ((exp + BIAS) as u64) << SHIFT;
+    // Go's uint64(exp+bias): the biased exponent, at least 1 here.
+    x |= (exp + BIAS).cast_unsigned() << SHIFT;
     m * f64::from_bits(x)
 }

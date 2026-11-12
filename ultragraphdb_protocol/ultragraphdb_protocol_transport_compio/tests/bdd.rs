@@ -185,7 +185,7 @@ impl Conversation {
         };
         let hello = ClientHandshake::new(
             CLUSTER,
-            Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "client"),
+            Hello::new(1, 1, 0, u32::try_from(MAX_FRAME_SIZE)?, "client"),
         );
         c.client_sends(hello.hello_frame()?).await?;
         assert!(matches!(c.server_reads().await?, Inbound::Welcomed { .. }));
@@ -510,7 +510,7 @@ async fn hello_one_to_three(w: &mut Steps) -> TestResult {
     let (hello, answered) = ready(futures::future::join(
         client.hello(
             &pool,
-            &Hello::new(1, 3, 0x0005_0000, MAX_FRAME_SIZE as u32, "client"),
+            &Hello::new(1, 3, 0x0005_0000, u32::try_from(MAX_FRAME_SIZE)?, "client"),
         ),
         server.welcome(&pool, &limits),
     ));
@@ -627,8 +627,8 @@ fn repeat_term(write: &[u8]) -> TestResult<Vec<u8>> {
     let mut data = Vec::new();
     for s in &sections {
         at = at.div_ceil(8) * 8;
-        table.extend_from_slice(&(at as u32).to_le_bytes());
-        table.extend_from_slice(&(s.len() as u32).to_le_bytes());
+        table.extend_from_slice(&u32::try_from(at)?.to_le_bytes());
+        table.extend_from_slice(&u32::try_from(s.len())?.to_le_bytes());
         at += s.len();
     }
     data.extend_from_slice(&table);

@@ -23,14 +23,12 @@ pub(crate) fn json_float(f: f64) -> Option<String> {
         b'f'
     };
     let mut s = go_strconv::format_float(f, fmt, 64);
-    if fmt == b'e' {
-        let b = s.as_bytes();
-        let n = b.len();
-        if n >= 4 && b[n - 4] == b'e' && b[n - 3] == b'-' && b[n - 2] == b'0' {
-            let last = b[n - 1] as char;
-            s.truncate(n - 2);
-            s.push(last);
-        }
+    if fmt == b'e'
+        && let Some(&[b'e', b'-', b'0', last]) = s.as_bytes().last_chunk::<4>()
+    {
+        let n = s.len();
+        s.truncate(n - 2);
+        s.push(last as char);
     }
     Some(s)
 }

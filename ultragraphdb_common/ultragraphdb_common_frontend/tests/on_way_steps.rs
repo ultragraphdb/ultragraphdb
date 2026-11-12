@@ -145,13 +145,14 @@ fn a_client_past_its_bound_stops_being_read(w: &mut Steps) -> TestResult {
         })
         .await?;
         stalled.stop_reading();
-        let frame = pipeline(&stage, &mut client, &mut streams, 4 * BOUND as usize).await?;
+        let bound = usize::try_from(BOUND)?;
+        let frame = pipeline(&stage, &mut client, &mut streams, 4 * bound).await?;
         let behind = client.send(&Begin::new(0, 0, false)).await?;
 
         client.silent(behind, SILENCE_MS).await?;
         let counted = stage.on_way(0);
         assert!(
-            counted >= BOUND as usize && counted <= BOUND as usize + frame,
+            counted >= bound && counted <= bound + frame,
             "{counted} bytes counted against a bound of {BOUND} and a frame of {frame}"
         );
         let held = other.frames(Command::Commit);
@@ -214,10 +215,11 @@ fn a_limit_ends_what_a_stopped_partition_holds_back(w: &mut Steps) -> TestResult
         })
         .await?;
         stalled.stop_reading();
-        let _frame = pipeline(&stage, &mut client, &mut streams, 2 * BOUND as usize).await?;
+        let bound = usize::try_from(BOUND)?;
+        let _frame = pipeline(&stage, &mut client, &mut streams, 2 * bound).await?;
         let behind = client.send(&Begin::new(0, 0, false)).await?;
         client.silent(behind, SILENCE_MS).await?;
-        assert!(stage.on_way(0) >= BOUND as usize, "the count met its bound");
+        assert!(stage.on_way(0) >= bound, "the count met its bound");
         for (transaction, _) in &streams {
             assert_eq!(
                 client.refused(*transaction).await?,

@@ -23,8 +23,8 @@ use ultragraphdb_protocol_wire::{
     Action, Begin, BodyBuilder, BodyView, Command, Commit, CommitOperation, CommitView,
     ComputeReadView, ConditionalWrite, Credit, DEFAULT_INITIAL_CREDIT, DeclaredPredicate, Describe,
     DirectWrite, DropCommand, ErrorCode, ErrorReply, ErrorReplyView, Header, Hello, Install,
-    Language, MAX_FRAME_SIZE, Migrate, MigrateAction, Prepare, Purge, Query, ReadLevel,
-    RequestTerm, TermTable, Write, WriteChange,
+    Language, MAX_FRAME_SIZE, MAX_FRAME_SIZE_U32, Migrate, MigrateAction, Prepare, Purge, Query,
+    ReadLevel, RequestTerm, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -138,7 +138,7 @@ fn a_data_request_before_authentication_is_refused(w: &mut Steps) -> TestResult 
         let mut raw = Connection::new(carrier, Framer::new(CLUSTER, MAX_FRAME_SIZE));
         let pool = BufferPool::new(1, MAX_FRAME_SIZE);
         let _welcome = raw
-            .hello(&pool, &Hello::new(1, 1, 1, MAX_FRAME_SIZE as u32, "client"))
+            .hello(&pool, &Hello::new(1, 1, 1, MAX_FRAME_SIZE_U32, "client"))
             .await?;
         let mut frame =
             read_of(1, OBJECT).frame(Header::new(CLUSTER, Command::Read).with_stream(1))?;

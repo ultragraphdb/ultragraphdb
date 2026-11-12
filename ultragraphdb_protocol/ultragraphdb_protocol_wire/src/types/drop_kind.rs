@@ -36,8 +36,9 @@ impl DropKind {
     pub fn number(self) -> u8 {
         DropKind::ALL
             .iter()
-            .position(|k| *k == self)
-            .map_or(0, |i| i as u8 + 1)
+            .zip(1..)
+            .find(|(k, _)| **k == self)
+            .map_or(0, |(_, number)| number)
     }
 
     /// The kind numbered `number`; `None` for a number no kind has.

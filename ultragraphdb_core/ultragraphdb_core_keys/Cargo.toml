@@ -23,8 +23,9 @@ ultragraphdb_core_ids = { workspace = true }
 ultragraphdb_core_terms = { workspace = true }
 
 [dev-dependencies]
-oxrdf = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
+# External crates
+oxrdf = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 

@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use ultragraphdb_common_compute::{ReadTimes, read_times_of};
 use ultragraphdb_common_role::RoleClient;
-use ultragraphdb_protocol_wire::{ComputeRead, Credit, MAX_FRAME_FLOOR, ReadLevel, ScanAt};
+use ultragraphdb_protocol_wire::{ComputeRead, Credit, MAX_FRAME_FLOOR_U32, ReadLevel, ScanAt};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::played_answers::{Batch, Pattern, answer_on, next_of, read_of, snapshot};
@@ -54,7 +54,7 @@ fn hold_rows(partition: &Partition, rows: u64, base: u64) -> TestResult {
 /// `read` sent on `client` with a credit of one frame: its first batch.
 async fn first_batch(client: &mut RoleClient, read: ComputeRead) -> TestResult<(u64, Batch)> {
     client
-        .send_only(&read.with_client_limits(MAX_FRAME_FLOOR as u32, 1))
+        .send_only(&read.with_client_limits(MAX_FRAME_FLOOR_U32, 1))
         .await?;
     let stream = client.last_stream();
     let batch = next_of(client).await?.map_err(|refused| {

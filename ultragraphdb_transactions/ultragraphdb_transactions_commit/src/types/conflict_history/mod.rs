@@ -5,10 +5,11 @@
 
 use std::collections::VecDeque;
 
+use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_protocol_wire::ConflictKind;
 use ultragraphdb_transactions_txn::ReadSet;
 
-use crate::types::run::Run;
+use crate::types::run::{Run, SPAN_LIMIT};
 
 /// The most emptied runs kept for reuse.
 const POOL: usize = 8;
@@ -65,28 +66,40 @@ impl ConflictHistory {
 
     /// Records the writes of a transaction admitted at `version`: its conflict points, statements and ranges, an end
     /// of `None` reaching past the last key.
+    ///
+    /// # Errors
+    ///
+    /// [`InvariantError::violated`] when a run's keys pass the u32 offsets of its arena: one record is at most a frame
+    /// and the merge rule keeps two runs within the offsets, so only a bug reaches it. The history is then as before
+    /// the record, or holds it unmerged.
     pub fn insert<'k>(
         &mut self,
         version: u64,
         points: impl IntoIterator<Item = &'k [u8]>,
         statements: impl IntoIterator<Item = (&'k [u8], &'k [u8])>,
         ranges: impl IntoIterator<Item = (&'k [u8], Option<&'k [u8]>)>,
-    ) {
+    ) -> Result<(), InvariantError> {
         let mut run = self.pool.pop().unwrap_or_default();
-        run.fill(version, points, statements, ranges);
-        if run.is_empty() {
+        let filled = run.fill(version, points, statements, ranges);
+        if filled.is_err() || run.is_empty() {
             self.give(run);
-            return;
+            return filled;
         }
         self.runs.push_back(run);
-        // Merge the newest run into the one before it while that one is no larger, within the cap. Each turn replaces
-        // two runs by one, so it ends within the runs held.
+        // Merge the newest run into the one before it while that one is no larger, within the cap and within the u32
+        // offsets of a run's arena. Each turn replaces two runs by one, so it ends within the runs held.
         while let [.., prev, last] = self.runs.make_contiguous() {
-            if prev.len() > last.len() || prev.len() + last.len() > Self::RUN_CAP {
+            if prev.len() > last.len()
+                || prev.len() + last.len() > Self::RUN_CAP
+                || prev.bytes() + last.bytes() > SPAN_LIMIT
+            {
                 break;
             }
             let mut merged = self.pool.pop().unwrap_or_default();
-            merged.merge(prev, last, self.floor);
+            if let Err(violated) = merged.merge(prev, last, self.floor) {
+                self.give(merged);
+                return Err(violated);
+            }
             for _ in 0..2 {
                 if let Some(old) = self.runs.pop_back() {
                     self.give(old);
@@ -98,6 +111,7 @@ impl ConflictHistory {
                 self.runs.push_back(merged);
             }
         }
+        Ok(())
     }
 
     /// Keeps `run`, emptied, for reuse, while the pool has room.

@@ -25,8 +25,8 @@ impl LevelDraw {
     pub fn of_node(seed: u64, tenant: u64, predicate: SystemId, node: SystemId) -> Self {
         let halves = |id: SystemId| {
             let value = id.to_u128();
-            // The high and the low 64 bits: each shift and truncation keeps exactly one half.
-            [(value >> 64) as u64, value as u64]
+            // The high and the low 64 bits: the shift and the mask each leave exactly one half, so each cast is lossless.
+            [(value >> 64) as u64, (value & 0xFFFF_FFFF_FFFF_FFFF) as u64]
         };
         let [p_high, p_low] = halves(predicate);
         let [n_high, n_low] = halves(node);

@@ -10,7 +10,6 @@ use crate::types::confidence::Confidence;
 use crate::types::tag::Tag;
 use crate::utils::canonicalize::CanonType;
 use crate::utils::compose::{Part, compose_raw};
-use crate::utils::tag_index::partition_point;
 
 /// The index of `t` in `tags`, matched as collation and search match languages. `tags[0]` must be `und`, the
 /// other tags sorted by base language.
@@ -53,10 +52,9 @@ pub(crate) fn match_lang(t: &Tag, tags: &[Tag]) -> usize {
 
     // Find start index of the language tag.
     let base_str = base.to_string();
-    let start = 1 + partition_point(tags.len() - 1, |i| {
-        tags[i + 1].raw().0.as_string() < base_str
-    });
-    if start < tags.len() && tags[start].raw().0 != base_id {
+    let after_root = tags.get(1..).unwrap_or_default();
+    let start = 1 + after_root.partition_point(|tag| tag.raw().0.as_string() < base_str);
+    if tags.get(start).is_some_and(|tag| tag.raw().0 != base_id) {
         return 0;
     }
 
@@ -80,7 +78,7 @@ pub(crate) fn match_lang(t: &Tag, tags: &[Tag]) -> usize {
 
     for mut tx in tries {
         while tx != Tag::default() {
-            for (i, candidate) in tags[start..].iter().enumerate() {
+            for (i, candidate) in tags.get(start..).unwrap_or_default().iter().enumerate() {
                 if candidate.raw().0 != base_id {
                     break;
                 }
