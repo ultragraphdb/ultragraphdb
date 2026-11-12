@@ -118,45 +118,41 @@ ultragraphdb_transport_tls = { path = "ultragraphdb_transport/ultragraphdb_trans
 # ==============
 # External crates
 # ==============
-serde_json = "1.0"
-tokio = "1.54"
-bcrypt = "0.19"
-dashu-int = "0.6"
-rust-stemmers = "1.2"
+serde_json =  { version = "1.0", default-features = false }
+tokio =  { version = "1", default-features = false }
+bcrypt = { version = "0.19"}
+dashu-int = { version = "0.6", default-features = false }
+rust-stemmers = { version = "1.2", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
-unicode-normalization = "0.1"
-oxilangtag = "0.1"
+unicode-normalization = { version = "0.1", default-features = false}
+oxilangtag = { version = "0.1", default-features = false}
 oxrdf = { version = "0.3", features = ["rdf-12"] }
-oxsdatatypes = "0.2"
-tracing = "0.1"
+oxsdatatypes = { version = "0.2", default-features = false }
+tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", features = ["fmt", "json", "env-filter"] }
 opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "trace"] }
 opentelemetry-http = { version = "0.33", default-features = false }
-async-trait = "0.1"
+async-trait =  { version = "0.1", default-features = false }
 tracing-opentelemetry = { version = "0.34", default-features = false }
-fjall = "3.1"
+fjall =  { version = "3.1", default-features = false }
 moka = { version = "0.12", features = ["sync"] }
-sha2 = "0.11"
-hmac = "0.13"
-subtle = "2.6"
-base64 = "0.23"
-stringprep = "0.1"
-getrandom = "0.4"
-futures = "0.3"
+sha2 = { version = "0.11", default-features = false }
+hmac = { version = "0.13", default-features = false }
+subtle = { version = "2.6", default-features = false }
+base64 = { version = "0.23", default-features = false }
+stringprep = { version = "0.1", default-features = false }
+getrandom =  { version = "0.4", default-features = false }
+futures =  { version = "0.3", default-features = false }
 signal-hook = { version = "0.4", default-features = false }
-service_utils = "0.4"
+service_utils =  { version = "0.4", default-features = false }
 compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "polling", "fs", "net", "time"] }
-# The allocator of every shipped binary, set as its `#[global_allocator]`: musl's own allocator contends under threads,
-# measured 31% fewer commits per second than glibc's on `wal_bench` (2026-11-01). 
 mimalloc = { version = "0.1", features = ["local_dynamic_tls"] }
-# A counting wrapper over the system allocator, `alloc_bench`'s `#[global_allocator]`: it counts the allocations between a
-# frame and its record (stage 5.5, task 12.5b) with no `unsafe` of this workspace's own. Pure Rust, no dependencies.
-stats_alloc = "0.1.10"
-xxhash-rust = { version = "0.8", features = ["xxh3"] }
+stats_alloc =  { version = "0.1", default-features = false }
+xxhash-rust = { version = "0.8", default-features = false, features = ["xxh3"] }
 rustix = { version = "1.1", default-features = false, features = ["fs", "process"] }
-socket2 = "0.6"
+socket2 =  { version = "0.6", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["ring", "tls12", "std"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }
@@ -165,8 +161,8 @@ rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"]
 # ==============
 arbitrary = { version = "1.5", features = ["derive"] }
 cucumber = "0.23"
-criterion = { version = "0.8", default-features = false }
-
+criterion = { version = "0.8"}
+hegeltest = { version = "0.52"}
 
 [workspace.lints.clippy]
 # The one lint table of the workspace: every crate takes it with `[lints] workspace = true`.
