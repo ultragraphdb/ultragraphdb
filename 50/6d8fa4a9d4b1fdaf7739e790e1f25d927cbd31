@@ -1,0 +1,44 @@
+ultragraphdb_common/ultragraphdb_common_role/tests/loom/types/connection_bound_tests.rs
+  s_d14a54f3ee4b57::t_f993df7944e58d 1-69,73-74
+  s_d14a54f3ee4b57::t_f829678286ef66 70-72
+ultragraphdb_common/ultragraphdb_common_role/tests/loom/mod.rs
+  s_d14a54f3ee4b57::t_5746cd75c5aed2 1-10
+ultragraphdb_common/ultragraphdb_common_role/tests/loom/types/mod.rs
+  s_d14a54f3ee4b57::t_8dd71a7da3fd4a 1-7
+ultragraphdb_common/ultragraphdb_common_role/src/utils/sync.rs
+  s_d14a54f3ee4b57::t_e0ef0d2e31caeb 1-16
+AGENTS.md
+  s_d14a54f3ee4b57::t_d812335d820a6b 285,312
+Cargo.lock
+  s_d14a54f3ee4b57::t_2853ff293a8b92 3176
+Cargo.toml
+  s_d14a54f3ee4b57::t_0c7a7366a141c8 134,205-206
+scripts/test.sh
+  s_d14a54f3ee4b57::t_2769b9e6753509 39-45,69
+ultragraphdb_common/ultragraphdb_common_role/BUILD.bazel
+  s_d14a54f3ee4b57::t_00619051b4c2b4 33-36,47-79
+ultragraphdb_common/ultragraphdb_common_role/Cargo.toml
+  s_d14a54f3ee4b57::t_0643c89db37884 33-36
+ultragraphdb_common/ultragraphdb_common_role/src/types/connection_bound.rs
+  s_d14a54f3ee4b57::t_cb560db3e46244 7,23
+ultragraphdb_common/ultragraphdb_common_role/src/types/held_connection.rs
+  s_d14a54f3ee4b57::t_710c444c8f3e0f 6
+ultragraphdb_common/ultragraphdb_common_role/src/utils/mod.rs
+  s_d14a54f3ee4b57::t_33c4605d550b95 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "506d8fa4a9d4b1fdaf7739e790e1f25d927cbd31",
+  "prompts": {},
+  "sessions": {
+    "s_d14a54f3ee4b57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "763dd999-2deb-442f-8d19-3d08b11dfa90",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
