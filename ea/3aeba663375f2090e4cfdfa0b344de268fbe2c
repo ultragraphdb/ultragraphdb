@@ -1,0 +1,75 @@
+ROADMAP.md
+  s_5d1c8e4faaa326::t_ef7b801b9ba510 13
+openspec/changes/stage-5-8-system-group/.openspec.yaml
+  s_5d1c8e4faaa326::t_ea7d1ec5b0965d 1-2
+openspec/changes/stage-5-8-system-group/design.md
+  s_5d1c8e4faaa326::t_18b90e237f9a14 1-193
+openspec/changes/stage-5-8-system-group/proposal.md
+  s_5d1c8e4faaa326::t_4d145f0907206c 1-113
+openspec/changes/stage-5-8-system-group/specs/client-endpoint/spec.md
+  s_5d1c8e4faaa326::t_2ceb9441c5dc4e 1-150
+openspec/changes/stage-5-8-system-group/specs/config-service/spec.md
+  s_5d1c8e4faaa326::t_c9a0a85eab7a86 1-74
+openspec/changes/stage-5-8-system-group/specs/kubernetes-deployment/spec.md
+  s_5d1c8e4faaa326::t_ad7797fa48e92f 1-80
+openspec/changes/stage-5-8-system-group/specs/metadata-group/spec.md
+  s_5d1c8e4faaa326::t_92aa4e244476fc 1-139
+openspec/changes/stage-5-8-system-group/specs/partitions/spec.md
+  s_5d1c8e4faaa326::t_ae02aa28420b31 1-27
+openspec/changes/stage-5-8-system-group/specs/quad-reads/spec.md
+  s_5d1c8e4faaa326::t_f4247af451ba87 1-64
+openspec/changes/stage-5-8-system-group/specs/role-binaries/spec.md
+  s_5d1c8e4faaa326::t_986f5562f8f1fe 1-239
+openspec/changes/stage-5-8-system-group/specs/schema-changes/spec.md
+  s_5d1c8e4faaa326::t_973caa3b0e34fb 1-138
+openspec/changes/stage-5-8-system-group/specs/sequencer/spec.md
+  s_5d1c8e4faaa326::t_7d34c8cdbb52e6 1-103
+openspec/changes/stage-5-8-system-group/specs/system-group/spec.md
+  s_5d1c8e4faaa326::t_4bb8c7f43a39d3 1-258
+openspec/changes/stage-5-8-system-group/specs/transactions/spec.md
+  s_5d1c8e4faaa326::t_e9be58ecf0ec39 1-117
+openspec/changes/stage-5-8-system-group/specs/wire-protocol/spec.md
+  s_5d1c8e4faaa326::t_c7dbab9f560e88 1-247
+openspec/changes/stage-5-8-system-group/tasks.md
+  s_5d1c8e4faaa326::t_e6a91f237ec527 1-96
+openspec/changes/stage-6-5-tile-store/tasks.md
+  s_5d1c8e4faaa326::t_0b6ff24f2edf39 27-28
+"openspec/designs/UltraGraphDB Distribution Architecture.md"
+  s_5d1c8e4faaa326::t_5463ba9713720c 27-29,146,151,155,409-410,455,488-490,558,693-694,721-722,735-737,826,863
+"openspec/notes/UltraGraphDB Spec Consistency Review 2026-11-12.md"
+  s_5d1c8e4faaa326::t_75353118c11f7a 1-358
+"openspec/notes/UltraGraphDB Specification Update.md"
+  s_5d1c8e4faaa326::t_8d1abbb98a5904 6-10,31,39,48,117
+"openspec/notes/UltraGraphDB Tile Store Feasibility.md"
+  s_5d1c8e4faaa326::t_009c4413c1a157 250
+openspec/notes/backlog.md
+  s_5d1c8e4faaa326::t_cef5fc2a6743b5 233,235-238
+specification/binary_protocol/PROTOCOL.md
+  s_5d1c8e4faaa326::t_e230ef1c20c69c 18-19,237-238,257,271-275,641-645,650,669-688,692-693,1671,1683,1698,2054-2069,2694-2699,2705-2706,2713-2729,2733-2736,2744-2747,2751-2754,2756-2775,2778-2795,2798-2815,2818-2822,2830-2831,2956-2985,2988-2990,3372,3376-3378,3381-3384,3418-3420,3434-3444,3482-3486,3594-3600,4120-4121,4372-4376,4384-4386,4391-4394,4406-4407,4410-4415,4420-4424,4444-4447,4457-4461,4473-4477,4482-4488,4497-4500
+specification/schema/SCHEMA.md
+  s_5d1c8e4faaa326::t_2c8a295d515745 1427-1437,1441-1442,2218
+specification/storage/STORAGE.md
+  s_5d1c8e4faaa326::t_922c66ed81144b 103-106,144-152,372-376,639,710-712,790,797-798,821-826,829,836-838,846,854,857-886,889-902,1045-1061,1220,1284-1285,1303-1305,1313-1319,1326-1334,1357-1359,1371-1376,1379-1384,1480-1483,1575,1584-1586
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/ugs_steps.rs
+  s_5d1c8e4faaa326::t_95ee07d1293c31 36
+Cargo.toml
+  s_5d1c8e4faaa326::t_6dc0471569eb4c 163
+scripts/test.sh
+  s_5d1c8e4faaa326::t_fb3f0d240e55ba 32-38,61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ea3aeba663375f2090e4cfdfa0b344de268fbe2c",
+  "prompts": {},
+  "sessions": {
+    "s_5d1c8e4faaa326": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "27074499-0862-404a-bdfb-e7cd321ff5bc",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
