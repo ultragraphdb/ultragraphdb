@@ -1424,28 +1424,22 @@ runs again once the schema governs it (`PROTOCOL.md` code 31), so no data is wri
 | 9 Allocation | Prefixes for new types and sequences for new predicates, from the metadata group's next free ones | `UGS2005` |
 | 10 Emission | The catalog version, the views, the report; the version decoded by `CATALOG.md` section 6 and encoded back to the same bytes | |
 
-The compiler runs beside the metadata group, never on the thread that sequences its log: it takes the tenant's base
-version, next free prefix and next free predicate sequence as its inputs, so the version it emits is decided before
-the group sees it, and the group commits that version only while all three are still the tenant's. A version failing
-phase 10's decode or re-encoding is a fault of the compiler, never of the sources: the install is refused with
-`../binary_protocol/PROTOCOL.md` code 7, the message naming the decoder's step and offset, and nothing is allocated or
-committed.
-
-From stage 5.8 the compiler runs in the role holding the client endpoint, the frontend and from stage 5.9 compute,
-and that role offers the version to the system group (`../binary_protocol/PROTOCOL.md` section 11.12a; decided
-2026-11-12). The system group commits it only while the base version and both counters are still the tenant's, and
-first decodes the offered bytes and encodes them back itself, refusing a version that fails either: no parser of a
-client's text runs in the process that holds the catalog, and no version a compute node emitted wrongly is committed.
-
-The version is committed as pending through the metadata group and takes effect at the epoch `../binary_protocol/PROTOCOL.md` section
-11.13 states; a tightening change is checked by the validation scan at that epoch (section 13.3), and the reply waits
-for it. The reply carries the version number, its effective epoch and the report, or the diagnostics.
-
-### 10.2 The compiled catalog
+The compiler runs in compute, the role holding the client endpoint, from stage 6.6, the stage that builds it
+(`../binary_protocol/PROTOCOL.md` section 11.12a; decided 2026-11-12). It takes the tenant's base version as its one
+input beside the sources: every version holds its allocation counters, a tenant holding none starts from the initial
+values, so the version it emits is decided before the system group sees it. Compute offers the version to the system
+group, which commits it only while the base version is still the tenant's. The system group first decodes the offered
+bytes and encodes them back itself, and compares the version with its base: the tenant, the version's number, each
+counter at or above the base's, the numbers of retained entries unchanged and new ones taken from the base's counters
+in entry order. So no parser of a client's text runs in the process that holds the catalog, and no version a compute
+node emitted wrongly is committed. A version failing phase 10's decode or re-encoding in compute is a fault of the
+compiler, never of the sources: the install is refused with `../binary_protocol/PROTOCOL.md` code 7, the message
+naming the decoder's step and offset, and nothing is allocated or committed.
 
 A catalog version holds the entries below, in one canonical encoding: entries ordered by kind, then by name as UTF-8
 bytes; every field present; a decoder refuses any other byte sequence, so a version has one encoding and the schema id
-(section 10.3) is stable. The metadata group treats the bytes as opaque.
+(section 10.3) is stable. The metadata state machine and its log treat the bytes as opaque; the system group's host
+decodes and compares a version before it appends it (section 10.1).
 
 **The bytes.** The layout is specified before it is implemented, in `CATALOG.md` beside this file, and holds to six
 rules:
@@ -2221,7 +2215,7 @@ that begin with one, `Asset.all_parts` and `Company.suppliers`.
 | Decimal ranges and materialized paths | Decided by the user 2026-11-10: `Decimal` takes an exact sortable tokenizer, `decimal`, so a range index orders by the value itself (section 6.10); stage 6.6 maintains materialized path derivations, a path compiled to steps that the partition walks within `rule_read_max` (sections 6.8, 10.2) |
 | What a rule reads at commit | Decided 2026-11-10: an update of an attribute a rule's condition reads is checked as an update of what it aggregates; a `@limit` keeps its aggregate per group, one read and one write whatever the group's size; `@acyclic` and `@no_overlap` read within `rule_read_max` and refuse past it (`UGS1040`); `@acyclic` without `max_depth` stays legal under the same bound (sections 8.2, 8.6, 9.4) |
 | Declared predicates' IDs | Decided 2026-11-10: allocated by the metadata group with the version, the `Resource` prefix with sequences from 2^63, held in the version's predicate index and never in an entry, since Describe carries entries and a system ID never leaves the database; a governed tenant resolves no declared predicate through the dictionary (section 7.1, `CATALOG.md` section 2) |
-| Where an install compiles | Decided 2026-11-12: from stage 5.8 in the role holding the client endpoint, which offers the version to the system group, and the system group repeats the decode before it commits. Decided 2026-11-10: beside the metadata group, from the base version and the next free prefix and predicate sequence, so the group's thread only commits bytes; the version is decoded and encoded back before it is committed, and a failure is the compiler's, refused with code 7 (section 10.1) |
+| Where an install compiles | Decided 2026-11-12: from stage 6.6 in compute, which offers the version to the system group; the system group repeats the decode and compares the version with its base before it commits. It replaces the decision of 2026-11-10, beside the metadata group, which no code built; the version is decoded and encoded back before it is committed, and a failure is the compiler's, refused with code 7 (section 10.1) |
 | Corpus readings | Decided 2026-11-10: where the conformance corpus, written from this file alone, found it silent, ambiguous or contradicting itself, the reading decided is written in. A relation's anchor is section 9.1's, never the compiler's choice, and `UGS0904` names a pair of competing constraints; `UGS0903` is `restrict`'s alone; a commit reports the first rule broken in an order that takes a value's type before a check reading it and the more specific rule first, with rows for `UGS1026`, `UGS1034`, `UGS1036` and `UGS1037`; a tombstoned subject is code 30 and a tombstoned participant `UGS1019`; 65,532 declared types, so a prefix and a range's end fit 16 bits; `max_depth` and `rule_read_max` count relation instances; locations, number tokens, negative literals in arguments and defaults, a required `prefix`, `schema` reserved, qualified enum extensions in modules, attribute identity across inheritance, and the codes of undeclared participants, nested union members, set-valued and append-only `orphan` and a specialized role's shape (sections 3.1, 3.4, 3.5, 3.7, 4, 5.1, 5.4, 5.5, 6.1, 6.3 to 6.7, 6.10, 6.12, 7.1, 7.4, 8.1 to 8.3, 8.5, 8.7, 9.1, 9.3 to 9.5, 10.2, 10.4, 11.2, 12.1, 12.4, 14) |
 | A deleted instance's claims | Decided 2026-11-10 (T48, C16): a delete releases the `@idempotency` claim as it releases a key's and a `@unique` value's, so a retry after a delete creates anew; the ID a re-created IRI's record names is held in the store's ID-to-term record (section 8.5) |
 | Where a relation's claims live | Decided 2026-11-10 (T48, C20): in the instance's partition, an entity's own bucket, an unkeyed relation's anchor, a keyed relation's key bucket, as `STORAGE.md` places them; a keyed relation has no anchor to home them (sections 6.6, 9.3, 12.3) |

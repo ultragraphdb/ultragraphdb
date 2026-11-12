@@ -29,6 +29,13 @@ echo "=============="
 
 command bazel test //... --test_tag_filters=unit-test
 
+#echo ""
+#echo "=============="
+#echo "Run property tests"
+#echo "=============="
+
+# command bazel test //... --test_tag_filters=property-test
+
 echo ""
 echo "=============="
 echo "Run BDD tests"
@@ -51,6 +58,7 @@ echo "====================="
 echo ""
 echo "* ✅ Passed: doc tests"
 echo "* ✅ Passed: unit tests"
+#echo "* ✅ Passed: property tests"
 echo "* ✅ Passed: BDD tests"
 echo "* ✅ Passed: integration tests"
 echo ""

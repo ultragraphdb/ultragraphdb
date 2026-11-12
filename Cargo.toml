@@ -160,7 +160,7 @@ rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"]
 # Dev only crates
 # ==============
 arbitrary = { version = "1.5", features = ["derive"] }
-cucumber = "0.23"
+cucumber = { version = "0.23"}
 criterion = { version = "0.8"}
 hegeltest = { version = "0.52"}
 

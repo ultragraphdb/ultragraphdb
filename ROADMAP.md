@@ -10,7 +10,7 @@
 | 5. Transactions, WAL and the zero-copy binary protocol                                                               | ✅                                                          |
 | 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage)                                     | ✅                                                          |
 | 5.7 Benchmark three-role cluster architecture                                                                        | ✅                                                          |
-| 5.8 Merge system and storage group into storage service                                                              | `open`                                                     |
+| 5.8 Merge system and storage group into storage service                                                              | `open`: `openspec/changes/stage-5-8-system-group`          |
 | 5.9 Merge frontend and compute node into one service, named compute                                                  | `open`                                                     |
 | 6.5 The tile store: a graph-native storage engine replacing the KV store                                             | `open`: `openspec/changes/stage-6-5-tile-store`            |
 | 6.6 UGS: the full data schema, DDL, and its implementation                                                           | `paused`: `openspec/changes/stage-6-6-ugs-data-definition` |

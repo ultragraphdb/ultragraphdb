@@ -230,11 +230,12 @@ fast path as an experiment.
 - X1's result, a commit timed per phase through the three binaries, is in the Distribution Protocol note's *X1's result*
   and the Shard-per-Core note's *A commit's phases through the binaries (experiment X1)*.
 
-### 13. The frontend's owner check crosses the network (stage 10)
+### 13. The owner check crosses the network (from stage 5.8; to answer before stage 8)
 
-Stage 5.5 asks the frontend's owning core for every commit's owner check, a hop within a node, because a stale copy lets a
-partition take an evicted session for a new one. Once frontends scale out, that check is a round trip per commit. Can a
-check be held without asking, valid up to a fenced epoch that the sequencer's eviction delivery bounds?
+Stage 5.5 asks the frontend's owning core for every commit's owner check, a hop within a node, because a stale copy lets
+a partition take an evicted session for a new one. From stage 5.8 the registry lives in the system group on storage, so
+that check is a round trip per commit, batched per turn (`PROTOCOL.md` section 11.12a). Can a check be held without
+asking, valid up to a fenced epoch that the sequencer's eviction delivery bounds?
 
 ### 14. Pinning on a physical Linux machine (stage 10)
 

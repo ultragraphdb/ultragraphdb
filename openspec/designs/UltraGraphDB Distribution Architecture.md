@@ -24,8 +24,9 @@ design to this one is in `archive/UltraGraphDB Architecture Reviw.md` and
 | The tile store | Stage 6.5; specified (`../changes/stage-6-5-tile-store`), three of its tasks done |
 | The object-store binding of the tile store | Decided 2026-11-12; enters the tile store's specification before stage 6.5 is built |
 | The system group hosted by storage | Decided 2026-11-12; stage 5.8, the next stage. It runs inside the frontend today |
-| Client discovery by seed addresses and a versioned member list; compute tags | Decided 2026-11-12; the protocol with the merge, the drivers when several compute nodes run |
-| Replication of every group, several compute nodes | Designed (`UltraGraphDB Distribution Protocol.md`); stage 8, then stage 10 |
+| Client discovery by seed addresses and a versioned node list; compute tags | Decided 2026-11-12; the protocol with the merge, the drivers when several compute nodes run |
+| Replication of every group | Designed (`UltraGraphDB Distribution Protocol.md`); stage 8, then stage 10 |
+| Several compute nodes | From stage 5.9, with the node list (`PROTOCOL.md` section 11.14); to be confirmed (review of 2026-11-12, U3) |
 
 ## Cluster architecture
 
@@ -142,16 +143,16 @@ list. Kafka, Cassandra, ScyllaDB, MongoDB and Neo4j drivers find their clusters 
 
 1. A client is given seed addresses: one or a few compute nodes, or a name that resolves to several. Seeds serve the
    first contact alone.
-2. Once the connection has authenticated, the compute node sends it the **member list** and its **version**. A peer
+2. Once the connection has authenticated, the compute node sends it the **node list** and its **version**. A peer
    that has not authenticated learns nothing of the cluster.
 3. The developer picks a tag, and the driver spreads requests over the nodes carrying it.
 4. When membership changes the version rises, and every connected client replaces its list.
 
-### The member list
+### The node list
 
 | Field of an entry | Meaning |
 | --- | --- |
-| Node | The compute node's identity |
+
 | Advertised address | The address a client reaches the node at, which may differ from the one it listens on. The node's certificate names it |
 | Tags | The groups the node belongs to |
 | State | Serving, or draining before it stops |
@@ -405,7 +406,8 @@ What remains is the vote itself: surviving one failure takes three members.
 
 | Waits | Goes on |
 | --- | --- |
-| Epoch closes, and with them snapshot reads across partitions | Commits, within each partition's open epoch |
+| Epoch closes, and with them snapshot reads across partitions | Commits through no session, within each partition's open epoch |
+| Commits through a session, which wait on their Check until backlog item 13 is answered | |
 | Logins, new sessions, schema installs, placement changes | Reads of one partition's latest state, monotonic-fast reads |
 | New sequence leases | ID allocation from the blocks leased ahead |
 |  | A partition's own failover, which never asks the system group |
@@ -450,7 +452,7 @@ The engine is one. Its grid's shell binds it to a medium, and a cluster chooses 
 | The local grid | Holds every extent | Holds every open extent, every extent of the manifest and hot streams, every extent not yet published, and as many published cold extents as the node keeps |
 | The log | Local, synced per round | Local, synced per round |
 | A commit is acknowledged | Once its round is durable in the log; from stage 8, committed by its group | The same. A commit never waits on the object store |
-| Data is bounded by | The local drive | The object store; the local drive bounds the cache |
+| Data is bounded by | The local drive | The object store, with the local drive bounding the cache, once the grid's size under this binding is decided (review of 2026-11-12, U1) |
 | Object-store credentials | None | Held by storage alone |
 | A lost node recovers | From its group's replicas, from stage 8 | Tiles from the object store; the log's tail from its group's replicas, from stage 8 |
 | Suits | Lowest latency, on premises, air-gapped | Elastic cloud, large data, low storage cost; MinIO or Ceph on premises |
@@ -483,8 +485,9 @@ sections 12.5, 17.4 and 17.7 (2026-11-12), before the grid is built.
    reads as zero, fails its check and is repaired by a fetch, the path that repairs a damaged tile.
 4. **Timing never reaches the log.** An upload, an eviction or a fetch changes when a read answers and never what a
    round decides, so the replicas' grids stay identical wherever they hold bytes.
-5. **Retention follows logged positions.** An object is removed by a rule over the log's positions, as the fold
-   horizon is, so a reader on another machine never finds a reference dangling.
+5. **Retention follows published positions.** A partition retains its latest published checkpoints by count, and an
+   object is removed when the last record naming it expires, so a reader on another machine never finds a reference
+   dangling.
 6. **A checkpoint is published as a record,** the superblock's bytes with the records of the extents the checkpoint
    itself closed, keyed by its log position. The record with the highest position is current.
 7. **Identical grids make one upload enough.** Any replica's extent is the same bytes, so an upload is idempotent and
@@ -552,7 +555,7 @@ without it is refused with the tag named.
 | Query core | Operators pass columnar batches of IDs, and text is resolved in the last step | A client's result names every node by its text; an algorithm plugs in as one more operator over IDs |
 | Query core | Procedures are a registry | `CALL … YIELD` exists for vector and text search, and an algorithm takes the same surface |
 | Query core | A procedure declares the tag it needs | The refusal of a wrong tag reads it, and names it to the developer |
-| Stage 5.9 | Join names a compute node's tags and advertised address, and Welcome carries the member list and its version | Hello, Welcome and Join are edited once, with the merge's edit of the protocol |
+| Stage 5.9 | Join names a compute node's tags and advertised address, and a `Nodes` frame after authentication carries the node list and its version | Join, EpochClose and the new Nodes and Roster are edited once, with the merge's edit of the protocol |
 | Stage 8 | The tile fetch of a replica's catch-up serves compute too | A frontier reply carries 32 bytes an entry, right for interactive reads. A projection takes whole tiles by address and checksum |
 | After stage 10 | The GPU binding sits behind an interface in a crate of its own | It needs foreign code, and the workspace forbids `unsafe` |
 
@@ -687,8 +690,8 @@ starts before the one before it is complete.
 
 ### 1. Stage 5.8: the system group moves to storage
 
-The first of the three. The frontend and compute still exist as two processes. After this stage both join the system
-group on storage, the frontend holds nothing durable, and stage 5.9 merges two stateless processes.
+The first of the three. The frontend and compute still exist as two processes. After this stage both dial the system
+group on storage, compute joining it and the frontend reading its members, the frontend holds nothing durable, and stage 5.9 merges two stateless processes.
 
 Settle before it starts:
 
@@ -715,8 +718,8 @@ Blind spots to close:
   the frontend's tables for storage's.
 - **The data directory.** The metadata and sequencer logs move to a storage volume.
 - **Describe** answers from the metadata state machine in process today and becomes a call.
-- **Membership gains a version.** The system group numbers every change of a member, a tag or a state, and the
-  member list a client receives from stage 5.9 on is served from it.
+- **Membership is the system group's.** It answers Join and Members. The node list a client receives, its version
+  and its tags are stage 5.9's.
 - **A baseline of its own.** Reads are recorded before this stage, since the benchmark record holds writes alone.
   The benchmark is rerun after it, so the round trip it adds to a commit is measured apart from what stage 5.9
   removes from a read.
@@ -729,9 +732,9 @@ Settle before it starts:
 
 Blind spots to close:
 
-- **The protocol, as specified with stage 5.8.** `ComputeRead` retires, and Join and the member list are restated
-  for two roles. Join carries a compute node's tags and advertised address, and Welcome the member list and its
-  version. The golden frames are regenerated.
+- **The protocol, as specified with stage 5.8.** `ComputeRead` retires, and Join and the node list are restated
+  for two roles. Join carries a compute node's tags and advertised address, and a `Nodes` frame after
+  authentication the node list and its version. The golden frames are regenerated.
 - **The rename.** The role is compute and its binary `ultragraphdb_compute`. The frontend's binary, its crate, its
   settings table, the `frontend_address` setting and the role's name in Join take the new name or retire.
 - **Two open changes are written against the split.** Nine live specifications are written for three roles, and the
@@ -820,7 +823,7 @@ Settle before it is specified:
   `PROTOCOL.md`. The core's bound, no request admitted above the threshold, is proved in Lean. The simulator runs
   many clients against list changes, draining and demand near capacity, where the two loops meet.
 
-Blind spot: `ROADMAP.md` still lists change streams among stage 8's work, which one owner per fact removed.
+
 
 ### 7. Stage 10: separate nodes
 
@@ -857,7 +860,7 @@ Settle before it is specified:
 | Replication and availability | Stage 8 in one container, stage 10 on separate nodes | 2026-11-12 |
 | Graph algorithms on GPUs | A later requirement, after stage 10; they run in compute, on the nodes tagged `gpu`, with no role of their own | 2026-11-12 |
 | Load control | Credit to send, granted by the node from its queueing delay, with refusal above a threshold; the node's requests in flight and latency on replies and probes for the driver's choice. After Breakwater and Prequal. A direction, proved and simulated before it is built | 2026-11-12 |
-| Client discovery | Seed addresses for the first contact; the member list with tags and a list version sent once the connection authenticated, replaced whole by a higher version | 2026-11-12 |
+| Client discovery | Seed addresses for the first contact; the node list with tags and a list version sent once the connection authenticated, replaced whole by a higher version | 2026-11-12 |
 | Routing among compute nodes | By tag: the developer picks a tag and the driver spreads over the nodes carrying it. The query classification picks the path on the node and gains no class for routing | 2026-11-12 |
 | A wrong tag | Refused when the query is compiled, naming the tag the procedure needs; the driver moves it to no other node | 2026-11-12 |
 | The system group's move | Stage 5.8, a change set of its own, before the merge of stage 5.9 | 2026-11-12 |

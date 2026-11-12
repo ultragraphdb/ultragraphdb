@@ -33,7 +33,7 @@ fn long_source() -> String {
     "namespace gen5 { }\n".repeat(474)
 }
 
-/// What the stage-6 scenarios carry from one step to the next.
+/// What the stage-6.6 scenarios carry from one step to the next.
 #[derive(Debug, Default)]
 pub struct UgsSteps {
     frames: Vec<Vec<u8>>,

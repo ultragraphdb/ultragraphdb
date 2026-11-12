@@ -15,7 +15,8 @@ This file leads the code: group 8 of stage 5.5 brings the crates and the golden 
 process hosts the metadata group and the sequencer; sections 1 to 13 state that cluster. Stage 5.8 moves the metadata
 group and the sequencer into the *system group*, a replica group that storage hosts, and stage 5.9 makes the frontend
 and compute one role, compute (`../../openspec/designs/UltraGraphDB Distribution Architecture.md`). Sections 11.12a and
-11.14 state what each stage changes, and from its stage on each governs where another section differs. Every other rule
+11.14 state what each stage changes, and from its stage on each of them, and every paragraph beginning "From stage",
+governs where another section differs. Every other rule
 stands, read with "the system group" for the frontend as the host of the metadata group and the sequencer from stage
 5.8, and with "compute" for the frontend as the role holding the client endpoint from stage 5.9. Each stage's change
 brings the sections it changes to its text, in the order of `../../ROADMAP.md`.
@@ -233,8 +234,8 @@ A client refusing a frame from the server closes the connection.
 | 516 | Lease | both; storage → frontend | empty | Lease, or Error |
 | 517 | Placement | both; storage, compute → frontend | sections | Placement |
 | 518 | Catalog | both; storage, compute → frontend | sections | Catalog frames, the last flagged `LAST`; or Error |
-| 519 | Challenge | both; a frontend → the metadata group's host, from stage 8 | sections | Challenge |
-| 520 | Verify | both; a frontend → the metadata group's host, from stage 8 | sections | Verify |
+| 519 | Challenge | both; the client endpoint's role → the system group, from stage 5.8 | sections | Challenge |
+| 520 | Verify | both; the client endpoint's role → the system group, from stage 5.8 | sections | Verify |
 | 521 | Bind | both; frontend → storage | empty | Bind, or Error; the stream stays open |
 | 522 | Recall | frontend → storage | empty | Commit or Drop, or Error |
 | 523 | ComputeRead | frontend → compute | sections | Result frames, or Error |
@@ -253,7 +254,7 @@ A client refusing a frame from the server closes the connection.
 | 536 | Ended | the client endpoint's role → the system group, from stage 5.8 | sections | nothing |
 | 537 | Roster | both; compute → the system group, from stage 5.9 | sections | Roster |
 | 538 | Declare | both; the client endpoint's role → the system group, from stage 5.8 | sections | Declare, or Error |
-| 539 | Defaults | both; the client endpoint's role → the system group, from stage 5.8 | sections | Defaults frames, the last flagged `LAST` |
+| 539 | Defaults | both; the client endpoint's role → the system group, from stage 5.8 | sections | Defaults frames, the last flagged `LAST`; or Error |
 | 540 | kept for the offer of a compiled catalog version, which stage 6.6 specifies (section 11.12a) | | | |
 | 541–767 | reserved for role commands | | | |
 
@@ -267,9 +268,11 @@ the connection (sections 2.5, 2.6). Section 13 holds their bodies. Commands 256 
 commands; in this stage every receiver refuses them as `UnknownCommand`.
 
 From stage 5.8 the system group's endpoint answers what the table has storage or compute send the frontend, and
-Challenge and Verify with them (section 11.12a); a command marked with a stage is refused as `UnknownCommand` before
-it. From stage 5.9 compute sends what the table has the frontend send; ComputeRead (523) is retired, its number refused
-as `UnknownCommand` and never used again; and Scan, Entries, Frontier, Neighbours and Closed pass between compute and
+Challenge and Verify with them, and the frontend sends it Members, Placement, Catalog, Subscribe and CloseRequest too
+(section 11.12a). A number first assigned at its stage, 27 and 534 to 539, is refused as `UnknownCommand` before that
+stage; Challenge and Verify, which no endpoint serves before stage 5.8, are refused until then as `CommandNotServed`.
+From stage 5.9 compute sends what the table has the frontend send; ComputeRead (523) is retired, its number refused as
+`UnknownCommand` and never used again; and Scan, Entries, Frontier, Neighbours and Closed pass between compute and
 storage as before.
 
 ## 4. The body layout and its shared structures
@@ -635,14 +638,16 @@ alike.
 ### 5.4 Nodes (27)
 
 From stage 5.9. The cluster's compute nodes as the system group holds them (section 11.14): each node's advertised
-address, its tags and its state, under the list's version. A compute node sends it on stream 0, unasked: once after the
-connection's first final Authenticate, or after the Welcome on a connection of `auth` 0, and again whenever it holds a
-list of a higher version than the one it last sent the connection. No connection receives it earlier, so a peer that
-has not authenticated learns nothing of the cluster.
+address, its tags and its state, under the list's version. A compute node sends it on stream 0, unasked and with
+`flags` 0, since stream 0 does not end: once it holds a list with at least one node, and no earlier than the
+connection's first final Authenticate, or the Welcome on a connection of `auth` 0; and again whenever it holds a list
+of a higher version than the one it last sent the connection. No connection receives it earlier, so a peer that has
+not authenticated learns nothing of the cluster.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 8 | `version` | epoch (section 1) | the list's version, the epoch of the close that announced it, at least 1 (`FieldValue` `"version"`) |
+| 8 | 4 | `self` | u32 | the sender's own node, its index in section 0, or `ABSENT` when the list does not hold it yet (`FieldValue` `"self"`) |
 
 | Section | Contents |
 |---|---|
@@ -661,25 +666,31 @@ has not authenticated learns nothing of the cluster.
 | 10 | 1 | `state` | u8: 1 serving, 2 draining |
 | 11 | 5 | zero | 0 |
 
-An advertised address is `tcp://host:port`, at most 64 bytes: where a client reaches the node's client endpoint, which
-may differ from where the node listens. A tag is 1 to 32 bytes of `a` to `z`, `0` to `9` and `_`. Nodes come in the
-order of their addresses' UTF-8 bytes, one node per address, and addresses are interned in node order, so a node's
-`address` is its index. A node's tag references ascend by their tags' bytes without repeat, and tags are interned at
-their first use in that order. A list holds at most 4,096 nodes, so it fits one frame at the floor of `max_frame`.
+An advertised address is `tcp://host:port`, where a client reaches the node's client endpoint, which may differ from
+where the node listens: `host` a DNS name of 1 to 253 bytes, an IPv4 literal, or an IPv6 literal in square brackets,
+as RFC 3986 writes an authority, and `port` 1 to 65,535 in decimal without a leading zero; at most 265 bytes. The
+address is the node's identity: one node per address. A tag is 1 to 32 bytes of `a` to `z`, `0` to `9` and `_`. Nodes
+come in the order of their addresses' UTF-8 bytes, and addresses are interned in node order, so a node's `address` is
+its index. A node's tag references ascend by their tags' bytes without repeat, and tags are interned at their first
+use in that order. A list holds at most 1,024 nodes and 256 distinct tags, which the system group enforces at Join
+(section 13.1), so every list fits one frame at the floor of `max_frame`.
 
-Order: unused bytes 8–127 zero; `version`; sections; the string lists (2, 3) and (4, 5); section 0 a whole number of
-16-byte nodes (`SectionLength`), at least one and at most 4,096 (`CountMismatch` `"nodes"`); section 1 a whole number
-of u32s (`SectionLength`), each below the tags' count (`IndexOutOfRange`, section 1, the reference); each node in order:
-bytes 11–15 zero (`PaddingNotZero`), `address` its own index, `tags` where the node before's references end, 0 for the
-first, `tag_count` 1 to 8 with `tags + tag_count` within section 1, `state` 1 or 2 (`FieldValue` `"node"`, the node's
-index); each address beginning `tcp://`, at most 64 bytes and above the one before by its UTF-8 bytes (`FieldValue`
-`"address"`, the node's index); a node's tags ascending by their bytes without repeat (`FieldValue` `"node tags"`, the
-node's index); the nodes' references ending with section 1 (`CountMismatch` `"tags"`); each tag 1 to 32 bytes of the
-characters above (`FieldValue` `"tag"`, the tag's index).
+Order: unused bytes 12–127 zero; `version`; sections; the string lists (2, 3) and (4, 5); section 0 a whole number of
+16-byte nodes (`SectionLength`), at least one and at most 1,024 (`CountMismatch` `"nodes"`); as many addresses as
+nodes (`CountMismatch` `"addresses"`); at most 256 tags (`CountMismatch` `"tag strings"`); `self` below the nodes'
+count or `ABSENT`; section 1 a whole number of u32s (`SectionLength`), each below the tags' count (`IndexOutOfRange`,
+section 1, the reference); each node in order: bytes 11–15 zero (`PaddingNotZero`), `address` its own index, `tags`
+where the node before's references end, 0 for the first, `tag_count` 1 to 8 with `tags + tag_count` within section 1,
+`state` 1 or 2 (`FieldValue` `"node"`, the node's index); each address of the form above and above the one before by
+its UTF-8 bytes (`FieldValue` `"address"`, the node's index); a node's tags ascending by their bytes without repeat
+(`FieldValue` `"node tags"`, the node's index); the nodes' references ending with section 1 (`CountMismatch`
+`"tags"`); each tag 1 to 32 bytes of the characters above and referenced by a node (`FieldValue` `"tag"`, the tag's
+index).
 
 A client holds the list of the highest version it has received on any connection to the cluster. It replaces its list
 whole by one of a higher version, and drops one whose version is at or below the version it holds, which is no error:
-a node that lags sends an older list.
+a node that lags sends an older list. `self` tells a client which entry the connection it holds belongs to, so it
+knows that connection's tags and state without dialling again.
 
 ## 6. Bodies of sessions, transactions and drops
 
@@ -1657,7 +1668,7 @@ and the value, already within the room, is not cut again.
 | 2 | Conflict | yes | the conflict kind below | A transaction's read conflicted with a commit ordered before it |
 | 3 | TooOld | yes | 0 | The read version is below what validation still holds, or below the latest logged fold horizon of the partition answering (section 11.9; T48, C34) |
 | 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit, the Welcome's `transaction_ms`, or a one-frame write waited that long unsent at the frontend (section 11.12, *Frames on their way*); when a read was holding a write back then, the message names that read's stream and says it had no credit |
-| 5 | Busy | yes | 0; 1 delta admission; 2 grid admission | The commit queue is full; or the partition's epoch is full and its close request has gone unanswered for `close_request_ms`, the sequencer counting as unreachable until the close arrives (section 11.12); or an Install found the frontend's compile queue full (section 11.13); or the partition's store admits no commit until compaction or a checkpoint frees room: its delta at its watermark, `detail` 1, or its grid short of free extents (`GridFull`), `detail` 2 (`../storage/STORAGE.md` sections 12.4 and 15.6; T48, C12) |
+| 5 | Busy | yes | 0; 1 delta admission; 2 grid admission; 3, under the object binding, the object store unreachable or the log at its bound for want of a published checkpoint (`../storage/STORAGE.md` section 12.5) | The commit queue is full; or the partition's epoch is full and its close request has gone unanswered for `close_request_ms`, the sequencer counting as unreachable until the close arrives (section 11.12); or an Install found the frontend's compile queue full (section 11.13); or the partition's store admits no commit until compaction or a checkpoint frees room: its delta at its watermark, `detail` 1, or its grid short of free extents (`GridFull`), `detail` 2 (`../storage/STORAGE.md` sections 12.4 and 15.6; T48, C12) |
 | 6 | TooLarge | no | the limit in bytes; for statement IDs, their bound | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9); a transaction's reads exceed what its read set holds; a write would pass `statements_per_object_max`; a write holds a value longer than the Welcome's `value_bytes_max`, `detail` that bound (`ValueTooLarge`, `../storage/STORAGE.md` section 3.3; T48, C12); a Commit reply's frame would pass the floor of `max_frame` (section 11.9); a row or resume key is too large for an otherwise empty Result frame, or an Execute's ComputeRead for a frame (section 13.12) |
 | 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index, or its index among the transaction's declarations for ones tightening and loosening at once; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number (`../schema/SCHEMA.md` section 8.7); for a Migrate naming a run the tenant does not hold or that has ended, its `staged` | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, declarations tightening and loosening at once, a type change the data contradicts, or a catalog version past `catalog_bytes_max`, a Commit's or an Install's (sections 8.4, 11.13); a request named a tenant the metadata group does not hold (section 11.10); or a role's request was refused: a Lease past `block_size_max`, a Catalog of a version never held; or a schema rule refused the transaction at commit, the message naming the instance and the rule; or a Migrate's action does not fit its run (section 8.6); or the frontend does not serve the command in this stage (section 11.2) |
 | 8 | OperationFailed | no | bit 0 (`VALUE_CUT`, value 1): the value found is cut or left out to fit the frame; every other bit 0 | A compare-and-set did not hold; sections 1 and 2 hold the value found |
@@ -1669,7 +1680,7 @@ and the value, already within the room, is not cut again.
 | 14 | SessionBusy | yes, after a delay | 0 | The session has a commit in flight, or a retried commit is still in a partition's commit step; or a full registry holds no session it may evict for a Register (section 11.5) |
 | 15 | Limit | no | the limit | A bound is reached: past the frontend's connections, an Error on stream 0 in place of the Welcome, then the close; past the Welcome's `max_streams`, on the new stream; past `held_bytes`, on the transaction's stream, ending the transaction (section 11.9) |
 | 16 | ProtocolVersion | no | the server's highest protocol | No protocol both sides speak; the server closes the connection |
-| 17 | Unavailable | on a read, yes, the read again from its start or a resume key; no otherwise; on a Commit, Drop, DirectWrite, ConditionalWrite or Ingest it leaves the request in doubt (section 11.5) | 0 | The role or partition the request reaches stopped on an invariant violation, refuses writes after a failed log sync, until it restarts, or its role connection closed under the request (section 11.12); no compute process answers a read, or a hung one sent it nothing (section 11.12); a read found a row naming a dictionary entry its partition lacks (section 13.12); or a store failed under a Scan or a home's registration (sections 13.13, 13.15); requests reaching other partitions are served |
+| 17 | Unavailable | on a read, yes, the read again from its start or a resume key; no otherwise; on a Commit, Drop, DirectWrite, ConditionalWrite or Ingest it leaves the request in doubt (section 11.5) | 0 | A read needs an extent absent from the node that the object store cannot supply (`../storage/STORAGE.md` section 12.5); the system group cannot be reached by the role holding the client endpoint (section 11.12a); the role or partition the request reaches stopped on an invariant violation, refuses writes after a failed log sync, until it restarts, or its role connection closed under the request (section 11.12); no compute process answers a read, or a hung one sent it nothing (section 11.12); a read found a row naming a dictionary entry its partition lacks (section 13.12); or a store failed under a Scan or a home's registration (sections 13.13, 13.15); requests reaching other partitions are served |
 | 18 | NotCommitted | yes | the request | A retried commit no partition's session table holds, with no transaction open: the request was not committed, and the client runs its transaction again (section 11.5) |
 | 19 | AuthenticationFailed | no | 0 | The authentication exchange failed; the server closes the connection. The message says nothing of what failed |
 | 20 | Unauthenticated | no | 0 | A request before the connection authenticated, refused on the request's stream while the connection stays open for authentication; or an authentication not complete within its timeout, an Error on stream 0, after which the server closes the connection (section 11.1) |
@@ -1684,7 +1695,7 @@ and the value, already within the room, is not cut again.
 | 29 | QueryRefused | no | the diagnostic's number, with the language in bits 16–23, as the table of languages below gives | A query or prepared text was refused: the message begins with the diagnostic's code (`../query/QUERY-GQL-CORE.md` section 11, `query/QUERY-SPARQL-CORE.md` section 11, `query/QUERY-ULTRA-QL.md` section 18) and its `line:column`, then the reason and the fix; a feature outside the core is named |
 | 30 | EntityDeleted | no | 0 | A write names, as its subject, an entity a delete has tombstoned at its home: a commit writing to the deleted entity's ID, or a registration naming it with `mode` 0 (sections 12.2, 13.15); the transaction aborts and writes nothing, and the message names the entity's IRI. A write naming it as a participant of a declared relation, which the get-only registration answers as deleted, is refused with code 7 and `UGS1019` (`../schema/SCHEMA.md` sections 8.5 and 8.7). Run again, a transaction resolves the IRI anew, and one creating the instance creates a new one with a new ID (`../schema/SCHEMA.md` section 8.5) |
 | 31 | Fenced | yes, after a delay | 0 | A write reaches a namespace a migration's run has fenced, in its states `fenced` and `catching_up` (section 8.6); it writes nothing, and the message names the namespace and the run's `staged`. After the cutover the write executes against the target. Or a write reaches a tenant whose first schema is installed and not yet in effect (section 8.4): it writes nothing, the message names the tenant, and after the version's effective epoch the write is validated against the schema |
-| 32 | TagRequired | no | 0 | From stage 7: a query calls a procedure that needs a tag the compute node answering it does not carry (section 11.14). The message names the procedure, the tag it needs and the node's tags; the client sends the query to a node carrying that tag, and the Rust client moves it to no other node itself |
+| 32 | TagRequired | no | 0 | From stage 7: a query calls a procedure that needs a tag the compute node answering it does not carry (section 11.14). A Prepare and an Execute that compile such a query are refused alike, and a refused Query leaves its transaction open. The message begins with the tag the procedure needs, then names the procedure and the node's tags. A driver hands the refusal to its caller and moves the request to no other node |
 
 Retryable says the same work can succeed if run again, and the code says what runs again. Code 14 on a Commit, Drop or
 one-frame write, and code 5 on a Drop or one-frame write: the same request, same session and request number, on a new
@@ -2040,21 +2051,22 @@ DirectWrite, it is two independent requests, and a commit between them is a lost
 
 Each read's stream, and each Describe's and Catalog's, starts with the Welcome's `initial_credit`. The server sends a
 Result frame on a stream only while the stream's credit is above 0, and each Result frame it sends spends 1. A Credit
-frame on the stream adds `frames` (saturating at 2³² − 1). Only Result, Entries and Neighbours frames, and the frames of a
-Describe's or a Catalog's answer (sections 8.3, 13.7), spend credit; an Error and every other frame leave it. The server
-ignores Credit for a stream that is not open. A receiver of frames that spend credit, always the side that dialled,
-refuses a frame past its stream's credit as a protocol violation, code 1 (Protocol) by the rule `PastCredit` naming the
-stream, and closes the connection, sending no Error, which only the side that accepted sends (sections 2.6, 3). The Rust
-client's credit is automatic: its shells grant credit as the read's batches are consumed, when the count reaches 0 and
-the caller waits for a batch, and offer no manual grant; its core grants at least one frame, so it sends no Credit of
-zero frames, which a receiver refuses (section 9.2). Its credit and its frame buffers agree: it sends a read only while
-its buffers hold, beside what its other reads may bring, every frame the read's credit and a refusal can bring, one
-buffer left to read into, and refuses one past them before it is sent, so a read not yet consumed never takes the buffer
-a reply needs; a client whose buffers are all held reads nothing until one is given back, which holds the server back
-and loses no connection. It sends a Register answered code 14 again itself, on a new stream after the retry delay and
-within the attempts of a commit's resend, and then returns that code 14 (sections 9.4, 11.5). On a role connection,
-credit holds the same way for Entries and Neighbours frames as for Result frames, each connection's streams on their own, and a
-ComputeRead's stream starts with its `credit` in place of the Welcome's (section 13.12).
+frame on the stream adds `frames` (saturating at 2³² − 1). Only Result, Entries and Neighbours frames, and the frames of
+a Describe's, a Catalog's or, from stage 5.8, a Defaults' answer (sections 8.3, 13.7, 13.28), spend credit; an Error and
+every other frame leave it. The server ignores Credit for a stream that is not open. A receiver of frames that spend
+credit, always the side that dialled, refuses a frame past its stream's credit as a protocol violation, code 1
+(Protocol) by the rule `PastCredit` naming the stream, and closes the connection, sending no Error, which only the side
+that accepted sends (sections 2.6, 3). The Rust client's credit is automatic: its shells grant credit as the read's
+batches are consumed, when the count reaches 0 and the caller waits for a batch, and offer no manual grant; its core
+grants at least one frame, so it sends no Credit of zero frames, which a receiver refuses (section 9.2). Its credit and
+its frame buffers agree: it sends a read only while its buffers hold, beside what its other reads may bring, every frame
+the read's credit and a refusal can bring, one buffer left to read into, and refuses one past them before it is sent, so
+a read not yet consumed never takes the buffer a reply needs; a client whose buffers are all held reads nothing until
+one is given back, which holds the server back and loses no connection. It sends a Register answered code 14 again
+itself, on a new stream after the retry delay and within the attempts of a commit's resend, and then returns that code
+14 (sections 9.4, 11.5). On a role connection, credit holds the same way for Entries and Neighbours frames as for Result
+frames, each connection's streams on their own, and a ComputeRead's stream starts with its `credit` in place of the
+Welcome's (section 13.12).
 
 ### 11.4 Cancel and disconnection
 
@@ -2679,33 +2691,49 @@ replica group, the system group, which a storage process hosts beside its partit
 (`../../openspec/designs/UltraGraphDB Distribution Architecture.md`). It has one replica until stage 8. Its host listens
 for role connections at the system group's role address, an address of its own beside its partitions', and every other
 process is configured with that address, where storage and compute were configured with the frontend's. A role
-connection to it opens as section 11.12 states. A partition its host also hosts exchanges what a role command carries
-with it as a message within the process, with the same contents. The system group forms the placement when it holds
-none, an even map over its configured partition count, as section 11.12 has the frontend do.
+connection to it opens as section 11.12 states. A partition its host also hosts dials that address as a partition of any
+other process does: no partition asks the system group anything per commit, so one path serves both and is tested once.
+A role connection's role is its SCRAM username (section 11.12), by which the system group tells a frontend's connection
+from a partition's. In this section "the system group" is the group and "its host" the storage process running it. The
+system group forms the placement when it holds none, an even map over its configured partition count, as section 11.12
+has the frontend do.
 
 From stage 5.8 each endpoint serves, besides Hello, Authenticate, Credit and Cancel:
 
 | Endpoint | Serves | Requested by |
 |---|---|---|
-| The system group's role address | Join, Members, Placement, Catalog | the frontend, compute and storage |
+| The system group's role address | Join | compute and storage |
+| | Members, Placement, Catalog | the frontend, compute and storage |
 | | Subscribe, CloseRequest | the frontend and storage |
 | | Lease, DefaultEntry, Report | storage |
 | | Challenge, Verify, Session, Check, Ended, Declare, Defaults | the frontend |
 | A partition's role address | as section 11.12 | as section 11.12 |
 | A compute process's role address | ComputeRead | the frontend |
 
-The frontend accepts no role connection from this stage: it dials the system group, each partition and each compute
-process, whose addresses it reads from Members, and sends no Join.
+The frontend accepts no role connection from this stage and sends no Join. Each of its endpoint cores dials the system
+group, each partition and each compute process on connections of its own. The frontend reads the addresses from Members:
+at its start, until Members lists every partition of the placement; again when one of its role connections closes; and
+again before it refuses a read for want of a compute process.
 
-**Epochs.** The frontend subscribes to the sequencer's closes as storage does (section 13.3). From them it takes the
-latest closed epoch that a Begin, a Describe and a token's check answer with, each catalog version's effective epoch,
-and the placement version in effect. A snapshot read waiting on the open epoch makes it send CloseRequest naming that
-epoch, with `partition` 0 (section 13.16).
+**Epochs.** Each endpoint core subscribes to the sequencer's closes (section 13.3). It holds no close of its own, so its
+Subscribe sets `latest`: the stream begins with the latest durable close, and a subscription the sequencer ends as no
+longer held is opened again the same way. From the closes the core takes the latest closed epoch that a Begin and a
+Describe answer with, each catalog version's effective epoch, and the placement version in effect, reading the map again
+with Placement when a close assigns one. The latest closed epoch is therefore each core's own: one connection's
+snapshots never go back, and two connections may answer at an epoch and then at the one before, where only a token
+carries the floor from one to the other (section 11.11). A partition may have received a close the core has not, so a
+token whose epoch is above the core's open epoch is not refused as section 4.8 states: a Begin naming it is held until
+the core's stream delivers the close before the token's epoch, and refused with code 24 (TimedOut) at its deadline; a
+DirectWrite, a ConditionalWrite and an Ingest naming it go to their partition, which holds the commit until that close
+(section 11.11). A snapshot read waiting on the open epoch makes it send CloseRequest naming that epoch, with
+`partition` 0 (section 13.16).
 
 **Authentication.** The system group's endpoint serves Challenge and Verify (sections 13.8 and 13.9), and the frontend
 sends them for each client's exchange, so a principal's stored key and server key never leave the system group. The
-counts of failed authentications, the throttle and the ban of section 11.9 stay with the process that accepted the
-connection: each process holding a client endpoint counts for itself.
+final Authenticate's `expires` is 0 for SCRAM. The counts of failed authentications, the throttle and the ban of section
+11.9 stay with the process that accepted the connection: each process holding a client endpoint counts for itself, in
+one of its cores for all of them. A principal's change reaches no endpoint before stage 7, whose administration commands
+carry a revocation with the closes, as evictions travel.
 
 **Sessions.** The registry, the owner check and the mark of a commit in flight stay together in the metadata state
 machine's host, as section 11.5 has them, because the registry evicts only a session with no commit in flight. The
@@ -2713,38 +2741,85 @@ frontend asks for each by a role command:
 
 - **Register.** It draws the session's identity and sends Session (section 13.23) with the connection's principal. It
   answers the client's Register once Session is answered, which is once the registration is durable. A full registry
-  holding no session it may evict answers code 14, which the frontend passes to the client.
+  holding no session it may evict answers code 14, which the frontend passes to the client. A Session whose answer is
+  lost with its connection answers the client's Register with code 17: the client registers again and the frontend draws
+  a new identity, and the session left behind ages out (section 11.5). `sessions_max` bounds the cluster's sessions, and
+  is sized to the connections of every process holding a client endpoint.
 - **The owner check.** Before it routes a Commit, a Drop, a DirectWrite, a ConditionalWrite or an Ingest through a
   session, and before it asks a partition a Recall, it sends Check (section 13.24): kind 2 for a request that may record
   the session in a partition's table, kind 1 for a Recall. It routes the request only once its Check passed, and answers
-  the client with the code a failed Check gives.
+  the client with the code a failed Check gives. A check naming a session that has a request in flight answers 14, of
+  kind 1 too: the mark is the one place that knows a resend's original is still on its way, whichever core or node the
+  resend arrives at. When every partition has answered a Recall with 18, the frontend sends a second Check of kind 1 and
+  answers the client 12 on outcome 12, else 18 (section 11.5).
 - **In flight.** A Check of kind 2 that passes marks the session in flight. The frontend sends Ended (section 13.25)
-  when the request ended before reaching a partition, when its partition answered it, or when the role connection
-  carrying it closed. The system group ends by itself every mark a connection began once that connection closes.
+  when the request ended before reaching a partition, when its partition answered it, for an Ingest its last share's, or
+  when the role connection carrying it closed. A mark ends by an Ended on the connection that began it. When that
+  connection closes, the system group keeps its marks for `transaction_ms` (section 11.9), the longest a request no
+  endpoint speaks for can still reach a commit step, and ends them then; an Ended on any connection ends a mark whose
+  connection has closed. For `transaction_ms` after the system group begins to listen, when it holds no mark of the
+  requests then on their way, it evicts no session, refusing a Register that would need an eviction with code 14, and
+  answers every check of kind 1 with 14.
 
-An endpoint core sends the Checks of one turn in one frame and the Endeds of one turn in one frame. The round trip a
-Check adds to a commit is the price of one authority over sessions; whether a check can be held without asking is item
-13 of `../../openspec/notes/backlog.md`.
+An endpoint core sends the Endeds of one turn in one frame and then the Checks of that turn in one frame, one check per
+session: a further request through a session waits for the next frame, so the system group decides every outcome. A
+Check reads the registry as every registration decided before it left it, durable or not, and a mark exempts its session
+from an eviction decided after it. The round trip a
+Check adds to a commit is the price of one authority over sessions; whether a check can be held without asking is item 13 of `../../openspec/notes/backlog.md`.
+
+**While the system group cannot be reached.** A core whose connection to the system group closed dials again. Until it
+is answered, it answers an Authenticate with Error 17 (Unavailable) on stream 0 and closes the connection, counting no
+failure, so an outage bans no source; a Register with code 17; and a Commit, a Drop or a one-frame write through a
+session with code 17, cancelling the Bind stream of a transaction whose Check went unanswered, so that nothing commits
+later and the client's resend finds it not committed. A Begin, a read and a commit through no session go on from what
+the core holds. The process exits with code 69 once the system group has been gone for `[cluster] join_deadline_ms`.
 
 **The catalog.** The frontend reads catalog versions with Catalog (section 13.7), and takes a tenant's existence from
-Placement's runs and a version's effective epoch from the closes. What section 11.13 has the frontend do in its own
-metadata group, the metadata state machine's host does: committing a version built from a transaction's declarations,
-the version a Drop calls for, the wait of a tightening's check and its restoring version, and the default-entry records
-a Describe names. The frontend asks for them by Declare (section 13.27) and reads the records with Defaults (section
-13.28); every rule of section 11.13 stands. The host links the catalog's format alone: its decoder, its encoder and
-the comparison of two versions. No parser of a client's text runs there.
+Placement's runs and a version's effective epoch from the closes. A tenant's current version, which section 11.13 has a
+declaring transaction build on and section 11.7 a schema id follow, is the highest the process has learned: from one
+Catalog read when a tenant is first used, where code 7 with `detail` 0 says the tenant holds none, from each close's
+announcements, and from each Declare's reply. It is never asked per request, and nothing is decided from it: the system
+group checks the version a Declare is built on. Which version a Describe reports is the system group's to say, since
+only it knows a version being checked or withdrawn: the frontend asks with a Catalog request of `version` 0 naming the
+latest closed epoch (section 13.7). What section 11.13 has the frontend do in its own metadata group, the metadata state
+machine's host does: committing a version built from a transaction's declarations, the version a Drop calls for, the
+wait of a tightening's check and its restoring version, and the default-entry records a Describe names. The frontend
+asks for them by Declare (section 13.27) and reads the records with Defaults (section 13.28); every rule of section
+11.13 stands. A Declare is one frame: a Write that takes a transaction's declarations past what one Declare frame holds
+within the role connection's `max_frame` is refused with code 6 (TooLarge), `detail` the bound, ending the transaction,
+and a larger schema comes by Install. A Declare of kind 1 is never sent again: when its connection closes under it, the
+frontend answers the client's Commit with code 17, in doubt, and Describe shows what took effect, which from this stage
+is a second way a tightening's outcome is left in doubt. A Declare of kind 2 may be sent again. The metadata state
+machine and its log treat a version's bytes as opaque. The system group's host, before it appends, links the catalog's
+model and no parser of UGS or query text: the decoder, the encoder, the comparison of two versions, and the application
+of declaration records and drops with their refusals.
 
 Stage 6.6 adds two things here. A compiled version, which the role holding the client endpoint compiles from an
-Install's sources (`../schema/SCHEMA.md` section 10.2), is offered to the system group by the command kept at 540: the
-system group commits it only while the version it was built on is still the tenant's, and first decodes the offered
-bytes and encodes them back, refusing a version that fails either, since every partition stops on a version it cannot
-decode. And the fence of a first schema (section 8.4) travels with the sequencer's closes, as evictions do, and each
-partition refuses the fenced tenant's writes from the round after the close that names the fence, so the fence holds
-whichever compute node a write arrives at.
+Install's sources (`../schema/SCHEMA.md` section 10.1), is offered to the system group by the command kept at 540. Every
+version holds its allocation counters, a Drop's and a write-path version's included, and a tenant holding none starts
+from the initial values, so compiling is a function of the sources and the base version. The system group commits an
+offered version only while the version it was built on is still the tenant's. It first decodes the offered bytes and
+encodes them back, and compares the version with its base: the tenant, `version` one above the base's, each counter at
+or above the base's, the numbers of retained entries unchanged and new ones taken from the base's counters in entry
+order. It refuses a version failing any of these, since every partition stops on a version it cannot decode and a number
+issued twice cannot be taken back.
+
+The fence of a first schema (section 8.4) is a record of the system group. The role holding the client endpoint asks for
+it by a role command naming the tenant and the base version, refused when the base is no longer the tenant's or a fence
+is held. The fence is durable before it is answered, named in the sequencer's next close `k`, as evictions are, and
+logged by each partition in its first round after `k`. The Install then reads each partition at the closed epoch `k +
+1`, which holds every commit stamped before the fenced round. The fence is lifted at the version's effective epoch, or
+by a close naming its release: when the Install is refused, or when the connection that asked closes with no offer
+committed. A partition refuses a fenced tenant's Commit, one-frame write, Ingest share and Drop at its commit step with
+code 31, so the fence holds whichever compute node a write arrives at. Stage 6.6's change specifies both commands'
+bodies and the close's fields.
 
 **Compute holds the client endpoint (stage 5.9).** The frontend and compute are one role, compute. Role kind 1 is
-retired, the SCRAM usernames of role connections are `compute` and `storage`, and compute does everything sections 1
-to 11.12 and this section have the frontend do. From stage 5.9:
+retired, the SCRAM usernames of role connections are `compute` and `storage`, and compute does everything sections 1 to
+11.12 and this section have the frontend do, and joins as section 13.1 states. A partition refuses a Drop of kind 3 or 4
+whose `catalog` is not the version in effect at its round's epoch with code 2, kind 5, as it refuses an Ingest share
+(section 6.8): the check section 6.5 has the client endpoint make is then an early refusal, since a node one close
+behind would pass a Drop aimed at an earlier schema. From stage 5.9:
 
 - **Reads.** Compute answers a client's Read, Execute and Query itself, on the core its connection arrived on, by the
   kernels, levels, lanes and partitions sections 11.12 and 13.12 state for compute. ComputeRead is retired, and with it
@@ -2752,8 +2827,8 @@ to 11.12 and this section have the frontend do. From stage 5.9:
   moved to the next compute process and the relay of a read's Credit and Cancel.
 - **A transaction's order.** The core that holds a read-write transaction's Bind stream sends its Scans and Frontiers
   too, and keeps the order section 11.12, *Reads*, states between a transaction's writes and reads.
-- **Connections.** An endpoint core holds one role connection to each partition, for writes and reads alike, and its
-  process one to the system group. Nothing dials compute, so it has no role address.
+- **Connections.** An endpoint core holds one role connection to each partition, for writes and reads alike, and one to
+  the system group. Nothing dials compute, so it has no role address.
 
 | Endpoint, from stage 5.9 | Serves | Requested by |
 |---|---|---|
@@ -2878,27 +2953,41 @@ partition's log names above that partition's last checkpoint, so replay finds th
 From stage 5.9 a cluster may run several compute nodes, and a client finds them from the cluster itself
 (`../../openspec/designs/UltraGraphDB Distribution Architecture.md`, *Clients: discovery, tags and load*).
 
-**Seeds.** A client is configured with one or more seed addresses, each a compute node's client endpoint or a name
-resolving to several. Seeds serve the first contact alone.
+**Seeds.** A client is configured with one or more seed addresses, each of the form of an advertised address (section
+5.4) or a name resolving to several. It tries them in the configured order, with backoff; a refused authentication
+ends the attempt for all of them. Seeds serve the first contact, and a client that can reach no node of its list
+returns to them, keeping the version it holds: versions only rise within one cluster.
 
-**The node list.** The system group holds the compute nodes that joined. A compute node joins with the address it
-advertises to clients, its tags and its state (section 13.1), and is a member while its Subscribe stream to the system
-group stays open. The list's version is the epoch of the close that announced its latest change: an EpochClose names a
-change with `nodes` 1 (section 13.4), a compute node receiving one reads the list with Roster (section 13.26), and sends
-it to each of its authenticated client connections as Nodes (section 5.4). A client swaps its list whole for one of a
-higher version.
+**The node list.** The list of compute nodes is state of the metadata state machine, so one version names one list on
+every replica and across a restart. A compute node sends, in this order, a Join with the address it advertises to
+clients, its tags and its state (section 13.1), a Subscribe (section 13.3) and a Roster (section 13.26). A Join adds
+its entry or changes it, and the entry belongs to the connection of the latest Join for its address; a Join for an
+address another connection holds replaces that entry, and the other connection's end then changes nothing. An entry
+leaves by a logged removal, which the system group proposes once the entry's connection has been closed for two
+closes, counted from the later of the connection's close and the system group's start to listen. The list's version is
+the epoch of the close that announced its latest change: an EpochClose names a change with `nodes` 1 (section 13.4), a
+compute node receiving one reads the list with Roster, and sends it to each of its authenticated client connections as
+Nodes (section 5.4). A client swaps its list whole for one of a higher version, and never edits its list itself.
 
-**Tags.** A tag names a group of compute nodes, and a node carries one to eight. The tag `query` is the group a client
-uses when it names none. A client picks a tag and sends its requests to nodes that carry it. No request names a tag: a
-node knows its own. Tags choose the node alone, and the classification of sections 11.2a and 11.11 chooses a request's
-path on it as before.
+**What a client does with the list.** A client never waits for Nodes: until a list arrives it uses the connection it
+has, and it checks tags only once it holds a list. It keeps the connections a new list still names and dials a newly
+listed node after a random delay. A listed node it cannot reach is skipped and tried again with exponential backoff
+and jitter.
 
-**Draining.** A compute node about to stop joins again with `state` 2. The list then names it draining: a client opens
-no new stream on it, and its open streams end as they would.
+**Tags.** A tag names a group of compute nodes, and a node carries one to eight. Tags are an open set that an operator
+extends; `query` is the group a client uses when it names none. A client picks a tag and sends its requests to serving
+nodes that carry it. No request names a tag: a node knows its own. Tags choose the node alone, and the classification
+of sections 11.2a and 11.11 chooses a request's path on it as before.
+
+**Draining.** A compute node about to stop joins again with `state` 2, and stops no earlier than after it has sent
+each of its clients a Nodes naming it draining. A client begins no transaction and sends no one-frame request on a
+node its list names draining or names no longer. A transaction open there runs to its end, its reads included; a
+read-only transaction, which has no limit on its life, ends when the node stops.
 
 **A tag a node lacks.** From stage 7 a procedure a query calls declares the tag it needs. A node that does not carry it
-refuses the query when it compiles it, before any work, with code 32 (TagRequired), and a Prepare is refused the same
-way. A client asked for a tag no listed node carries refuses the request itself, naming the tags the list holds.
+refuses the query when it compiles it, before any work, with code 32 (TagRequired), and a Prepare or an Execute that
+compiles it is refused the same way. A client asked for a tag no serving node of its list carries refuses the request
+itself, naming the tags the list holds.
 
 **Load.** How much a node accepts and which node a client picks are stage 8's to specify: credit to send, granted by
 the node, and the node's requests in flight and latency on its replies and on a probe. Nothing in this version carries
@@ -3280,15 +3369,19 @@ the node list holds of it (section 11.14), in one more command-header field and 
 | Section | Contents |
 |---|---|
 | 0 | for storage, its role address as before; empty for compute, which nothing dials |
-| 2 | for compute, the address it advertises to clients, UTF-8, `tcp://host:port`, at most 64 bytes; empty for storage |
+| 2 | for compute, the address it advertises to clients, UTF-8, `tcp://host:port` (section 5.4), at most 265 bytes; empty for storage |
 | 3 | for compute, its tags: string list `ends` (section 4.3); empty for storage |
 | 4 | its tags: string list `text` |
 
-Order, after section 1's rules: `state`; section 0 empty for kind 2 (`CountMismatch` `"address"`); section 2 for kind
-2 UTF-8, beginning `tcp://` and at most 64 bytes (`FieldValue` `"advertised"`, its length), and empty for kind 3
+The order from stage 5.9, whole: unused bytes 2–127 zero; `kind`; `state`, 1 or 2 for kind 2 and 0 for kind 3; sections;
+section 0 for kind 3 as before, and empty for kind 2 (`CountMismatch` `"address"`); section 1 as before; section 2 for
+kind 2 an advertised address as section 5.4 states it (`FieldValue` `"advertised"`, its length), and empty for kind 3
 (`CountMismatch` `"advertised"`); the string list (3, 4): for kind 2, one to eight tags, each 1 to 32 bytes of `a` to
 `z`, `0` to `9` and `_`, ascending by their bytes without repeat (`FieldValue` `"tag"`, the tag's index), and none for
-kind 3 (`CountMismatch` `"tags"`). A compute node's Join replaces the registration of its advertised address.
+kind 3 (`CountMismatch` `"tags"`). A compute node's Join replaces the registration of its advertised address, whichever
+connection made it, and its entry belongs to the connection of its latest Join (section 11.14). The system group
+refuses, with code 15 (Limit), `detail` the bound, a Join that would take the list past 1,024 nodes or the cluster past
+256 distinct tags. A Join is answered once it is durable in the metadata state machine.
 
 ### 13.2 Members (513)
 
@@ -3322,6 +3415,9 @@ partitions ascending without repeat (`FieldValue` `"member order"`, the member's
 layout, and a body without members reads as either: the frontend, receiving a request, refuses one holding a member,
 or any string, with `CountMismatch` (`"members"`, the members, 0).
 
+From stage 5.9 Members holds storage members alone: a compute node has no role address, and Roster (section 13.26) is
+the one list of compute nodes. A reply holding a member of kind 2 is refused with `FieldValue` (`"kind"`).
+
 ### 13.3 Subscribe (514)
 
 Storage asks for the sequencer's epoch closes on a stream of its own (section 11.12). The frontend answers with
@@ -3335,8 +3431,17 @@ closes. EpochClose frames spend no credit.
 No sections. Order: unused bytes 8–127 zero; `from` at most 2⁴² − 1 (`FieldValue` `"from"`); sections. A `from` above
 the latest epoch the sequencer closed is refused with Error 1 (Protocol), the message naming both epochs. A subscription
 whose next close the sequencer no longer holds, at its Subscribe or at a later close, is ended with Error 1 on its stream,
-the message naming the close it asked for: no frame can carry what is gone, and a storage process told so stops, as it does for a frontend lost past its deadline, since asking again finds the same. A connection holds one
-subscription: a second Subscribe while one is open is refused with Error 1 on its stream.
+the message naming the close it asked for: no frame can carry what is gone, and a storage process told so stops, as it
+does for a frontend lost past its deadline, since asking again finds the same. A connection holds one subscription: a
+second Subscribe while one is open is refused with Error 1 on its stream.
+
+From stage 5.8 the role holding the client endpoint subscribes too (section 11.12a), and the command header holds one
+more field: `latest`, a u8 boolean at offset 8 (`FieldValue` `"latest"`), checked after `from`, the unused bytes then
+9–127. That role alone sends `latest` 1, and only with `from` 0; any other use is refused with `FieldValue`
+(`"latest"`). With it the first close on the stream is the latest the sequencer holds durable, whatever its epoch, or
+the close of epoch 1 when none exists yet, and each later close names the epoch one above the one before. The system
+group ends a subscription whose frames have gone unacknowledged by the transport for twice `epoch_ms_max`, closing its
+connection, so a subscriber that fell silent does not count as connected.
 
 ### 13.4 EpochClose (515)
 
@@ -3374,9 +3479,11 @@ errors, a close whose `epoch` is not one above the previous close's, a continuin
 its predecessor's (`FieldValue` `"epoch"`), a continuing frame whose `placement` is not its predecessor's (`FieldValue`
 `"placement"`), and a `time` below the previous close's (`FieldValue` `"time"`).
 
-From stage 5.9 the command header holds one more field: `nodes`, a u8 boolean at offset 17 (`FieldValue` `"nodes"`),
-1 when the list of compute nodes changed since the previous close. The list's version is then this close's `epoch`
-(section 11.14). It is the same in every frame of one close (`FieldValue` `"nodes"`).
+From stage 5.9 the command header holds one more field: `nodes`, a u8 boolean at offset 17 (`FieldValue` `"nodes"`), 1
+when the list of compute nodes changed since the previous close. The list's version is then this close's `epoch`
+(section 11.14). It is the same in every frame of one close (`FieldValue` `"nodes"`). The order is then: unused bytes
+18–23 and 32–127 zero; `epoch`; `more`; `nodes`; sections, and the rest as before. A storage process reads the flag and
+does nothing for it.
 
 ### 13.5 Lease (516)
 
@@ -3484,8 +3591,13 @@ A body with `position` 0 is a request.
 
 Order: unused bytes 32–127 zero; in a request, `epoch` 0 (`FieldValue` `"catalog"`, the epoch); in a reply, `version` at
 least 1 (`FieldValue` `"version"`) and `epoch` at most 2⁴² − 1 (`FieldValue` `"epoch"`); sections; in a request, section
-0 empty (`CountMismatch` `"catalog"`, its bytes, 0). A version the tenant never held is refused with code 7
-(Refused), `detail` the version.
+0 empty (`CountMismatch` `"catalog"`, its bytes, 0). A version the tenant never held is refused with code 7 (Refused), `detail` the version.
+
+From stage 5.8 a request with `version` 0 may name an `epoch`, which the order above otherwise refuses: it asks for the
+version a client may read at that closed epoch, the latest in effect at it, leaving out a version being checked and one
+withdrawn (section 11.13, *A tightening's check*). The role holding the client endpoint asks so for a Describe. With
+`epoch` 0 a request of `version` 0 still asks for the tenant's current version, pending or not. An `epoch` above the
+latest close is refused with Error 1 (Protocol), the message naming both.
 
 ### 13.8 Challenge (519)
 
@@ -4005,7 +4117,8 @@ refuses: one naming an epoch above the open one, one breaking a body's rule, and
 No sections. Order: unused bytes 4–7 and 16–127 zero; `partition`; `epoch`; sections.
 
 From stage 5.8 the role holding the client endpoint sends it too, for a snapshot read waiting on the open epoch, with
-`partition` 0, which no other sender may use (section 11.12a).
+`partition` 0, which no other sender may use (section 11.12a): one arriving on a connection whose role is `storage` is
+dropped unanswered, as this section's other refusals are.
 
 ### 13.17 Closed (528)
 
@@ -4256,10 +4369,11 @@ without `LAST`.
 
 ### 13.23 Session (534)
 
-From stage 5.8. The role holding the client endpoint registers a session for a principal in the metadata state
-machine's registry (section 11.12a): the identity it drew and the principal the session belongs to. The system group
-answers with the same bytes once the registration is durable. A Session naming a session the registry already holds
-for that principal is answered again and changes nothing, so a request whose answer was lost is sent again.
+From stage 5.8. The role holding the client endpoint registers a session for a principal in the metadata state machine's
+registry (section 11.12a): the identity it drew and the principal the session belongs to. The system group answers with
+the same bytes once the registration is durable. A Session is never sent again: a requester whose answer was lost
+answers its client code 17, and the client registers again under a new identity (section 11.12a), since a repeat could
+register an identity whose eviction has not yet reached the partitions.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
@@ -4267,15 +4381,17 @@ for that principal is answered again and changes nothing, so a request whose ans
 | 16 | 8 | `principal` | u64 | the principal the session belongs to |
 
 No sections. Order: unused bytes 24–127 zero; `session`; sections. A full registry holding no session it may evict
-refuses with code 14 (SessionBusy), registering nothing (section 11.5). A session the registry holds for another
-principal is refused with Error 1 (Protocol), the message naming the session.
+refuses with code 14 (SessionBusy), registering nothing (section 11.5). A session the registry holds, for any principal,
+is refused with Error 1 (Protocol), the message naming the session. A principal the metadata state machine does not hold
+is refused with code 7 (Refused), the message naming it.
 
 ### 13.24 Check (535)
 
 From stage 5.8. The owner checks of one turn of an endpoint core (section 11.12a): for each, whether the registry holds
-the session and the principal is the one it belongs to. A check of kind 2 that passes marks the session in flight until
-an Ended names it or the connection closes; a check of kind 1 marks nothing. The system group decides the checks in
-their order and answers the frame whole, with every field as sent and each `outcome` filled.
+the session and the principal is the one it belongs to. A check of kind 2 that passes marks the session in flight, until
+an Ended names it or, its connection closed, `transaction_ms` has passed (section 11.12a); a check of kind 1 marks
+nothing. A frame holds one check per session. The system group decides the checks in their order and answers the frame
+whole, with every field as sent and each `outcome` filled.
 
 The command header is all zero.
 
@@ -4287,23 +4403,25 @@ The command header is all zero.
 |---|---|---|---|
 | 0 | 16 | `session` | session (section 1), not all zero |
 | 16 | 8 | `principal` | u64: the connection's principal |
-| 24 | 1 | `kind` | u8: 1 a request that records nothing in a partition's table, a Recall; 2 one that may, a Commit, a Drop or a one-frame write |
-| 25 | 1 | `outcome` | u8: 0 in a request; in a reply, 1 passed, or the code section 11.5 refuses the request with: 12 the registry does not hold the session, 21 it belongs to another principal, 14 it has a commit in flight |
+| 24 | 1 | `kind` | u8: 1 a request that records nothing in a partition's table, a Recall, or the question after every partition answered a Recall with 18; 2 one that may, a Commit, a Drop, a one-frame write or an Ingest |
+| 25 | 1 | `outcome` | u8: 0 in a request; in a reply, 1 passed, or the code section 11.5 refuses the request with: decided in this order: 12 the registry does not hold the session, 21 it belongs to another principal, 14 it has a request in flight, of either kind |
 | 26 | 6 | zero | 0 |
 
-Order: command header bytes 0–127 zero; sections; section 0 a whole number of 32-byte checks (`SectionLength`), at
-least one (`CountMismatch` `"checks"`); each check in order: bytes 26–31 zero (`PaddingNotZero`), `session` not all
-zero and above the one before, compared byte by byte, `kind` 1 or 2, `outcome` 0, 1, 12, 14 or 21, and 14 only with
-`kind` 2 (`FieldValue` `"check"`, the check's index). The system group, which receives the request, also refuses a
-check whose `outcome` is not 0, and the requester a reply holding an `outcome` of 0 or a check other than the one it
-sent (`FieldValue` `"check"`, the check's index).
+Order: command header bytes 0–127 zero; sections; section 0 a whole number of 32-byte checks (`SectionLength`), at least
+one (`CountMismatch` `"checks"`); each check in order: bytes 26–31 zero (`PaddingNotZero`), `session` not all zero and
+above the one before, compared byte by byte, `kind` 1 or 2, `outcome` 0, 1, 12, 14 or 21 (`FieldValue` `"check"`, the
+check's index). The system group, which receives the request, also refuses a check whose `outcome` is not 0, and the
+requester a reply holding an `outcome` of 0 or a check other than the one it sent (`FieldValue` `"check"`, the check's
+index).
 
 ### 13.25 Ended (536)
 
 From stage 5.8. The sessions whose requests in flight have ended (section 11.12a): each request ended before reaching a
-partition, was answered by its partition, or lost the role connection carrying it. The system group takes each mark
-away and answers nothing. A session with no mark begun on this connection is passed over, so an Ended sent again
-changes nothing.
+partition, was answered by its partition, or lost the role connection carrying it. The system group takes each mark away
+and answers nothing: no frame answers on the request's stream, which ends with it, and a body the system group refuses
+is dropped unanswered, as a CloseRequest's is (section 13.16). An Ended ends a mark begun on its own connection, or one
+whose connection has closed (section 11.12a); a session with no such mark is passed over, so an Ended sent again changes
+nothing.
 
 The command header is all zero.
 
@@ -4323,8 +4441,10 @@ answers with the command header and the sections of Nodes (section 5.4), under t
 close that named a change left it and `version` that close's epoch.
 
 A body with `version` 0 and no node is a request. Order: unused bytes 8–127 zero; in a request, every section empty
-(`CountMismatch` `"roster"`, the sections' bytes, 0); a reply as section 5.4 states, with one exception: before any
-close has named a change, the reply holds the bytes of its request, which a compute node takes as no list yet.
+(`CountMismatch` `"roster"`, the sections' bytes, 0); a reply as section 5.4 states, with `self` `ABSENT` and with two
+exceptions: before any close has named a change, the reply holds the bytes of its request, which a compute node takes as
+no list yet; and a reply may hold no node, at a `version` of 1 or more, when the last node has left the list. A compute
+node reads Roster at its start and for a close whose `epoch` is above the version it holds, and for no other.
 
 ### 13.27 Declare (538)
 
@@ -4334,8 +4454,11 @@ From stage 5.8. The role holding the client endpoint asks the system group for a
 system group builds the version, commits it as pending and answers with every field as sent and `version` and
 `commit_version` filled: for `kind` 1 once the version's epoch is assigned and, for a tightening, once every partition
 has passed its check; for `kind` 2 once the version is pending and durable, or at once, with `version` 0, when the Drop
-changes nothing in the catalog. The stream stays open until then. A connection that closes under it changes nothing
-about a check, which is the metadata state machine's.
+changes nothing in the catalog; such a reply holds the bytes of its request. For `drop` 4 the same command removes the
+tenant's default-entry records, with the version or alone when no version is built, durable before the reply. The
+requester sends a Declare for a Drop of kind 1 or 4 alone; kinds 2 and 3 call for no version, and one sent for them is
+answered `version` 0. The stream stays open until then. A connection that closes under it changes nothing about a check,
+which is the metadata state machine's.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
@@ -4347,18 +4470,22 @@ about a check, which is the metadata state machine's.
 | 32 | 8 | `version` | u64 | 0 in a request; in a reply, the catalog version committed as pending, 0 for a `kind` 2 that changed nothing |
 | 40 | 8 | `commit_version` | u64 | 0 in a request and for `kind` 2; in a `kind` 1 reply, the first version of the effective epoch, its low 22 bits zero (`FieldValue` `"commit_version"`) |
 
-The sections are a Write's (section 7.2). For `kind` 1 section 0 holds the transaction's declarations, records of
-kinds 8 to 10 in the order its Writes held them. For `kind` 2 section 0 is empty, and the term table holds the dropped
-predicate's or graph's IRI, one entry, for a Drop of kind 1 or 2 and none for kinds 3 and 4.
+The sections are a Write's (section 7.2). For `kind` 1 section 0 holds the transaction's declarations, records of kinds
+8 to 10 in the order its Writes held them. For `kind` 1 the term table holds what the declarations name, as a Write's
+does. For `kind` 2 section 0 is empty, and the term table holds the dropped predicate's or graph's IRI, one entry, for a
+Drop of kind 1 or 2 and none for kinds 3 and 4. `principal` is the client's, recorded with the version for stage 7's
+audit and deciding nothing here.
 
 A body with `version` and `commit_version` 0 is a request. Order: unused bytes 2–7 and 48–127 zero; `kind`; `drop`;
 `built_on`; `commit_version`; sections as section 7.2 states; for `kind` 1 at least one record, each of kind 8 to 10
 (`FieldValue` `"declaration"`, the record's index); for `kind` 2 no record (`CountMismatch` `"declarations"`) and the
-term table's entries one of kind 1 for `drop` 1 or 2 and none for `drop` 3 or 4 (`CountMismatch` `"drop terms"`). The
-system group refuses as section 11.13 states, and the requester passes each to its client: code 2, kind 5, for a version
-built on one no longer current or on one being checked; code 7 for a declaration the catalog refuses, a tightening
-with a loosening, a version past `catalog_bytes_max` and a change the data contradicts; code 24 for a partition silent
-past `catalog_check_ms`.
+term table's entries one for `drop` 1 or 2 and none for `drop` 3 or 4 (`CountMismatch` `"drop terms"`), that one an IRI
+(`FieldValue` `"drop term"`, as section 6.5 names it); in a `kind` 1 reply `version` and `commit_version` at least 1
+(`FieldValue` `"version"`). A tenant the metadata state machine does not hold is refused with code 7 (Refused), `detail`
+the tenant. A Cancel on a Declare's stream changes nothing the system group does. The system group refuses as section
+11.13 states, and the requester passes each to its client: code 2, kind 5, for a version built on one no longer current
+or on one being checked; code 7 for a declaration the catalog refuses, a tightening with a loosening, a version past
+`catalog_bytes_max` and a change the data contradicts; code 24 for a partition silent past `catalog_check_ms`.
 
 ### 13.28 Defaults (539)
 
@@ -4367,7 +4494,10 @@ for a tenant (section 11.13, *Default entries*), which a Describe names as recor
 `position` 0 and two empty sections. The system group answers with the predicates holding a record, each an IRI of the
 term table, in the order of their texts' UTF-8 bytes. An answer that does not fit one frame within the requester's
 `max_frame` continues in further Defaults frames on the stream, each with the first's command header, the last alone
-flagged `LAST`; the entries' order runs on across the frames. The frames spend credit as Result frames do (section
+flagged `LAST`. Each frame holds a whole term table, checked by itself; the entries' order and an entry's index run on
+across the frames. The requester refuses a frame breaking the first's command header with `FieldValue` (`"defaults"`),
+and reads no further once the answer's bytes pass `catalog_bytes_max`. A Defaults stream starts with the Welcome's
+`initial_credit`, as a Catalog's does. The frames spend credit as Result frames do (section
 11.3).
 
 | Command header | Width | Field | Type | Rule |

@@ -247,7 +247,7 @@ the tile store; group 2b, the Ultra Style lift of the KV commit path, is superse
 1. **Decisions and specifications before code:** B1–B4; the cluster-wide settings table; the superblock's authority; the
    lint decision; the layout record inside the catalog version, graphs in the layout, `Id128`, the sortable value
    encoding (all before stage 6.6's group 4 pins golden bytes); logical conflict keys and the scan order; Ingest's framing;
-   `SCHEMA.md` §12 and the stage-6 storage wording rewritten as logical obligations.
+   `SCHEMA.md` §12 and the stage-6.6 storage wording rewritten as logical obligations.
 2. **The ownership refactor (B2)** with the logical seam, logical conflict keys, restartable reads and the two overlays,
    over the KV store, so every suite stays green and the differential test has its oracle.
 3. **The durable seam extracted;** `tile_format` with its fuzz targets and golden digests; `store_grid` with the extended
