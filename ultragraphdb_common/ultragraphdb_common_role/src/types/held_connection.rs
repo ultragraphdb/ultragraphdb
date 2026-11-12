@@ -3,8 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::utils::sync::{Arc, AtomicUsize, Ordering};
 
 /// One connection of a [`crate::ConnectionBound`]'s count, which says why its ordering suffices.
 #[derive(Debug)]

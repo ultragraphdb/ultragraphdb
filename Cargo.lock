@@ -3173,6 +3173,7 @@ dependencies = [
  "cucumber",
  "futures",
  "getrandom 0.4.3",
+ "loom",
  "tracing",
  "ultragraphdb_common_service",
  "ultragraphdb_error_protocol",

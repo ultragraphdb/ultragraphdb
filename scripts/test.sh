@@ -38,6 +38,13 @@ command bazel test //... --test_tag_filters=property-test
 
 echo ""
 echo "=============="
+echo "Run concurrency tests"
+echo "=============="
+
+command bazel test //... --test_tag_filters=loom-test
+
+echo ""
+echo "=============="
 echo "Run BDD tests"
 echo "=============="
 
@@ -59,6 +66,7 @@ echo ""
 echo "* ✅ Passed: Doc Tests"
 echo "* ✅ Passed: Unit Tests"
 echo "* ✅ Passed: Property Tests"
+echo "* ✅ Passed: Concurrency Tests"
 echo "* ✅ Passed: BDD Tests"
 echo "* ✅ Passed: Integration Tests"
 echo ""

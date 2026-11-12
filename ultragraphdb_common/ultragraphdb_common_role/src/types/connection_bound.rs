@@ -3,10 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use crate::types::held_connection::HeldConnection;
+use crate::utils::sync::{Arc, AtomicUsize, Ordering};
 
 /// How many connections a [`crate::Server`] holds, against the most it allows (`PROTOCOL.md` §11.9). Shared by an `Arc` of an
 /// atomic: each connection counts for itself across every core. The count orders no other memory, so `AcqRel` on each
@@ -22,7 +20,7 @@ impl ConnectionBound {
     #[must_use]
     pub fn new(limit: u64) -> Self {
         Self {
-            held: Arc::default(),
+            held: Arc::new(AtomicUsize::new(0)),
             limit,
         }
     }

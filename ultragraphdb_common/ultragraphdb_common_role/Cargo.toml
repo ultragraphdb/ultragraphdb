@@ -30,6 +30,10 @@ ultragraphdb_protocol_transport = { workspace = true }
 ultragraphdb_protocol_transport_compio = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 
+# Loom's types under `--cfg loom`, which the Loom tests build the crate with (`tests/loom/`).
+[target.'cfg(loom)'.dependencies]
+loom = { workspace = true }
+
 [dev-dependencies]
 cucumber = { workspace = true }
 futures = { workspace = true }
