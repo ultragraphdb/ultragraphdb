@@ -1,0 +1,22 @@
+openspec/notes/Loom-List.md
+  s_d14a54f3ee4b57::t_edad31b51cb910 1-15,17-156
+  s_d14a54f3ee4b57::t_585adaf17f4f98 16
+openspec/protocols/tdd-protocol.md
+  s_d14a54f3ee4b57::t_cf2c5a0400620f 218-241
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "33c40e20c6cece2b39d37bd165f4f2060ddd1171",
+  "prompts": {},
+  "sessions": {
+    "s_d14a54f3ee4b57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "763dd999-2deb-442f-8d19-3d08b11dfa90",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
