@@ -1,4 +1,4 @@
-Every task group follows `openspec/protocols/tdd-protocol.md`'s five phases, in order, as stage 6's groups do: (1) the
+Every task group follows `openspec/protocols/tdd-protocol.md`'s five phases, in order, as stage 6.6's groups do: (1) the
 group's public surface compiling with bare `unimplemented!()` bodies; (2) the full suite written against it and
 observed failing for that reason, its run and test count recorded in `notes/group-N.md`: the group's scenarios verbatim
 as Gherkin in the owning crate's `features/<capability>/`, bound by its `bdd` target with `fail_on_skipped`, unit tests
@@ -20,7 +20,7 @@ crates, and the whole repository is gated by `make build` and `make test` when a
 
 - [x] 0.1 `STORAGE.md`, `PROTOCOL.md` sections 5.2, 6.6, 6.8, 9.4, 11 to 13, `SCHEMA.md` and `CATALOG.md` consistent by the review of `openspec/notes/UltraGraphDB Spec Consistency Review.md` (T48, 2026-11-10); the conformance vectors regenerated and deterministic
 - [x] 0.2 This change's specifications: the six new capabilities and the deltas of the modified and removed ones
-- [x] 0.3 Stage 6's tokenizers delta (`openspec/changes/stage-6-ugs-data-definition/specs/tokenizers/spec.md`) aligned with design D8: the `measure` token the value in the quantity kind's canonical unit as a `Float64` comparison form, exact; the `decimal` token the sortable encoding; identifier bytes the registry's; no Dgraph equality
+- [x] 0.3 Stage 6.6's tokenizers delta (`openspec/changes/stage-6-6-ugs-data-definition/specs/tokenizers/spec.md`) aligned with design D8: the `measure` token the value in the quantity kind's canonical unit as a `Float64` comparison form, exact; the `decimal` token the sortable encoding; identifier bytes the registry's; no Dgraph equality
 - [ ] 0.4 The corner cases of every group enumerated in `notes/corner-cases.md` before its phase 2: per decoder its refusals in `STORAGE.md` section 19.4's order, per state machine its boundary conditions, per lane its version rules
 
 ## 1. Ownership and the logical seam → `ultragraphdb_traits_engine` (new), `ultragraphdb_error_tile` (new), `ultragraphdb_transactions_txn`, `ultragraphdb_transactions_commit`, `ultragraphdb_cluster_partition`, `ultragraphdb_store_quads`, `ultragraphdb_core_keys`
@@ -112,4 +112,4 @@ crates, and the whole repository is gated by `make build` and `make test` when a
 - [ ] 12.2 The run recorded as a dated baseline `openspec/benches/benches-YYYY-MM-DD.md` in the 2026-11-09 file's structure: what ran, every table in full, the commit, the commands and the environment
 - [ ] 12.3 The comparison table of the net impact: every measurement of 2026-11-09 beside its tile store figure, with the change in absolute and relative terms and whether it lies outside both runs' spread; added to the dated file and summarised in the design note's section 7 against the targets of its section 3
 - [ ] 12.4 Each regression outside the spread root-caused and fixed, or recorded with its cause and the user's decision (a big gap from the in-process ceiling is a software defect, never the network's or the virtual machine's); an optimisation kept only where throughput rises outside the spread
-- [ ] 12.5 The exit gate: `ROADMAP.md`'s stage 6.5 row marked done with the comparison's headline figures, and stage 6 resumed at group 2
+- [ ] 12.5 The exit gate: `ROADMAP.md`'s stage 6.5 row marked done with the comparison's headline figures, and stage 6.6 resumed at group 2

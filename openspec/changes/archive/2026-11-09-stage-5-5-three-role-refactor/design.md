@@ -1,7 +1,7 @@
 ## Context
 
 The decisions behind this change are recorded with their evidence in `openspec/notes/UltraGraphDB Shard-per-Core Write
-Path.md` (P1–P23, and P24, the placement decision of 2026-11-02), `openspec/notes/review-stages-5.5-and-6.md` (D1–D8),
+Path.md` (P1–P23, and P24, the placement decision of 2026-11-02), `../../../notes/archive/review-stages-5.5-and-6.md` (D1–D8),
 the distribution and single-container notes and backlog items 1–4, 7, 9, 10 and 11. This document states how the code
 gets there.
 

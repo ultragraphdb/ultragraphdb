@@ -13,7 +13,7 @@ pub enum Language {
     Gql,
     /// 2: the SPARQL core.
     Sparql,
-    /// 3: UQL, its CRUD subset from stage 6 (`QUERY-ULTRA-QL.md` section 4.1).
+    /// 3: UQL, its CRUD subset from stage 6.6 (`QUERY-ULTRA-QL.md` section 4.1).
     Uql,
 }
 

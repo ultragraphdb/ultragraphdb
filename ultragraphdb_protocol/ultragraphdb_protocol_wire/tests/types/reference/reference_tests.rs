@@ -100,7 +100,7 @@ fn test_iri_is_none_for_a_registration_whose_term_is_not_an_iri() -> TestResult 
     Ok(())
 }
 
-/// Stage 6: the builder writes `mode` and a get-only reply's `status` (`PROTOCOL.md` §13.15), against the batches laid
+/// Stage 6.6: the builder writes `mode` and a get-only reply's `status` (`PROTOCOL.md` §13.15), against the batches laid
 /// out by hand in the view's tests.
 mod stage_6 {
     use ultragraphdb_core_ids::SystemId;

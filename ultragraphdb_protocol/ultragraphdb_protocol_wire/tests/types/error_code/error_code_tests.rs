@@ -29,7 +29,7 @@ fn test_codes_keep_their_numbers() {
     assert_eq!(ErrorCode::LevelRefused.number(), 25);
     assert_eq!(ErrorCode::WrongPartition.number(), 26);
     assert_eq!(ErrorCode::AheadOfWatermark.number(), 27);
-    // PROTOCOL.md §9.4: stage 6's codes 30, EntityDeleted, and 31, Fenced.
+    // PROTOCOL.md §9.4: stage 6.6's codes 30, EntityDeleted, and 31, Fenced.
     assert_eq!(ErrorCode::EntityDeleted.number(), 30);
     assert_eq!(ErrorCode::Fenced.number(), 31);
     for code in ErrorCode::ALL {

@@ -156,7 +156,7 @@ fn test_a_report_is_utf8() -> TestResult {
     Ok(())
 }
 
-/// Stage 6: Install's `staged`, its migration report and its warnings (`PROTOCOL.md` §8.4, §4.9), over frames laid out
+/// Stage 6.6: Install's `staged`, its migration report and its warnings (`PROTOCOL.md` §8.4, §4.9), over frames laid out
 /// by hand from §8.4's tables: the command header `tenant` 3, `version`, `epoch`, `staged`; seven sections.
 mod stage_6 {
     use ultragraphdb_error_protocol::ProtocolErrorEnum;

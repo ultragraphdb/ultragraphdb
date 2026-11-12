@@ -1,11 +1,11 @@
 # UltraGraphDB Tile Store: Feasibility Against the Source
 
 Nov 10, 2026 · feasibility study of `UltraGraphDB Scalable Tile Store.md` (T1–T29) against the tree at `eb15d766` with
-stage 6's uncommitted group-1 work, for the implementation plan of roadmap stage 6.5
+stage 6.6's uncommitted group-1 work, for the implementation plan of roadmap stage 6.5
 
 The tile store can be built on this codebase with no `unsafe`, no repository macros and one new external crate
 (`lz4_flex` with its safe codec, plus compio's `bytes` feature). It cannot be built as the design note states it. Five
-blockers must be decided before any engine code is written, about forty design gaps must be specified, and stage 6's
+blockers must be decided before any engine code is written, about forty design gaps must be specified, and stage 6.6's
 storage groups must be re-sequenced, since they would otherwise build a third of UGS's storage on KV structures stage
 6.5 deletes. Retiring the KV store removes about 47,000 lines outright and rewrites about 40,000 more.
 
@@ -69,21 +69,21 @@ code 23 until stage 8, and the anchor's adjacency stops being local. `Id128`-key
 
 *Handling.* Replace "`Id128` as `@key`" by an idempotency claim the relation's anchor partition holds, so the relation
 stays edge-encoded and anchored; or accept the scattering. Either way add `Id128` (descriptor tag, datatype code, the
-keyable list, fixed-width lowercase hexadecimal canonical form so text order is numeric order) before stage 6's groups
+keyable list, fixed-width lowercase hexadecimal canonical form so text order is numeric order) before stage 6.6's groups
 2–4 freeze golden bytes. T26 must be revised.
 
-### B5. Stage 6 builds storage on KV structures stage 6.5 deletes
+### B5. Stage 6.6 builds storage on KV structures stage 6.5 deletes
 
-Stage 6 has built group 0 and tasks 1.1–1.2; `ultragraphdb_schema/` is empty and the compiled catalog of `CATALOG.md` is
+Stage 6.6 has built group 0 and tasks 1.1–1.2; `ultragraphdb_schema/` is empty and the compiled catalog of `CATALOG.md` is
 specified only. Its groups 2b (the Ultra Style lift of `store_quads` and `store_apply`), 6.4–6.5 (claims and `@set`
 combination keys in the dictionary and marks keyspaces), 7.5–7.7 (`@limit` aggregates, `asserted` as epoch quads,
 revisions on KV MVCC, tombstones as statement records), 8.3–8.4 (index entries in `ValueIndex`/`CountIndex` posting
-lists, materialized derivations as quads) and 9.2 implement roughly a third of stage 6 on structures the tile store
-replaces outright (`openspec/changes/stage-6-ugs-data-definition/tasks.md`). Every finished group enlarges the port and
+lists, materialized derivations as quads) and 9.2 implement roughly a third of stage 6.6 on structures the tile store
+replaces outright (`openspec/changes/stage-6-6-ugs-data-definition/tasks.md`). Every finished group enlarges the port and
 the differential test.
 
-*Handling.* Decided by the user on 2026-11-10: stage 6 pauses once its task group 1 (the wire) is complete, stage 6.5
-builds the tile store, and stage 6 resumes at group 2 on the tile store (section 6, order B, paused earlier).
+*Handling.* Decided by the user on 2026-11-10: stage 6.6 pauses once its task group 1 (the wire) is complete, stage 6.5
+builds the tile store, and stage 6.6 resumes at group 2 on the tile store (section 6, order B, paused earlier).
 
 ## 2. Design gaps
 
@@ -129,7 +129,7 @@ recommendation; none is adopted.
 
 | Gap | Evidence | Handling |
 |---|---|---|
-| **No layout record or version.** Replicas compiling the layout themselves diverge across binary upgrades | `CATALOG.md:528` (Report codes 902–906 only) | Emit the layout in compile phase 10 inside the catalog version; replicas read bytes and never compile. Decide before stage 6 group 4 pins golden bytes |
+| **No layout record or version.** Replicas compiling the layout themselves diverge across binary upgrades | `CATALOG.md:528` (Report codes 902–906 only) | Emit the layout in compile phase 10 inside the catalog version; replicas read bytes and never compile. Decide before stage 6.6 group 4 pins golden bytes |
 | **Graphs are missing from the compiled layout;** `SCHEMA.md` §10.2 lists a graph on the Type entry, `CATALOG.md` does not | `SCHEMA.md:821,590,1446`; `CATALOG.md:308-330` | A graph column or graph-split tiles; the graph in claim keys; align the two specifications |
 | **`@bitemporal` revisions** are new versions of the same instance kept for all history, and every Gen5 type sits under `Statement @bitemporal`; a fixed-width column holds one value per slot | `SCHEMA.md:1087-1093`; `deepbrain-gen5.ugs:151` | Version chains per slot for revisable columns; a `?` role as a column only for relations that are not bitemporal |
 | **T16 is underspecified:** "temporal types" is undefined; several candidate attributes, union participants and `@immutable Optional` values set after creation are not covered | `SCHEMA.md:684,1026` | Required attributes only, a common declaring supertype, a tie rule, a definition of "temporal" |
@@ -230,23 +230,23 @@ types.
 
 ## 6. Order of work
 
-**Stage 6 and stage 6.5.** Two orders, each sound:
+**Stage 6.6 and stage 6.5.** Two orders, each sound:
 
-| | A. KV adapter first | B. Tiles before stage 6's storage groups |
+| | A. KV adapter first | B. Tiles before stage 6.6's storage groups |
 |---|---|---|
-| What happens | Stage 6 finishes behind a logical storage seam with a thin KV adapter; 6.5 replaces the adapter | After stage 6's storage-independent groups (1–5, 10, 11), 6.5 builds format, grid and engine on the generic layout, differential-tested against the KV store; groups 6–8 and 9.2 are then built on compiled-layout tiles directly |
-| Thrown away | The adapter, and stage 6's KV storage code behind it | Nothing: governed tenants never run on the KV store |
+| What happens | Stage 6.6 finishes behind a logical storage seam with a thin KV adapter; 6.5 replaces the adapter | After stage 6.6's storage-independent groups (1–5, 10, 11), 6.5 builds format, grid and engine on the generic layout, differential-tested against the KV store; groups 6–8 and 9.2 are then built on compiled-layout tiles directly |
+| Thrown away | The adapter, and stage 6.6's KV storage code behind it | Nothing: governed tenants never run on the KV store |
 | Risk | Lower; Gen5's acceptance on its present schedule | Gen5's acceptance waits for 6.5's engine, whose experiments have not run |
 | By TigerStyle | Technical debt taken knowingly, behind a seam | "Do it right the first time": no double implementation |
 
-The user chose B on 2026-11-10, pausing stage 6 earlier still: once its group 1 is complete. Groups 2 to 13 resume on
+The user chose B on 2026-11-10, pausing stage 6.6 earlier still: once its group 1 is complete. Groups 2 to 13 resume on
 the tile store; group 2b, the Ultra Style lift of the KV commit path, is superseded by 6.5's ownership refactor.
 
 **The order within 6.5, either way:**
 
 1. **Decisions and specifications before code:** B1–B4; the cluster-wide settings table; the superblock's authority; the
    lint decision; the layout record inside the catalog version, graphs in the layout, `Id128`, the sortable value
-   encoding (all before stage 6's group 4 pins golden bytes); logical conflict keys and the scan order; Ingest's framing;
+   encoding (all before stage 6.6's group 4 pins golden bytes); logical conflict keys and the scan order; Ingest's framing;
    `SCHEMA.md` §12 and the stage-6 storage wording rewritten as logical obligations.
 2. **The ownership refactor (B2)** with the logical seam, logical conflict keys, restartable reads and the two overlays,
    over the KV store, so every suite stays green and the differential test has its oracle.
@@ -258,7 +258,7 @@ the tile store; group 2b, the Ultra Style lift of the KV commit path, is superse
    discard thread, fjall's workers, `ThreadExecutor` and the `LeasedBlocks` mutex retired, checkpoint and trim, recovery
    from the superblock; E9 and E10.
 6. **The protocol:** the frontier command, lane L's versioning, the resume rule, Ingest with its Round section; E12.
-7. **The compiled layout** from the catalog, then (order B) stage 6's groups 6–8 and 9.2 on it; drops and builds as
+7. **The compiled layout** from the catalog, then (order B) stage 6.6's groups 6–8 and 9.2 on it; drops and builds as
    deterministic engine operations; the KV store, its adapter and `store_hnsw` removed (T14 with its HNSW exception);
    E7 and E14.
 
@@ -267,7 +267,7 @@ the tile store; group 2b, the Ultra Style lift of the KV commit path, is superse
 1. B1: the fold horizon logged in the Round, or derived from logged epoch closes with retention in epochs.
 2. B3: every grid-shaping setting cluster-wide, fixed and recorded in the derivation version or checkpoint identity.
 3. B4: `Id128` as an idempotency claim at the anchor, or as `@key` with its scattering accepted; T26 revised either way.
-4. B5: order A or order B for stage 6 and 6.5.
+4. B5: order A or order B for stage 6.6 and 6.5.
 5. The grid's superblock authoritative over the WAL's.
 6. The four decoder lints enabled globally once the KV crates are gone, or decoders left to review.
 7. Raising the build's baseline target features for auto-vectorised decoding, or not.
@@ -292,7 +292,7 @@ approved all of them on 2026-11-10; the design note carries them as T30–T41, w
 | 6 | **Enable the four decoder lints globally** when the KV crates are removed, at the end of 6.5; the tile crates are written to satisfy them from their first line, checked by review until then | Ultra Style requires them for decoders; zero warnings from the first line costs least when the code is new |
 | 7 | **Keep the baseline target features;** E4 measures whether auto-vectorised decoding reaches its target on aarch64 and x86-64, and only a measured gap reopens it | The binaries ship multi-arch; a raised baseline excludes machines for a gain not yet shown |
 | 8 | **Retire `store_hnsw` at 6.5 and rebuild it at stage 8** over adjacency blocks of slots, maintained at fixed log positions, keeping its search algorithm, distances and heaps | Nothing reaches it before stage 8, and its storage layer and indexer both contradict T6 |
-| 9 | **Cross-partition materialization of derivations moves to stage 8,** which builds sequenced cross-partition work; materialization within the anchor partition stays in stage 6 | It needs cross-partition writes, which do not exist before stage 8 |
+| 9 | **Cross-partition materialization of derivations moves to stage 8,** which builds sequenced cross-partition work; materialization within the anchor partition stays in stage 6.6 | It needs cross-partition writes, which do not exist before stage 8 |
 
 ### The gaps of section 2 that offered options
 
@@ -325,7 +325,7 @@ approved all of them on 2026-11-10; the design note carries them as T30–T41, w
 ## Sources
 
 Five read-only reviews of the tree on 2026-11-10: the KV surface and its consumers; the transaction and commit path; the
-runtime, partitions and compute reads; the catalog, UGS and indexes with stage 6's change; bytes, I/O and tooling.
+runtime, partitions and compute reads; the catalog, UGS and indexes with stage 6.6's change; bytes, I/O and tooling.
 Dependencies read at the versions `Cargo.lock` pins: compio 0.19.2 (compio-driver 0.12.5, compio-fs 0.12.1,
 compio-runtime 0.12.6, compio-buf 0.8.3), rustix 1.1.6, xxhash-rust 0.8.19, lz4_flex 0.13.1. Every `path:line` above is
 relative to the repository or to that crate's source.

@@ -8,7 +8,7 @@ versions, the logical log record, the metadata group, the sequencer and partitio
 running binaries, so that stages 6 and 7 build on the cluster's shape from their first line. The decisions are
 recorded in `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md` (P1–P23, adopted 2026-11-01, and P24, the
 placement decision adopted 2026-11-02), the review's D1–D8
-(`openspec/notes/review-stages-5.5-and-6.md`), the single-container note and backlog items 1–4, 7, 9, 10 and 11.
+(`../../../notes/archive/review-stages-5.5-and-6.md`), the single-container note and backlog items 1–4, 7, 9, 10 and 11.
 
 ## What Changes
 

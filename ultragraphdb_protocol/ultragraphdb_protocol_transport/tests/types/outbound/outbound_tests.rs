@@ -581,7 +581,7 @@ fn test_a_stream_never_flagged_is_never_reported() -> TestResult {
     Ok(())
 }
 
-/// Stage 6: a Describe's and a Catalog's answer spend credit as Result frames do (`PROTOCOL.md` §11.3, §8.3, §13.7).
+/// Stage 6.6: a Describe's and a Catalog's answer spend credit as Result frames do (`PROTOCOL.md` §11.3, §8.3, §13.7).
 mod stage_6 {
     use ultragraphdb_protocol_transport::Outbound;
     use ultragraphdb_protocol_wire::{

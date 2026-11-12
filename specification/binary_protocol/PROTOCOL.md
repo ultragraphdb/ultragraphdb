@@ -40,7 +40,7 @@ This file leads the code: group 8 of stage 5.5 brings the crates and the golden 
 | Epoch | u64 holding an epoch number of 42 bits, 1 to 2⁴² − 1, or 0 for none where a field allows it; a receiver refuses any other value as `FieldValue` naming the field |
 | Partition | u32, numbered from 1; 0 for none where a field allows it |
 | Tenant | u64, from 0: the engine's unit of isolation, one catalog of numbered versions in the metadata group, one run of buckets, the grants of its principals. The metadata group holds the tenants (section 11.13), and the frontend and Bind refuse a number it does not hold (sections 11.10, 13.10). Nothing reads, writes or names across tenants; the cluster scope alone reaches over them, for backup and export (`../../openspec/notes/SECURITY.md`). Tenants may share a bucket run, of which there are at most 256: isolation is by the tenant every tile header, tile key and conflict key carries (`../storage/STORAGE.md` sections 6.2 and 13.1, section 12.2 here), and by grant, not by resource |
-| Namespace | A unit of organisation inside a tenant: one schema source installed in it with its graphs, from stage 6 (`../schema/SCHEMA.md`, sections 1 and 15). It has no field in any key, bucket, ID or frame but one: the identifier a migration's staged namespace takes (sections 8.4, 8.6). A query text names a namespace (section 8.6) |
+| Namespace | A unit of organisation inside a tenant: one schema source installed in it with its graphs, from stage 6.6 (`../schema/SCHEMA.md`, sections 1 and 15). It has no field in any key, bucket, ID or frame but one: the identifier a migration's staged namespace takes (sections 8.4, 8.6). A query text names a namespace (section 8.6) |
 | Bucket | u32, 0 to 2²⁴ − 1: a system ID's bucket field, its top 8 bits the tenant's run |
 | Bucket group | u32, 0 to 2¹⁸ − 1: a bucket's top 18 bits, 64 contiguous buckets, 2¹⁰ groups per run |
 | Session | 16 bytes: a session's identity, 128 random bits the frontend draws, opaque; all zero names no session (section 11.5) |
@@ -1924,7 +1924,7 @@ Commit is late, and the frontend drops it: the Commit decides the transaction, a
 no Bind of kind 1 opened, and a Drop on one no Bind of kind 2 opened, is refused with Error 1 the same way.
 
 In this stage the frontend refuses an Install, a Query and a Prepare of `language` 1 to 3 with code 7 (Refused) on the request's
-stream, `detail` 0, the message naming the command and the stage that serves it: stage 6 for an Install and for a Query of
+stream, `detail` 0, the message naming the command and the stage that serves it: stage 6.6 for an Install and for a Query of
 `language` 3, which runs UQL's CRUD subset from then (`../query/QUERY-ULTRA-QL.md` section 4.1); stage 7 for a Query and a text of
 `language` 1 or 2; and, for a Prepare of `language` 3, the stage that builds UQL whole (`../../ROADMAP.md`). It refuses the same way a Purge, naming stage 8 (`../schema/SCHEMA.md` section 14), and a Migrate, an Install holding a
 migration source and an Install into a tenant that holds a schema, naming stage 9.5 (`schema/SCHEMA-EVOLUTION.md`,
@@ -2920,7 +2920,7 @@ entry whatever its object holds, and `statements_per_object_max` (section 11.9) 
   partition, which derives the key removals on apply and on replay. Its record holds the conflict ranges it covers in section
   8, so a transaction reading or writing into them below the drop's version conflicts; it is the last record of its
   round.
-- **An entity delete** (operation 8), which UGS brings with stage 6 (`../schema/SCHEMA.md` section 8.5) and a transaction
+- **An entity delete** (operation 8), which UGS brings with stage 6.6 (`../schema/SCHEMA.md` section 8.5) and a transaction
   asks for by Operation kind 5 (section 7.3), is part of its transaction's record at the entity's home, P24's rule 8: sections 1 and 2 remove the entity's statements and
   statement records, those of the relation instances its `@on_delete` actions reach in the partition among them, and
   the operation writes the entity's tombstone (`../storage/STORAGE.md` section 9.3, kind 8), which

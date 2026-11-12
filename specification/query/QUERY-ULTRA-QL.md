@@ -1,6 +1,6 @@
 # The Ultra Query Language (UQL)
 
-* Status: first draft, 2026-11-08. UltraQL follows stage 10 (`../../ROADMAP.md`); stage 6 builds the CRUD subset of
+* Status: first draft, 2026-11-08. UltraQL follows stage 10 (`../../ROADMAP.md`); stage 6.6 builds the CRUD subset of
   section 4.1, for testing.
 
 This file specifies UQL, UltraGraphDB's own query language: the queries, patterns, mutations, transactions and
@@ -175,9 +175,9 @@ subscribe   = "subscribe" query | "resume" "after" param ;
 
 A computed field takes a name (`spend: sum(purchases.value)`); a computed field without one is refused (`UQL0108`).
 
-### 4.1 The stage 6 subset
+### 4.1 The stage 6.6 subset
 
-**[stage 6]** From stage 6 a Query of `language` 3 (section 17) runs the requests this grammar derives, so that data is
+**[stage 6.6]** From stage 6.6 a Query of `language` 3 (section 17) runs the requests this grammar derives, so that data is
 created, read, revised and retracted in the schema's names before the query core exists. Every request of the subset
 is a request of the grammar above with the same meaning; every other construct of this file is refused with `UQL0901`
 until its stage.
@@ -503,16 +503,16 @@ retract Holds(holder: Person(id = $p), post: Post(id = $post))
 
 | Statement | Writes |
 |---|---|
-| `insert T { … }` **[stage 6]** | One instance of the concrete type `T` (`UQL0501` for an abstract one); required fields and roles must be given or defaulted, which the commit checks (`UGS1005`, `UGS1015`); a keyless type's handle IRI is minted (`../schema/SCHEMA.md` section 7.3) |
+| `insert T { … }` **[stage 6.6]** | One instance of the concrete type `T` (`UQL0501` for an abstract one); required fields and roles must be given or defaulted, which the commit checks (`UGS1005`, `UGS1015`); a keyless type's handle IRI is minted (`../schema/SCHEMA.md` section 7.3) |
 | `upsert T(key) { … }` | The instance the key names, inserted if absent and updated if present; the filter must fix `T`'s whole key by equality (`UQL0506`) |
-| `update S { … }` **[stage 6]** | Every instance `S` selects; on a `@bitemporal` type each update is a **revision**, a new version of the same instance (`../schema/SCHEMA.md` section 8.4); an `@append_only` type is refused (`UQL0503`) |
-| `delete S` **[stage 6]** | Every instance `S` selects, under `@on_delete`; on a `@bitemporal` type `delete` is refused with `retract` as the fix (`UQL0504`) **[choice]** |
-| `retract S` **[stage 6]** | Closes `asserted` of every instance `S` selects, under `@on_retract`; on a type that is not `@bitemporal` refused (`UQL0505`) |
+| `update S { … }` **[stage 6.6]** | Every instance `S` selects; on a `@bitemporal` type each update is a **revision**, a new version of the same instance (`../schema/SCHEMA.md` section 8.4); an `@append_only` type is refused (`UQL0503`) |
+| `delete S` **[stage 6.6]** | Every instance `S` selects, under `@on_delete`; on a `@bitemporal` type `delete` is refused with `retract` as the fix (`UQL0504`) **[choice]** |
+| `retract S` **[stage 6.6]** | Closes `asserted` of every instance `S` selects, under `@on_retract`; on a type that is not `@bitemporal` refused (`UQL0505`) |
 
 Writes to a derived name are refused at compile time (`UQL0502`); every other rule is the commit's, refused with its
 `UGS1xxx` number (`../schema/SCHEMA.md` section 8.7).
 
-**[stage 6]** `insert`, `update`, `delete` and `retract` are the subset's (section 4.1): a role assigned by a point
+**[stage 6.6]** `insert`, `update`, `delete` and `retract` are the subset's (section 4.1): a role assigned by a point
 selector, a value by a literal or a parameter. `upsert`, `returning` and the nested inserts of section 12.2 come with
 the language and are refused with `UQL0901` until then.
 
@@ -653,7 +653,7 @@ resume after $cursor
 
 - **Requests.** A UQL request is a Query (`../binary_protocol/PROTOCOL.md` section 7.4) or a Prepare and Execute (section 8.1) with
   `language` 3, its text and its parameters by name; a prepared request's reply names each parameter's inferred type
-  and the result type. From stage 6 a Query of `language` 3 runs the subset of section 4.1; a Prepare of
+  and the result type. From stage 6.6 a Query of `language` 3 runs the subset of section 4.1; a Prepare of
   `language` 3 is refused until UQL is built whole (`../binary_protocol/PROTOCOL.md` section 11.2).
 - **Results.** A root query's result is a stream of Result batches (`../binary_protocol/PROTOCOL.md` section 9.1), one row per root
   element and one column per root field. Until the protocol carries nested columns, a field holding a record, a list
@@ -822,7 +822,7 @@ insert AssertedBy { statement: c, asserter: Source(id = "SRC:backfill") }
   by type, of which the protocol today holds only the internal epoch feed between roles; `with record … request …` as a
   client session's deduplicated request; `explain` as a request that compiles and classifies without executing.
   Carried 2026-11-08: a warning, `UQL0110` among them, travels with a reply, its language 3 (section 4.9 there).
-  Carried 2026-11-10: `language` 3 in Query and Prepare, served for the subset of section 4.1 from stage 6 (sections
+  Carried 2026-11-10: `language` 3 in Query and Prepare, served for the subset of section 4.1 from stage 6.6 (sections
   7.4, 8.1 and 11.2 there), and a mutation's reply of no columns and no rows (sections 7.4 and 9.1 there).
 - **`../schema/SCHEMA.md`.** Carried 2026-11-08: section 4's expression grammar names this file as its extension for queries,
   and section 5.11's `edge` is a field with a shape inside a binary navigation's shape.
@@ -848,7 +848,7 @@ insert AssertedBy { statement: c, asserter: Source(id = "SRC:backfill") }
 | Results on the wire | `rdf:JSON` for nested values until the protocol carries nested columns **[choice]** |
 | Grouping | By nesting only; no `group by` in the first version |
 | Pipelines | One read stage into one write stage; multi-stage pipelines not adopted |
-| The stage 6 subset | Decided 2026-11-10: `insert`, `update`, `delete`, `retract` and a root query by type and filter with a flat shape run from stage 6, so tests create, read, revise and retract data in the schema's names before the query core exists; every request of the subset keeps its meaning in the whole language, and every other construct is refused with `UQL0901` (section 4.1) |
+| The stage 6.6 subset | Decided 2026-11-10: `insert`, `update`, `delete`, `retract` and a root query by type and filter with a flat shape run from stage 6.6, so tests create, read, revise and retract data in the schema's names before the query core exists; every request of the subset keeps its meaning in the whole language, and every other construct is refused with `UQL0901` (section 4.1) |
 | `iri` of an edge without a reifier | Decided 2026-11-10: `None`. A reifier is allocated per instance (`../schema/SCHEMA.md` section 11.1), so the field is an `Option` on a type whose instances need hold none |
 | `with retracted` | Decided 2026-11-10: every instance with its newest version, the slice of `../schema/SCHEMA-APG.md` section 15.3, so a result is a function of one algebraic property graph; a past version is read by `believed at` or `as of` |
 

@@ -202,7 +202,7 @@ A privilege is an action on a scope. The action's number is the `detail` of a re
 |---|---|
 | cluster | every tenant, and the cluster's own administration; its operations, backup and export among them, are what reaches over tenants |
 | tenant | one tenant: every namespace, graph and predicate in it |
-| namespace | one namespace of a tenant: its graphs and predicates, from stage 6 |
+| namespace | one namespace of a tenant: its graphs and predicates, from stage 6.6 |
 | graph | one named graph of a tenant |
 | predicate | one predicate of a tenant, in every graph |
 

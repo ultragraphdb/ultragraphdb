@@ -17,7 +17,7 @@ and every file:
   creates every element live.
 - `<dir>/<schema>/<n>.retract`, for a set that retracts any element: the IRIs the client retracts after the write, one
   per line in the order applied, each by an Operation of kind 6 in one later transaction
-  (`openspec/changes/stage-6-ugs-data-definition/design.md`, decision 4). An element the engine retracts by itself, by
+  (`openspec/changes/stage-6-6-ugs-data-definition/design.md`, decision 4). An element the engine retracts by itself, by
   a participant's `@on_retract(cascade)` or `restrict open`, is not listed (`clientRetractions`).
 - `<dir>/<schema>/<n>.nq`, the set's view `R(G)`, which the engine must return after the write and the retractions,
   the instants of `asserted` aside.

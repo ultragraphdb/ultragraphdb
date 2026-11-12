@@ -5,8 +5,8 @@ suffix per key, and a write path that syncs fjall's own journal beside the log. 
 `openspec/benches/benches-2026-11-09.md` and the measurements of the design note show where that ends: a cold Scan
 spends 89% of its time loading and checksumming a fjall block per list, MVCC copies are paid for data that never
 changes, and two replicas of one partition hold different bytes, so repair and verification compare logical contents
-instead of checksums. Stage 6's storage groups would build a third of UGS's storage on those structures, which is why
-the order of work decided on 2026-11-10 pauses stage 6 after its group 1 and builds the tile store first.
+instead of checksums. Stage 6.6's storage groups would build a third of UGS's storage on those structures, which is why
+the order of work decided on 2026-11-10 pauses stage 6.6 after its group 1 and builds the tile store first.
 
 The tile store is specified to the byte: `specification/storage/STORAGE.md`, its conformance vectors under
 `specification/conformance/storage/`, and the protocol and schema sections it reads and writes, all made consistent by
@@ -35,11 +35,11 @@ wire's read and write kernels onto it, so that code and specification say the sa
   free set, the manifest, the superblock, checkpoints, recovery, repair, scrubbing and the cleaner; slots, the delta,
   versions and the logged fold horizon; apply, admission and deterministic compaction; drops, purge markers and index
   builds as logged engine operations; the generic layout every tenant has before UGS resumes. The compiled layout of
-  governed tenants is stage 6's (groups 3, 4 and 6 to 8, 9.2): this change reads a catalog version's Layout entry only
+  governed tenants is stage 6.6's (groups 3, 4 and 6 to 8, 9.2): this change reads a catalog version's Layout entry only
   through the interface those groups fill.
 - **Ownership.** The engine is owned by its core; transactions, Scans and Frontier requests hold handles and restart
   their attempt when a tile is not in the cache (T33). The commit path writes logical conflict keys (`PROTOCOL.md`
-  section 12.2) and keeps two overlays, a transaction's own writes and admitted proposals. This supersedes stage 6's
+  section 12.2) and keeps two overlays, a transaction's own writes and admitted proposals. This supersedes stage 6.6's
   group 2b.
 - **BREAKING — the log's record.** The Round carries what execution derived: `flags` with the checkpoint bit, a
   derivations section (count degrees, `@limit` and statistics deltas) and an evictions section; Ingest shares log
@@ -116,5 +116,5 @@ wire's read and write kernels onto it, so that code and specification say the sa
   `ultragraphdb_core_codec`, `ultragraphdb_store_hnsw`; fjall and moka leave the workspace; `ultragraphdb_core_algo`
   unless compute keeps its sorted-set operations.
 - **Golden frames and fuzz targets** of every changed body regenerated; the Lean `RoundModel` extended.
-- **Stage 6** resumes at group 2 on this change's engine; its group 2b is superseded, and its tokenizers delta follows
+- **Stage 6.6** resumes at group 2 on this change's engine; its group 2b is superseded, and its tokenizers delta follows
   this change's.

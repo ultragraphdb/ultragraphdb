@@ -540,7 +540,7 @@ partition until the bucket moves.
 - The mapping from an IRI to its ID never changes once written, since keys are immutable and IDs never reused, so any
   partition caches another's dictionary entries without invalidation. *Narrowed by P24 (2026-11-02): the ID-to-IRI
   direction never changes, since IDs are never reused. In stage 5.5 an IRI-to-ID entry never changes either, since
-  deletes are by pattern and no entity is deleted, so the cache stays valid. From stage 6 an entity delete and a
+  deletes are by pattern and no entity is deleted, so the cache stays valid. From stage 6.6 an entity delete and a
   re-created IRI change it, and the home's "deleted" answer and the delete's fence catch a stale entry; stage 8's
   reclamation removes entries with no delete before them, and stage 8 specifies how a registration naming a reclaimed ID
   is answered before it builds reclamation.*
@@ -955,8 +955,8 @@ its own; when its sequence would run out, it asks the sequencer to close the epo
 - The IRI template `{namespace}{Type}/{key}` leaves open whether `Type` is the declaring or the concrete type, and an
   `@iri` template need not let the key be read back from an IRI, so a node holding only an IRI could not find its
   bucket.
-- Stage 5.5 comes before UGS keys (stage 6). Whatever it hashes in the meantime fixes buckets in stored IDs; with no
-  outside users a change in stage 6 rewrites data, but avoiding it costs nothing.
+- Stage 5.5 comes before UGS keys (stage 6.6). Whatever it hashes in the meantime fixes buckets in stored IDs; with no
+  outside users a change in stage 6.6 rewrites data, but avoiding it costs nothing.
 
 **Recommendation.**
 
@@ -965,7 +965,7 @@ its own; when its sequence would run out, it asks the sequencer to close the epo
 - IRIs are minted from the declaring type, `{namespace}{DeclaringType}/{key}`, and the compiler refuses an `@iri`
   template from which the key cannot be read back.
 - Data without a key, in stage 5.5 and in `@open` types after it, takes its IRI as the key of a built-in `Resource`
-  type, so stage 6 adds keyed types without moving existing data.
+  type, so stage 6.6 adds keyed types without moving existing data.
 
 **Consequences.**
 
@@ -1097,9 +1097,9 @@ with the referrer-set members they add or renew.*
 
 - P1–P19 mix formats that every later stage stores (IDs, versions, keys, the log record) with runtime choices that
   only matter once replication and the sequencer run.
-- Building the cross-partition machinery (sequencer, Calvin commits, change streams) in stage 5.5 lets stages 6 and 7
+- Building the cross-partition machinery (sequencer, Calvin commits, change streams) in stage 5.5 lets stages 6.6 and 7
   run on several partitions, but makes 5.5 most of stage 8.
-- Deciding everything in 5.5 and building the formats only keeps 5.5 bounded; stages 6 and 7 then run with one
+- Deciding everything in 5.5 and building the formats only keeps 5.5 bounded; stages 6.6 and 7 then run with one
   partition, a configuration of the same code, not a separate path.
 
 **Recommendation.**
@@ -1111,7 +1111,7 @@ with the referrer-set members they add or renew.*
     it;
   - the metadata group with one replica, holding the catalog, ID blocks and the placement map (D4, P2, P7);
   - the sequencer with one replica, closing epochs and ordering multi-partition transactions (P21);
-  - the partition runtime, partition-generic, run with one partition for stages 6 and 7 and with N in `wal_bench`
+  - the partition runtime, partition-generic, run with one partition for stages 6.6 and 7 and with N in `wal_bench`
     (P5 step 1);
   - the crates divided into the three roles, each role its own binary and OCI image under `../../ultragraphdb` (P22).
 - **Stage 5.5 decides and stage 8 builds**: the execution of cross-partition commits on the sequencer's order (P3,
@@ -1147,7 +1147,7 @@ Each role is its own binary under `../../ultragraphdb`: frontend (the endpoint, 
 compute (query execution) and storage (transactions, the commit step, the log, the store). Each ships as its own OCI
 image on the Wolfi glibc base through `glibc_multiarch_img` (D7). A binary carries only its role's code and
 dependencies, so each image is the smallest that role allows and a role updates on its own; the roles share the
-libraries beneath them. Stage 5.5 builds the three binaries and their images and runs them together for stages 6 and 7.
+libraries beneath them. Stage 5.5 builds the three binaries and their images and runs them together for stages 6.6 and 7.
 
 The development container runs the three binaries as three processes under a supervisor binary, joined by the
 transport over Unix-domain sockets; the in-process carrier is dropped (single-container note, approved 2026-11-01).
@@ -1245,7 +1245,7 @@ facts it points at, only the guarantee that it grows before they are written.
    with one partition it is local. A read-only transaction reads across partitions at its snapshot.
 8. **Deletes.** Stage 5.5's changesets delete by pattern, and a delete by pattern that reaches another partition's
    state, a subject or inbound entries another partition owns, is cross-partition (rule 7) and refused. The entity
-   delete UGS brings in stage 6 writes a tombstone at the entity's home and, executed across partitions in stage 8, a
+   delete UGS brings in stage 6.6 writes a tombstone at the entity's home and, executed across partitions in stage 8, a
    sequenced share at every member of `R(o)` that fences `o` locally; a later commit referencing `o` aborts with
    `EntityDeleted`, a registration after the tombstone is answered "deleted", and re-creating the IRI allocates a new
    ID.
@@ -1316,7 +1316,7 @@ facts it points at, only the guarantee that it grows before they are written.
   still answered from type-prefix ranges.
 - *P20:* stage 5.5 builds registration, referrer sets, the local reverse index, fan-out reverse reads, the epoch
   inequality, the refusal of cross-partition deletes by pattern and a Lean model of rules 4, 5, 6, 9 and 11, with
-  catalog announcements and tombstones; stage 6 brings
+  catalog announcements and tombstones; stage 6.6 brings
   the entity delete and its tombstone; stage 8 builds the sequenced cross-partition work, the delete shares and
   reclamation. Neither builds change streams or split reverse parts.
 - *P21:* a partition stamps one above the latest close delivered to it (rule 4).

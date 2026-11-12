@@ -1,4 +1,4 @@
-# The stage 6 change against the core principles
+# The stage 6.6 change against the core principles
 
 * Status: 2026-11-10, all eleven recommendations accepted by the user and applied the same day (design decision 15,
   task 0.15). Where a recommendation left a choice, the one applied:
@@ -142,7 +142,7 @@
 - **Recommendation.**
   - **The compile.** It runs on a control-plane thread the frontend role starts at startup and hands work by a bounded
     channel (Ultra: threads injected, queues bounded). Its inputs are the sources, the tenant's base version and the
-    `prefix_next` of that version. Stage 6 allocates prefixes once per tenant, from 3 in declaration order, so the
+    `prefix_next` of that version. Stage 6.6 allocates prefixes once per tenant, from 3 in declaration order, so the
     version is fully determined off the owner.
   - **The owner.** It checks the base, commits the bytes with the prefixes they allocate, and answers. Its turn grows
     by one append, as any catalog commit's does.
@@ -285,7 +285,7 @@
 `OWNER_CORE` is 1, and endpoint core 1 also asks for CPU index 1, so with `pin_cores` on, the owner thread (sequencer
 and metadata group) shares a CPU with an endpoint core
 (`ultragraphdb_common/ultragraphdb_common_frontend/src/utils/owner_thread.rs:21-22`;
-`ultragraphdb/ultragraphdb_frontend/src/service.rs:228, 245`). This is for the user to place; it is not stage 6's.
+`ultragraphdb/ultragraphdb_frontend/src/service.rs:228, 245`). This is for the user to place; it is not stage 6.6's.
 
 ## The plan once these are decided
 

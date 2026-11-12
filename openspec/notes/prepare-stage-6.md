@@ -1,16 +1,16 @@
-# Preparing stage 6: UGS, the data definition and its implementation
+# Preparing stage 6.6: UGS, the data definition and its implementation
 
 * Status: preparation, 2026-11-08, while stage 5.5's last mutation passes run (its tasks 9.6, 10.5, 11.5 and group 12).
-* Input to: the stage 6 OpenSpec change, written once stage 5.5 closes with 12.8.
+* Input to: the stage 6.6 OpenSpec change, written once stage 5.5 closes with 12.8.
 
-This note lays out stage 6 in the order it must be built, with enough detail that its change set (proposal, design,
+This note lays out stage 6.6 in the order it must be built, with enough detail that its change set (proposal, design,
 capability specifications, tasks) can be written from it and its groups started without rediscovering what stage 5.5
-left. Stage 6 builds UGS, the one data definition language of UltraGraphDB (`specification/schema/SCHEMA.md`), from its
+left. Stage 6.6 builds UGS, the one data definition language of UltraGraphDB (`specification/schema/SCHEMA.md`), from its
 source text to the catalog, the store and the write path, together with the protocol and client parts a schema needs.
 
 ## 1. Success
 
-Stage 6 is done when:
+Stage 6.6 is done when:
 
 1. **A UGS schema is created, read, updated and deleted** through the binary protocol by the Rust client:
    - **create:** Install of a schema's sources into a tenant answers a catalog version, its effective epoch and the
@@ -25,14 +25,14 @@ Stage 6 is done when:
    `ServiceRadarExtension.ugs` installs into a tenant with no error, its report holding exactly the warnings and
    notes the corpus expects (`UGS0902` for constructs that execute in a later stage, `UGS0903` to `UGS0906` for
    placement and scatter reads), and a corpus of DeepBrain instances written as quads is accepted where
-   it holds every stage 6 rule and refused, with the rule's `UGS1xxx` number, where it breaks one. The instances read
+   it holds every stage 6.6 rule and refused, with the rule's `UGS1xxx` number, where it breaks one. The instances read
    back through the RDF view.
 3. `make test` is green, every group's mutation pass is done, and the fuzz runs of group 12 are recorded.
 
 ## 2. First: two specification gaps that block success
 
 Neither criterion of section 1 can be met against the specification as it stands. Both gaps are decided below, and
-closed in `SCHEMA.md` and `PROTOCOL.md` as stage 6's first work (tasks 0.1 and 0.2), before the change set is written
+closed in `SCHEMA.md` and `PROTOCOL.md` as stage 6.6's first work (tasks 0.1 and 0.2), before the change set is written
 and before any group that depends on them starts.
 
 **G1. No operation deletes a namespace.** `SCHEMA.md` and `PROTOCOL.md` install and replace sources by name, and Drop
@@ -68,16 +68,16 @@ it.
 - *Amends:* `SCHEMA.md` section 14's `@index(ann)` row and the `UGS0902` text; `PROTOCOL.md` section 11.13's sentence
   on vector indexes.
 
-## 3. Where stage 6 starts
+## 3. Where stage 6.6 starts
 
 What stage 5.5 leaves, read from its tasks and the code:
 
-| Area | State at stage 6's start | What stage 6 changes |
+| Area | State at stage 6.6's start | What stage 6.6 changes |
 |---|---|---|
 | System ID (`ultragraphdb_core_ids`) | 128 bits, type prefix, sequence leased per (type, partition), bucket from tenant and key, the canonical key encoding | Type prefixes allocated per declared type in declaration order; buckets and claims from a key's key space; handles for keyless instances |
 | Catalog (`ultragraphdb_core_catalog`) | Stage 5's three kinds: predicate declarations, entity types numbered in preorder, relations' roles; datatype checks | Replaced by `SCHEMA.md` section 10.2's catalog version: every entry, one canonical encoding, the schema id |
 | Metadata group (`ultragraphdb_cluster_metadata`) | Catalog versions pending until their effective epoch; default entries for undeclared predicates; type changes checked by every partition; Report and the restoring version (task 9.5.8) | Holds compiled UGS versions; allocates prefixes; runs Install; generalises Report into section 13.3's validation scan |
-| Frontend (`ultragraphdb_common_frontend`) | Refuses an Install with "stage 6"; answers Describe from the metadata group | Serves Install, namespace removal (G1) and the new Describe |
+| Frontend (`ultragraphdb_common_frontend`) | Refuses an Install with "stage 6.6"; answers Describe from the metadata group | Serves Install, namespace removal (G1) and the new Describe |
 | Wire (`ultragraphdb_protocol_wire`) | Install, Query and Prepare frames as of 2026-11-05; golden frames to match | Brought to `PROTOCOL.md` as extended on 2026-11-08: warnings (section 4.9), Describe's record kinds and continuation, Install's `staged`, Reference's get-only mode, codes 30 and 31, datatypes 34 to 36, Purge (24) and Migrate (25), `catalog_bytes_max`. Every golden frame of Result, Prepare, Describe, Install and Reference is stale until then |
 | Write path (`transactions_*`, `store_apply`, `cluster_partition`) | Quads checked against predicate declarations; registrations at a referenced entity's home; `CrossPartition` refusals | Instances assembled from their triples and validated whole at commit (`SCHEMA.md` section 8) |
 | Client (`ultragraphdb_client_*`) | Transactions, reads, Describe, sessions, levels | Install, removal, the new Describe, warnings, the new codes and datatypes |
@@ -85,13 +85,13 @@ What stage 5.5 leaves, read from its tasks and the code:
 No crate parses UGS today. Stage 5.5's write-path declarations (kind 8 records in a Write, `PROTOCOL.md` section
 11.13) stay for ungoverned tenants.
 
-## 4. Scope: what stage 6 builds
+## 4. Scope: what stage 6.6 builds
 
-`SCHEMA.md` section 14 is the cut. It replaces the 2026-11-01 table of `review-stages-5.5-and-6.md` (decision D5),
+`SCHEMA.md` section 14 is the cut. It replaces the 2026-11-01 table of `archive/review-stages-5.5-and-6.md` (decision D5),
 which left bitemporality, geometry and units to parsing only; section 14, written after the bitemporal, measure and
-geometry rules were settled, builds them in stage 6.
+geometry rules were settled, builds them in stage 6.6.
 
-| Built and enforced in stage 6 | Accepted, compiled and recorded, executing later (`UGS0902`) |
+| Built and enforced in stage 6.6 | Accepted, compiled and recorded, executing later (`UGS0902`) |
 |---|---|
 | The whole grammar, every static rule of sections 5 to 7, prefixes, keys, IRIs, Describe | `@index(ann)`, `Vector<BF16>` storage and `quantization` (stage 8; gap G2) |
 | Required, optional, defaults, value checks, datatypes, enums, `@immutable`, type fixed for life, closed by default, `@open` | A key or `@unique` claim at another partition (stage 8) |
@@ -121,7 +121,7 @@ the change's specs are written from them as Gherkin-ready requirements.
 - *Decided:* new capabilities `ugs-syntax`, `ugs-semantics`, `ugs-identity`, `ugs-catalog`, `ugs-enforcement`,
   `ugs-views` and `ugs-evolution`; deltas to `system-identity`, `catalog`, `schema-changes`, `schema-storage`,
   `mapping-contract`, `term-dictionary`, `metadata-group`, `wire-protocol` and `client-endpoint`, as `SCHEMA.md`
-  section 15 lists them for stage 6.
+  section 15 lists them for stage 6.6.
 
 **D2. The crates.** Parsing and compiling are new code with no home.
 - *Decided:* `ultragraphdb_core_ugs_syntax` (lexer, parser, syntax tree with spans, the diagnostics' rendering)
@@ -130,10 +130,10 @@ the change's specs are written from them as Gherkin-ready requirements.
   metadata group, a test and a future language server call them alike. Each is created in full by the group that
   builds it; no skeleton.
 
-**D3. Where stage 6's data comes from.** The query core is stage 7, so no GQL, SPARQL or UQL text reaches the engine
-in stage 6.
+**D3. Where stage 6.6's data comes from.** The query core is stage 7, so no GQL, SPARQL or UQL text reaches the engine
+in stage 6.6.
 - *Decided:* the acceptance corpus writes instances as quads through Write and DirectWrite, the RDF view's
-  triples of `SCHEMA.md` section 11.2, and reads them back with Read's quad patterns, so stage 6 proves the RDF view
+  triples of `SCHEMA.md` section 11.2, and reads them back with Read's quad patterns, so stage 6.6 proves the RDF view
   and the write path without a query language.
 
 **D4. The provisional schema's copy.** Gen5 lives in the scrith repository, and Bazel's targets stay hermetic.
@@ -149,7 +149,7 @@ independent of the code, an Ultra Style lift in a commit of its own before an ex
 fuzz targets written for every decoder of client, peer or disk bytes, `scripts/mutants.sh` once per crate as the
 group's last step, `make test` as the gate, and a commit by the user after each group.
 
-### Group A. The APG model and the oracle → `lean/schema/ApgModel`, before stage 6
+### Group A. The APG model and the oracle → `lean/schema/ApgModel`, before stage 6.6
 
 Written now, beside stage 5.5's last mutation passes: it needs `SCHEMA-APG.md` alone, shares no crate with stage 5.5,
 and checks the decisions of `SCHEMA-APG.md` section 21 before the change set is written to them. As
@@ -173,7 +173,7 @@ its plan is `archive/prepare-apg-lean.md`.
   instance set, proposition 17.3's round trip first, listed in the group's notes, as stage 5.5's 6b.4 did.
 - **A.5** A finding against `SCHEMA-APG.md` fixed in the specification first, its section 21's decisions among it,
   before task 0.3 writes the capability specifications.
-- **A.6** After group 4, as a task of stage 6: `SCHEMA-APG.md` part 3's catalog translation modelled over a catalog
+- **A.6** After group 4, as a task of stage 6.6: `SCHEMA-APG.md` part 3's catalog translation modelled over a catalog
   structure `ultragraphdb_core_ugs_compile` exports, so the step from UGS to the APG schema joins the oracle, and A.3's
   hand-written schemas checked against it.
 
@@ -198,7 +198,7 @@ its plan is `archive/prepare-apg-lean.md`.
     expected RDF view of its instance sets, which are group A's oracle files;
   - evolution pairs, version `n` and `n + 1`, for each row of `SCHEMA.md` section 13.2, the removal of G1 among them,
     with the expected kind and refusal;
-  - instance sets for Gen5 that hold or break each stage 6 rule, with the expected `UGS1xxx` number.
+  - instance sets for Gen5 that hold or break each stage 6.6 rule, with the expected `UGS1xxx` number.
   The corpus is the feedback note's proposal (`UltraGraphDB Schema Feedback.md`, section E), built now.
 
 ### Group 1. The wire to `PROTOCOL.md` → `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_transport`
@@ -292,7 +292,7 @@ reference types), as stage 5.5's groups were.
 
 - **Assembly** (`SCHEMA.md` section 8.1): the triples a transaction writes assembled into instances, each validated
   whole against the catalog version in effect at the commit; an incomplete instance refused (`UGS1034`).
-- **The stage 6 rows of section 8.2**, each refused with its number through code 7: types and closure, required and
+- **The stage 6.6 rows of section 8.2**, each refused with its number through code 7: types and closure, required and
   defaults, datatypes, enum members, units, vector dimensions, value checks, `@immutable`, keys and `@unique` local,
   their claims held through a retraction (section 7.2), participants existing, live and of the role's type, roles
   present, cardinality on the anchor role, `@set` resolving to the existing instance, `@acyclic` and `max_depth` within
@@ -389,7 +389,7 @@ returns, and the user commits before the next wave starts.
 - **Gen5's catalog size.** 173 type declarations, their attributes, roles and classification facts in one version;
   group 4 measures the encoded bytes early, so `catalog_bytes_max`'s default is checked against a real schema.
 - **Cross-partition relations.** Gen5's relations anchor at their subject, so most participant checks reach another
-  partition. Reference's get-only mode carries them in stage 6; the rules that must read another partition's state
+  partition. Reference's get-only mode carries them in stage 6.6; the rules that must read another partition's state
   wait for stage 8 and are refused with code 23, which the acceptance corpus places its instances to avoid where a
   rule is meant to pass.
 - **Removal across partitions.** G1's check for live instances must see every partition holding the tenant's data,

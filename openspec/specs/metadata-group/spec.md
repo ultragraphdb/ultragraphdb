@@ -180,7 +180,7 @@ registered SHALL be refused, naming it.
 ### Requirement: The metadata group holds the tenants
 The metadata group SHALL hold the tenants, each the engine's unit of isolation: one catalog of numbered versions, one
 run of buckets and the grants of its principals. Nothing SHALL read, write or name across tenants; the cluster scope
-alone reaches over them, for backup and export. A namespace, a unit of organisation inside a tenant from stage 6, SHALL
+alone reaches over them, for backup and export. A namespace, a unit of organisation inside a tenant from stage 6.6, SHALL
 have no field in any key, bucket, ID or frame. The cluster's first start SHALL create tenant 0 by a command of the
 group, durable before any role serves, and Placement's runs SHALL list one run per tenant the group holds. Further
 tenants, and removing a tenant, SHALL take the cluster operation of `SECURITY.md`'s `operate` action, whose command

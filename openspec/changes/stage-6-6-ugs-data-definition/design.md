@@ -6,11 +6,11 @@
 (section 7). This design is read with that note; it restates what changes and records what the user decided on
 2026-11-10. Where the two differ, this change holds.
 
-Where stage 6 starts, checked against the repository on 2026-11-10:
+Where stage 6.6 starts, checked against the repository on 2026-11-10:
 
 | Area | State |
 |---|---|
-| UGS in code | No crate parses UGS. The frontend refuses an Install naming stage 6 (`PROTOCOL.md` section 11.2) |
+| UGS in code | No crate parses UGS. The frontend refuses an Install naming stage 6.6 (`PROTOCOL.md` section 11.2) |
 | Catalog | Three kinds: predicate declarations, entity types numbered in preorder, relations' roles (`catalog` specification) |
 | Wire | `PROTOCOL.md` carries Install, Describe's twenty entry kinds with continuation, warnings, codes 30 and 31, datatypes 34 to 36, Purge and Migrate, and Reference's get-only mode; `ultragraphdb_protocol_wire` implements the frames of 2026-11-05 |
 | Writes | The frontend relays a client's Write, Operation, Commit and Abort frames unchanged on the Bind stream of the transaction's partition (`PROTOCOL.md` section 11.12). Change records (section 4.6) insert and delete statements and properties; Operation (section 7.3) has kinds 1 to 4 |
@@ -27,7 +27,7 @@ formats change in place.
 
 **Goals:**
 
-- The whole language accepted and every construct of `SCHEMA.md` section 14's stage 6 rows enforced.
+- The whole language accepted and every construct of `SCHEMA.md` section 14's stage 6.6 rows enforced.
 - `deepbrain-gen5.ugs` installs and its data is created, read, revised and retracted under its rules.
 - One compiled form, the catalog version, read by the metadata group, the partitions, compute and the frontend.
 - A way to run data operations in the schema's names before stage 7: the UQL CRUD subset.
@@ -46,9 +46,9 @@ formats change in place.
 
 ## Decisions
 
-### 1. The scope is `SCHEMA.md` section 14's stage 6 column, whole (user, 2026-11-10)
+### 1. The scope is `SCHEMA.md` section 14's stage 6.6 column, whole (user, 2026-11-10)
 
-The success criteria name Gen5 and simple CRUD; the scope is every stage 6 row. Gen5 uses no mutable type, no
+The success criteria name Gen5 and simple CRUD; the scope is every stage 6.6 row. Gen5 uses no mutable type, no
 `@on_delete`, no `@open`, no `@values` and no `@valid`; the aviation schema of section 16 and the conformance corpus
 carry those.
 
@@ -59,7 +59,7 @@ carry those.
 
 Every change to an installed schema waits for stage 9.5, which has the full cluster: a change takes effect at an
 epoch in every partition holding the tenant, a tightening scans them, and a migration moves data between them. In
-stage 6 a tenant takes one Install, of one or more sources compiled together: schemas, and the modules extending
+stage 6.6 a tenant takes one Install, of one or more sources compiled together: schemas, and the modules extending
 them. An Install into a tenant that holds a schema is refused with code 7, the message naming stage 9.5, as the
 frontend refuses every command of a later stage. The `version` an Install builds on is checked first, and one no
 longer current is refused with code 2, kind Catalog (`PROTOCOL.md` section 8.4). From its check of the tenant until its
@@ -71,13 +71,13 @@ version takes effect, an Install fences the tenant's writes with code 31, so no 
   of kind 4, naming the catalog version it drops under, and a new Install, or installed into a fresh cluster.
 - *Consequence:* the compiler's phase 8 has nothing to compare, and prefixes are allocated once per tenant. Phase 9
   still allocates through the metadata group's log, so stage 9.5 extends an allocation that already never reissues.
-- The catalog encoding defines the entry kinds a stage 6 compiler emits, Describe's kinds 1 to 19. The retired-name
+- The catalog encoding defines the entry kinds a stage 6.6 compiler emits, Describe's kinds 1 to 19. The retired-name
   and migration entries of `SCHEMA.md` section 10.2 arrive with stage 9.5, which writes them; the wire decodes
-  Describe's kind 20 from stage 6, as `PROTOCOL.md` lays it out.
+  Describe's kind 20 from stage 6.6, as `PROTOCOL.md` lays it out.
 - *Alternative, an Install that adds sources to a governed tenant:* additive in section 13.2's terms and cheap to
   build, and it is still a version taking effect over data, which the user places whole at stage 9.5.
 
-### 3. A UQL CRUD subset carries stage 6's data operations (user, 2026-11-10)
+### 3. A UQL CRUD subset carries stage 6.6's data operations (user, 2026-11-10)
 
 The preparation's D3 wrote instances as quads alone. Quads cannot name a delete or a retraction of an instance, and
 Gen5's every removal is a retraction. Query therefore takes `language` 3 for this subset of
@@ -104,7 +104,7 @@ assign    = ident ":" ( value | selector | "[" selector { "," selector } "]" ) ;
 
 - In `values`, the assigned name decides the reading: an attribute takes a value, a list of values for a `List` or
   `Set`, and a role takes a selector, a list of selectors for a set-valued role.
-- Every request of the subset is a request of UQL with UQL's meaning, so stage 6's tests stay valid when UQL is built
+- Every request of the subset is a request of UQL with UQL's meaning, so stage 6.6's tests stay valid when UQL is built
   in full. A construct of UQL outside the subset is refused with `UQL0901`, the specification's own refusal for a
   construct before its stage.
 - A **point selector** fixes its type's whole key, or `iri`, by equality. It compiles to the instance's IRI with no
@@ -172,7 +172,7 @@ reifier is deleted by the delete of its quad, change record 3.
 - The subset's row assembly in the frontend is sized for tests. Stage 7's kernel in compute replaces it; the plan type
   is the seam.
 - *Alternative, executing in compute:* the right home for the query core, and it would build a kernel interface in
-  stage 6 that stage 7 designs.
+  stage 6.6 that stage 7 designs.
 
 ### 6. Crates: a new group folder `ultragraphdb_schema/` (user, 2026-11-10)
 
@@ -232,7 +232,7 @@ needs; `regex-automata` is already in the dependency tree under `regex`.
 
 ### 10. Acceptance runs on one partition; cross-partition refusals are tested below it
 
-The roles run one partition by default in stages 6 and 7 (stage 5.5's proposal), so every acceptance scenario's
+The roles run one partition by default in stages 6.6 and 7 (stage 5.5's proposal), so every acceptance scenario's
 checks are local. Each rule's refusal with code 23 is a scenario of `ultragraphdb_cluster_partition`, which runs N
 partitions in one process, with instances placed in two partitions.
 
@@ -321,7 +321,7 @@ at `d1aad303`. The user accepted all eleven recommendations on 2026-11-10:
 
 Two questions the corpus raised, decided by the user:
 
-- **Materialized path derivations are stage 6's.** A path derivation is compiled to its steps (`CATALOG.md` section
+- **Materialized path derivations are stage 6.6's.** A path derivation is compiled to its steps (`CATALOG.md` section
   5.8), and group 8 builds the path evaluator the partition maintains a materialized one with: a loop over the steps
   with an explicit frontier and a visited set, recomputing each instance a commit's changes reach by walking the path
   backwards, within `rule_read_max` (`UGS1040` past it). A path naming a function waits for stage 7 with `UGS0902`.

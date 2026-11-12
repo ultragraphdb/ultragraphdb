@@ -1,6 +1,6 @@
 # The instance corpus
 
-Instance sets for Gen5 and the aviation schema that hold or break each stage 6 rule of `SCHEMA.md` section 8, with
+Instance sets for Gen5 and the aviation schema that hold or break each stage 6.6 rule of `SCHEMA.md` section 8, with
 the refusal `SCHEMA.md` section 8.7 numbers, written from the specification alone. The acceptance tests (task 12.3)
 and the UQL parity test (task 10.5) run each case against a cluster of one partition holding the schema.
 

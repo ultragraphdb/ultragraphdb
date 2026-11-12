@@ -282,7 +282,7 @@ fn test_a_reply_through_no_session_holds_the_zero_token() -> TestResult {
     Ok(())
 }
 
-/// Stage 6: Drop's `catalog` (`PROTOCOL.md` §6.5): the catalog version a drop of kind 3 or 4 drops under, 0 for kinds
+/// Stage 6.6: Drop's `catalog` (`PROTOCOL.md` §6.5): the catalog version a drop of kind 3 or 4 drops under, 0 for kinds
 /// 1 and 2.
 mod stage_6 {
     use ultragraphdb_error_protocol::ProtocolErrorEnum;

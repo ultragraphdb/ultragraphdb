@@ -12,9 +12,9 @@ turns by transactions and Scans (B2); quads, lists, postings and the dictionary 
 `ultragraphdb_core_keys` and `ultragraphdb_core_codec`; the write-set record names physical list keys; the log's
 superblock and `SimStorage` live inside `ultragraphdb_transactions_log`, above everything a grid would need; reads are
 KV-shaped Scans with version-suffixed keys and a per-node retention window; Dgraph-equal tokens decide the index bytes.
-Stage 6 has finished its group 1, the wire for UGS, and is paused until this change is done (`ROADMAP.md`).
+Stage 6.6 has finished its group 1, the wire for UGS, and is paused until this change is done (`ROADMAP.md`).
 
-Stakeholders: the user, who commits after each group; stage 6, which resumes on this engine; stage 8, which
+Stakeholders: the user, who commits after each group; stage 6.6, which resumes on this engine; stage 8, which
 distributes it.
 
 ## Goals / Non-Goals
@@ -29,7 +29,7 @@ distributes it.
 
 **Non-Goals:**
 
-- The compiled layout and governed storage: stage 6's groups 3, 4, 6 to 8 and 9.2 fill the `Layout` interface this
+- The compiled layout and governed storage: stage 6.6's groups 3, 4, 6 to 8 and 9.2 fill the `Layout` interface this
   change defines and reads. A tenant here has the generic layout.
 - Distribution (stage 8): state sync, bucket-group moves and the sequencer's shares are specified and left unbuilt;
   their rules (`STORAGE.md` sections 16.8 and 17.6) stay testable in the simulator only where a single partition can
@@ -48,7 +48,7 @@ distributes it.
 | `ultragraphdb_store_durable` | `CompioStorage` and `SimStorage`, moved out of `transactions_log`, the sim extended with the grid's fault classes | `traits_durable`, `compio`, `rustix` |
 | `ultragraphdb_store_tile_format` | section 1 and sections 4 to 11: encodings, filters, header, directory, record runs, adjacency blocks, column chunks, digests, references, the refusals; no I/O | `core_ids`, `error_tile`, `xxhash-rust` |
 | `ultragraphdb_store_grid` | sections 12, 13.1 to 13.3, 16.5, 16.6 and 17: extents, streams, free set, manifest, directory, superblock, checkpoints, recovery, repair, scrubbing, the cleaner; a sans-I/O core with a compio shell | `tile_format`, `traits_durable`, `error_tile` |
-| `ultragraphdb_traits_engine` | the engine's interface in logical change types: rounds to apply, lane requests, answers; the `Layout` interface stage 6 fills | `core_ids`, `error_tile` |
+| `ultragraphdb_traits_engine` | the engine's interface in logical change types: rounds to apply, lane requests, answers; the `Layout` interface stage 6.6 fills | `core_ids`, `error_tile` |
 | `ultragraphdb_store_tile` | sections 13.4, 14 to 16 and 18: slots, the delta, versions and the logged fold horizon, classes, apply, admission, compaction, statistics, drops, purges, builds, lanes | `tile_format`, `store_grid`, `traits_engine`, `core_ids`, `core_terms`, `core_mapping`, `core_tok`, `error_tile` |
 | `ultragraphdb_store_tile_sim` | section 19.5: the engine under every fault class against a shadow model; the reference engine's run; replica identity | `store_tile`, `store_grid`, `store_durable`, `traits_engine` |
 
@@ -81,7 +81,7 @@ the vectors are written from the specification alone, and the code is held to th
 
 **D6. The generic layout and the `Layout` interface.** The engine instantiates families from a `Layout` it reads per
 catalog version: the generic layout is its built-in value for a tenant with no schema; a compiled layout, decoded from
-the catalog version's Layout entry (`CATALOG.md` section 5.11), is stage 6's to supply. Record runs, identity columns
+the catalog version's Layout entry (`CATALOG.md` section 5.11), is stage 6.6's to supply. Record runs, identity columns
 and slot maps exist for every tenant whatever the layout (T45).
 
 **D7. The wire's breaking changes land together.** Welcome, Scan, Entries, Frontier, Neighbours, Ingest, the Round, the
@@ -90,7 +90,7 @@ both clients, so no intermediate state of the wire is committed.
 
 **D8. Tokenizers own their identifier bytes.** The registry assigns identifier bytes in its own order; range, interval
 and count tokens are the identifier byte and the value's comparison form (`STORAGE.md` section 5.3); `datetime`
-replaces `hour` and `day`; the Dgraph golden comparisons are replaced by vectors written from `STORAGE.md`. Stage 6's
+replaces `hour` and `day`; the Dgraph golden comparisons are replaced by vectors written from `STORAGE.md`. Stage 6.6's
 `measure` and `decimal` tokenizers follow this rule, and its delta is aligned in this change's first group.
 
 **D9. Determinism is tested, not argued.** Every decision of the engine reads only the rounds, the settings and state
@@ -100,7 +100,7 @@ the reference engine's run is reproduced exactly. A difference is a bug, never a
 **D10. The Lean model moves with the log.** `RoundModel` gains checkpoints, the logged fold horizon and the lanes in
 the group that changes the Round, proved before the group closes.
 
-**D11. Method.** Every group follows `openspec/protocols/tdd-protocol.md`'s five phases, as stage 6's groups do: the
+**D11. Method.** Every group follows `openspec/protocols/tdd-protocol.md`'s five phases, as stage 6.6's groups do: the
 public surface with bare `unimplemented!()`; the suite written against it and observed failing; its inputs reviewed
 against the corner cases; the implementation; then, as the group's last step, `scripts/mutants.sh` once per crate it
 changed and its fuzz targets written. An existing crate is lifted into `openspec/protocols/ULTRA_STYLE.md` in a commit
@@ -127,7 +127,7 @@ cached; the user commits after each group.
 
 No outside users: logs, grids and KV directories written before this change are not readable after it . Each group lands as one commit after `make test`; rollback is the previous commit. The KV store is
 deleted only in the last group, after the differential test passed on every workload and the user approved the
-deletion. Stage 6 resumes at group 2 when this change is archived.
+deletion. Stage 6.6 resumes at group 2 when this change is archived.
 
 ## Open Questions
 

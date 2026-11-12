@@ -767,7 +767,7 @@ derivation's filters use the expression grammar with the bitemporal items `with 
   steps (section 10.2, rule 5): a commit recomputes it for each instance of `Type` whose path the commit's changes reach,
   found by walking the path backwards from each changed instance, and each walk visits at most `rule_read_max`
   instances, a commit needing more refused with `UGS1040` (section 8.2). A path with a step naming a function is
-  stage 7's, recorded with `UGS0902` until the query core runs functions. **[stage 6]**
+  stage 7's, recorded with `UGS0902` until the query core runs functions. **[stage 6.6]**
 - **`@virtual`**, the default otherwise, expands the derivation at query time. A derivation whose filter reads another
   instance's state, a ground's `live` or `rank`, is virtual; where the maintenance matters, declare it on the type that
   holds the state read.
@@ -782,7 +782,7 @@ fields of section 5.11, with no navigation, role, derived name of another instan
 (`UGS0227`), and `today()` and `now()` refused (`UGS0225`). Its type is declared and equals the expression's
 (`UGS0207`). It is materialized by default and maintained in every commit that writes the instance, its retraction
 included, so it lives in the instance's partition by construction; `@index(range)` may follow it, and a derivation or
-a filter elsewhere reads it as a field. **[stage 6]**
+a filter elsewhere reads it as a field. **[stage 6.6]**
 
 ### 6.9 Functions
 
@@ -1922,25 +1922,25 @@ range, which the catalog recomputes.
 
 ## 14. Staging
 
-The language is accepted whole from stage 6. Each row states from which stage the construct's runtime rule holds, or
+The language is accepted whole from stage 6.6. Each row states from which stage the construct's runtime rule holds, or
 from which it executes; before that, the compiler records the declaration, derives views and classification from it,
 and reports it as unenforced (`UGS0902`). `UGS0902` is one record per declaration that waits, an `@index(ann)` declaration, a function, a
 virtual derivation; what a stage refuses at run time, a rule across partitions, is no record.
 
 | Construct | Enforced from | What waits |
 |---|---|---|
-| Lexical structure, grammar, every static rule of sections 5 to 7, prefixes, keys, IRIs, the RDF view, Describe | Stage 6 | |
-| Required, optional, defaults, value checks, datatype, enum, `@immutable`, type fixed, closed by default, `@open` | Stage 6 | |
-| `@key`, `@unique` local to the transaction's partition | Stage 6 | A claim at another partition: stage 8 |
-| Relations: roles, set-valued and optional roles, unions, `@set`, `@multi`, `@symmetric`, inheritance, cardinality on the anchor role and on another role where the participant's instances are in the transaction's partition, `@on_delete` local, `@acyclic` within a partition, `@no_overlap` and `@limit` per the anchor role, `@limit` per another role where the group's instances are in the transaction's partition, `@retracts` and `@ends` local | Stage 6 | Every cross-partition case, refused with code 23 until then: stage 8 |
-| `@append_only`, `@bitemporal`, `asserted`, `retract`, `@on_retract` local | Stage 6 | |
-| Entity delete with its tombstone | Stage 6 | Shares at referrers: stage 8 |
-| Indexes `range`, `interval`, `geo`, `fulltext` | Stage 6 | |
+| Lexical structure, grammar, every static rule of sections 5 to 7, prefixes, keys, IRIs, the RDF view, Describe | Stage 6.6 | |
+| Required, optional, defaults, value checks, datatype, enum, `@immutable`, type fixed, closed by default, `@open` | Stage 6.6 | |
+| `@key`, `@unique` local to the transaction's partition | Stage 6.6 | A claim at another partition: stage 8 |
+| Relations: roles, set-valued and optional roles, unions, `@set`, `@multi`, `@symmetric`, inheritance, cardinality on the anchor role and on another role where the participant's instances are in the transaction's partition, `@on_delete` local, `@acyclic` within a partition, `@no_overlap` and `@limit` per the anchor role, `@limit` per another role where the group's instances are in the transaction's partition, `@retracts` and `@ends` local | Stage 6.6 | Every cross-partition case, refused with code 23 until then: stage 8 |
+| `@append_only`, `@bitemporal`, `asserted`, `retract`, `@on_retract` local | Stage 6.6 | |
+| Entity delete with its tombstone | Stage 6.6 | Shares at referrers: stage 8 |
+| Indexes `range`, `interval`, `geo`, `fulltext` | Stage 6.6 | |
 | `@index(ann)` with its `metric` and `quantization`; `Vector<BF16>` storage | Stage 8 | Until then an Install accepts the declaration, records it in the catalog version and reports it (`UGS0902`), and no index is built; stage 8 builds the index from the recorded declaration with no schema change. A write of a `Vector<BF16>` value is refused naming the stage, so such an attribute stays absent; a `Vector<F32>` value is stored as a value. The write path's declaration of a vector index, in a tenant with no schema, stays refused (`../binary_protocol/PROTOCOL.md` section 11.13) |
-| `Measure`, `quantity`, `unit`, `Geo` operators | Stage 6 | |
-| Materialized derivations within the anchor partition, computed derivations among them | Stage 6 | Materialization across partitions: the tile stage |
-| `@access` | Stage 6: recorded in the catalog version and read by stage 7's query classifier (section 9.6), with no `UGS0902` | |
-| Functions and virtual derivations, executed | With the query core, stage 7 | From stage 6 each is compiled, type-checked and recorded, and reported (`UGS0902`) |
+| `Measure`, `quantity`, `unit`, `Geo` operators | Stage 6.6 | |
+| Materialized derivations within the anchor partition, computed derivations among them | Stage 6.6 | Materialization across partitions: the tile stage |
+| `@access` | Stage 6.6: recorded in the catalog version and read by stage 7's query classifier (section 9.6), with no `UGS0902` | |
+| Functions and virtual derivations, executed | With the query core, stage 7 | From stage 6.6 each is compiled, type-checked and recorded, and reported (`UGS0902`) |
 | The GQL view and SHACL export | Stage 7 | |
 | Write classification's coordinated and segmented paths across partitions, the fast path's use of the request-typing facts | Stage 8 | |
 | Purge | Stage 8 | |
@@ -1977,7 +1977,7 @@ virtual derivation; what a stage refuses at run time, a rule across partitions, 
   name `tenant`, and `Bucket::derive` and `Bucket::of_value` take a tenant. The word namespace is free for the unit
   this file defines, so that a client reads PostgreSQL's distinction, database and schema, in the
   engine's own terms.
-- **The capability specifications.** Stage 6's change set, which builds UGS, carries the following deltas into them,
+- **The capability specifications.** Stage 6.6's change set, which builds UGS, carries the following deltas into them,
   as an OpenSpec change applies its deltas when it archives; stage 9.5's change set carries the migration's:
   - `system-identity`: the canonical key encoding of section 7.2 for composite and non-IRI keys, as a revision of
     "Until UGS keys exist, an IRI is the key of the Resource type"; a `@key`'s claim bucket hashed from the key space's
@@ -2212,7 +2212,7 @@ that begin with one, `Asset.all_parts` and `Company.suppliers`.
 | One-frame writes | Decided 2026-11-10: a rule over the instance's own fields is validated in a DirectWrite's one turn; a claim, and a rule reading beyond the instance, take a transaction (section 9.6); an Ingest share claims its instances' keys and `@idempotency` values, which their own bucket holds |
 | A recreated IRI | Decided 2026-11-10: the new instance's record names the ID it replaced and the tombstone the delete's version, so a read of the past never answers absence where an instance was; the term-to-ID record is replaced at the re-creation's version (T48, C16; section 8.5) |
 | Order of sources | Decided 2026-11-10: schemas by name, then modules after what they extend, so prefix allocation is a function of the sources alone (section 7.1) |
-| Decimal ranges and materialized paths | Decided by the user 2026-11-10: `Decimal` takes an exact sortable tokenizer, `decimal`, so a range index orders by the value itself (section 6.10); stage 6 maintains materialized path derivations, a path compiled to steps that the partition walks within `rule_read_max` (sections 6.8, 10.2) |
+| Decimal ranges and materialized paths | Decided by the user 2026-11-10: `Decimal` takes an exact sortable tokenizer, `decimal`, so a range index orders by the value itself (section 6.10); stage 6.6 maintains materialized path derivations, a path compiled to steps that the partition walks within `rule_read_max` (sections 6.8, 10.2) |
 | What a rule reads at commit | Decided 2026-11-10: an update of an attribute a rule's condition reads is checked as an update of what it aggregates; a `@limit` keeps its aggregate per group, one read and one write whatever the group's size; `@acyclic` and `@no_overlap` read within `rule_read_max` and refuse past it (`UGS1040`); `@acyclic` without `max_depth` stays legal under the same bound (sections 8.2, 8.6, 9.4) |
 | Declared predicates' IDs | Decided 2026-11-10: allocated by the metadata group with the version, the `Resource` prefix with sequences from 2^63, held in the version's predicate index and never in an entry, since Describe carries entries and a system ID never leaves the database; a governed tenant resolves no declared predicate through the dictionary (section 7.1, `CATALOG.md` section 2) |
 | Where an install compiles | Decided 2026-11-10: beside the metadata group, from the base version and the next free prefix and predicate sequence, so the group's thread only commits bytes; the version is decoded and encoded back before it is committed, and a failure is the compiler's, refused with code 7 (section 10.1) |
@@ -2233,7 +2233,7 @@ that begin with one, `Asset.all_parts` and `Company.suppliers`.
 - `openspec/notes/UltraGraphDB Distribution Protocol.md`, the fast path's qualification from the classification
 - `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md`, P1, P3, P7, P13–P16 and P24
 - `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`, the quad layout, datatypes by value, the data dictionary
-- `../../openspec/notes/review-stages-5.5-and-6.md`, D1–D6 and the findings on the note
+- `../../openspec/notes/archive/review-stages-5.5-and-6.md`, D1–D6 and the findings on the note
 - `../binary_protocol/PROTOCOL.md`, sections 1, 4.6, 6.5, 8.3, 10.4, 10.5, 11.2a, 11.7, 11.11–11.13, 13.7
 - `openspec/specs/`: `system-identity`, `metadata-group`, `catalog`, `term-dictionary`, `mapping-contract`,
   `schema-changes`, `schema-storage`, `vector-index`, `tokenizers`

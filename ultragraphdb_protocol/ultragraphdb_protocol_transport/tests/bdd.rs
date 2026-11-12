@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The wire-protocol scenario of stage 6 whose decision the transport makes, a Describe's frames spending credit,
+//! The wire-protocol scenario of stage 6.6 whose decision the transport makes, a Describe's frames spending credit,
 //! bound to `features/wire-protocol/`.
 
 use cucumber::{World, then, when};

@@ -66,7 +66,7 @@ which types it has, SHALL be read from committed data, never from a dictionary e
 that then aborted names nothing that exists. A literal's entry SHALL be written blind: equal strings write equal keys
 and values. An ID's ID-to-term entry SHALL never change once written, since IDs are never reused, so any partition holds
 a copy of another partition's ID-to-IRI entry without invalidation. Entries SHALL not be removed in this stage, so an
-IRI-to-ID entry also never changes here; the entity delete of stage 6 and the reclamation of stage 8 change that
+IRI-to-ID entry also never changes here; the entity delete of stage 6.6 and the reclamation of stage 8 change that
 direction.
 
 #### Scenario: An aborted write leaves nothing that exists
@@ -184,7 +184,7 @@ back through a referrer set, and its entries in both directions SHALL be copied 
 referrer sets concern IRIs and blank nodes in the object position only. A partition MAY cache other partitions'
 IRI-to-ID entries in memory without invalidation: in this stage no entity is deleted, since deletes are by pattern, and
 IDs are never reused, so a cached entry stays valid. The home's "deleted" answer and a delete's fence, which catch a
-stale entry, arrive with the entity delete of stage 6.
+stale entry, arrive with the entity delete of stage 6.6.
 
 #### Scenario: A first reference registers and waits
 - **WHEN** a transaction in partition 1 writes `<a> <knows> <b>`, `<b>` homed in partition 2 and new

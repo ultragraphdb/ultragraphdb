@@ -1,9 +1,9 @@
 ## Why
 
 UltraGraphDB stores quads under three catalog kinds, predicates, entity types and relations' roles, and its frontend
-refuses an Install naming stage 6. `specification/schema/SCHEMA.md` specifies UGS, the one data definition language
+refuses an Install naming stage 6.6. `specification/schema/SCHEMA.md` specifies UGS, the one data definition language
 every later stage reads: the query core of stage 7 compiles against its catalog, stage 8 classifies writes from it, and
-the DeepBrain MVP is a UGS schema. Stage 6 builds UGS from its source text to the catalog, the store and the write
+the DeepBrain MVP is a UGS schema. Stage 6.6 builds UGS from its source text to the catalog, the store and the write
 path, so that `specification/schema/deepbrain-gen5.ugs` installs and its data is created, read, updated and retracted
 under every rule the schema declares.
 
@@ -19,7 +19,7 @@ evolution moves whole to stage 9.5, a minimal subset of UQL carries the data ope
    schema id equal after a restart of every role.
 2. **Simple CRUD works over the applied schema.** Through the UQL CRUD subset, in the tenant holding Gen5: an entity
    and a relation instance are inserted and read back; an update is read back as a revision; a retraction removes the
-   instance from the default read and keeps it under `with retracted`; each write breaking a stage 6 rule is refused
+   instance from the default read and keeps it under `with retracted`; each write breaking a stage 6.6 rule is refused
    with its `UGS1xxx` number. After a Drop of everything in the tenant and an Install of the aviation schema of `SCHEMA.md`
    section 16, whose types are mutable, a delete removes an entity and leaves its tombstone.
 3. `make test` is green, every group's mutation pass is done, and the fuzz runs are recorded.
@@ -53,15 +53,15 @@ cluster it needs: its success is a simple schema change installed over data and 
   section 7.2, with bucket and claim from the key space; IRIs are minted from the key, by template, or as a handle;
   `rdf:type` of a declared type is answered from the prefix; relations are edge- or node-encoded by section 11.1.
 - **Whole-instance validation at commit.** A transaction's quad changes are assembled into instances and each is
-  validated against the catalog version in effect: every stage 6 row of `SCHEMA.md` section 8.2, bitemporal state,
+  validated against the catalog version in effect: every stage 6.6 row of `SCHEMA.md` section 8.2, bitemporal state,
   deletes with tombstones, measures, intervals, geometry. Every cross-partition case is refused with code 23.
 - **Indexes and derived state.** `range`, `interval`, `geo` and `fulltext` indexes and materialized derivations within
   the anchor partition, written in the instance's local commit.
 - **The RDF view.** Reads and writes through quads as `SCHEMA.md` sections 11.2 and 11.4 state, checked against
   `SCHEMA-APG.md` definition 17.1 by the Lean oracle's instance sets.
 - **A UQL CRUD subset (new, decided 2026-11-10).** Query takes `language` 3 for `insert`, `update`, `delete`,
-  `retract` and a root query by type and filter with a flat shape, the subset `QUERY-ULTRA-QL.md` marks for stage 6;
-  every other UQL construct is refused with `UQL0901`. It exists so that stage 6 and the stages before the query core
+  `retract` and a root query by type and filter with a flat shape, the subset `QUERY-ULTRA-QL.md` marks for stage 6.6;
+  every other UQL construct is refused with `UQL0901`. It exists so that stage 6.6 and the stages before the query core
   test data operations in the schema's own names.
 - **Instance delete and retraction as commit-time operations.** Operation gains kinds 5, delete an instance, and 6,
   retract an instance, which the UQL subset compiles to and which every later query language uses.
@@ -89,7 +89,7 @@ cluster it needs: its success is a simple schema change installed over data and 
 - `ugs-enforcement`: instance assembly and the rules a commit holds: constraints, mutability classes, bitemporal
   statements, deletes, values, indexes and materialized derivations.
 - `ugs-views`: relation encodings and the RDF view, read and written, with its oracle.
-- `uql-crud`: the UQL subset of stage 6: its grammar, its typing against the catalog, its reads, its writes and its
+- `uql-crud`: the UQL subset of stage 6.6: its grammar, its typing against the catalog, its reads, its writes and its
   refusals.
 
 ### Modified Capabilities
@@ -126,7 +126,7 @@ cluster it needs: its success is a simple schema change installed over data and 
   `ultragraphdb_transactions_txn`, `ultragraphdb_transactions_commit`, `ultragraphdb_protocol_wire`,
   `ultragraphdb_protocol_transport`, the three client crates, `ultragraphdb/ultragraphdb_tests`.
 - **Specifications amended first (group 0):** `SCHEMA.md` section 14 and the `UGS0902` text (G2); `PROTOCOL.md`
-  sections 7.3, 7.4, 8.4, 11.2 and 11.13; `QUERY-ULTRA-QL.md`'s stage 6 marks. The thirteen recommendations of
+  sections 7.3, 7.4, 8.4, 11.2 and 11.13; `QUERY-ULTRA-QL.md`'s stage 6.6 marks. The thirteen recommendations of
   `notes/specification-gaps.md` are applied to the specification files since 2026-11-10. `SCHEMA.md` already holds the resolution of 2026-11-10: a revision is
   refused under its rule's own number, and `UGS1025` names a required role's participant fixed for life.
 - **Stored formats:** the catalog version's bytes and the Describe body change; stores written before this stage are

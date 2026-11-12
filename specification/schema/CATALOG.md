@@ -1,6 +1,6 @@
 # The catalog version's bytes
 
-* Status: first draft, 2026-11-10, format 1, for stage 6 (`../../ROADMAP.md`).
+* Status: first draft, 2026-11-10, format 1, for stage 6.6 (`../../ROADMAP.md`).
 
 This file specifies the bytes of a catalog version: the compiled form of every schema and module installed in a
 tenant, which the metadata group holds, every role decodes, and Describe carries to clients entry by entry.
@@ -865,7 +865,7 @@ written in.
 | References by name | An entry names another by its qualified name, never by an index into the table, which a filtered Describe would not preserve; a role resolves names once, at load |
 | Integrity | A magic, a format number and an XXH3-64 over everything after the checksum, checked before anything is read; a version that fails is refused whole and a role holding it stops |
 | The prefix index | In the version, since every commit starts from an instance's prefix |
-| The predicate index | In the version beside its entries, never in one: the metadata group allocates a declared predicate's ID with the version, so every role holds the same ID table complete at load and no commit or read resolves a declared predicate through the dictionary; and a system ID never leaves the database, while Describe carries entries as they stand (user, 2026-11-10, `stage-6-ugs-data-definition/notes/core-principles-review.md`, P7) |
+| The predicate index | In the version beside its entries, never in one: the metadata group allocates a declared predicate's ID with the version, so every role holds the same ID table complete at load and no commit or read resolves a declared predicate through the dictionary; and a system ID never leaves the database, while Describe carries entries as they stand (user, 2026-11-10, `stage-6-6-ugs-data-definition/notes/core-principles-review.md`, P7) |
 | Expressions | Instance checks, limit conditions and computed derivations as verified postfix programs with a fixed 8-byte instruction, evaluated in a loop; the storage role needs no parser. A path derivation is its steps, which a partition walks to maintain a materialized one (user, 2026-11-10); function bodies stay text until the query core defines its compiled form at stage 7, since a plan's form is that stage's design |
 | Constants | Canonical lexical forms with a type, parsed once at load: one encoding already specified for every datatype in `PROTOCOL.md` section 10.5, in place of a second, binary one |
 | The request-typing facts | Fields of the Predicate entry, one fact in one place; the Classification entry holds a type's operations |

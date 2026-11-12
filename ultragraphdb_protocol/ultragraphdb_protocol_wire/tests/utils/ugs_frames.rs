@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Frames of the bodies stage 6 adds or changes, laid out by hand from `PROTOCOL.md`'s tables, independently of the
+//! Frames of the bodies stage 6.6 adds or changes, laid out by hand from `PROTOCOL.md`'s tables, independently of the
 //! builders under test: a command header from its fields' offsets, a body from the layout of §4.1 (`join_sections`),
 //! string lists from §4.3, warnings from §4.9 and Describe's entries from §8.3. Only the frame around the body is the
 //! crate's: `Header::encode_frame`, which the golden frames already pin.

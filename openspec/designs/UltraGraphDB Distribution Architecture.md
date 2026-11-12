@@ -1,343 +1,903 @@
 # UltraGraphDB Distribution Architecture
 
-Oct 31, 2026 · @Marvin Hansen
+Nov 12, 2026 · @Marvin Hansen
 
-UltraGraphDB is a distributed graph database with three node types (frontend, compute and storage) replicated with Viewstamped Replication (VSR). Its defining design choice is **schema-driven coordination avoidance**: the typed schema declares every invariant (keys, cardinalities, acyclicity, delete semantics), so the database decides per write whether cross-group coordination is needed at all. Most writes commit in a single replica group; the remainder is ordered Calvin-style. In the current stage every fact is written by its owner in one local commit, snapshot reads wait for closed epochs, and reverse reads reach inbound edges through referrer sets (Shard-per-Core note, P24); derived structures follow through ordered change streams with tiles. The current stage stores data in the Dgraph-derived KV store on direct-attached NVMe. Tile storage, and the S3 mode built on it, come in a later stage. Storage nodes boot a minimal hardened Linux kernel.
+UltraGraphDB is a distributed graph database of two roles, **compute** and **storage**. Compute is the client's
+endpoint and the place queries run, and it holds nothing that must survive. Storage owns the data, decides every
+commit, and hosts the **system group**, the replica group that keeps the cluster's books. No outside coordination
+service exists: each replica group decides its own failover, and the books are one more replica group.
+Its defining choice is **schema-driven coordination avoidance**: the
+typed schema declares every invariant, so the database decides per write whether more than one partition must agree.
+Every fact has one owner, which writes it in one local commit. Data lives in a graph-native tile store with two
+bindings, direct-attached NVMe and an object store. Replication is Viewstamped Replication (VSR), built at stage 8.
+
+The design of Oct 31 that this one replaces is `archive/UltraGraphDB Distribution Architecture.md`. What led from that
+design to this one is in `archive/UltraGraphDB Architecture Reviw.md` and
+`archive/UltraGraphDB Role Merge and Availability Feasibility.md`.
+
+**Status of each part.**
+
+| Part | Status |
+| --- | --- |
+| Frontend, compute and storage as three binaries, one replica each, on the KV store | Built (stage 5.5) |
+| The frontend and compute as one role, named compute | Decided 2026-11-12; stage 5.9 |
+| The tile store | Stage 6.5; specified (`../changes/stage-6-5-tile-store`), three of its tasks done |
+| The object-store binding of the tile store | Decided 2026-11-12; enters the tile store's specification before stage 6.5 is built |
+| The system group hosted by storage | Decided 2026-11-12; stage 5.8, the next stage. It runs inside the frontend today |
+| Client discovery by seed addresses and a versioned member list; compute tags | Decided 2026-11-12; the protocol with the merge, the drivers when several compute nodes run |
+| Replication of every group, several compute nodes | Designed (`UltraGraphDB Distribution Protocol.md`); stage 8, then stage 10 |
 
 ## Cluster architecture
 
-Three node types, each its own binary and OCI image under `../../ultragraphdb` (decided 2026-11-01, Shard-per-Core note P22). The split follows StarRocks (frontends plus executors) and matches Apache HugeGraph's independently evolved Server, PD and Store layout, with a separate compute tier because graph algorithms are heavy and should not compete with storage I/O.
+**Two roles.** A request passes through compute and storage and through nothing else.
 
-&#91;embedded content: Cluster architecture · frontend, compute and two storage modes\]
-
-| Node type | Responsibilities | State | Scales by |
+| Role | Does | State | Scales by |
 | --- | --- | --- | --- |
-| Frontend | Metadata VSR group; binary-protocol endpoint; Bolt adapter; query planning, write classification and scheduling | Small but critical | Non-voting observer frontends for read concurrency |
-| Compute | Query execution, graph algorithms, cross-group joins, aggregation, result assembly; tile cache in S3 mode | Stateless apart from cache | Elastic add and remove |
-| Storage | VSR replica groups holding the write log and the KV store (tiles in a later stage); applies incoming change streams in the tile stage; runs only narrow kernels near the data (tile scans, frontier expansion with pushed-down filters, intersections) | Durable | Adding replica groups |
+| **Compute** | The client endpoint over the binary protocol; authentication and sessions; the query engines, their planning and execution; reads across partitions, merged; the relay of writes and commits to their partition | None that must survive | Adding compute nodes |
+| **Storage** | Partitions, one per core: each executes transactions, runs the commit step, writes its log and keeps its tiles; answers compute's scans and frontier requests. Three storage nodes also host the system group | Durable: the logs, the tiles and the system group's state | Adding partitions and nodes |
 
-Storage nodes run only small, fixed kernels so the hardened storage image stays minimal; everything heavier runs on compute.
+The design this one replaces had three roles on a read's path: the frontend took the request, compute executed it and
+storage answered. Here a read and a write each pass through two.
+
+**The system group keeps the cluster's books, and it is no role.** It holds the metadata state machine (membership,
+placement, catalog versions, ID sequences, principals, the session registry) and the sequencer, which closes epochs.
+It is a replica group like a partition's: it runs on storage nodes, over its own logs, under the replication protocol
+the data uses, with one replica until stage 8 and three from then (decided 2026-11-12). No request's body passes
+through it. CockroachDB keeps its metadata in ordinary replicated ranges in the same way.
+
+What its home gives:
+
+- **Compute is stateless.** It needs no volume, grows and shrinks freely, and runs as groups by tag, one of them
+  on special hardware.
+- **Storage is a whole cluster by itself.** Storage nodes start, recover, fail over and close epochs with no compute
+  node running, and compute attaches to a cluster that is already complete.
+- **A failure of the query engine cannot stop the books.** The parsers and planners, the largest code surface, share
+  no process with them.
+- **The smallest cluster that survives a failure is three machines,** each running storage and compute.
+
+| Cluster | Processes | Survives |
+| --- | --- | --- |
+| Development | One container: compute, storage with one replica of every group | Nothing; it is for development |
+| Smallest available | Three machines, each with storage and compute | The loss of any one machine |
+| Larger | Storage nodes for more partitions, compute nodes for more clients; three storage nodes host the system group | One machine in every group |
+
+Until it moves, the system group runs where it runs today, inside the process that takes clients, with one replica.
+
+**One service beside the cluster.** The config service holds every target's settings as numbered revisions, validated
+whole, and a role fetches its settings from it at start. It holds a few kilobytes and takes replicas from stage 8.
+
+The supervisor starts the processes of the development container, and the config CLI validates a settings folder
+before anything runs. Neither is part of a cluster.
+
+```
+                    clients
+                       |   binary protocol, TLS 1.3
+                       v
+        +-------------------------------+   settings at start   +----------------+
+        |            compute            | --------------------> | config service |
+        |  endpoint cores: sessions,    |                       +----------------+
+        |  query engines, read merge,   |                               ^
+        |  relay of writes              |                               |
+        +-------------------------------+                               |
+           |   ^  writes, commits,     |  Join, placement, catalog,     |
+           |   |  scans, frontiers     |  logins, sessions, close       |
+           v   |                       v  requests                      |
+        +---------------------------------------------+                 |
+        |                   storage                   |  settings       |
+        |  a partition per core:   | system group:    | ----------------+
+        |  log, commit step,       | metadata,        |
+        |  tile engine             | sequencer        |
+        +---------------------------------------------+
+            |                      |
+       local NVMe            object store
+       (direct binding)      (object binding)
+```
+
+### One role serves clients and executes
+
+The frontend and compute were two processes: one took a client's requests and relayed them, the other executed its
+reads. They are one role, named compute (decided 2026-11-12). The name is the industry's: the design separates
+storage from compute.
+
+- **A read crosses one process fewer.** The client's core routes the read, asks the partitions concerned, merges their
+  rows in key order and answers under the client's credit. The relay of every Result frame and every Credit is gone.
+- **A transaction's reads and writes meet on one core.** The core holding a read-write transaction's Bind stream also
+  sends its scans, so their order is local.
+- **Planner and executor share memory.** The query core of stage 7 needs no plan format for the wire.
+- **One set of connections.** An endpoint core keeps one multiplexed connection per partition, for reads and writes
+  alike.
+- **A write's path keeps its length.** Client, compute, partition: only a read crossed the second process.
+
+A read runs wholly on the core its connection arrived on. Read work on a core is bounded per turn, so a long merge
+never starves the relay of a commit on the same core.
+
+Two things were given up, and both are accepted. A read that had sent no frame was retried on another
+executing process unseen by the client; a failed compute node is now the client's reconnect. A failure of the
+executing process could not reach the cluster's books; that protection returns when the system group moves to
+storage.
+
+The Dual Query Engine Plan already has this shape: nodes that "run the engines", an ordering service and storage
+nodes. StarRocks, the model for the earlier split, plans in its own frontends and executes elsewhere; here planning and
+execution stay together, as in TiDB's stateless SQL layer.
+
+### Who talks to whom
+
+| From | To | Over | For |
+| --- | --- | --- | --- |
+| Client | Compute | Binary protocol; TLS 1.3 or declared clear text; SCRAM against the system group's principals | Every request |
+| Compute | Storage partition | Binary protocol, role commands | Writes and commits relayed with their bodies unchanged; scans and frontier requests |
+| Compute | System group | Binary protocol, role commands | Join, the placement map, catalog versions, logins and sessions, a request to close an epoch |
+| Storage partition | System group | Binary protocol between nodes, messages inside one | Placement, catalog versions, epoch closes by subscription, sequence leases, reports |
+| Storage partition | Storage partition | Binary protocol between processes, messages inside one | Registering a reference at an entity's home; reverse reads fanned out |
+| Compute, storage | Config service | HTTP/1.1 with a read key | Settings at start and at a load |
+| Operator, orchestrator | Every process | HTTP/1.1 | `/health`, `/ready`, `/admin/load-config` |
+
+The data plane speaks one protocol, the client's. The control plane speaks a minimal HTTP/1.1.
+
+## Clients: discovery, tags and load
+
+**A client starts from seed addresses and learns the rest from the cluster** (decided 2026-11-12). The cluster keeps
+its own books, so the system group knows every compute node at all times, and no service beside the cluster holds a
+list. Kafka, Cassandra, ScyllaDB, MongoDB and Neo4j drivers find their clusters this way.
+
+1. A client is given seed addresses: one or a few compute nodes, or a name that resolves to several. Seeds serve the
+   first contact alone.
+2. The Welcome a compute node answers with carries the **member list** and its **version**.
+3. The developer picks a tag, and the driver spreads requests over the nodes carrying it.
+4. When membership changes the version rises, and every connected client replaces its list.
+
+### The member list
+
+| Field of an entry | Meaning |
+| --- | --- |
+| Node | The compute node's identity |
+| Advertised address | The address a client reaches the node at, which may differ from the one it listens on. The node's certificate names it |
+| Tags | The groups the node belongs to |
+| State | Serving, or draining before it stops |
+
+A compute node states its advertised address and its tags in its settings and names them in its Join. The system
+group records them, and every compute node serves the list from what the system group holds.
+
+**The list version** is one number for the whole cluster, kept by the system group. It rises with every change of a
+member, a tag or a state, so two lists from any two nodes compare.
+
+- A node that learns a new version tells its connected clients.
+- A client replaces its list whole, and only by a higher version. An equal or a lower one is dropped.
+- Connections to nodes the new list still names stay open. A node the list names no longer, or names as draining,
+  gets no new request, and its open requests finish.
+
+### Tags pick the node, the classification picks the path
+
+A tag names a group of compute nodes. Tags are an open set that an operator extends. A cluster starts with three:
+
+| Tag | Machines | Serves |
+| --- | --- | --- |
+| `query` | Ordinary | Queries and transactions. The tag a client uses when it names none |
+| `high_memory` | Large memory | Algorithms that need much memory and run better on CPUs |
+| `gpu` | With GPUs | Algorithms accelerated by GPUs |
+
+The developer makes the routing decision (decided 2026-11-12): a client handle is opened for a tag, and the driver
+spreads its requests over the nodes that carry it. Each group scales by itself, and a long algorithm takes no core
+and no memory from an interactive query.
+
+Tags choose the node and nothing more. On the node, the query classification chooses the path as it does for every
+request: the read lane, the commit path, and what a request pays for versions, pins and read sets. Routing adds no
+class to it.
+
+### A wrong tag is refused, and the refusal names the right one
+
+A developer will send an algorithm to a node that cannot run it. Three checks catch that, and each says what to do.
+
+| Check | Where | What the developer reads |
+| --- | --- | --- |
+| The tag exists | In the driver, before anything is sent | No node carries this tag, and the tags the cluster has |
+| The node can run the request | On the node, when the query is compiled and before any work | The procedure, the tag it needs and the tags this node carries: select that tag |
+| The node is what its tags say | On the node, at start | A node tagged `gpu` with no device stops with a configuration error |
+
+Every procedure declares the tag it needs in the procedure registry, which is what the second check reads. A Prepare
+runs the same check, so a prepared statement fails before its first Execute. The driver hands the refusal to the
+developer and moves the request to no other node: a wrong tag is a mistake to correct in the program.
+
+### Load: credit to send, signals to choose
+
+No client sees what the others send, so no rule a client follows alone keeps a node from being overrun: whatever the
+rule, all clients run it at once. Two mechanisms close that gap, and they answer different questions (direction
+decided 2026-11-12; neither is built). Both papers were read in full. Breakwater covers one server and Prequal no
+admission, so their combination is this design's own, and no published work was found that makes it.
+
+**How much a node accepts: credit, after Breakwater.** The node is the one party that sees all of its clients, so it
+does the coordinating they cannot do.
+
+- A client sends a request only against a credit of the core that serves its connection. A credit is one request.
+  The Welcome's `max_streams` stays the connection's cap.
+- The core keeps a pool of credits and moves it once per round trip by its measured queueing delay. Below the target
+  delay it adds a step that grows with the number of its clients. Above it, it cuts by a fraction proportional to the
+  overshoot, by half at most.
+- Credits ride on replies, and a request carries how many requests wait behind it at the client. From that the core
+  estimates demand and issues more credit than its pool holds, because a credit at an idle client is capacity nobody
+  uses. It takes credit back by a negative grant.
+- A request that arrives while the queueing delay is above a threshold is refused before any work. That refusal is
+  the hard bound, and credit keeps it rare.
+- A client without credit queues its request, and the request expires at its deadline.
+
+**Which node a client picks: signals, after Prequal.**
+
+- **Two signals,** measured at the node over all of its clients: the core's requests in flight, a counter, and its
+  latency, the median of recent requests that arrived at about that many in flight. A refused request counts in
+  neither, or a node that fails fast looks idle and draws every client.
+- **Carried on every reply, and fetched by a probe.** The protocol gains a probe that returns the two signals, sent
+  to a node chosen at random at least once per request, and after an idle time. The driver keeps a pool of at most
+  16 recent answers, each expiring with age.
+- **The hot-cold rule.** An entry is hot when its requests in flight lie above a quantile of the values the driver
+  has seen lately. With every entry hot the driver takes the fewest in flight. Otherwise it takes the lowest latency
+  among the cold. Entries of nodes where it holds no credit are left out.
+- **Keeping the pool honest.** The driver raises its own copy of a node's requests in flight for each request it
+  sends there, and with each request it drops the oldest entry or the worst in turn, so the pool never fills with the
+  nodes it avoids.
+
+Everything is per core. A connection belongs to one endpoint core, so the credit, the requests in flight and the
+latency are that core's.
+
+**What the papers measured.**
+
+| Paper | Setting | Result |
+| --- | --- | --- |
+| Prequal | YouTube for over two years and twenty more services at Google, in place of weighted round robin; requests from milliseconds to hours | Tail latency halved, tail requests in flight down five to ten times, errors from imbalance nearly gone. Insensitive to the probing rate down to one probe per request |
+| Prequal's comparison of rules | A testbed of 100 clients and 100 servers | The hot-cold rule beat every linear blend of the two signals. Rules on a client's own count of requests in flight did far worse than rules on the server's count, since other clients load a server too. A server's count polled every half second was too stale |
+| Breakwater | One server, 1,000 to 10,000 clients, requests of microseconds | Stable within 20 milliseconds when demand jumped to 1.4 times capacity, where two earlier schemes collapsed for half a second and more. A window scheme with a floor of one request per client lost nearly all its throughput at 10,000 clients |
+
+**What reasoning and the papers settle.**
+
+| Question | Reasoning | Result |
+| --- | --- | --- |
+| Can the drivers' choices overrun a core, however alike they choose? | The core refuses a request that arrives while its queueing delay is above the threshold, and it senses that delay itself with no network between. Credit decides how often that happens and never whether the bound holds | Safety is the core's own rule and no tuning: the work waiting at a core stays within the threshold. Clients choosing alike cost refusals and never collapse. Proved in Lean with the protocol |
+| May a connection keep one slot always, so its first request after idling costs no round trip? | With a floor of one, every idle client may send at once: as many requests as connections. A core's delay target admits only its service rate times that delay, a few dozen. Breakwater measured the collapse | No floor. An idle client holds what the core speculated for it, which may be nothing. Its first request then waits for a credit or is sent and may be refused |
+| Can the two loops drive each other? | A loop oscillates on a delayed signal. The credit loop senses and acts on one core. The choice loop acts on signals that may be stale, and only where the driver holds credit. Below capacity credit binds nowhere and the choice governs alone, which is Prequal's production case. Above it credit binds everywhere and the choice decides little | Each regime has one loop. Between them, with demand near capacity, nodes can pass load back and forth, bounded by the refusal rule. Its size is measured |
+| A point read and a long scan differ a thousandfold. What does a credit count? | Queue length misleads when costs differ, and queueing delay does not, which is why Breakwater senses delay. A node's work is also bounded unit by unit: a read's work per turn, a frame's size, the frames a stream sends before the client grants credit, a transaction's life | A credit is the right to open a stream. Three meters, two in the protocol today: credit to open, the stream's credit to continue, a job slot to start an algorithm |
+| A transaction stays on the node it began on | Its state sits on the connection it began on. The driver chooses when a transaction begins and for every one-frame request. `transaction_ms` and a Begin's deadline bound how long it holds its place | The unit of choice is the stream, and the protocol's limits bound a held place in time |
+| A node the driver has not heard from keeps its last figures | A stale good figure draws every client and a stale bad one starves the node. Replies refresh only the nodes a driver uses, which are the ones it already favours | Probes of random nodes, entries that expire, and the worst entry dropped in turn. Prequal found replies alone too little |
+| One principal opens many connections | Credit per connection rewards opening connections. Breakwater shares credit by demand, lazily, as it sends each reply, and admits it is unfair when credits are fewer than clients. Equal shares per principal can be kept by one core, which knows each connection's principal. A share across the cluster needs an account every node agrees on | Shares per principal on a core: this design's own addition, to be checked. A quota across the cluster cannot be had without coordination, and is a later design |
+
+**Where this design leaves the papers.**
+
+- **A request here costs milliseconds.** Breakwater's cost microseconds, where refusing a request costs as much as
+  serving it. Here a refusal before any work is cheap, so the hard bound is affordable, and what credit buys is the
+  round trip a refused request would waste.
+- **Thread per core.** Breakwater gives each request a thread of its own, because a request holding a core delays the
+  others and with them the signal. Here a request runs on its core, so the bound on work per turn is what keeps the
+  queueing delay a true signal.
+- **Several nodes.** A driver holds credit at several nodes and spends it at one. The credit at the others idles, and
+  each node's speculation has to absorb that. Neither paper tested it.
+- **Few nodes.** Prequal's protection against clients choosing alike rests on each client seeing a small random part
+  of many servers. A cluster of three compute nodes has no small part, and the refusal rule is what protects it.
+
+**What only the simulator and real machines settle.**
+
+- The swing between nodes when demand sits near capacity, and the credit that idles at nodes a driver does not pick.
+- The values: the target delay and the refusal threshold, the step and the cut, the quantile of the hot-cold rule,
+  the probing rate, the pool's size and an entry's lifetime. The papers give starting points: a refusal threshold of
+  twice the target, a quantile between 0.6 and 0.9, one probe or more per request.
+- Whether the queueing delay stays a clean signal on a core that also runs long merges.
+
+**What it does not do.** Balancing compute balances no partition. Every compute node routes a subject to the same
+partition, so a partition that is full is full from every node. A request bound for it is refused with a retryable
+answer that names the partition, and relieving it is placement's work.
+
+**Rules that stay beside it.** Each answers a failure other systems met in production.
+
+- A client keeps the connections a new list still names. It opens new ones after a random delay and reconnects with
+  exponential backoff and jitter, and a node bounds the connections it sets up at once.
+- A driver retries within a budget, and after the time a refusal names.
+- A node about to stop is listed as draining first.
 
 ## Consistency and coordination avoidance
 
-The schema, not the developer, decides which writes need cross-group coordination. Everything else commits in a single replica group. In the current stage reads stay exact because each fact has one owner that writes it in one local commit, snapshot reads wait for closed epochs and reverse reads find inbound edges through referrer sets (P24); in the tile stage, ordered change streams and watermarks keep derived tiles exact.
+**The guarantee (decided 2026-11-01).** Transactions are strictly serializable within a partition. Across partitions
+they are serializable at a closed epoch, the default, with session tokens for read-your-writes.
 
-### Where the cost actually is
+### One owner per fact
 
-- **Within a replica group, VSR is cheap.** A commit waits for a majority, one round trip, and batching amortizes it across thousands of operations.
-- **Crossing groups is expensive.** Transactions touching several predicates, constraints such as unique keys, cardinalities and acyclicity, and consistent snapshots across groups all need agreement between groups. A naive design turns these into two-phase commit on top of consensus.
-- **Current stage: bucket placement, one partition per core.** A storage node gives its cores to partitions, each a replica group owning ranges of buckets, and an entity's facts live in its bucket's partition (`UltraGraphDB Shard-per-Core Write Path.md`, decided 2026-11-01). Every fact stays with its writer: the subject's partition writes an edge's forward and reverse entries, its predicate lists and its indexes in one local commit, and the object's home keeps only a referrer set naming the bucket groups that may hold edges to it, which a reverse read consults before it fans out (Shard-per-Core note, P24, decided 2026-11-02). A hub's inbound entries are therefore spread over its referrers' partitions. Predicate sharding, Dgraph's layout, would bound a hot predicate to one core.
-- **Later stage: 2D tiling.** Tiles fix hubs but separate forward and reverse entries, so in the tile stage reverse tiles will be maintained through change streams. The change-stream mechanisms below belong to the tile stage; the rest are designed for both stages.
+An entity's facts live in the partition owning its bucket, and every fact stays with its writer (Shard-per-Core note,
+P24). The subject's partition writes an edge's forward and reverse entries, its indexes and its statistics in one
+local commit. The object's home keeps a referrer set: the bucket groups that may hold edges to it. A reverse read
+consults that set and fans out. A reference to an entity another partition owns registers at the entity's home before
+the first write that names it. Nothing is derived in one partition and applied in another, so no change stream runs
+between partitions, in the KV store or in the tile store.
 
 ### Principle: coordinate only where an invariant could break
 
-*Invariant confluence* (Bailis et al., VLDB 2015) is the formal criterion: a set of operations can run without coordination exactly when merging concurrent executions always preserves the invariants. Ten of TPC-C's twelve invariants qualified, and the prototype reached over 12.7 million New-Order transactions per second on 200 servers, 25 times prior results. The CALM theorem gives the intuition: monotonic operations, which only add information, never need coordination.
+*Invariant confluence* (Bailis et al., VLDB 2015) is the criterion: operations run without coordination exactly when
+merging concurrent executions always preserves the invariants. The idea stayed in research prototypes because
+developers had to state their invariants by hand. UltraGraphDB's schema declares them, so the classification is
+computed when the schema compiles, stored in the catalog version, and applied per request.
 
-The idea stayed in research prototypes because developers had to state their invariants and design segmentations by hand, which the follow-up work itself calls onerous. UltraGraphDB's typed schema already declares them, so the analysis can be automatic.
+| Write | Invariant at stake | Path | Runs from |
+| --- | --- | --- | --- |
+| Insert an edge of an unconstrained relation | Referential integrity | Coordination-free: one local commit in the subject's partition | Stage 5.5 |
+| Create an entity | ID uniqueness | Coordination-free: sequences leased per type and partition | Stage 5.5 |
+| Update text indexes and statistics | None, derived data | Coordination-free: in the same local commit | Stage 5.5 |
+| Set a `@key` or `@unique` value | Uniqueness | Segmented: the partition owning the value's bucket checks | Local in stage 6.6; across partitions in stage 8 |
+| Insert into a cardinality-constrained role | Cardinality | Segmented: checked where the constrained endpoint lives | Local in stage 6.6; across partitions in stage 8 |
+| Change a bounded numeric value | Threshold | Segmented by escrow: each partition holds a share of the bound | Stage 8 |
+| Insert into an `@acyclic` relation | Acyclicity | Segmented by rank within a colocated hierarchy; coordinated across hierarchies | Stage 8 |
+| Delete an entity | Referential integrity | A tombstone at the home; sequenced shares fence it at the members of its referrer set | Tombstone in stage 6.6; shares in stage 8 |
 
-&#91;embedded content: Write path · classification, change streams and watermarks\]
+The coordinated remainder is ordered by the sequencer and executed deterministically by every partition it names,
+after Calvin: no two-phase commit and no distributed deadlock. Until stage 8 a request reaching a second partition is
+refused with `CrossPartition`.
 
-### Write classification
+A request declares its type by its command: read-only, read-write, DirectWrite and ConditionalWrite, and Ingest with
+the tile store. The tile store turns the classification into lanes: a read takes lane L, S or X, and a write takes
+path A, V or C in the commit step, so append-only and immutable data pay for no version copies, no pins and no read
+sets (`../notes/UltraGraphDB Scalable Tile Store.md`, T9).
 
-The classification is computed at schema compile time as a conflict graph over write operations and constraints (in the style of Hamsaz), stored in the catalog, and applied by the planner per write.
+### Read levels
 
-| Write | Invariant at stake | Path |
+| Level | A read-only transaction's reads | Waits |
 | --- | --- | --- |
-| Insert edge of an unconstrained relation | Referential integrity only | **Coordination-free:** commit in the subject's partition with its reverse entry (KV stage, P24); reverse tiles follow by change stream (tile stage) |
-| Create entity | ID uniqueness | **Coordination-free:** IDs from per-group ranges |
-| Update text, vector or statistics indexes | None (derived data) | **Coordination-free:** text indexes and statistics are written in the subject's partition's local commit (KV stage, P24); the vector indexer alone runs asynchronously, outside the transaction |
-| Set a `@key` or `@unique` property | Uniqueness of a chosen value | **Segmented:** unique index partitioned by key hash; the owning group checks |
-| Insert edge into a cardinality-constrained role | Cardinality | **Segmented:** constrained-role edges stored in the constrained endpoint's group |
-| Change a bounded numeric value | Threshold | **Segmented via escrow:** each group holds a share of the bound |
-| Insert edge into an `@acyclic` relation | Acyclicity | **Segmented**: rank-based local checks, with each hierarchy colocated in one group; edges across hierarchies are **coordinated** |
-| Delete entity | Referential integrity | **KV stage:** stage 5.5 deletes by pattern only, refused with `CrossPartition` when a delete reaches another partition; from stage 6 an entity delete writes a tombstone at the home, and stage 8 sends sequenced shares fencing it at the members of its referrer set (**coordinated**, P24 rules 7–8). **Tile stage:** declared semantics, cascade via change streams; restrict is **coordinated** |
+| Snapshot, the default | One snapshot at a closed epoch across every partition | Until each partition asked has closed the epoch |
+| Latest | The latest state of one partition | None |
+| Monotonic-fast | Each read at one closed epoch, never below the session's floor; exact for append-only data | Only for a partition behind the floor |
 
-### Mechanisms
+Non-monotonic queries run at snapshot level. All three levels are in the binary protocol; GQL and SPARQL expose them
+as implementation-defined extensions.
 
-- **Ordered change streams, not CRDTs.** Forward writes are already totally ordered by VSR in their source group. Derived updates carry (source group, operation number), and each target group applies every source's stream in order. Deletes are therefore exact, with no tombstone sets or add-wins ambiguity, and replays are harmless.
-- **Watermarks.** Each group publishes how far it has applied each incoming stream. A snapshot query waits until the watermarks of the groups it reads cover its snapshot.
-- **Constraint locality.** Placement rules put each constraint's state in one group: unique indexes by key hash, constrained roles with the constrained endpoint. Locality-aware placement of densely connected regions keeps most writes single-group.
-- **Escrow treaties** (from the Homeostasis protocol): bounded constraints are split into per-group shares, renegotiated only when a share runs out.
-- **Declared delete semantics** (inspired by IPA): cascade, restrict or orphan-to-tombstone, so concurrent "delete node" and "add edge to node" have a defined outcome.
-- **Background verifier.** Continuously checks reverse entries against forward edges and repairs differences.
-- **The coordinated remainder** uses deterministic transaction ordering (Calvin-style sequencing, which pairs naturally with VSR's deterministic state machines): multi-group transactions are sequenced into a replicated log first and then executed deterministically by every participating group, with no two-phase commit and no distributed-deadlock aborts.
+### Epochs
 
-### Query consistency levels
+Cross-partition snapshots are sequencer epochs. A timestamp service would put a round trip and one leader on every
+commit, and hybrid logical clocks depend on bounded clock skew.
 
-**The guarantee (decided 2026-11-01).** Transactions are strictly serializable within a replica group. Across groups they are serializable at a closed epoch, the default, with session tokens for read-your-writes; a per-request option closes the current epoch first, for a strict cross-group read.
+1. The sequencer closes an epoch every few milliseconds and delivers the close to every partition. Each close records
+   the sequencer's wall-clock time, never below the previous one, so `as of time t` resolves to an epoch and ordering
+   never reads a clock.
+2. A partition stamps each commit exactly one above the latest close delivered to it and never advances on its own.
+3. A partition has closed epoch *e* once it has received the close and applied every round stamped at or below *e*.
+4. A snapshot is an epoch: a read at *e* reads each partition once it has closed *e*.
 
-Queries are classified too, following *Keep CALM and CRDT On* (VLDB 2023), which showed that coordination-free updates still leave reads unsafe unless queries are analyzed.
-
-| Level | Applies to | Guarantee |
-| --- | --- | --- |
-| Snapshot (default) | All queries | Waits for watermarks, which are closed epochs; exact, standards-conformant results |
-| Monotonic-fast (opt-in) | Monotonic queries only: existence, reachability, pattern matches | Answers immediately; every result was true at a recent closed epoch and stays true for append-only or immutable data; recent facts may be missing |
-
-Non-monotonic queries (`NOT EXISTS`, counts and aggregates, absence-sensitive optional matches) always run at snapshot level. Monotonic-fast suits agent retrieval, where missing a little recent context is acceptable. Over relations declared append-only in the schema it can never return a false fact; over mutable data the response is flagged, since a fact deleted after the replica's last closed epoch may still appear.
-
-Both levels are exposed in GQL and SPARQL as well as the native protocol. Since neither standard defines read consistency levels, the setting is an implementation-defined extension: a GQL session parameter, flagged by the GQL Flagger, and a SPARQL protocol option, plus a per-request flag in the binary protocol. A request for monotonic-fast on a non-monotonic query falls back to snapshot level and says so in the response.
+A request carries the highest epoch its session has seen, and a partition holds a commit until the close below that
+epoch has reached it, so a causally later write never falls in an earlier snapshot. A commit returns a session token
+of partition, log position and epoch. A snapshot read waiting on the open epoch asks the sequencer for an early
+close.
 
 ### Prior art and lessons
 
 | System or work | What it showed | Lesson applied |
 | --- | --- | --- |
-| RedBlue / Gemini (OSDI 2012) | Synchronized red and asynchronous blue operations | Labelling was manual; derive it from the schema |
+| RedBlue / Gemini (OSDI 2012) | Synchronized and asynchronous operations, labelled by hand | Derive the labels from the schema |
 | Coordination avoidance (VLDB 2015) | 25-fold TPC-C throughput by coordinating only where needed | Classify every write |
-| Lucy (VLDB 2019) | Segmented confluence; up to 10x linearizable throughput at low contention | Segment by constraint ownership |
-| Hamsaz (POPL 2019) | Conflict graph; minimal synchronization via maximal cliques | Compile-time analysis |
-| IPA (VLDB 2019) | Modify operations so concurrency cannot break invariants | Declared delete semantics |
-| Homeostasis (SIGMOD 2015) | Treaties let sites run independently within bounds | Escrow for numeric constraints |
-| Facebook TAO and RAMP-TAO (VLDB 2021) | 1 in 1,500 batched reads saw partial transactions, some for up to 13 seconds; a read-atomic layer fixed it in one round trip for over 99.93% of reads at 0.42% memory overhead | Build read atomicity in: watermarks |
-| Cassandra materialized views | Experimental since 3.0.16 and 3.11.2: no resynchronization, unbounded lag, delete and expiry divergence | Ordered streams, verifier, formal model |
+| Lucy (VLDB 2019) | Segmented confluence | Segment by constraint ownership |
+| Hamsaz (POPL 2019) | A conflict graph gives minimal synchronization | Analysis at schema compile time |
+| IPA (VLDB 2019) | Operations changed so concurrency cannot break invariants | Declared delete semantics |
+| Homeostasis (SIGMOD 2015) | Treaties let sites run independently within bounds | Escrow for numeric bounds |
+| RAMP-TAO (VLDB 2021) | 1 in 1,500 batched reads saw a partial transaction | Read atomicity built in: closed epochs |
+| Cassandra materialized views | Derived copies drifted: no resynchronization, unbounded lag | One owner per fact; nothing derived across partitions |
 
-CRDTs remain the right tool for one future case: replicas that must keep working while disconnected and merge later, such as edge sites on intermittent networks.
+## The system group
 
-## Metadata group
+The system group holds two state machines over ordered logs, the metadata state machine and the sequencer, neither
+with I/O of its own. Both stay in this one group at every cluster size (decided 2026-11-12): the metadata state
+machine learns each catalog version's effective epoch from the sequencer's close, so the two fail over together.
 
-Any cluster with more than one replica group needs agreement on placement, snapshots and versions. Dgraph uses a separate node type for this (Dgraph Zero); StarRocks folds it into its frontends, replicating metadata across a leader, voting followers and non-voting observers. UltraGraphDB follows StarRocks: the metadata state machine runs as a VSR group on the frontends.
+- **Membership:** which processes exist and where each partition listens.
+- **Placement:** bucket ranges per partition, tenant runs and bucket groups, each layout from the epoch it applies at.
+- **Identity:** sequence blocks leased per type and partition. A system ID is 128 bits: a 16-bit type prefix, a 64-bit
+  sequence, a 24-bit bucket and 24 reserved bits.
+- **Versions:** catalog versions, with the classification and the compiled layout each carries.
+- **Principals and sessions:** the principals clients authenticate against, and the registry of sessions that makes
+  each commit exactly-once.
+- **Epochs and order:** the sequencer's closes, and from stage 8 the order of work that spans partitions.
 
-**Responsibilities**
+**It stays small.** Placement is a function of the bucket in every ID and a short map of ranges. Sequences are leased
+in blocks. A snapshot is an epoch. So membership, the placement map, versions and sessions are all that needs
+agreement.
 
-- **Membership:** which nodes exist and which replica group each belongs to.
-- **Placement:** bucket ranges per partition, tenant runs and bucket groups resolved at an epoch now (P1, P2, P24), GSL tile assignment later, constraint-locality rules, and changes during rebalancing.
-- **Sequencing:** the Calvin-style log that orders multi-group transactions.
-- **Snapshots:** consistent cross-group snapshot points (see below).
-- **ID ranges:** assigning bucket ranges to partitions and leasing sequence blocks per (type, partition). A system ID is 128 bits: from the most significant bit, a 16-bit type prefix, a 64-bit sequence unique per type, a 24-bit bucket (8 bits hashed from the tenant, 16 from the key) and 24 reserved bits (decided 2026-11-01, Shard-per-Core note P7, P15, P16; field order type, sequence, bucket, reserved by P24 rule 1, 2026-11-02).
-- **Versions:** schema catalog, the write and query classification derived from it, the RDF/LPG mapping contract, and the finalized feature level.
+**No outside coordination service.** Clusters of the last generation asked a separate service two questions: who
+leads, and what the configuration is. Here each replica group answers the first for itself (*Replication and
+availability*), and the system group answers the second, replicated by the protocol the data uses. One implementation
+of replication, one failure detector and one kind of log serve both. Kafka, ClickHouse and Redpanda removed their
+outside services the same way, CockroachDB stores its metadata in replicated ranges, and TigerBeetle runs with none.
+What remains is the vote itself: surviving one failure takes three members.
 
-**Its home from stage 5.5 (decided 2026-11-01).** The metadata group's state machine is built in stage 5.5, log-backed like the commit step and with one replica, holding catalog versions, ID ranges and the placement map, with catalog contents opaque to it. UGS (stage 6) is built on it; stage 8 adds its replication.
+**What waits while the system group changes its primary.**
 
-**Keeping it small**
-
-- **Sequencer epochs** for snapshots instead of per-transaction timestamps, so no commit waits on the metadata group.
-- **Deterministic placement** derived from the bucket in every ID, and from GSL coordinates with tiles, so lookups need only the short placement map of bucket ranges, and consensus is only needed when the mapping changes.
-- **Sequences leased in blocks per (type, partition)** instead of an ID per round trip; a bucket moves between partitions without changing an ID.
-
-With these, only membership, the placement map and the schema, classification and feature versions need consensus.
-
-### Snapshot timestamps: sequencer epochs
-
-Cross-group snapshots are defined by **sequencer epochs**. This was chosen over a timestamp service, which puts a round trip and a single leader on every commit path, and over hybrid logical clocks, which depend on bounded clock skew, cause read restarts and put clock values on every change stream.
-
-**How it works**
-
-1. The sequencer, its own VSR group on the frontend nodes, closes an epoch every few milliseconds and broadcasts the boundary. The same log orders Calvin-style multi-group transactions. Each closed epoch records the sequencer's wall-clock time at its close, never below the previous epoch's, so `as of time t`, `now()` and transaction time resolve to an epoch; ordering never reads the clock.
-2. Every commit is stamped with an epoch: single-group commits with one above the latest close delivered to the partition (P24 rule 4), multi-group transactions with the epoch the sequencer placed them in. In the tile stage, change-stream entries carry their epoch.
-3. A partition **closes** epoch *e* once it has received *e*'s close and applied every round stamped at or below *e*, and records the operation number at that boundary; in the tile stage it also waits for every incoming stream entry stamped up to *e*.
-4. A cross-group snapshot is an epoch: the query reads epoch *e* in every group it touches once each has closed it. Watermarks are simply closed-epoch markers.
-
-**Design choices that minimize the costs**
-
-| Cost | Mitigation |
+| Waits | Goes on |
 | --- | --- |
-| Snapshots lag real time by up to one epoch | Short epochs in the low milliseconds, cheap because closing an epoch is a counter broadcast; queries confined to one group read its latest committed state with no epoch wait; monotonic-fast reads never wait |
-| Read-your-writes must wait for the write's epoch to close | Commits return a session token (group, operation number, epoch). Single-group reads use the operation number, so they never wait; multi-group reads can ask the sequencer to close the current epoch immediately, bounding the wait to about one round trip |
-| A causally later write in another group could receive an earlier epoch | **Epoch propagation rule:** requests (and, in the tile stage, change streams) carry the highest epoch the session or sender has seen. A partition stamps exactly one above the latest close delivered to it and never advances on its own, so it waits for the close below a carried epoch before it commits (P24). Epochs behave like logical clocks, so causally later writes never appear in earlier snapshots |
-| Sequencer unavailability stalls new snapshots | The sequencer is a VSR group and survives minority failures. During a view change, single-group writes and reads and monotonic-fast reads continue; multi-group snapshot reads may fall back to the latest closed epoch, with the staleness reported in the response |
-| One sequencer may saturate | Only epoch boundaries and multi-group transactions pass through it, all batched. If it saturates, sequencing is partitioned across several sequencers whose logs merge deterministically per epoch, as in Calvin's own design |
-| Epoch length is a trade-off | Adaptive within fixed bounds: shorter while sessions wait on read-your-writes, longer under heavy batch load |
+| Epoch closes, and with them snapshot reads across partitions | Commits, within each partition's open epoch |
+| Logins, new sessions, schema installs, placement changes | Reads of one partition's latest state, monotonic-fast reads |
+| New sequence leases | ID allocation from the blocks leased ahead |
+|  | A partition's own failover, which never asks the system group |
 
-**Side benefits.** Epochs give natural point-in-time queries ("as of epoch *e*"), reasoning runs that can be reproduced by pinning an epoch, and a clock-free, deterministic protocol the simulator can test exhaustively. Hybrid logical clocks would be reconsidered only if multi-region active-active deployment becomes a requirement, since a single sequencer would then put an inter-region round trip into every epoch.
+**It acknowledges from disk,** since a lost lease reissues an ID and a lost close rewinds epochs.
 
-## Replication and runtime model
+**One check is on every commit's path.** Compute checks each commit's session and principal against the registry
+before it routes it, so that no partition takes an evicted session for a new one. With the system group on storage
+that check is a round trip per commit unless it is answered differently. Two answers are weighed in *The path*: a
+check compute holds up to a fenced epoch, and the session's state kept where the commit is decided, in its partition
+group's replicated state, as TigerBeetle keeps its client table.
 
-Replication is VSR throughout, and every core runs its own event loop with no shared state on the hot path.
+## The storage layer
 
-- **VSR replica groups** for storage, plus one VSR group for metadata on the frontends. Stage 8 builds them first, on the single container's `dev-ha` profile, and stage 10 at scale. `UltraGraphDB Distribution Protocol.md` is the protocol: storage groups acknowledge from memory on a quorum with a bounded exposure, and the metadata group and the sequencer acknowledge from disk.
-- **Thread-per-core with compio.** Completion-based I/O (io\_uring on Linux), with each core owning its submission and completion queues, NVMe queue pair and NIC queue.
-- **Sans-IO core.** VSR, the storage engine and the query engines take I/O through traits. Implementations: the deterministic simulator, Linux io\_uring, and any future backend without touching core logic. The same design gives native sync and async clients.
-- **Batching amortizes consensus.** TigerBeetle, the closest comparable system, processes batches of up to 8,190 transfers per request and is designed for about one million transactions per second on a single core.
-- **Scaling VSR itself.** Decoupling and partitioning protocol roles, analyzed for safety through monotonicity, raised Paxos throughput 3x (on 29 machines against 8) and two-phase commit 5x in recent work (SIGMOD 2024), raising throughput with negligible added latency, and reducing none. The same treatment applies to VSR: batching, ordering and execution as independently scaled roles, as in Compartmentalized Paxos.
-- **Internal traffic uses the same binary protocol** as clients: Iggy-style byte-level frames, Arrow-compatible column buffers, version negotiation one version back.
+### Partitions and the tile store
 
-## Storage modes
+A storage node gives each core a partition. A partition is the one owner of its subjects' facts and holds its own log,
+commit step and engine. The engine is the tile store (`../notes/UltraGraphDB Scalable Tile Store.md`, T1 to T48):
 
-The current stage runs in direct-attached mode on the KV store. S3 mode arrives with tile storage, because immutable tiles are what make object storage and compute-side caching safe. With S3 as the backend the storage tier does not disappear; it shrinks into a log tier, because commits must be durable faster than S3 writes allow.
+- **Tiles of three shapes:** adjacency blocks of a relation's sparse matrix, column chunks of a type's attributes, and
+  sorted record runs for dictionaries and small indexes. Each is an immutable, checksummed base with a delta in memory.
+- **The log is the only stream synced per commit.** Deltas fold into new tiles written out of place, and a checkpoint
+  publishes them under a superblock written last.
+- **The schema compiles the layout** and gives each relation and attribute a storage class.
+- **A grid of extents per replica.** A tile reference is address, length and checksum. An extent holds whole tiles and
+  is freed whole.
+- **Compaction and placement are deterministic.** The grids of a partition's replicas are identical byte for byte at
+  every checkpoint, so a tile is repaired or copied from a peer by address and checksum.
+- **Shared nothing per core.** The engine does no I/O of its own: it asks its shell to read a tile, write an extent or
+  sync, and the simulator answers the same requests with faults.
 
-|  | Direct-attached mode | S3 mode |
+The GSL levels are: G the replica group, S the bucket group, which is the unit a move carries, and L the tile.
+
+### Two bindings
+
+The engine is one. Its grid's shell binds it to a medium, and a cluster chooses the binding in its settings
+(decided 2026-11-12).
+
+|  | Direct-attached | Object store |
 | --- | --- | --- |
-| Frontend | Same | Same |
-| Compute | Executes; reads tiles from storage nodes | Executes; local NVMe tile cache, reads from S3 on a miss |
-| Storage | Full data: log, deltas and tiles on NVMe | Log tier only: log and recent deltas; tiles in S3 |
-| Best for | Lowest latency, on-premises, air-gapped, high-assurance | Elastic cloud, large data, low storage cost |
+| Authority for tiles | The replica's grid on local NVMe | The object store |
+| The local grid | Holds every extent | A cache of the extents present on the node |
+| The log | Local, synced per round | Local, synced per round |
+| A commit is acknowledged | Once its round is durable in the log; from stage 8, committed by its group | The same. A commit never waits on the object store |
+| Data is bounded by | The local drive | The object store; the local drive bounds the cache |
+| Object-store credentials | None | Held by storage alone |
+| A lost node recovers | From its group's replicas, from stage 8 | Tiles from the object store; the log's tail from its group's replicas, from stage 8 |
+| Suits | Lowest latency, on premises, air-gapped | Elastic cloud, large data, low storage cost; MinIO or Ceph on premises |
 
-S3 mode also works on premises with S3-compatible stores such as MinIO or Ceph.
+In the object binding the storage node remains a full participant: under one owner per fact a partition executes
+transactions and decides conditional writes, so it reads the data it decides on and keeps a tile cache.
 
-### Write path in S3 mode
+**The paths in the object binding.**
 
-- Writes are acknowledged once replicated in the log tier's VSR group on local NVMe. Standard S3 writes take tens of milliseconds; S3 Express One Zone is faster but still slower and costlier per request than an NVMe flush.
-- Log nodes, or a dedicated compactor role, merge deltas into new immutable tile versions and upload them; once a tile is in S3, the log can be trimmed.
-- S3 conditional writes make a log directly on S3 possible (as in SlateDB), which suits batch-heavy workloads but not interactive graph writes.
+- **Write.** A round is logged, synced and acknowledged as in the direct binding. A checkpoint seals extents; sealed
+  extents are uploaded; the checkpoint counts as published in the object store once its extents and its manifest are
+  there. An extent that is published may leave the local grid.
+- **Read.** A read of an extent the node holds is a local read. A read of one it does not hold fetches the extent,
+  verifies it by checksum and places it in the local grid. The read yields while the fetch runs, as it yields today
+  while a tile loads.
+- **Cold reads pay the object store's latency at every hop.** A frontier request names the next hop's sources, so
+  their extents are fetched in parallel; hot extents are pinned.
 
-### Read path and caching
+**What the tile store's specification must hold for it.** These enter the specification before the grid is built.
 
-- **Immutable tiles make caching safe.** Tile versions are stamped with an epoch and never change, so a cache only needs to know which version a snapshot references.
-- **The cache lives on compute nodes** as local NVMe. A separate shared cache tier is worth it only if per-node caches duplicate a lot of data.
-- **Cold traversals pay S3 latency at every hop.** Prefetch the next hop's tiles in parallel once the frontier's GSL coordinates are known; size tiles in megabytes; pin hot tiles and warm new compute nodes from peers instead of S3.
+1. **One engine, two shells.** Nothing above the grid's shell knows the binding.
+2. **An object is a sealed extent, and its key outlives the address.** An address is reused after an extent is freed,
+   so the key carries what tells two extents of one address apart.
+3. **Allocated is apart from present.** Which extents exist is a function of the log, identical on every replica.
+   Which extents a node holds is a local fact that no logged decision reads.
+4. **Timing never reaches the log.** An upload, an eviction or a fetch changes when a read answers and never what a
+   round decides, so the replicas' grids stay identical wherever they hold bytes.
+5. **Retention follows logged positions.** An object is removed by a rule over the log's positions, as the fold
+   horizon is, so a reader on another machine never finds a reference dangling.
+6. **The manifest is published as an object,** with one rule for which is current.
+7. **Identical grids make one upload enough.** Any replica's extent is the same bytes, so an upload is idempotent and
+   an object verifies against any replica.
+8. **The object store sits behind an interface with a simulated implementation.** The fault simulator injects
+   latency, lost acknowledgements and partial failure. A real S3-compatible store appears in container tests alone.
+   The same interface hides the client: a dependency first, a client of the project's own later (decided
+   2026-11-12), and the engine sees neither.
 
-## Tile storage and query execution (later stage)
+**What the object binding promises with one replica.** Tiles survive the loss of the node up to the last published
+checkpoint. The log's tail above it is on the node alone. That is a restore to a checkpoint, and it is named so. From
+stage 8 the log is replicated, and the object binding then loses no acknowledged commit to a single failure.
 
-Tile storage is postponed; the current stage uses the Dgraph-derived KV store with bucket placement, which is adequate for now. When tiles arrive, graph topology becomes a hierarchically tiled sparse matrix: the tiling decides where data lives, how supernodes are split and how much each hop costs, and it moves reverse adjacency onto change streams. The multi-hop principles below apply to both stages.
+### Reads and multi-hop execution
 
-### Tile layout
+Compute sends frontiers, not vertices: one request names many sources of one relation and direction, with a type
+range, inline filters and a limit. Depth beyond two hops stays fast when filters are pushed into the expansion as
+range reads, the frontier is deduplicated, a query asks for reachability or an aggregate in place of every path, and
+the planner picks the selective end to start from.
 
-- **Dense, type-clustered IDs.** The entity type sits in the high bits, assigned in preorder of the type hierarchy, so a subtype is a contiguous range and a supertype one larger range. Tiles use hypersparse formats (DCSR and DCSC). The group ID also sits in the ID, so IDs are generated without coordination.
-- **One matrix per relation or role, stored both ways:** CSR for forward traversal, CSC for reverse. N-ary relations are one incidence matrix per role. Reverse tiles are maintained through the change streams.
-- **Adjacency ordered by neighbor type and key edge attributes,** so type filters and common edge filters become range reads.
-- **Embeddings** are per-type columnar attributes stored in BF16, with a quantized index for search and BF16 rescoring of the top candidates.
+Whole-graph analytics read projections: compute builds an immutable two-dimensional projection at a closed
+epoch from tiles streamed from storage, and caches it. The store keeps the one-dimensional placement that serves
+transactions. A projection is also what a graph algorithm loads.
 
-### GSL addressing
+## Graph algorithms and GPU compute
 
-| Level | Meaning | Role |
+**A later requirement.** Graph algorithms accelerated by GPUs are added after stage 10 (stated 2026-11-12). Nothing
+of them is built before. This section fixes where they run and what the earlier stages keep open for them.
+
+**They run in compute.** Compute takes the client's request and executes it, so a graph reaches an algorithm straight
+from storage and its result leaves straight to the client. With execution in a role of its own, the graph would move
+from storage to that role, the result back to the endpoint, and nothing could stream.
+
+| Pathway | What flows | Where the answer goes |
 | --- | --- | --- |
-| G (group) | Availability group | Replication and failover, one VSR group per G |
-| S (shard) | Position in the 2D tile grid | A row range by column range assigned to the group |
-| L (local) | Tile on a node | Unit of paging, caching, versioning and compaction |
+| Query | Rows from the partitions, merged | Streamed to the client |
+| Algorithm | A subgraph loaded into flat arrays, on a GPU where the node has one | Rows streamed to the client |
+| Write-back | An algorithm's result for every vertex | Into the graph as an attribute, through bulk ingest |
 
-With 2D partitioning each traversal step communicates along one process row and one process column, about the square root of p peers instead of all p. A supernode's adjacency row is split across column tiles and machines automatically.
+**Loading is what streams.** An algorithm such as PageRank or community detection needs its whole subgraph before it
+iterates, so batches fill its arrays as they arrive from storage. A graph larger than memory is processed batch by
+batch, by bucket group, the unit tiles are cut by. Work per row, such as scoring vectors, runs on each batch as it
+arrives.
 
-### Multi-hop execution
+**Compute nodes with GPUs are a group by tag.** A GPU node is a compute node: the same role and the same binary, on a
+machine with GPUs, tagged `gpu` (*Clients: discovery, tags and load*). Nodes tagged `high_memory` take the algorithms
+that need much memory and run better on CPUs.
 
-The cost of hop k is roughly the number of edges touched from the current frontier, growing by an effective branching factor (average degree times the fraction of edges passing the filter). Depth beyond two hops stays fast when:
+- **The query path stays clear.** A long algorithm takes no core and no memory from an interactive query, however
+  the cluster's load grows.
+- **A failure stays in its group.** An algorithm that exhausts memory drops no interactive client.
+- **No role of its own.** A GPU role would bring back the transfer between processes that one compute role removed.
 
-- **filters are pushed into the expansion as range reads,** so cost scales with surviving edges;
-- **the frontier is deduplicated,** bounding each hop by the number of vertices;
-- **queries ask for reachability or aggregates** rather than enumerating every path;
-- **the planner chooses direction:** start from the more selective end, search from both ends when both are known, and switch to pull-direction traversal for large frontiers.
+The developer picks the tag, and an algorithm procedure declares the tag it needs, so a call that reaches a node
+without it is refused with the tag named.
 
-### Lessons from StarRocks
+**What the earlier stages keep open.** Each item costs little now and is expensive to retrofit.
 
-| StarRocks technique | Graph equivalent |
-| --- | --- |
-| Vectorized columnar batches | Frontier-at-a-time expansion over sorted ID lists |
-| Colocate joins | GSL placement aligned with relation partitioning, so most hops stay local |
-| Global runtime filters | Filters built from one side of a pattern pushed into the other side's expansion |
-| Low-cardinality global dictionary | Dense, type-prefixed IDs and the IRI dictionary |
-| Cascades-style cost-based optimizer | Cost-based planner with distribution strategies as physical choices |
+| Stage | Keep open | Because |
+| --- | --- | --- |
+| Stage 5.9 | Work that outlives a turn runs off the endpoint core | An algorithm runs for minutes and must hold up no relay of a commit |
+| Tile store | An analytical read at a closed epoch may return slots with their bucket group | An algorithm needs vertices numbered densely. The wire carries 128-bit IDs, and renumbering billions of them through a hash map is the load's largest cost. This amends T3, under which a slot never leaves its partition |
+| Tile store | A source that holds for minutes: a published checkpoint, whose tiles never change | Retention is set for interactive reads. The retention and manifest rules of the object binding count such readers |
+| Tile store | The format's decoders linkable by compute | The format crate does no I/O. The rule that compute links no storage engine admits it by name |
+| Query core | Operators pass columnar batches of IDs, and text is resolved in the last step | A client's result names every node by its text; an algorithm plugs in as one more operator over IDs |
+| Query core | Procedures are a registry | `CALL … YIELD` exists for vector and text search, and an algorithm takes the same surface |
+| Query core | A procedure declares the tag it needs | The refusal of a wrong tag reads it, and names it to the developer |
+| Stage 5.9 | Join names a compute node's tags and advertised address, and Welcome carries the member list and its version | Hello, Welcome and Join are edited once, with the merge's edit of the protocol |
+| Stage 8 | The tile fetch of a replica's catch-up serves compute too | A frontier reply carries 32 bytes an entry, right for interactive reads. A projection takes whole tiles by address and checksum |
+| After stage 10 | The GPU binding sits behind an interface in a crate of its own | It needs foreign code, and the workspace forbids `unsafe` |
 
-## Node runtime and hardening
+## Replication and availability
 
-Deployment targets (decided 2026-11-01): Kubernetes and Docker, bare metal later. CI builds, signs and publishes the OCI images with Bazel's `rules_img`, the server's glibc base built from Wolfi packages by `rules_apko` (D7). The microVM runtime and minimal kernel described below are tracked options, not current targets.
+**The target.** Any one node may fail and the cluster keeps serving, at reduced performance. Three things give it:
+several compute nodes that all take clients, the system group as three replicas, and every partition as a group of
+three replicas with its leaders spread, so every storage node leads a third of the replicas it hosts.
 
-Each role runs its own binary, linked against glibc with mimalloc, on the Wolfi glibc base of `../../bazel/oci_images/glibc_base` (D7, decided 2026-11-01): musl with mimalloc measured about 18% slower per core. The tracked microVM option builds a static musl variant for its kernel.
+**The protocol** is `UltraGraphDB Distribution Protocol.md`: Viewstamped Replication over the log's interface. A
+partition's group acknowledges from memory on a quorum with a bounded exposure. With one replica lost the group runs
+guarded: the two that remain sync each round before they acknowledge. That is the reduced performance of the target.
+The system group acknowledges from disk.
 
-| Node type | Runtime |
-| --- | --- |
-| Storage / log | The storage binary in an OCI container on the glibc base, with a seccomp profile allowing io_uring; a static musl variant on a minimal custom Linux kernel in a dedicated microVM (Firecracker or Cloud Hypervisor) stays a tracked option |
-| Frontend | The frontend binary, holding the metadata group and the sequencer, in an OCI container on the glibc base; the hardened microVM image is an option for high-assurance deployments, since frontends hold the metadata group |
-| Compute | The compute binary in an OCI container on the glibc base, elastic under an orchestrator |
+### Failover is decided inside the group
 
-### Minimal kernel for storage nodes
+These rules are Viewstamped Replication's, as TigerBeetle runs them in production with no outside service
+(read in its sources, 2026-11-12).
 
-The approach follows Lupine Linux (EuroSys 2020): a standard Linux kernel specialized through its configuration achieves unikernel-like performance while keeping Linux's drivers, tooling and security scrutiny.
+- **The primary is arithmetic.** A group's members are an ordered list, and the primary of a view is the view number
+  modulo the list's length. No election runs and no process records who leads.
+- **A view changes only by a quorum.** A backup that stops hearing its primary asks to leave the view, and the view
+  changes once a quorum asks. A replica that can send but cannot hear therefore deposes no healthy primary. A primary
+  that cannot gather a quorum stops leading.
+- **Compute is each group's client.** The placement map names a group's members. Compute learns the group's view from
+  them and sends to the primary; a member that is no primary forwards the request or answers with its view.
+- **A group's members are fixed.** The list is settled when the group is formed. A cluster grows by forming new
+  groups and moving bucket groups onto them, and a lost node is replaced under its place in the list. TigerBeetle runs
+  on fixed members: its reconfigure operation validates a request and changes nothing.
+- **A version switch goes through the log.** A replica advertises the versions it holds, and the primary commits the
+  switch once every member holds the new one.
 
-- **Enabled:** 64-bit, SMP, KVM guest, kvm-clock and PTP, virtio-blk and virtio-net, NVMe and AWS ENA, io\_uring, TCP/IP, XFS or raw block access, virtio-rng, seccomp.
-- **Disabled:** loadable modules entirely, USB, sound, graphics, unused file systems, kexec, debugfs, /dev/mem, unprivileged BPF, user namespaces.
-- **No userland:** the storage binary is the only process, from a read-only initramfs; no shell, package manager or ssh.
-- **io\_uring restricted** to the exact operations compio uses via IORING\_REGISTER\_RESTRICTIONS (io\_uring operations bypass seccomp); the io\_uring\_disabled and io\_uring\_group sysctls (Linux 6.6) limit who may create rings.
-- **Hardening:** KASLR, lockdown mode, stack protection, memory initialization on allocation, hardened user copies, Clang control-flow integrity.
-- **Signed, reproducible image,** with measured boot or confidential-computing attestation (AMD SEV-SNP, Intel TDX) as options; a debug variant from the same source enables ftrace, perf and eBPF.
+| Members | To commit | To change the view |
+| --- | --- | --- |
+| 3 | 2 | 2 |
+| 6, TigerBeetle's recommendation | 3 | 4 |
 
-### libc and system calls
+**Where this design leaves TigerBeetle.** TigerBeetle persists its protocol state before it answers, so a restarted
+replica forgets no promise, and it rebuilds a replica whose disk was lost two views ahead for the same reason. This
+design acknowledges from memory in its fast mode. The forgotten promise is therefore the case its proof and its
+simulation carry (experiment X3 of the protocol note). TigerBeetle also orders every read through its primary; here a
+replica that has closed an epoch answers reads at that epoch.
 
-- **glibc, dynamically linked,** for its vectorised string routines; the loader stays current through the base's lock, updated by `bazel run //bazel/oci_images/glibc_base:lock`. Client tools ship static musl binaries on scratch.
-- **mimalloc as the global allocator,** in secure mode subject to benchmarks.
-- **Pure-Rust, no\_std DNS resolver,** fuzzed continuously; the libc resolver is never called.
-- **rustix with the linux\_raw backend** for direct system calls, including vDSO time reads.
-- **io\_uring through direct system calls:** the io-uring crate's direct-syscall feature now; port compio's backend to rustix's io\_uring module upstream later. Container runtimes refuse io\_uring under their default seccomp profiles, so the images ship a profile allowing `io_uring_setup`, `io_uring_enter` and `io_uring_register`.
-- **Symbol allowlist in CI:** the release binary may link only an approved set of libc symbols; anything else fails the build.
+**One primary per partition.** Several replicas of one partition accepting writes at once would give up strict
+serializability and the single commit step, and the target does not ask for it.
 
-### Unikernel options (tracked, not default)
+**Until stage 8** every group has one replica behind the interface that replication fills: the system group's two
+state machines, each partition and the config service. A partition's directory already names its replica.
 
-- **Hermit:** Rust research unikernel; storage only through virtio-fs, no known production users.
-- **Nanos:** Apache-2.0 source with commercial support; 27 io\_uring operations, unchanged since release 0.1.53 (December 2024); a very small kernel team. Worth evaluating for customers who require a non-Linux image.
+**Stage 8** builds VSR in one container, on groups of three whose replicas share a machine. It proves the protocol.
+**Stage 10** puts the replicas on separate nodes, and the target is met there.
+
+What already serves the target: a session lives in the registry and in each partition's session table, a commit in
+doubt is resolved on the next connection by asking the partitions, and a partition keeps stamping its open epoch
+while the sequencer is silent.
+
+## Runtime model
+
+- **Thread per core on compio.** An endpoint core per CPU in compute, a runtime per partition in storage, each
+  owning its listener and its ring, pinned where the platform allows.
+- **No I/O in the core logic.** The state machines, the engine and the transport's framing take I/O through traits;
+  their shells are compio and the deterministic simulator.
+- **Zero copy on the wire and in the log.** A frame is read in place. Compute relays a write's body unchanged,
+  and a round's bytes are what the log stores and what replication sends.
+- **Batching amortizes agreement.** Commits batch into rounds and reads into frontier requests.
+- **Settings come from the config service.** A role names its target and instance and fetches its settings at start.
+  A load is a restart at a named revision.
+- **Fail-stop on a violated invariant,** with an exit code that names the cause.
+
+## Deployment and node runtime
+
+Deployment targets are Kubernetes and Docker, bare metal later (decided 2026-11-01).
+
+| Process | Image | Under Kubernetes |
+| --- | --- | --- |
+| Compute | glibc with mimalloc on the Wolfi base | A Deployment; a StatefulSet with a volume while it still hosts the system group |
+| Storage | The same | A StatefulSet with a volume per instance, the system group's logs on three of them |
+| Compute, tagged `gpu` or `high_memory` | The compute binary; with the GPU binding after stage 10 | A Deployment per tag on machines of that kind |
+| Config service | Static musl on scratch | A StatefulSet of one replica |
+| Development container | The Wolfi base with every binary and the supervisor | One container, roles joined over Unix-domain sockets |
+
+Every role runs as a non-root user, read-only, under a seccomp profile that allows io_uring.
+
+**Tracked options, none built.** A static musl storage binary on a minimal Linux kernel in a microVM; io_uring
+restricted to the operations compio uses; a resolver of the project's own in place of the C library's; a build that
+fails on an unapproved C library symbol. The object binding makes name resolution and trust roots for an outside
+endpoint a requirement of storage, which moves the resolver from an option to a question in *The path*.
 
 ## Security by tier
 
 | Tier | Exposure | Controls |
 | --- | --- | --- |
-| Storage / log | Durability boundary; holds all data | Hardened minimal-kernel image, io\_uring allowlist, no userland; only these nodes (or the compactor) hold S3 write credentials |
-| Compute | Data-bearing in S3 mode through its cache; runs the largest code surface | Encrypted cache; read-only S3 credentials scoped to tile objects, so a compromised node can read but not corrupt or delete |
-| Frontend | Client-facing parsers and protocols; holds metadata | TLS and authentication in the protocol handshake; every inbound frame bounds-checked before zero-copy views are handed out |
+| Compute | Client-facing parsers and protocols; the largest code surface; no durable state | TLS 1.3 and SCRAM in the handshake; every inbound frame bounds-checked before a view is handed out; clear text only as a declared setting |
+| Storage | The durability boundary; holds all data, the system group with the principals' verifiers and, in the object binding, the object store's credentials | No client reaches it; role connections authenticated; the object store's write credentials on these nodes alone |
+| Config service | Every target's settings; never a secret's contents | A read key and an admin key, each node verifying the admin key by its digest |
 
-Change streams between groups are authenticated like client traffic, so a compromised node cannot inject derived updates into another group. The hypervisor is the isolation boundary between nodes; most Linux io\_uring CVEs are local privilege escalations, which matter little in a single-purpose VM where the database process already owns the data.
+Roles authenticate each other with one shared role secret over connections in clear text. Stage 8 gives each role a
+certificate and encrypts role connections.
 
 ## Rolling upgrades
 
-Storage upgrades first, compute second, frontends last, and new formats activate only after an explicit cluster-wide finalize step.
+Storage upgrades first, compute last, and new formats activate only after a cluster-wide finalize step.
 
-### What StarRocks does
+- **Storage,** one replica at a time per group, the system group's among them, never more than a group can lose,
+  waiting for catch-up.
+- **Compute nodes,** drained and replaced.
+- **The state-machine version is agreed through the log.** A binary holds the current and the previous logic, and the
+  switch is a committed operation, so every replica changes at the same point in history. The primary commits it
+  once every member advertises the new version.
+- **Binaries first, features later.** A finalize step committed through the system group enables new tile formats,
+  plan features and protocol fields. Before it a downgrade is a binary rollback; after it the change is one-way.
+- **Readers handle the current and the previous format,** and the protocol negotiates one version back.
 
-- Backends and compute nodes are backward compatible with frontends, so they are upgraded first; frontends follow, followers before the leader. Downgrade is the exact reverse.
-- Graceful exit (v3.3 onward) drains running query fragments before a node stops; since v3.4 frontends recognize an exiting backend instead of marking it dead.
-- Some changes are one-way: the BDB JE upgrade in v3.0 cannot be rolled back, and v4.1 limits downgrades to v4.0.6 or later.
-
-### Upgrade order
-
-| Step | Tier | How |
-| --- | --- | --- |
-| 1 | Storage / log nodes | One replica at a time per VSR group, never more than the group can lose; wait for log catch-up. Replace the signed microVM image and reattach the data volume; rollback boots the previous image. |
-| 2 | Compute nodes | Drain and replace; in S3 mode, warm the cache from peers before taking traffic. |
-| 3 | Frontends | Followers first, leader last. Gateways roll with compute. |
-
-Storage goes first because it holds durable formats; frontends go last so the planner only emits new plan features, and only publishes a new write classification, once every node understands them.
-
-### Rules
-
-- **Agree on the state-machine version through the log.** Each binary contains the current and previous state-machine logic, and the switch is an operation committed through VSR, so every replica changes logic at the same point in history. TigerBeetle bundles earlier versions in its releases for the same reason.
-- **Binaries first, features later.** Roll out binaries while every node keeps writing old formats; a finalize step committed through the metadata group then enables new tile formats, plan features, protocol fields and change-stream formats. Before finalize, downgrade is a binary rollback; after, it is one-way and stated as such.
-- **Readers handle the current and previous formats;** old-format tiles age out through compaction.
-- **Change streams carry a format version,** so a target group running the older binary rejects nothing it can still apply.
-- **Internal protocol negotiation supports one version back,** and the compute cache is keyed by tile version and format.
+Storage goes first because it holds the durable formats. Compute nodes go last so the planner emits a new feature only
+once every node understands it.
 
 ## Verification strategy
 
-Coordination avoidance moves correctness from runtime coordination into analysis and protocol design, so verification carries more weight than usual.
+- **Formal models first, in Lean:** `../../lean/PlacementModel` for epochs, registration, referrer sets and deletes,
+  `../../lean/RoundModel` for rounds and checkpoints; the replication protocol's model before stage 8 builds it.
+- **Classification soundness:** for every constraint the schema can express, a write classified coordination-free or
+  segmented preserves its invariant under every interleaving the simulator generates.
+- **Deterministic simulation:** faults, crashes, partitions of the network and mixed versions, compared against a
+  reference run; two simulated replicas byte-identical under every fault class; the object store's faults among them.
+- **Conformance on every build:** W3C SPARQL, the openCypher TCK and the GQL scenario suite, against clusters.
 
-- **Formal model first.** A Lean model of epochs, registration, referrer sets, reclamation and deletes (P24 rules 4, 5, 6, 9 and 11, stage 5.5's `../../lean/PlacementModel`, including the epoch propagation rule), of the change-stream and watermark protocol in the tile stage, and of the state-machine version switch, proved before implementation, in the repository's `lean/` project beside stage 5's round model (decided 2026-11-01). Cassandra's materialized views failed partly because their design was never extensively modeled or simulated.
-- **Classification soundness.** Property tests check, for every constraint the schema can express, that any write classified coordination-free or segmented preserves the invariant under all interleavings the simulator can generate.
-- **Deterministic simulation.** Fault injection, crash recovery, network partitions and mixed-version clusters, with results compared against a single-version, single-group reference run.
-- **Background verifier in production.** Continuous comparison of reverse entries against forward edges and of derived indexes against base data, with repair and alerting.
-- **Conformance suites on every build:** W3C SPARQL, the openCypher TCK and the GQL scenario suite, run against clusters, not just single nodes, at snapshot consistency.
+## The path
+
+What each stage builds, what must be settled before it starts, and the blind spots it has to close. The order is the
+roadmap's (`../../ROADMAP.md`, set 2026-11-12). Stages 5.8, 5.9 and 6.5 each change what the next builds on, so none
+starts before the one before it is complete.
+
+### 1. Stage 5.8: the system group moves to storage
+
+The first of the three. The frontend and compute still exist as two processes. After this stage both join the system
+group on storage, the frontend holds nothing durable, and stage 5.9 merges two stateless processes.
+
+Settle before it starts:
+
+- **The protocol for both stages.** Stages 5.8 and 5.9 both change the role sections of `PROTOCOL.md`. Both edits
+  are specified together here, so the consistency review of sections 5 and 11 to 13 is reopened once.
+- **The session check.** Answer backlog item 13, or accept a round trip per commit until it is answered. One hop
+  between two virtual machines measured about half a millisecond (`../benches/benches-2026-11-09.md`).
+- **Where the group runs on a storage node:** its core, and whether its logs share a flush with the partitions' logs.
+  The commit measurements found the sequencer's sync at each close delaying the checks that waited behind it.
+- **How the other processes find it.** A fixed, ordered list of addresses as one setting, as TigerBeetle's replicas
+  and clients take one. The settings format needs no lists for that.
+- **How the client's endpoint follows epochs.** It learns the latest closed epoch and asks for an early close in
+  process today.
+
+Blind spots to close:
+
+- **The start order reverses.** Storage starts first and the others attach. The supervisor's order, the readiness
+  rules and the Helm chart follow.
+- **The 60-second exit ends for storage.** Storage depends on no other process. The others decide what they do while
+  storage is unreachable.
+- **Settings and secrets move:** the bootstrap administrator's secret, the epoch bounds and the session limits leave
+  the frontend's tables for storage's.
+- **The data directory.** The metadata and sequencer logs move to a storage volume.
+- **Describe** answers from the metadata state machine in process today and becomes a call.
+- **Membership gains a version.** The system group numbers every change of a member, a tag or a state, and the
+  member list a client receives from stage 5.9 on is served from it.
+- **A baseline of its own.** Reads are recorded before this stage, since the benchmark record holds writes alone.
+  The benchmark is rerun after it, so the round trip it adds to a commit is measured apart from what stage 5.9
+  removes from a read.
+
+### 2. Stage 5.9: the frontend and compute become one role
+
+Settle before it starts:
+
+- The bound on read work per turn on an endpoint core, and where work that outlives a turn runs.
+
+Blind spots to close:
+
+- **The protocol, as specified with stage 5.8.** `ComputeRead` retires, and Join and the member list are restated
+  for two roles. Join carries a compute node's tags and advertised address, and Welcome the member list and its
+  version. The golden frames are regenerated.
+- **The rename.** The role is compute and its binary `ultragraphdb_compute`. The frontend's binary, its crate, its
+  settings table, the `frontend_address` setting and the role's name in Join take the new name or retire.
+- **Two open changes are written against the split.** Nine live specifications are written for three roles, and the
+  deltas of stages 6.5 and 6.6 modify some of the same requirements. This stage's change is archived and both open
+  changes are rebased before stage 6.5 starts.
+- **The baseline for the tile store.** The benchmark is rerun after this stage and before stage 6.5, so the tile
+  store's comparison measures the tile store.
+- **The read scenarios stay.** Fan-out, credit, resume keys and the read levels keep their tests; the scenarios of a
+  hung or lost executing process end with the relay.
+- **Everything that names three roles:** the settings checker's roles, the profiles, the supervisor's order, the
+  images, the Helm chart, `AGENTS.md` and the backlog. Seven documents also cite this design under `openspec/notes/`.
+- **Deletions need approval:** the frontend's binary with its image, its test crate and its chart entry, once their
+  contents live under compute's name.
+
+### 3. Stage 6.5: the tile store, with the object binding
+
+Settle before the grid is built:
+
+- The eight requirements of *Two bindings*, as decisions and scenarios of the tile store's specification.
+- **Which crate the object-store client is.** It is a dependency behind the object store's interface first, and a
+  client of the project's own later (decided 2026-11-12). The interface is drawn so that the swap changes one
+  implementation. The crate has to fit thread per core: a client that brings an async runtime of its own needs a
+  thread beside the cores, where one that only signs requests leaves the I/O to compio. Pure Rust is preferred.
+- Where the object binding lands in the task groups: the interface with the grid, the simulated store with the
+  simulator, the real client as a group of its own.
+
+Blind spots to close:
+
+- **Credentials and endpoints.** Where storage reads the object store's credentials, how it resolves the endpoint's
+  name and which trust roots it verifies it against.
+- **Read timing.** A fetch of tens of milliseconds meets rules written for local reads: the one-turn rule of lane L
+  and the scan's stall timer.
+- **What a restore from the object store is,** and how it relates to backup.
+- **The benchmark compares like with like:** the direct binding against the KV baseline, the object binding recorded
+  apart.
+- **Three openings for analytics** (*Graph algorithms and GPU compute*): slots returned by an analytical read, a
+  published checkpoint as a source held for minutes, and the format's decoders linkable by compute. The first amends
+  T3 of the tile store.
+- **Scope.** The stage is the largest on the roadmap, and the object binding adds to it.
+
+### 4. Stages 6.6 and 6.7: UGS on tiles
+
+The whole of UGS: syntax, static semantics, the catalog version, Install and Describe, then instances, their rules at
+commit, indexes, the RDF view, the UQL subset for tests and the client, all on tiles. The RDF view and the UQL subset
+land in compute. Stage 6.7's chaos testing includes the object store's faults.
+
+- The catalog version carries the tile store's compiled layout, which stage 6.5 has fixed by then.
+- A catalog version is capped at one frame; the schema specification asks for continuation frames at this stage.
+- The change's first group, the wire, is done. Its groups for syntax and static semantics add crates that no earlier
+  stage touches.
+
+### 5. Stages 7 and 7.5: the query core
+
+The SPARQL and GQL core, planned and executed in compute.
+
+- **The decision point of Dec 31.** One query runs through the whole stack: the endpoint, the query engine and the
+  tile store (decided 2026-11-12). It is the point at which to decide whether to continue, and it moves if the work
+  needs it. Stages 5.8 to 6.6 and the query core's first slice all come before it.
+- Operators pass columnar batches of IDs and resolve text in the last step, and procedures are a registry, so an
+  algorithm is one more operator and one more procedure later.
+- Every procedure declares the tag it needs, and compilation refuses a call the node has no tag for, naming the tag.
+
+### 6. Stage 8: replication in one container
+
+Settle before it is specified:
+
+- **The session check without a round trip** (backlog item 13), if stage 5.8 left it as a round trip: a check compute holds up to a
+  fenced epoch, or the session's state in its partition group's replicated state. Either is proved in Lean against
+  exactly-once.
+- **The home of a commit in flight.** The system group holds it today, which is what refuses a session's second
+  commit.
+- **Fixed members.** Whether growth by new groups and replacement under a member's place make changing a group's
+  members unnecessary. TigerBeetle offers no model for changing them.
+- **Leaders under arithmetic.** The view number fixes the primary. How the preferred leaders of P8 hold after a
+  failure heals.
+- **How compute learns a group's view,** and whether a member that is no primary forwards a request or answers with
+  its view.
+- **The forgotten promise.** The proof and the simulation of the memory mode, which TigerBeetle avoids by persisting
+  its protocol state.
+- **The config service's replicas.**
+- **The object binding under replication:** which replica uploads, and whether a follower catches up from the store.
+- **Certificates per role** and encrypted role connections.
+- **The tile fetch** of a replica's catch-up, shaped so that compute may use it for projections.
+- **Load control.** Credit, the refusal threshold, the two signals, the probe and the driver's choice enter
+  `PROTOCOL.md`. The core's bound, no request admitted above the threshold, is proved in Lean. The simulator runs
+  many clients against list changes, draining and demand near capacity, where the two loops meet.
+
+Blind spot: `ROADMAP.md` still lists change streams among stage 8's work, which one owner per fact removed.
+
+### 7. Stage 10: separate nodes
+
+Replicas on separate machines, measured on physical Linux. A compute core holds a connection per partition, so the
+count grows as compute cores times partitions. The tracked hardening options are decided here.
+
+### 8. After stage 10: graph algorithms on GPUs
+
+Settle before it is specified:
+
+- **The tags of algorithm procedures:** which need `gpu`, which `high_memory`, and the device check at a node's start.
+- **Jobs.** An algorithm outlives the deadlines of interactive requests: how it is started, watched, cancelled and
+  its result paged.
+- **The global numbering:** how slots and bucket groups of many partitions become one dense index, and how a result
+  maps back to IDs and to text.
+- **The GPU binding and its image:** which interface to the device, and whether nodes tagged `gpu` run an image of their own.
+- **Write-back:** the algorithm's result as an attribute through bulk ingest, and the snapshot it is stamped with.
+- **Affinity for projections.** Prequal lets a probe carry the request, and a server that already holds what the
+  request needs reports a lower load to draw it. A node holding a projection in memory could draw the jobs on it.
 
 ## Decisions
 
-| Question | Decision |
-| --- | --- |
-| Storage engine | Dgraph-derived KV store now; tile storage in a later stage |
-| io\_uring without libc | io-uring crate's direct-syscall feature now; porting compio to rustix's io\_uring module stays an option |
-| Frontend runtime | Scratch OCI container by default |
-| Monotonic-fast reads | Exposed in GQL, SPARQL and the native protocol |
-| Coordinated remainder | Calvin-style deterministic ordering |
-| Acyclicity | Rank-based local checks, with hierarchies colocated in one group |
-| Snapshot timestamps | Sequencer epochs, with the mitigations under Metadata group |
+| Question | Decision | Date |
+| --- | --- | --- |
+| Roles on the request path | Compute and storage; the frontend and compute are one role, named compute | 2026-11-12 |
+| Storage bindings | Direct-attached and object store, one engine; the object binding enters the tile store's specification | 2026-11-12 |
+| The cluster's books | The system group, a replica group hosted by storage under the data's replication protocol; no outside coordination service | 2026-11-12 |
+| Order of the next stages | 5.8 the system group to storage, 5.9 the merge into compute, 6.5 the tile store, 6.6 UGS | 2026-11-12 |
+| Replication and availability | Stage 8 in one container, stage 10 on separate nodes | 2026-11-12 |
+| Graph algorithms on GPUs | A later requirement, after stage 10; they run in compute, on the nodes tagged `gpu`, with no role of their own | 2026-11-12 |
+| Load control | Credit to send, granted by the node from its queueing delay, with refusal above a threshold; the node's requests in flight and latency on replies and probes for the driver's choice. After Breakwater and Prequal. A direction, proved and simulated before it is built | 2026-11-12 |
+| Client discovery | Seed addresses for the first contact; the member list with tags and a list version in Welcome, replaced whole by a higher version | 2026-11-12 |
+| Routing among compute nodes | By tag: the developer picks a tag and the driver spreads over the nodes carrying it. The query classification picks the path on the node and gains no class for routing | 2026-11-12 |
+| A wrong tag | Refused when the query is compiled, naming the tag the procedure needs; the driver moves it to no other node | 2026-11-12 |
+| The system group's move | Stage 5.8, a change set of its own, before the merge of stage 5.9 | 2026-11-12 |
+| Sequencer and metadata state machine | One group at every cluster size | 2026-11-12 |
+| The object-store client | A dependency behind the object store's interface first; a client of the project's own later | 2026-11-12 |
+| The check of Dec 31 | A decision point on a query through the whole stack, on tiles; movable | 2026-11-12 |
+| Placement | One owner per fact; bucket ranges per partition, one partition per core | 2026-11-02 |
+| Storage engine | The KV store now; the tile store at stage 6.5 | 2026-11-10 |
+| Images | glibc with mimalloc on the Wolfi base; the config service static musl on scratch | 2026-11-01 |
+| The guarantee | Strictly serializable within a partition; serializable at a closed epoch across them | 2026-11-01 |
+| Snapshots | Sequencer epochs | 2026-10-31 |
+| The coordinated remainder | Deterministic ordering after Calvin | 2026-10-31 |
+| Formal models | Lean | 2026-11-01 |
 
 ## Open questions
 
-- [ ] Epoch length bounds for the adaptive sequencer, measured against snapshot freshness and sequencing overhead.
-- [ ] Sequencer placement: its own VSR group on the frontends (current plan), or merged into the metadata group for small clusters?
-- [ ] Tile size for S3 mode, once tile storage starts.
+- [ ] Does a compute node ever read tiles from the object store itself, with a cache of its own, or does storage alone?
+- [ ] Does the config service fold into the system group, or take replicas of its own?
+- [ ] Do the sequencer and the metadata state machine share one log inside the system group, or keep two?
+- [ ] Does a node tagged `gpu` or `high_memory` also serve regular queries, or refuse them to stay free?
+- [ ] Does a notice of a new list carry the list itself, or its version for the client to fetch after a random delay?
+- [ ] How is a quota for a tenant held across the whole cluster, if one is wanted?
+- [ ] Does a compute node carry one tag or several?
+- [ ] Does a group ever change its members, or do new groups and replacement cover every case?
+- [ ] In the object binding, can a partition run on two replicas, with the object store's conditional writes
+  deciding its failover?
+- [ ] Do groups larger than three take TigerBeetle's flexible quorums?
+- [ ] What are the epoch length's bounds for the adaptive sequencer?
+- [ ] What extent size suits the object binding?
 
 ## Sources
 
+- `UltraGraphDB Shard-per-Core Write Path.md`: P1 to P24. `UltraGraphDB Distribution Protocol.md`: replication.
+  `UltraGraphDB Dual Query Engine Plan.md`: the query core. `../notes/UltraGraphDB Scalable Tile Store.md`: T1 to T48.
+  `../../specification/binary_protocol/PROTOCOL.md`. `../benches/benches-2026-11-09.md`.
 - [Coordination Avoidance in Database Systems (Bailis et al., VLDB 2015)](https://arxiv.org/pdf/1402.2237)
 - [Interactive Checks for Coordination Avoidance (Whittaker and Hellerstein, VLDB 2019)](https://mwhittaker.github.io/publications/iconfluence_VLDB19.pdf)
 - [Hamsaz: Replication Coordination Analysis and Synthesis (POPL 2019)](https://mohsenlesani.github.io/companion/popl19/POPL19.pdf)
 - [IPA: Invariant-Preserving Applications (VLDB 2019)](https://www.dpss.inesc-id.pt/~rodrigo/vldb-2019.pdf)
 - [The Homeostasis Protocol (SIGMOD 2015)](https://infoscience.epfl.ch/record/219208/files/final_camera_ready.pdf?version=1)
 - [Keep CALM and CRDT On (VLDB 2023)](https://www.vldb.org/pvldb/vol16/p856-power.pdf)
-- [Optimizing Distributed Protocols with Query Rewrites (SIGMOD 2024)](https://arxiv.org/pdf/2404.01593)
 - [Making Geo-Replicated Systems Fast as Possible, Consistent when Necessary (OSDI 2012)](https://web.eecs.umich.edu/~manosk/assets/papers/gemini.pdf)
 - [RAMP-TAO (VLDB 2021)](https://www.vldb.org/pvldb/vol14/p3014-cheng.pdf)
 - [Instaclustr: Apache Cassandra Materialized Views](https://www.instaclustr.com/blog/apache-cassandra-materialized-view-instaclustr-support/)
+- TigerBeetle at revision `a2a3c7064` (2026-11-10): `docs/internals/vsr.md`, `docs/operating/cluster.md`,
+  `docs/operating/recovering.md`, `docs/internals/upgrades.md`, `docs/reference/sessions.md`, `src/vsr.zig`,
+  `src/vsr/replica.zig`, `src/vsr/client.zig`, `src/vsr/replica_reformat.zig`.
+- [Load is not what you should balance: Introducing Prequal (NSDI 2024)](https://arxiv.org/abs/2312.10172)
+- [Overload Control for µs-scale RPCs with Breakwater (OSDI 2020)](https://www.usenix.org/conference/osdi20/presentation/cho)
+- [Distributed Dispatching in the Parallel Server Model (Goren, Vargaftik and Moses, 2020)](https://arxiv.org/abs/2008.00793)
+- [Stochastic Coordination in Heterogeneous Load Balancing Systems (2021)](https://arxiv.org/abs/2105.09389)
+- [C3: Cutting Tail Latency in Cloud Data Stores via Adaptive Replica Selection (NSDI 2015)](https://usenix.org/conference/nsdi15/technical-sessions/presentation/suresh)
+- [Viewstamped Replication Revisited (Liskov and Cowling, 2012)](https://hdl.handle.net/1721.1/71763)
+- [Protocol-Aware Recovery for Consensus-Based Storage (FAST 2018)](https://www.usenix.org/system/files/conference/fast18/fast18-alagappan.pdf)
+- [Flexible Paxos (Howard, Malkhi and Spiegelman, 2016)](https://arxiv.org/abs/1608.06696)
+- [CockroachDB: Distribution Layer](https://www.cockroachlabs.com/docs/stable/architecture/distribution-layer)
+- [KIP-500: Replace ZooKeeper with a Self-Managed Metadata Quorum](https://cwiki.apache.org/confluence/display/KAFKA/KIP-500%3A+Replace+ZooKeeper+with+a+Self-Managed+Metadata+Quorum)
 - [StarRocks: Architecture](https://docs.starrocks.io/docs/introduction/Architecture)
 - [StarRocks: Upgrade StarRocks](https://docs.starrocks.io/docs/deployment/manage_deployment/upgrade/)
-- [StarRocks: Graceful Exit](https://docs.starrocks.io/docs/administration/management/graceful_exit)
-- [StarRocks: Downgrade StarRocks](https://docs.starrocks.io/docs/deployment/downgrade)
 - [Lupine: A Linux in Unikernel Clothing (EuroSys 2020)](https://people.cs.vt.edu/djwillia/papers/eurosys20-lupine.pdf)
-- [TigerBeetle: Deploying on Linux](https://docs.tigerbeetle.com/operating/linux)
-- [TigerBeetle issue #1940: throughput discussion](https://github.com/tigerbeetle/tigerbeetle/issues/1940)
-- [Nanos releases](https://github.com/nanovms/nanos/releases)
-- [Linux: io\_uring\_disabled sysctl commit](https://lab.nexedi.cn/kirr/linux/-/commit/76d3ccecfa186af3120e206d62f03db1a94a535f)
-- [io-uring crate: direct-syscall feature](https://docs.rs/crate/io-uring/latest/source/src/sys/mod.rs)
-- [compio-driver 0.12.0 Cargo.toml](https://docs.rs/crate/compio-driver/0.12.0/source/Cargo.toml)

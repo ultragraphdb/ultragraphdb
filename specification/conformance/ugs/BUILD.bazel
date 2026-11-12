@@ -1,5 +1,5 @@
 # The UGS conformance corpus, exported whole: the syntax, compile and catalog crates each read it as test data, and a
-# second implementation is held to the same files (README.md; openspec/changes/stage-6-ugs-data-definition/design.md,
+# second implementation is held to the same files (README.md; openspec/changes/stage-6-6-ugs-data-definition/design.md,
 # decision 7).
 filegroup(
     name = "corpus",

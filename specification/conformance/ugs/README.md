@@ -1,7 +1,7 @@
 # The UGS conformance corpus
 
 The corpus holds UGS sources and what a compiler must answer for each, written from `../../schema/SCHEMA.md` and
-`../../schema/CATALOG.md` alone, never from a compiler's output. Stage 6's compiler is built against it, and a second
+`../../schema/CATALOG.md` alone, never from a compiler's output. Stage 6.6's compiler is built against it, and a second
 implementation, a client-side checker or a language server is held to the same files. `BUILD.bazel` exports every file
 as the filegroup `//specification/conformance/ugs:corpus`.
 
@@ -11,7 +11,7 @@ as the filegroup `//specification/conformance/ugs:corpus`.
 diagnostics/UGSnnnn/   one folder per diagnostic of SCHEMA.md section 10.4, and UGS2005 of phase 9
   expect.json          the cases
   *.ugs                the sources the cases name
-valid/<name>/          sources that compile: aviation, the corpus's own modules, one per construct of section 14's stage 6 rows
+valid/<name>/          sources that compile: aviation, the corpus's own modules, one per construct of section 14's stage 6.6 rows
   expect.json
   *.ugs
 valid/gen5/expect.json Gen5's expectation; its source is ../../schema/deepbrain-gen5.ugs, the one copy

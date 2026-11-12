@@ -1092,7 +1092,7 @@ fn a_command_of_a_later_stage_is_refused_on_its_stream(w: &mut Steps) -> TestRes
         let got = client.got(install).await?;
         assert_eq!(got.code, Some(ErrorCode::Refused));
         assert!(
-            got.message.contains("Install") && got.message.contains("stage 6"),
+            got.message.contains("Install") && got.message.contains("stage 6.6"),
             "{}",
             got.message
         );

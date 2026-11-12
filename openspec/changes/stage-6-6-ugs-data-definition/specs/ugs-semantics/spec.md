@@ -265,7 +265,7 @@ The conformance corpus SHALL hold, written independently of the compiler: for ev
 10.4 from `UGS0101` on, a minimal source refused with exactly that error, with its expected location and fix, and for
 every warning and note code a minimal valid source whose expectation lists it; valid
 sources, among them the aviation example, `deepbrain-gen5.ugs`, modules of the corpus's own, and one per construct of section 14's
-stage 6 rows; and for each valid source the exact warnings and notes expected. The compiler SHALL raise exactly the
+stage 6.6 rows; and for each valid source the exact warnings and notes expected. The compiler SHALL raise exactly the
 expected diagnostics for every source of the corpus.
 
 #### Scenario: Every invalid source raises exactly its diagnostic

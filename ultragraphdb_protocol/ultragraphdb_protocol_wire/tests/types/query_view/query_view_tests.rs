@@ -170,7 +170,7 @@ fn test_the_parameter_count_is_the_number_of_names() -> TestResult {
     Ok(())
 }
 
-/// Stage 6: UQL is language 3 (`PROTOCOL.md` §7.4), over Queries laid out by hand.
+/// Stage 6.6: UQL is language 3 (`PROTOCOL.md` §7.4), over Queries laid out by hand.
 mod stage_6 {
     use ultragraphdb_error_protocol::ProtocolErrorEnum;
     use ultragraphdb_protocol_wire::{

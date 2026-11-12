@@ -151,7 +151,7 @@ the whole workspace.
 The suite's inputs were read against the enumeration for values that coincide. Changed: Drop's tenant 3 beside kind
 3, now tenant 6; Describe's tenant 0, the zero any reader returns, now 9 in the hand-laid answers, the tenant asserted;
 `test_unused_bytes_past_staged_are_zero` and `test_an_error_on_a_describes_stream_spends_no_credit`, which passed
-against the old code, now assert what stage 6 changes (the top byte of `staged`; the credit a Describe frame spends).
+against the old code, now assert what stage 6.6 changes (the top byte of `staged`; the credit a Describe frame spends).
 Kept, each beside a test where the values differ: an entry's name index equal to its place (reversed in the order
 test); an Operation's instance at index 0 (graph 0 and instance 1 in another); a Purge's `removed` equal to its count
 (0 and 2 beside it); a reifier cell in row 0 of column 0 (the golden 3 × 3 batch beside it).
@@ -283,7 +283,7 @@ takes the 11 rows' size and checksums the generator printed. The generator print
 **Conformance.** The Rust client's conformance suites (core, tokio, compio) pass under `unit-test`; `ultragraphdb_tests`'
 conformance steps, the golden conversations against the built binaries, pass under `integration_test`.
 
-**Tests the suite left asserting the protocol before stage 6.** Phase 2 brought most existing tests to the new layout;
+**Tests the suite left asserting the protocol before stage 6.6.** Phase 2 brought most existing tests to the new layout;
 these were missed, and each contradicts both `PROTOCOL.md` and a phase-2 test. None is edited (phase 4's rule); each
 waits for a decision:
 
@@ -338,7 +338,7 @@ implementation. What the specification keeps, an unknown number refused, stays a
 | `result_batch_tests::test_the_size_with_a_row_is_the_frame_with_its_padding_at_most` (`section_padding`) | §4.1, §4.9, §9.1 | padding read over nine sections from 72; up to 7 bytes before each of the nine | read over twelve from 96; up to 7 bytes before each of the nine that can follow an end off a multiple of 8: all but section 0, at the table's end, and sections 4 and 10, after the texts' 8-byte pairs and the warnings' 24 bytes |
 | `ultragraphdb_core_terms` `encoded_term_tests::test_check_refuses_what_a_peer_may_not_send` | §10.4 | `0x30` code 34 refused | 37 refused, one above codes 1 to 36; 34, 35 and 36 taken |
 
-The padding test's bound stays 9 × 7 bytes, now derived from the sections that can be padded; before stage 6 it
+The padding test's bound stays 9 × 7 bytes, now derived from the sections that can be padded; before stage 6.6 it
 counted 7 bytes before every one of nine sections, section 0's included, which never pads.
 
 **The reifier column.** `ResultBatch::push_row` took a blank node alone in the reifier column, kept so in

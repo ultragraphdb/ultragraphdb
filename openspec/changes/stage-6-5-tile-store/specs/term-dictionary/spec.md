@@ -98,7 +98,7 @@ back through a referrer set, and its records in both directions SHALL be copied 
 referrer sets concern IRIs and blank nodes in the object position only. A partition MAY cache other partitions'
 IRI-to-ID records in memory without invalidation: in this stage no entity is deleted, since deletes are by pattern, and
 IDs are never reused, so a cached record stays valid. The home's "deleted" answer and a delete's fence, which catch a
-stale record, arrive with the entity delete of stage 6.
+stale record, arrive with the entity delete of stage 6.6.
 
 #### Scenario: A first reference registers and waits
 - **WHEN** a transaction in partition 1 writes `<a> <knows> <b>`, `<b>` homed in partition 2 and new

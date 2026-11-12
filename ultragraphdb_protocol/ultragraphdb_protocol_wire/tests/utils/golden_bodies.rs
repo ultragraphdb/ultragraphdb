@@ -98,7 +98,7 @@ pub const BODIES: [GoldenBody; 45] = [
 
 /// The schema id of the golden Describe answer's declarations, as `PROTOCOL.md` section 11.7 states it for the golden
 /// `describe_reply.frame`: XXH3-64 of the nine-section body with the entity type's `extra` 0, as section 4.6 requires
-/// (xxHash 0.8.2 through Python's xxhash 3.6.0). The value before stage 6, `0x5000_B621_49F4_DB68`, hashed the retired
+/// (xxHash 0.8.2 through Python's xxhash 3.6.0). The value before stage 6.6, `0x5000_B621_49F4_DB68`, hashed the retired
 /// preorder number 1 there; the specification was corrected in group 1 (`notes/group-1.md`).
 pub const DESCRIBE_SCHEMA_ID: u64 = 0x5fc0_d2c8_2332_781c;
 

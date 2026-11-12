@@ -705,7 +705,7 @@ fn test_a_principal_is_read_and_refused_from_a_client() -> TestResult {
     Ok(())
 }
 
-/// Stage 6: a ConditionalWrite's operations take kinds 5 and 6 (`PROTOCOL.md` §6.7, §7.3), over a ConditionalWrite
+/// Stage 6.6: a ConditionalWrite's operations take kinds 5 and 6 (`PROTOCOL.md` §6.7, §7.3), over a ConditionalWrite
 /// laid out by hand: tenant 4 at 24, through no session; no change; the args, two IRIs, no name, and two operations.
 mod stage_6 {
     use ultragraphdb_error_protocol::ProtocolErrorEnum;

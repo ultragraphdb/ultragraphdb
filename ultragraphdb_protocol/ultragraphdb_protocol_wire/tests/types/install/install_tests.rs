@@ -40,7 +40,7 @@ fn test_a_request_and_its_reply_build_the_golden_frames() -> TestResult {
     Ok(())
 }
 
-/// Stage 6: Install's builder writes `staged`, the migration report and the warnings, checked against frames laid out
+/// Stage 6.6: Install's builder writes `staged`, the migration report and the warnings, checked against frames laid out
 /// by hand from `PROTOCOL.md` §8.4 and §4.9.
 mod stage_6 {
     use ultragraphdb_protocol_wire::{

@@ -328,7 +328,7 @@ fn test_a_texts_names_count_its_parameters_and_columns() -> TestResult {
     Ok(())
 }
 
-/// Stage 6: Prepare's ten sections, `language` 3 and its warnings (`PROTOCOL.md` §8.1, §4.9), over Prepares laid out by
+/// Stage 6.6: Prepare's ten sections, `language` 3 and its warnings (`PROTOCOL.md` §8.1, §4.9), over Prepares laid out by
 /// hand: sections 0 the text, 1 and 2 the term table, 3 and 4 the column types, 5 and 6 the names, 7 to 9 the
 /// warnings.
 mod stage_6 {

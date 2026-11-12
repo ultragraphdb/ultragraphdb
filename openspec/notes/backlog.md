@@ -34,7 +34,7 @@ layout per replica, metrics, and the operator requirements below.
 - Decided 2026-11-01: the three roles are what "3 node clustering" means; the deployment targets are Kubernetes and
   Docker, bare metal later; CI builds, signs and publishes the OCI images with Bazel's `rules_img`, the server's glibc base built
   from Wolfi packages by `rules_apko` (D7).
-- Operator requirements the roles' specification states (from `openspec/notes/review-stages-5.5-and-6.md`):
+- Operator requirements the roles' specification states (from `archive/review-stages-5.5-and-6.md`):
   - signals per role, exported through OTLP: the age of the latest closed epoch and its close latency, closed-epoch lag
     per partition, registrations and their wait, the fan-out of reverse reads, the share of writes on the coordinated
     path, escrow-share exhaustion and renegotiation, VSR view changes, the background verifier's repairs, the
@@ -132,7 +132,7 @@ statistics take a delta per commit and predicate; removing either changes what a
 
 ### 20. Schema evolution, in place and by migration (stage 9.5)
 
-Stage 6's change (`openspec/changes/stage-6-ugs-data-definition`) gives a tenant one Install and refuses every later
+Stage 6.6's change (`openspec/changes/stage-6-6-ugs-data-definition`) gives a tenant one Install and refuses every later
 one. Every change to an installed schema is stage 9.5's, decided 2026-11-10: a change takes effect at an epoch in every
 partition holding the tenant, a tightening scans them and a migration moves data between them, so it needs stage 8's
 cluster. Its success: a simple schema change is installed over a tenant holding data and migrated together with that
@@ -140,14 +140,14 @@ data.
 
 - Specification: `SCHEMA.md` section 13 for changes in place; `SCHEMA-EVOLUTION.md` for migrations;
   `openspec/notes/prepare-stage-6.md` section 2 (G1, namespace removal by an empty source) and its group 5.
-- Starts from: stage 6's catalog version and prefix allocation, Install, the `@on_delete` and retraction paths,
+- Starts from: stage 6.6's catalog version and prefix allocation, Install, the `@on_delete` and retraction paths,
   Describe's retired-name entries, which the wire already decodes, and task 9.5.8's Report, which the validation scan
   generalises.
 - Open:
   - Is stage 9.5 one change set, or two, the changes in place of section 13 before the migrations?
   - Which single change is the acceptance's "simple schema change": an attribute renamed, a type split by an enum
     value as `SCHEMA-EVOLUTION.md` section 3.3 splits `Staff`, or one attribute's type changed?
-  - Is a catalog version written by stage 6 read by stage 9.5, which adds the retired-name and migration entries, or
+  - Is a catalog version written by stage 6.6 read by stage 9.5, which adds the retired-name and migration entries, or
     recreated?
   - Does an additive Install, a module or a further namespace, take the path of every other change, or a shorter one
     with no scan?

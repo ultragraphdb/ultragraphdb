@@ -274,7 +274,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     async fn install(&mut self, view: &FrameView<'_>) -> Result<Answer, ErrorReply> {
         let install = InstallView::from_frame(view).map_err(|rule| protocol(&rule))?;
         let _facts = self.gate(Action::Declare, install.tenant()).await?;
-        Err(later_stage("an Install", "6"))
+        Err(later_stage("an Install", "6.6"))
     }
 
     /// A Purge: the gate, `purge` on the tenant, the tenant, and the stage that serves it, 8 (`PROTOCOL.md` §8.5,

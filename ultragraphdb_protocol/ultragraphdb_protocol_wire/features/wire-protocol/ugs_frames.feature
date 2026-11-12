@@ -3,9 +3,9 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 #
 
-Feature: Wire protocol: the frames of stage 6
-  openspec/changes/stage-6-ugs-data-definition/specs/wire-protocol/spec.md: Describe's continuation frames, Install's
-  warnings, Drop's catalog version, the reifier column's handle IRIs, the golden frames of the bodies stage 6 changes,
+Feature: Wire protocol: the frames of stage 6.6
+  openspec/changes/stage-6-6-ugs-data-definition/specs/wire-protocol/spec.md: Describe's continuation frames, Install's
+  warnings, Drop's catalog version, the reifier column's handle IRIs, the golden frames of the bodies stage 6.6 changes,
   UQL as a Query's language 3, and Operation kinds 5 and 6. These are the scenarios whose decision this crate makes:
   each frame's bytes, read and built. The frontend sends and refuses them in its own features; Purge and Migrate's
   streams and a Describe's credit run in the transport's.

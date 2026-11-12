@@ -666,7 +666,7 @@ fn test_a_batch_of_the_most_columns_is_read() -> TestResult {
     Ok(())
 }
 
-/// Stage 6: a Result's twelve sections, its warnings and its reifier column's handle IRIs (`PROTOCOL.md` §9.1, §4.9,
+/// Stage 6.6: a Result's twelve sections, its warnings and its reifier column's handle IRIs (`PROTOCOL.md` §9.1, §4.9,
 /// §10.2), over batches laid out by hand.
 mod stage_6 {
     use ultragraphdb_error_protocol::ProtocolErrorEnum;
@@ -694,7 +694,7 @@ mod stage_6 {
         Ok(())
     }
 
-    /// A body of nine sections, the layout before stage 6, is too short for twelve: 72 bytes, the table needing 96.
+    /// A body of nine sections, the layout before stage 6.6, is too short for twelve: 72 bytes, the table needing 96.
     #[test]
     fn test_a_batch_of_nine_sections_is_refused() -> TestResult {
         let nine = crate::utils::ugs_frames::frame(

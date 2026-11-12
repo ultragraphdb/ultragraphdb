@@ -181,7 +181,7 @@ fn test_a_nonzero_tenant_and_read_version_read_back() -> TestResult {
     Ok(())
 }
 
-/// Stage 6: Describe's nine sections and its entries' Order (`PROTOCOL.md` §8.3), over answers laid out by hand.
+/// Stage 6.6: Describe's nine sections and its entries' Order (`PROTOCOL.md` §8.3), over answers laid out by hand.
 mod stage_6 {
     use ultragraphdb_error_protocol::ProtocolErrorEnum;
     use ultragraphdb_protocol_wire::{BodyView, Command, DescribeView};
@@ -461,7 +461,7 @@ mod stage_6 {
         Ok(())
     }
 
-    /// A declaration's `extra` is 0 (§4.6): an entity type's preorder number, sent before stage 6, is refused. The
+    /// A declaration's `extra` is 0 (§4.6): an entity type's preorder number, sent before stage 6.6, is refused. The
     /// record of kind 9 laid out by hand: args 0 and 1, the type's IRI and `ABSENT` for no parent, `extra` 1.
     #[test]
     fn test_an_entity_types_extra_is_zero() -> TestResult {

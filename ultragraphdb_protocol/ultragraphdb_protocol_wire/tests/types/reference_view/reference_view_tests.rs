@@ -343,7 +343,7 @@ fn test_a_torn_term_record_is_refused() -> TestResult {
     Ok(())
 }
 
-/// Stage 6: Reference's `mode` and its registrations' `status` (`PROTOCOL.md` §13.15), over batches laid out by hand:
+/// Stage 6.6: Reference's `mode` and its registrations' `status` (`PROTOCOL.md` §13.15), over batches laid out by hand:
 /// `reply` at 0, `mode` at 1, `tenant` at 8; each registration `partition`, `group`, `iri`, `outcome`, `status`, a zero
 /// byte, `generation`, `close` and `entity`.
 pub mod stage_6 {

@@ -192,7 +192,7 @@ fn test_every_property_and_link_reads_from_its_args() -> TestResult {
     Ok(())
 }
 
-/// Stage 6: Operation kinds 5, delete an instance, and 6, retract an instance (`PROTOCOL.md` §7.3), over Operations
+/// Stage 6.6: Operation kinds 5, delete an instance, and 6, retract an instance (`PROTOCOL.md` §7.3), over Operations
 /// laid out by hand: `kind` at 0, `delta` at 8, `properties` at 16, `links` at 20; the args, then the term table.
 mod stage_6 {
     use ultragraphdb_error_protocol::ProtocolErrorEnum;

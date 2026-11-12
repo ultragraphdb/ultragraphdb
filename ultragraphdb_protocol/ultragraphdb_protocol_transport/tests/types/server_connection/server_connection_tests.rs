@@ -2106,7 +2106,7 @@ fn test_a_bind_opens_the_stream_a_partition_takes_a_transaction_on() -> TestResu
     Ok(())
 }
 
-/// Stage 6: Purge (24) and Migrate (25) each open a stream of their own (`PROTOCOL.md` §3, §11.2), where the frontend
+/// Stage 6.6: Purge (24) and Migrate (25) each open a stream of their own (`PROTOCOL.md` §3, §11.2), where the frontend
 /// refuses them by stage, and the connection goes on.
 #[test]
 fn test_a_purge_and_a_migrate_open_streams_and_a_refusal_keeps_the_connection() -> TestResult {

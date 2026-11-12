@@ -28,7 +28,7 @@ P-7 A `UGS0904` record: one per relation, its location the coordinated constrain
     in 10.4's rows.
 P-8 A symmetric relation's navigation name, declared on both roles, gives one UGS0905 record, at the second role.
 P-9 `relation=` in UGS0905 is the qualified name; fix the ugs-semantics scenario in
-    `openspec/changes/stage-6-ugs-data-definition/specs/ugs-semantics/spec.md` accordingly.
+    `openspec/changes/stage-6-6-ugs-data-definition/specs/ugs-semantics/spec.md` accordingly.
 
 ## Identity and bounds
 I-1 Declared types per tenant: 65,532, prefixes 3 to 65,534. Prefix 65,535 is never allocated, so `prefix_next` and a
@@ -75,11 +75,11 @@ K-6 A reifier written by a client carries its relation's concrete type (8.1); QU
 K-7 The RDF view (11.2) holds a materialized derivation's triples. R(G) of SCHEMA-APG.md 17.1 leaves derived names
     out, so the oracle comparison and the instance corpus compare the view with derived names left out, as they leave
     out `asserted` and `live`.
-K-8 Section 14: `@access` is recorded from stage 6 and read by stage 7's classifier; it waits for nothing and raises
+K-8 Section 14: `@access` is recorded from stage 6.6 and read by stage 7's classifier; it waits for nothing and raises
     no UGS0902.
 
 ## Decided by the user
-O-1 Materialized path derivations are stage 6's, walked from compiled steps; `Decimal` takes an exact sortable
+O-1 Materialized path derivations are stage 6.6's, walked from compiled steps; `Decimal` takes an exact sortable
     tokenizer (design decision 16).
 
 ## Further readings to write in (the corpus's, where it took one)
@@ -106,7 +106,7 @@ G-3 `rule_read_max` counts the relation instances a check visits, each once: the
 G-4 The ugs-enforcement scenario "A walk past its bound" (change spec, ~line 341) uses aviation's `PartOf` by fan-out:
     a part holding 4,097 parts in one partition, made a part of another, refused with UGS1040 naming `@acyclic` and
     4,096 (`max_depth` 16 cannot bound a fan-out).
-G-5 Section 14: a `@limit` per a role other than the anchor is enforced at stage 6 where the group's instances are in
+G-5 Section 14: a `@limit` per a role other than the anchor is enforced at stage 6.6 where the group's instances are in
     the transaction's partition, refused with code 23 otherwise, as every cross-partition rule is.
 G-6 A derived name's or a navigation name's predicate counts as declared (7.4), so a client write of it is UGS1029,
     not UGS1001.

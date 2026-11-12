@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The wire-protocol scenarios of stage 6, `features/wire-protocol/ugs_frames.feature`: each frame built and read,
+//! The wire-protocol scenarios of stage 6.6, `features/wire-protocol/ugs_frames.feature`: each frame built and read,
 //! against frames laid out by hand in `utils/ugs_frames.rs` and the golden frames.
 
 use cucumber::{then, when};

@@ -544,7 +544,7 @@ shapes `../schema/SCHEMA.md` section 11.2 publishes are what a SPARQL client rea
   bitemporal instance relies on. Carried 2026-11-05: `live` in section 11.2's view, `UGS1036` for a second value written
   to a single-valued attribute, and section 8.4's rule 6 for an append-only link naming a retracted participant.
 - **`mapping-contract`.** Carried 2026-11-08: `../schema/SCHEMA-APG.md`'s definitions 17.1 and 18.1 state the contract, a
-  reifier presented through `rdf:reifies` and a triple term among it, and stage 6's change set carries it into the
+  reifier presented through `rdf:reifies` and a triple term among it, and stage 6.6's change set carries it into the
   capability specification (`SCHEMA.md` section 15).
 - **`quad-reads`.** A path step with a bound subject is a forward read; `^p` and a bound object a reverse read; a
   property function a value-index or vector-index lookup over the tenant's partitions.

@@ -74,7 +74,7 @@ fn test_the_schema_id_follows_the_declarations_alone() {
     assert_ne!(typed.schema_id(), DESCRIBE_SCHEMA_ID);
 }
 
-/// Stage 6: Describe's builder writes nine sections and its entries, and its schema id covers the entries
+/// Stage 6.6: Describe's builder writes nine sections and its entries, and its schema id covers the entries
 /// (`PROTOCOL.md` §8.3, §11.7), against answers laid out by hand.
 mod stage_6 {
     use ultragraphdb_protocol_wire::{

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 #
-# The fuzz seeds of the bodies stage 6 added or changed (PROTOCOL.md sections 4.9, 6.5, 6.7, 7.3, 7.4, 8.1, 8.3 to 8.6,
+# The fuzz seeds of the bodies stage 6.6 added or changed (PROTOCOL.md sections 4.9, 6.5, 6.7, 7.3, 7.4, 8.1, 8.3 to 8.6,
 # 9.1, 9.4, 10, 13.7 and 13.15), laid out byte by byte from the layout tables of PROTOCOL.md, independently of the Rust
 # code, as golden/bodies/generate_bodies.py lays out the golden frames; the helpers are that script's. Checksums with
 # Python's xxhash 3.6.0 (libxxhash 0.8.2); SHA-256 truncated to 16 bytes of a hashed text with hashlib.

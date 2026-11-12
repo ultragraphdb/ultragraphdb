@@ -1,6 +1,6 @@
-# The schema sources the specification holds, exported as test data: deepbrain-gen5.ugs is the source stage 6's
+# The schema sources the specification holds, exported as test data: deepbrain-gen5.ugs is the source stage 6.6's
 # acceptance test installs and the conformance corpus compiles, read from here so one copy of the file exists
-# (openspec/changes/stage-6-ugs-data-definition/design.md, decision 7).
+# (openspec/changes/stage-6-6-ugs-data-definition/design.md, decision 7).
 exports_files(
     ["deepbrain-gen5.ugs"],
     visibility = ["//visibility:public"],

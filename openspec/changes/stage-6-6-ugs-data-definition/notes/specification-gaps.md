@@ -1,4 +1,4 @@
-# Specification gaps found while drafting stage 6, with recommendations
+# Specification gaps found while drafting stage 6.6, with recommendations
 
 * Status: accepted by the user on 2026-11-10, all thirteen, and applied the same day to `SCHEMA.md`, `PROTOCOL.md`,
   `QUERY-ULTRA-QL.md` and `SCHEMA-APG.md` at the sections each entry names (tasks 0.2 and 0.7). The change's capability
@@ -61,7 +61,7 @@ mutability class: a client then acts on a number without knowing the type's clas
 - *Recommendation:* in a governed tenant a change record of kind 8, 9 or 10 is refused with code 7, `detail` the
   record's index, the message naming Install. A Drop of kind 1 naming a predicate a schema declares is refused with
   code 7 naming stage 9.5, since removing a declaration is section 13.2's destructive change; a Drop of kind 1 of a
-  predicate `@open` admitted, and of kinds 2, 3 and 4, stay as they are. A Drop of kind 4 is how stage 6 removes a
+  predicate `@open` admitted, and of kinds 2, 3 and 4, stay as they are. A Drop of kind 4 is how stage 6.6 removes a
   tenant's schemas: it sets the catalog to the initial one.
 - *Amends:* `PROTOCOL.md` sections 6.5, 6.6 and 11.13; `SCHEMA.md` section 6.1.
 
@@ -92,14 +92,14 @@ mutability class: a client then acts on a number without knowing the type's clas
 - *Recommendation:* the subset accepts a relation selector binding any of its roles by point selectors, or none. A
   bound anchor role is a forward read; another bound role a reverse read under section 11.11's rules, code 23
   included; no bound role a scan of the type.
-- *Amends:* `QUERY-ULTRA-QL.md`'s stage 6 marks; the `uql-crud` specification is written so.
+- *Amends:* `QUERY-ULTRA-QL.md`'s stage 6.6 marks; the `uql-crud` specification is written so.
 
 ### 6. A Prepare of a UQL text
 
 - *Silent:* `PROTOCOL.md` section 8.1 lists `language` 0 to 2; section 9.4's language table already holds 3.
 - *Principle:* P2 and P4. One table of languages serves Query, Prepare, code 29 and warnings; a prepared text needs
   the planner and the staleness rules of the query core.
-- *Recommendation:* sections 7.4 and 8.1 take `language` 3. Section 11.2 serves a Query of `language` 3 from stage 6
+- *Recommendation:* sections 7.4 and 8.1 take `language` 3. Section 11.2 serves a Query of `language` 3 from stage 6.6
   within the subset and refuses a Prepare of `language` 3 with code 7 naming the stage that builds UQL.
 - *Amends:* `PROTOCOL.md` sections 7.4, 8.1, 9.1 (a UQL mutation's reply, a Result of no columns and no rows, as a GQL
   statement's without `RETURN`) and 11.2.
@@ -142,7 +142,7 @@ participant, which a home in another partition cannot report.
 operation that creates an untyped node. A keyed instance of a declared type fits neither.
 
 - *Principle:* P4, and section 6.6's own: a request named direct runs no condition the client did not ask for.
-- *Recommendation for stage 6:* a DirectWrite in a governed tenant carries changes whose predicates the catalog's
+- *Recommendation for stage 6.6:* a DirectWrite in a governed tenant carries changes whose predicates the catalog's
   request-typing facts mark blind (`SCHEMA.md` section 9.6), and is refused with code 7 otherwise, naming a read-write
   transaction. A ConditionalWrite carries such changes with operations 3 to 6. Operations 1 and 2 are refused in a
   governed tenant with code 7: they create a node of no declared type. A keyed creation and a `@unique` write take a
@@ -209,5 +209,5 @@ writing Operation kinds 5 and 6, which name an edge-encoded instance by its reif
 | Schema evolution | All of it at stage 9.5, in place and by migration: it needs the full cluster |
 | A wire form for delete and retract | Added: Operation kinds 5 and 6 (design decision 4) |
 | The `regex` dependency | Accepted, for now |
-| The `sr` module | Left out of stage 6 |
+| The `sr` module | Left out of stage 6.6 |
 | Where the schema crates live | A new group folder, `ultragraphdb_schema/` |

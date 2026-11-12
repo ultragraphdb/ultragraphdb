@@ -1,4 +1,4 @@
-# Review of the stage 6 change: findings and resolutions
+# Review of the stage 6.6 change: findings and resolutions
 
 * Status: R1 to R7 accepted by the user on 2026-11-10 and applied the same day, to the specification files and to this
   change. R3's file, `specification/schema/CATALOG.md`, is written (task 0.12); its six rules stand in `SCHEMA.md` section
@@ -23,13 +23,13 @@ Each resolution is chosen by `AGENTS.md`'s order: correctness, speed, scale, dev
 
 ## Part 1. Findings of the change-level review
 
-### R1. Only tenant 0 exists in stage 6 (a false assumption)
+### R1. Only tenant 0 exists in stage 6.6 (a false assumption)
 
 - **Finding.** The `metadata-group` specification creates tenant 0 at the first start and leaves every further tenant to
   stage 7's administration commands. The change assumes fresh and several tenants: the success criteria and tasks 12.1,
   12.4 and 12.5, design decision 2's consequence, and the scenarios of `ugs-catalog` and `uql-crud` that write into
   "another tenant". With one Install per tenant, none of them can run through the binaries.
-- **Options.** (a) Keep one tenant and make the loop explicit; (b) bring a tenant-creating command into stage 6.
+- **Options.** (a) Keep one tenant and make the loop explicit; (b) bring a tenant-creating command into stage 6.6.
 - **Resolution: (a).** Through the binaries a schema lives in tenant 0. A fresh schema is a fresh cluster, or a Drop of
   everything in the tenant followed by an Install, which is the stage's stated way to change a schema and so must be
   tested as one. Isolation between tenants holding different schemas is tested where tenants can be made, in
@@ -304,7 +304,7 @@ Each resolution is chosen by `AGENTS.md`'s order: correctness, speed, scale, dev
   refuses every other geometry. Gen5 indexes three `Geo` attributes.
 - **Options.** (a) the tokenizer gains a cover for a line string; (b) a `LineString` is refused on an attribute with
   `@index(geo)` until it does.
-- **Resolution: (a).** The value is admitted by the type and the index is a stage 6 row, so the index covers it: an S2
+- **Resolution: (a).** The value is admitted by the type and the index is a stage 6.6 row, so the index covers it: an S2
   cover of the polyline at the levels the polygon cover uses. Whichever is built, no value is stored that its index
   does not hold, since a read through the index would then answer wrongly.
 - **Changes.** `tokenizers` (a MODIFIED "Geo tokens index S2 cells"); `ugs-enforcement`.
@@ -344,14 +344,14 @@ Each resolution is chosen by `AGENTS.md`'s order: correctness, speed, scale, dev
     base. The graph's IRI is `{base}{graph}`.
   - Section 12.2 stores a precision "as an `xsd:string`"; sections 5.1 and `PROTOCOL.md` 10.4 give it the datatype
     `ugdb:precision`, which holds.
-  - Section 14's stage 6 row lists `@retracts` and not `@ends`, which section 9.3 places with it. `@ends` joins the
+  - Section 14's stage 6.6 row lists `@retracts` and not `@ends`, which section 9.3 places with it. `@ends` joins the
     row.
 - **Changes.** `SCHEMA.md` sections 6.4, 7.2, 7.4, 12.2 and 14.
 
 #### D15. The dictionary when an entity is deleted and created again
 
 - **Finding.** The `term-dictionary` requirement "The dictionary is a keyspace without versions" maps an IRI to a
-  `Resource` ID, removes no entry "in this stage", and leaves a delete to stage 6. The change deletes entities and
+  `Resource` ID, removes no entry "in this stage", and leaves a delete to stage 6.6. The change deletes entities and
   lets a deleted key be created again with a new ID. A read at an earlier version that names the IRI would then
   resolve the new ID and answer that nothing existed.
 - **Resolution.** A delete removes no dictionary entry: the ID's entry names its IRI for good, and the tombstone

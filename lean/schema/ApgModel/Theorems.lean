@@ -67,7 +67,7 @@ declared.
 | Section 19 | `Oracle.Aviation.instances`, `Oracle.Gen5.instances`, `Oracle.exportView`, `Oracle.readNQuads`, `Oracle.Corpus.failures`, `Oracle.corpora` |
 
 Section 19's oracle runs as `lake exe apg_oracle <dir>` (`ApgModel/Oracle/Main.lean`), writing each corpus set's
-N-Quads once `Corpus.failures` finds nothing; the build checks sets 0 to 3 of each schema. Stage 6's group 9 reads the
+N-Quads once `Corpus.failures` finds nothing; the build checks sets 0 to 3 of each schema. Stage 6.6's group 9 reads the
 files it writes, and stage 7's differential queries read the GQL view's projection onto MGQL (proposition 18.2).
 
 ## The paper's Coq development

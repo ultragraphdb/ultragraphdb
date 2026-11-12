@@ -33,7 +33,7 @@ const REGISTRY: [(Command, u16); 45] = [
     (Command::ConditionalWrite, 21),
     (Command::Query, 22),
     (Command::Install, 23),
-    // PROTOCOL.md §3: stage 6's Purge and Migrate.
+    // PROTOCOL.md §3: stage 6.6's Purge and Migrate.
     (Command::Purge, 24),
     (Command::Migrate, 25),
     (Command::Join, 512),
