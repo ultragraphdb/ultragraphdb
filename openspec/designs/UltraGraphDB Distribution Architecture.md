@@ -142,7 +142,8 @@ list. Kafka, Cassandra, ScyllaDB, MongoDB and Neo4j drivers find their clusters 
 
 1. A client is given seed addresses: one or a few compute nodes, or a name that resolves to several. Seeds serve the
    first contact alone.
-2. The Welcome a compute node answers with carries the **member list** and its **version**.
+2. Once the connection has authenticated, the compute node sends it the **member list** and its **version**. A peer
+   that has not authenticated learns nothing of the cluster.
 3. The developer picks a tag, and the driver spreads requests over the nodes carrying it.
 4. When membership changes the version rises, and every connected client replaces its list.
 
@@ -158,8 +159,9 @@ list. Kafka, Cassandra, ScyllaDB, MongoDB and Neo4j drivers find their clusters 
 A compute node states its advertised address and its tags in its settings and names them in its Join. The system
 group records them, and every compute node serves the list from what the system group holds.
 
-**The list version** is one number for the whole cluster, kept by the system group. It rises with every change of a
-member, a tag or a state, so two lists from any two nodes compare.
+**The list version** is one number for the whole cluster: the epoch of the close that announced the list's latest
+change. It rises with every change of a member, a tag or a state, so two lists from any two nodes compare, and it
+needs no state of its own.
 
 - A node that learns a new version tells its connected clients.
 - A client replaces its list whole, and only by a higher version. An equal or a lower one is dropped.
@@ -168,7 +170,8 @@ member, a tag or a state, so two lists from any two nodes compare.
 
 ### Tags pick the node, the classification picks the path
 
-A tag names a group of compute nodes. Tags are an open set that an operator extends. A cluster starts with three:
+A tag names a group of compute nodes, and a node carries one to eight. Tags are an open set that an operator
+extends. A cluster starts with three:
 
 | Tag | Machines | Serves |
 | --- | --- | --- |
@@ -444,7 +447,7 @@ The engine is one. Its grid's shell binds it to a medium, and a cluster chooses 
 |  | Direct-attached | Object store |
 | --- | --- | --- |
 | Authority for tiles | The replica's grid on local NVMe | The object store |
-| The local grid | Holds every extent | A cache of the extents present on the node |
+| The local grid | Holds every extent | Holds every open extent, every extent of the manifest and hot streams, every extent not yet published, and as many published cold extents as the node keeps |
 | The log | Local, synced per round | Local, synced per round |
 | A commit is acknowledged | Once its round is durable in the log; from stage 8, committed by its group | The same. A commit never waits on the object store |
 | Data is bounded by | The local drive | The object store; the local drive bounds the cache |
@@ -457,27 +460,33 @@ transactions and decides conditional writes, so it reads the data it decides on 
 
 **The paths in the object binding.**
 
-- **Write.** A round is logged, synced and acknowledged as in the direct binding. A checkpoint seals extents; sealed
-  extents are uploaded; the checkpoint counts as published in the object store once its extents and its manifest are
-  there. An extent that is published may leave the local grid.
-- **Read.** A read of an extent the node holds is a local read. A read of one it does not hold fetches the extent,
-  verifies it by checksum and places it in the local grid. The read yields while the fetch runs, as it yields today
+- **Write.** A round is logged, synced and acknowledged as in the direct binding. A checkpoint closes extents; closed
+  extents are uploaded, and then the checkpoint's record, last, so a record names only objects that exist. The
+  checkpoint counts as published once its record is there. A published extent of the cold stream may leave the local
+  grid.
+- **Read.** A read of an extent the node holds is a local read. A read of a punched extent fails its tile's check and
+  is repaired from the object store: the extent is fetched by the key its extent record gives, verified by the
+  checksum in that key and written back at its address. The read yields while the fetch runs, as it yields today
   while a tile loads.
 - **Cold reads pay the object store's latency at every hop.** A frontier request names the next hop's sources, so
   their extents are fetched in parallel; hot extents are pinned.
 
-**What the tile store's specification must hold for it.** These enter the specification before the grid is built.
+**What the tile store's specification holds for it.** These are specified in `specification/storage/STORAGE.md`
+sections 12.5, 17.4 and 17.7 (2026-11-12), before the grid is built.
 
 1. **One engine, two shells.** Nothing above the grid's shell knows the binding.
-2. **An object is a sealed extent, and its key outlives the address.** An address is reused after an extent is freed,
-   so the key carries what tells two extents of one address apart.
-3. **Allocated is apart from present.** Which extents exist is a function of the log, identical on every replica.
-   Which extents a node holds is a local fact that no logged decision reads.
+2. **An object is a closed extent, and its key outlives the address.** An address is reused after an extent is freed,
+   so the key carries the extent's number and the checksum of its placed blocks. Both come from the extent's record,
+   which the manifest's checkpoint holds in both bindings (record kinds 21 and 22).
+3. **Allocated is apart from held.** Which extents exist is a function of the log, identical on every replica. Which
+   extents a node holds is a local fact that no logged decision reads and no durable record states: a punched extent
+   reads as zero, fails its check and is repaired by a fetch, the path that repairs a damaged tile.
 4. **Timing never reaches the log.** An upload, an eviction or a fetch changes when a read answers and never what a
    round decides, so the replicas' grids stay identical wherever they hold bytes.
 5. **Retention follows logged positions.** An object is removed by a rule over the log's positions, as the fold
    horizon is, so a reader on another machine never finds a reference dangling.
-6. **The manifest is published as an object,** with one rule for which is current.
+6. **A checkpoint is published as a record,** the superblock's bytes with the records of the extents the checkpoint
+   itself closed, keyed by its log position. The record with the highest position is current.
 7. **Identical grids make one upload enough.** Any replica's extent is the same bytes, so an upload is idempotent and
    an object verifies against any replica.
 8. **The object store sits behind an interface with a simulated implementation.** The fault simulator injects
@@ -537,7 +546,7 @@ without it is refused with the tag named.
 | Stage | Keep open | Because |
 | --- | --- | --- |
 | Stage 5.9 | Work that outlives a turn runs off the endpoint core | An algorithm runs for minutes and must hold up no relay of a commit |
-| Tile store | An analytical read at a closed epoch may return slots with their bucket group | An algorithm needs vertices numbered densely. The wire carries 128-bit IDs, and renumbering billions of them through a hash map is the load's largest cost. This amends T3, under which a slot never leaves its partition |
+| Tile store | Tiles, slot maps and identity columns streamed to compute for a projection carry slots with their bucket group | An algorithm needs vertices numbered densely. The wire carries 128-bit IDs, and renumbering billions of them through a hash map is the load's largest cost. Decided 2026-11-12 (`STORAGE.md` section 14.6): this is the one place a slot leaves its replica. The projection is immutable, held in memory, named by its checkpoint identity, and no answer, resume key or durable state names a slot |
 | Tile store | A source that holds for minutes: a published checkpoint, whose tiles never change | Retention is set for interactive reads. The retention and manifest rules of the object binding count such readers |
 | Tile store | The format's decoders linkable by compute | The format crate does no I/O. The rule that compute links no storage engine admits it by name |
 | Query core | Operators pass columnar batches of IDs, and text is resolved in the last step | A client's result names every node by its text; an algorithm plugs in as one more operator over IDs |
@@ -685,8 +694,10 @@ Settle before it starts:
 
 - **The protocol for both stages.** Stages 5.8 and 5.9 both change the role sections of `PROTOCOL.md`. Both edits
   are specified together here, so the consistency review of sections 5 and 11 to 13 is reopened once.
-- **The session check.** Answer backlog item 13, or accept a round trip per commit until it is answered. One hop
-  between two virtual machines measured about half a millisecond (`../benches/benches-2026-11-09.md`).
+- **The session check** is decided: the registry, the check and the mark of a commit in flight stay together in the
+  system group, asked by a role command, one round trip per commit batched per turn, until backlog item 13 is
+  answered. One hop between two virtual machines measured about half a millisecond
+  (`../benches/benches-2026-11-09.md`).
 - **Where the group runs on a storage node:** its core, and whether its logs share a flush with the partitions' logs.
   The commit measurements found the sequencer's sync at each close delaying the checks that waited behind it.
 - **How the other processes find it.** A fixed, ordered list of addresses as one setting, as TigerBeetle's replicas
@@ -753,12 +764,13 @@ Blind spots to close:
   name and which trust roots it verifies it against.
 - **Read timing.** A fetch of tens of milliseconds meets rules written for local reads: the one-turn rule of lane L
   and the scan's stall timer.
-- **What a restore from the object store is,** and how it relates to backup.
+- **How a restore from the object store relates to backup.** The restore itself is specified (`STORAGE.md` section
+  17.7): an operator's act, to the latest published checkpoint.
 - **The benchmark compares like with like:** the direct binding against the KV baseline, the object binding recorded
   apart.
-- **Three openings for analytics** (*Graph algorithms and GPU compute*): slots returned by an analytical read, a
-  published checkpoint as a source held for minutes, and the format's decoders linkable by compute. The first amends
-  T3 of the tile store.
+- **Three openings for analytics** (*Graph algorithms and GPU compute*): slots inside the tiles streamed for a
+  projection, a published checkpoint as a source held for minutes, and the format's decoders linkable by compute. The
+  first is decided and specified (`STORAGE.md` section 14.6).
 - **Scope.** The stage is the largest on the roadmap, and the object binding adds to it.
 
 ### 4. Stages 6.6 and 6.7: UGS on tiles
@@ -836,11 +848,16 @@ Settle before it is specified:
 | Roles on the request path | Compute and storage; the frontend and compute are one role, named compute | 2026-11-12 |
 | Storage bindings | Direct-attached and object store, one engine; the object binding enters the tile store's specification | 2026-11-12 |
 | The cluster's books | The system group, a replica group hosted by storage under the data's replication protocol; no outside coordination service | 2026-11-12 |
+| Where an Install compiles | In compute, which offers the compiled version to the system group; the system group checks the base version, repeats the decode and commits | 2026-11-12 |
+| The fence of a first schema | Carried with the epoch closes and enforced at the partitions, so it holds with several compute nodes | 2026-11-12 |
+| The catalog's requests | Stage 5.8 specifies two transport commands, `Declare` (538) and `Defaults` (539), which carry what the owner answers in process today. Stage 6.6 specifies the offer of a compiled version at 540. The system group links the catalog's format alone | 2026-11-12 |
+| Slots outside their replica | Only inside tiles, slot maps and identity columns streamed to compute for a projection at a closed epoch or a published checkpoint. Never in an answer, a resume key or durable state | 2026-11-12 |
+| The object binding's format | Extent records in the manifest's checkpoint in both bindings; an extent's object keyed by its number and the checksum of its placed blocks; a checkpoint record published last; no durable record of what a node holds, a punched extent repaired by fetch | 2026-11-12 |
 | Order of the next stages | 5.8 the system group to storage, 5.9 the merge into compute, 6.5 the tile store, 6.6 UGS | 2026-11-12 |
 | Replication and availability | Stage 8 in one container, stage 10 on separate nodes | 2026-11-12 |
 | Graph algorithms on GPUs | A later requirement, after stage 10; they run in compute, on the nodes tagged `gpu`, with no role of their own | 2026-11-12 |
 | Load control | Credit to send, granted by the node from its queueing delay, with refusal above a threshold; the node's requests in flight and latency on replies and probes for the driver's choice. After Breakwater and Prequal. A direction, proved and simulated before it is built | 2026-11-12 |
-| Client discovery | Seed addresses for the first contact; the member list with tags and a list version in Welcome, replaced whole by a higher version | 2026-11-12 |
+| Client discovery | Seed addresses for the first contact; the member list with tags and a list version sent once the connection authenticated, replaced whole by a higher version | 2026-11-12 |
 | Routing among compute nodes | By tag: the developer picks a tag and the driver spreads over the nodes carrying it. The query classification picks the path on the node and gains no class for routing | 2026-11-12 |
 | A wrong tag | Refused when the query is compiled, naming the tag the procedure needs; the driver moves it to no other node | 2026-11-12 |
 | The system group's move | Stage 5.8, a change set of its own, before the merge of stage 5.9 | 2026-11-12 |
@@ -861,9 +878,7 @@ Settle before it is specified:
 - [ ] Does the config service fold into the system group, or take replicas of its own?
 - [ ] Do the sequencer and the metadata state machine share one log inside the system group, or keep two?
 - [ ] Does a node tagged `gpu` or `high_memory` also serve regular queries, or refuse them to stay free?
-- [ ] Does a notice of a new list carry the list itself, or its version for the client to fetch after a random delay?
 - [ ] How is a quota for a tenant held across the whole cluster, if one is wanted?
-- [ ] Does a compute node carry one tag or several?
 - [ ] Does a group ever change its members, or do new groups and replacement cover every case?
 - [ ] In the object binding, can a partition run on two replicas, with the object store's conditional writes
   deciding its failover?

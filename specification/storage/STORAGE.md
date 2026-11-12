@@ -100,6 +100,10 @@ extent, punch an extent, write the WAL's superblock, trim the WAL. Its compio sh
 except allocation and punching, which go through rustix on compio's blocking pool (T10); its simulator performs them
 under faults (section 19.5).
 
+Under the object binding (section 12.5) the engine's outputs also ask to publish an extent, to fetch one and to publish
+a checkpoint record, and their completions are inputs like any other. They change when a read answers and when a
+boundary proceeds, and no decision of this section reads them.
+
 ## 3. Settings and the derivation version
 
 ### 3.1 The `[tiles]` table
@@ -132,6 +136,13 @@ changing any of them before stage 9.5 (`fixed`). They are integers.
 Settings that change no byte stay per node, in `[storage]`: the tile cache's size, I/O depths and
 `power_loss_protection`, which tunes the log's round batching and never removes a sync. An Ingest share is bounded by
 the round it must fit, `PROTOCOL.md` section 6.8's rule, refused with code 6 (TooLarge) otherwise (T48, C13).
+
+The binding (section 12.5) is the setting `binding` of `[storage]`, `direct` or `object`. It changes no byte of a tile
+and no address in the grid, and the config service still holds it equal across a cluster's storage instances and
+refuses a revision changing it before stage 9.5, since a node's recovery depends on what its peers published. Under
+`object` the table also names the object store, its bucket and where the node reads its credentials, and
+`object_retention_ms`, how long a published checkpoint stays readable, and `cache_extents`, the published cold extents
+a node keeps, which stays per node.
 
 ### 3.2 The derivation version
 
@@ -568,7 +579,7 @@ key per version (T48, C1).
 
 ### 9.2 Classes and scope
 
-Kinds 2, 3, 11, 16 and 17 are class I and never versioned beyond their created version; kind 13 takes its type's
+Kinds 2, 3, 11, 16, 17, 21 and 22 are class I and never versioned beyond their created version; kind 13 takes its type's
 class, I for an `@append_only` type and M otherwise, a family per class; the others are class M (T48, C16). The
 header names the run's scope: the table gives each kind's `tenant`, `graph` and `group`; a field the table leaves out
 is zero.
@@ -582,7 +593,7 @@ is zero.
 | 9 | the tenant | the graph | `ABSENT` |
 | 10 | 0 | zero | `ABSENT` |
 | 14, 15 | the tenant | zero | `ABSENT` |
-| 16, 17 | 0 | zero | `ABSENT` |
+| 16, 17, 21, 22 | 0 | zero | `ABSENT` |
 | 20 | the tenant | zero | the bucket group of the instance it names when the replica holds that group; `ABSENT` for an instance of another partition's bucket group, a referrer's marker (T48) |
 
 A copy of another partition's dictionary entry (kinds 1 and 2, `PROTOCOL.md` section 12.1, section 3) is in the family
@@ -617,6 +628,8 @@ Inside keys and values, an ID is its 16 bytes and a term encoding is section 5.1
 | 18 | Statement record | the statement's system ID | the quad, the graph, subject and predicate as system IDs and the object's term encoding, then its properties as a BYTES encoding (section 4.3) of entries each a predicate's system ID followed by a term encoding |
 | 19 | `@limit` aggregate (`SCHEMA.md` section 8.6) | the declaring type's prefix as a u16, the constraint's index among its `@limit` constraints as a u16, each `per` participant's system ID in `per` order, the concrete type's prefix as a u16 when `per` names `type`, then the comparison form of the grouping's sortable value, empty without a grouping (T48, C21) | additive: the instance count's change as an i64, then for a `sum` the sum's change, an i128 for an integer or `Decimal` attribute (a decimal as its `Int128`) and an f64 for a float; the fold sums them (T48, C1) |
 | 20 | Purge marker | the purged instance's system ID | the purge's version as a u64 (T48, C2) |
+| 21 | Extent leaf | the extent's number as a u32 | the extent's placed blocks as a u32, then the XXH3-64 of those blocks' bytes as a u64 (section 12.5) |
+| 22 | Extent root | the first extent number of an extent leaf, as a u32 | the leaf's reference, then the placed blocks as a u32 and their checksum as a u64 of the extent the leaf lies in, both zero for a leaf this checkpoint wrote |
 
 A session record's value (kind 10), little-endian (T48, C3):
 
@@ -684,8 +697,9 @@ from the encoded output; a difference is the invariant `DigestConserved` (sectio
 
 ### 11.3 The checkpoint identity
 
-A checkpoint's identity is the XXH3-128 of 50 bytes: the superblock's `format` as a u16, then as u64s its `derivation`,
-`position`, `horizon`, `committed`, the manifest root's `checksum` and the free set's `checksum`. It holds nothing a
+A checkpoint's identity is the XXH3-128 of 58 bytes: the superblock's `format` as a u16, then as u64s its `derivation`,
+`position`, `horizon`, `committed`, the manifest root's `checksum`, the free set's `checksum` and the extent root's
+`checksum` (section 12.5), so it covers the bytes of every closed extent. It holds nothing a
 replica's own history sets, its `sequence` and `parent` among them, so two replicas' checkpoints at one position have
 one identity (section 2), which stage 8 carries on `Prepare`, `PrepareOk` and the commit heartbeat (T29).
 
@@ -728,7 +742,8 @@ Extent 0 holds the superblock's four copies in blocks 0 to 3; its other blocks a
 | 144 | 8 | `mapping` | the mapping contract's version (`mapping-contract` capability) the replica's terms follow |
 | 152 | 16 | `identity` | the checkpoint identity (section 11.3) |
 | 168 | 8 | `log_bytes` | `T(position)`, the Round frames' total length through `position` (section 17.1), which a recovering replica cannot recompute once the log is trimmed |
-| 176 | 3,920 | zero | |
+| 176 | 24 | `extents` | the extent root's reference (section 12.5) |
+| 200 | 3,896 | zero | |
 
 The superblock is authoritative (T32): the WAL's own superblock records its segments and the position and checksum of
 the last round it trimmed, the parent of the first round it keeps, and nothing of the store's state.
@@ -739,7 +754,7 @@ the last round it trimmed, the parent of the first round it keeps, and nothing o
 is never any of them. The free set written at a checkpoint has bit `e` set for every extent that is not free at that
 checkpoint.
 
-**Streams.** Stream 0 holds manifest tiles and the free set, stream 1 hot data tiles, stream 2 cold data tiles. A data
+**Streams.** Stream 0 holds manifest tiles, the extent leaves and root, and the free set, stream 1 hot data tiles, stream 2 cold data tiles. A data
 tile goes to stream 2 when `previous` is nonzero and `built − previous ≥ cold_after_rounds`, otherwise to stream 1. A
 tile the cleaner moves goes to stream 2.
 
@@ -750,7 +765,7 @@ at 0, and the tile is placed there. With no free extent the store is full (`Grid
 in the order section 16.5 gives, so placement is deterministic.
 
 **Live blocks.** Each closed or open extent counts the blocks of the live tiles in it: the data tiles the directory
-references, and the manifest leaves, root and free set of the latest checkpoint. A tile stops being live when the
+references, and the manifest leaves and root, the extent leaves and root, and the free set of the latest checkpoint. A tile stops being live when the
 directory drops it, or, for a stream 0 tile, when a later checkpoint replaces it.
 
 **Release and reuse.** A closed extent whose live block count reaches 0 during the interval between checkpoints `N` and
@@ -771,6 +786,8 @@ reserve = ceil(W / (extent_bytes / 4,096 − blocks(tile_bytes_max) + 1)) + 3
 W       = Σ over the tiles holding delta changes, a family's new tile at length 0,
               of 2 × blocks(length + Σ over the tile's changes of e(c))
           + 2 × the blocks of the latest checkpoint's manifest leaves and root
+          + 2 × the blocks of the latest checkpoint's extent leaves and root, before the first checkpoint those
+            `grid_extents` implies
           + the free set's blocks, before the first checkpoint those `grid_extents` implies
 e(c)    = 256 + the bytes of the change's row key or key, its neighbour and its value
 ```
@@ -790,6 +807,74 @@ released since the last checkpoint, every extent holds live data: `GridFull` per
 commit with code 5 (Busy), `detail` 2 (section 15.6), and only a larger `grid_extents`, a new derivation version and so
 a new grid (sections 3.2 and 17.3), relieves it (T48). At a round boundary with `free × 100 < cleaner_free_percent × grid_extents`, or `free` below
 twice the reserve, the cleaner is due (section 16.6), before admission stops.
+
+### 12.5 Extent records and bindings
+
+**Extent records.** Every closed and every released extent has a record: its number, its *placed blocks*, the count of
+blocks from its first to the last a tile was placed in, and the XXH3-64 of those blocks' bytes, a tile's last block
+zero past the tile's length. The engine hashes an extent as it places its tiles and fixes the record when the extent
+closes; replay after a crash places the same tiles and fixes the same record. A record leaves the table at the
+boundary its extent becomes free. Replicas hold the same bytes at the same addresses (section 2), so they hold the
+same records.
+
+At a checkpoint the records of every extent closed before step 2 of section 17.1 are cut into extent leaves, runs of
+kind 21 in extent order, and an extent root, one run of kind 22 holding each leaf's first extent, its reference and
+the record of the extent the leaf lies in, so the extent leaves are found from the root alone, by the rules section
+13.3 gives the manifest: leaves are cut greedily within `tile_entries_max` and `tile_bytes_max`, a leaf
+equal to one of the previous checkpoint keeps its reference and is not written, the root is always written, and a root
+that would exceed `tile_bytes_max` is the persistent `GridFull`. The superblock references the root (`extents`, section
+12.3) and its checksum is part of the checkpoint identity (section 11.3). The extents step 2 itself closes take their
+records at the next checkpoint. Both bindings write extent records.
+
+**Two bindings.** A grid binds to one of two media, and everything else in this file holds for both (decided
+2026-11-12, `../../openspec/designs/UltraGraphDB Distribution Architecture.md`, *Two bindings*).
+
+| | `direct` | `object` |
+|---|---|---|
+| The authority for a closed extent's bytes | the grid file | the object store, once the extent is published |
+| The grid file | holds every extent | holds every open and released extent, every extent not yet published, and as many published ones as the node keeps |
+| A commit is acknowledged | as the log's rule states | the same: no commit waits on the object store |
+
+**Objects.** Under `object` two kinds of object exist, each written only where no object of its key exists.
+
+| Object | Key, UTF-8 | Bytes |
+|---|---|---|
+| An extent | `ugdb/<cluster>/p<partition>/x/<extent>.<checksum>`: the cluster as 16 lowercase hexadecimal digits, the partition in decimal, the extent's number as 8 and its record's checksum as 16 lowercase hexadecimal digits | the extent's placed blocks |
+| A checkpoint record | `ugdb/<cluster>/p<partition>/c/<position>`: the checkpoint's `position` as 20 decimal digits, so records sort by position | 4,096 bytes, the superblock of section 12.3 with `copy`, `replica`, `sequence` and `parent` zero and `checksum` computed by its rule; then, 16 bytes each in extent order, the record of every extent step 2 of this checkpoint closed: its number as a u32, its placed blocks as a u32 and their checksum as a u64 |
+
+Every replica derives the same key and the same bytes for an extent, so a publication is idempotent and one replica's
+serves its group. An object's bytes are checked against the checksum in its key before any use, and a checkpoint
+record against its own `checksum`.
+
+**Publication.** After a checkpoint's step 4 (section 17.1) the node publishes every extent closed and not yet
+published, the extents step 2 closed among them, and then the checkpoint record, last, as the superblock is written
+last, so a record names only objects that exist. The checkpoint is *published* once its record is. Publication runs
+beside the turn and holds up no round.
+
+**Absent extents.** A node may punch a closed extent of stream 2, the cold stream, once it is published; it keeps as
+many as `cache_extents` allows and chooses among them itself, since the choice changes no answer. Extents of streams 0
+and 1, the manifest, the extent records and the tiles rewritten lately, are never punched, so the write path fetches
+seldom and a node always holds the records that name its objects. A node keeps no record of what it punched. A punched
+extent reads as zero, a tile read from it fails its check, and the read repairs it from the object store (section
+17.4): it fetches the extent's object by the key its extent record gives, checks it, writes it at the extent's address
+and syncs. What a node remembers of its punches in memory only spares that first read.
+
+**Waiting on the object store.** A read of a tile in an absent extent yields while the fetch runs, as a read yields
+while a tile loads, and the turn goes on. Apply, compaction and a checkpoint's drain wait for a fetch as they wait for
+any read, without changing what they decide. While the object store cannot be reached they keep waiting, admission
+stops as section 15.6 has it stop when apply lags, and the partition refuses commits with code 5 (Busy) and reads of
+absent extents with code 17 (Unavailable): it stalls and never answers from bytes it could not check.
+
+**Retention.** An extent's object is deleted only once the extent is free (section 12.4) and no retained checkpoint
+references a tile in it, a manifest's or an extent leaf among them. A checkpoint record is retained until the close of the epoch after its
+`position`'s is older than `object_retention_ms` by the sequencer's logged close times, the rule section 14.2 uses for
+the fold horizon, so retention is a function of the log and a reader on another machine holds a retained checkpoint's
+tiles for that long. The latest published record is always retained.
+
+**What it promises with one replica.** Tiles survive the loss of the node through the latest published checkpoint. The
+log above that checkpoint's `position` is on the node alone. Bringing a partition back from the object store is a
+restore to that checkpoint (section 17.7), an operator's act and never the store's own, since it gives up acknowledged
+commits. From stage 8 the log is replicated, and a lost node's tail comes from its group.
 
 ## 13. The manifest and the directory
 
@@ -822,6 +907,9 @@ in the order keeps that leaf's reference and is not written; the root is always 
 `tile_bytes_max` is the persistent `GridFull` of section 12.4, code 5 (Busy) `detail` 2, which only a larger
 `tile_bytes_max` or grid, a new derivation version (sections 3.2 and 17.3), relieves (T48): at the defaults it holds
 about 600 leaves of about 600 tiles each.
+
+The extent leaves and the extent root (section 12.5) are cut and written with the manifest, by the same rules, and are
+no part of the directory: the superblock references the extent root beside the manifest's.
 
 ### 13.4 The layout a tile follows
 
@@ -932,8 +1020,11 @@ statement ID takes its slot where a record first names it. Two types' slots coin
 statement name a slot with its type prefix, as the pair (type prefix, slot) (section 5.4; T48, C14); a column chunk,
 which holds one type, names the slot alone. Slots are never reused, and a deleted or purged entity's slot stays as a
 hole. An entity of another partition takes no slot: it
-is named by its system ID. A slot reaches no other replica's or role's state: rounds, the WAL, every answer and every
-resume key (section 18.3) name system IDs. The slot map (kind 11) maps the
+is named by its system ID. A slot reaches no other replica's or role's durable state and no client: rounds, the WAL,
+every answer and every resume key (section 18.3) name system IDs. The one place a slot leaves its replica is inside
+tiles, slot maps and identity columns streamed to compute for an analytical projection at a closed epoch or a published
+checkpoint (T12): the projection is immutable, held in memory alone, named by the checkpoint identity it was built
+from and discarded with it, and compute writes no slot anywhere (decided 2026-11-12). The slot map (kind 11) maps the
 entity's sequence to its slot, the identity column (column kind 3) maps back. A bucket group moved in from another partition keeps its slot maps and identity
 columns unchanged; its tiles keep their bytes (section 16.8).
 
@@ -1150,10 +1241,11 @@ the boundary's rewrites have placed their outputs:
    progress, the queue is empty and the units held are 0; then the cleaner runs once if due (section 16.6). The grid
    then holds every change of every round up to the checkpoint's position, which step 5's trim needs;
 1. closes every open extent;
-2. cuts the manifest (section 13.3) and places, in stream 0, the leaves to be written, then the root, then the free set;
+2. cuts the manifest (section 13.3) and the extent records (section 12.5) and places, in stream 0, the manifest's
+   leaves to be written, then its root, then the extent leaves to be written, then the extent root, then the free set;
    then encodes the free set, which marks every extent not free after these placements, the extents released since the
    last checkpoint included; then closes every extent these placements opened, and the previous checkpoint's leaves
-   this one does not keep, its root and its free set stop being live;
+   this one does not keep, its roots and its free set stop being live;
 3. syncs the grid after writing those tiles and every data tile placed since the last checkpoint;
 4. writes the superblock's copies 0, 1, 2 and 3 in turn, syncing after each;
 5. writes the WAL's superblock and trims the WAL through `position`, the one trim a checkpoint makes, so recovery
@@ -1176,8 +1268,8 @@ At open, the store:
 1. reads blocks 0 to 3 and keeps each copy whose `magic`, `format`, `copy` (its block's number) and `checksum` hold;
 2. takes the highest `sequence` among them; two kept copies of one `sequence` that differ in any byte but `copy`
    refuse the open (`SuperblockDiverged`); with none kept, an all-zero extent 0 is a new grid (section 17.3) and
-   anything else refuses the open (`SuperblockLost`); then reads the manifest's root and leaves and the free set the
-   highest sequence references, checking each tile as section 6.5 states, and when any fails and a kept copy of the
+   anything else refuses the open (`SuperblockLost`); then reads the manifest's root and leaves, the extent root and
+   leaves and the free set the highest sequence references, checking each tile as section 6.5 states, and when any fails and a kept copy of the
    sequence below holds, takes that one instead, since step 4 of section 17.1 had not completed (T48);
 3. refuses the open with `DerivationMismatch` for a stored `derivation`, `extent_bytes` or `grid_extents` other than
    its settings give, and with `Identity` for a `cluster`, `partition` or `replica` other than the replica's own and for a
@@ -1211,6 +1303,11 @@ replicas hold the same tiles at the same addresses (section 2). Before stage 8, 
 written after the last checkpoint is rebuilt by replaying the log; any other is unrepairable, and the replica stops
 serving, naming the tile.
 
+Under the object binding (section 12.5) the object store holds every published extent, at every stage: a tile failing
+its checks in a published extent is repaired by fetching the extent's object, checking it against its extent record
+and writing its bytes at the extent's address. An extent a node punched is repaired the same way, which is how an
+absent extent is read.
+
 ### 17.5 Scrubbing
 
 A scrub reads every live tile once per cycle, in address order, `beat_factor × tile_entries_max` entries' worth of tiles
@@ -1222,11 +1319,29 @@ A replica that adopts a peer's checkpoint by stage 8's state sync takes its tile
 superblock: its own `replica`, its next `sequence`, and its last superblock's `checksum` as `parent`, every other field
 the peer's. The checkpoint identity, which holds none of the three, is the peer's (section 11.3; T48, C9).
 
+### 17.7 Restore from the object store
+
+Under the object binding (section 12.5) a replica whose grid is lost is brought back from its partition's published
+checkpoints. It creates a new grid (section 17.3), reads the latest retained checkpoint record, the last key under the
+partition's `c/`, fetches the extents the record lists, and reads from them the extent root, then the extent leaves, fetching the
+extent each lies in by the record the root gives, then the manifest's root and leaves and the free set by their
+references and their extents' records, checking each as section 6.5 states. It writes a superblock of its own for
+that checkpoint as state sync does (section 17.6): its own `replica`, `sequence` 1 and `parent` 0, every other field the record's.
+Every other closed extent starts absent and is fetched when read. It then replays its log from
+`position + 1`.
+
+A replica that holds its log above the checkpoint loses nothing. One that lost its log with its grid has lost every
+round above `position`. Before stage 8 that is a loss of acknowledged commits, so the restore runs only on an
+operator's command that names the partition and the `position` it continues from, and the partition serves nothing
+until then. From stage 8 the replica catches up from its group, and a restore is the state sync of section 17.6 with
+the object store as the peer.
+
 ## 18. Reads and lanes
 
 ### 18.1 Lanes
 
-Every read request names a lane, which the frontend and the planner choose from the classification (`SCHEMA.md`
+Every read request names a lane, which the role holding the client endpoint (the frontend until stage 5.9, compute
+from it) and the planner choose from the classification (`SCHEMA.md`
 sections 9.2 and 9.6); every family allows the three lanes, L, S and X (T48, C41).
 
 | Lane | Answers at | Pins | Records a read set |
@@ -1303,7 +1418,9 @@ the partition.
 
 Crashes at any instruction and power loss at any moment; writes torn at any 512-byte boundary; writes the drive
 acknowledged and lost; writes and reads misdirected to another block; latent sector errors; bits flipped at rest; a
-failed sync, after which nothing the sync covered is trusted; a punch the file system refuses.
+failed sync, after which nothing the sync covered is trusted; a punch the file system refuses. Under the object
+binding, also: an object store that does not answer, answers late or answers an error; a publication acknowledged and
+lost, or completed and not acknowledged; an object whose bytes differ from its key; an object missing.
 
 ### 19.2 Detection and response
 
@@ -1376,7 +1493,11 @@ checks after every step:
   grids where their replica numbers are equal and freed extents read as zero, and so does a third that crashed and
   replayed;
 - after every injected fault, the engine either repairs it, refuses with the refusal section 19.2 names, or stops;
-  it never answers from a tile that failed a check.
+  it never answers from a tile that failed a check;
+- under the object binding, with a model object store under the faults of section 19.1: two engines with different
+  extents present, different publication and fetch completion orders and different stalls of the object store hold
+  the same tiles at the same addresses and the same checkpoint identity, and a replica restored from the published
+  checkpoints (section 17.7) and replayed holds them too.
 
 A run is a function of its seed: the simulator's clock, random source and completion order come from it.
 
@@ -1401,12 +1522,16 @@ A run is a function of its seed: the simulator's clock, random source and comple
 | Statistics, referrer sets and `@limit` aggregates | Additive records that compaction folds, beside one record replaced per change: apply then adds a change without its prior value, so it reads no tile beyond the slot maps (T48, C1) |
 | The session table's key | The session alone, the record holding the share, the reply's command, command header and body, beside a key by (session, share): share numbers follow the placement map, so a resend after a map change would reach another key and commit again. Evictions are a section of the round, so every replica deletes them at one position (T48, C3) |
 | Temporal values | Stored in 18 bytes, so the offset round-trips, and compared by their first 16, the instant, for order, equality, claims and tokens: `12:00Z` and `13:00+01:00` are one value and one claim. Inline columns take up to 18 bytes, so a temporal attribute can order a row (T16; T48, C25) |
+| A slot outside its replica | Only inside tiles streamed to compute for an analytical projection, never in durable state, an answer or a resume key (section 14.6), where the design note's T3 kept every slot in its partition: T12's projections are built from tiles, and tiles hold slots. A projection built from system IDs alone would renumber every vertex through a hash and carry each edge at four times the bytes |
+| What names an extent's object | A record per closed extent, its placed blocks and their checksum (kinds 21 and 22), written in both bindings: a tile's reference names no extent, so a node that punched an extent needs its key from somewhere durable, and a record kind added after tiles exist would be a second format. The checksum is in the checkpoint identity, so two replicas whose extents differ in any byte disagree at the next checkpoint |
+| A record of which extents a node holds | None: an extent a node punched reads as zero, fails its tile's check and is repaired from the object store as any damaged tile is (section 17.4), so no state can say present over a hole |
 
 ## 21. What this specification asks of the others
 
 `../binary_protocol/PROTOCOL.md` sections 1, 5.2, 9.4, 12 and 13, `../schema/CATALOG.md` sections 2, 3.1 and 5.11,
 `../schema/SCHEMA.md` section 12, the config service's `[tiles]` table and the `write-ahead-log` capability's superblock
-carry what this file needs of them.
+carry what this file needs of them. The object binding (section 12.5) asks the config service for `[storage]`'s
+`binding` and its object store's settings, and the object store for a write that succeeds only where no object exists.
 
 ## 22. Conformance
 
@@ -1417,6 +1542,9 @@ generator also holds a reference engine of sections 12 to 17: fed scripted round
 rewrite, checkpoint and final byte a conforming engine reproduces, and a replica of it that crashes, recovers from its
 grid alone and replays writes the same grid. The directory's `README.md` states the vectors' format and what each
 family of vectors covers.
+
+The reference engine writes the extent records of section 12.5 with every checkpoint, and for the object binding the
+objects a checkpoint publishes, their keys and their bytes, which a conforming engine reproduces.
 
 ## 23. Sources
 

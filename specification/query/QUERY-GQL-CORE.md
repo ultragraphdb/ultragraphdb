@@ -428,7 +428,7 @@ projection's filtered search, is the full-conformance stage's; in the core the p
   in a read-write one at the transaction's partition's latest state; a query with a writing clause requires a
   read-write transaction (`GQL0801`), and its reads are recorded and validated at commit as every read-write
   transaction's are. A query with a writing clause and no reading clause, whose writes the catalog classifies
-  coordination-free, is what a DirectWrite carries (`../binary_protocol/PROTOCOL.md` section 6.6); the frontend decides from the
+  coordination-free, is what a DirectWrite carries (`../binary_protocol/PROTOCOL.md` section 6.6); the role holding the client endpoint, the frontend until stage 5.9 and compute from it, decides from the
   catalog's request-typing facts (`SCHEMA.md` section 9.6), not the client.
 - **Prepared statements.** A query is prepared once per connection with the types of its parameters, and executed
   with values by position; preparing resolves every name against the tenant's current catalog version and records the

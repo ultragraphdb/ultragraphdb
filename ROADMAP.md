@@ -15,7 +15,7 @@
 | 6.5 The tile store: a graph-native storage engine replacing the KV store                                             | `open`: `openspec/changes/stage-6-5-tile-store`            |
 | 6.6 UGS: the full data schema, DDL, and its implementation                                                           | `paused`: `openspec/changes/stage-6-6-ugs-data-definition` |
 | 6.7 Harden transactions with chaos testing against multiple UGS schemata                                             | `open`                                                     |
-| 7. Query core: SPARQL and GQL where they overlap                                                                     | `open`                                                     |
+| 7. Query core with RBAC: SPARQL and GQL where they overlap; Add RBAC early       | `open`                                                     |
 | 7.5. Fuzzy test and harden query core                                                                                | `open`                                                     |
 | 8. Basic clustering of compute and storage with VSR replication in a single container, the base of the DeepBrain MVP | `open`                                                     |
 | 9. Full SPARQL and GQL conformance                                                                                   | `open`                                                     |

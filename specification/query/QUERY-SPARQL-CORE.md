@@ -360,7 +360,7 @@ by a preceding pattern is the agentic projection's, at a later stage.
   position only an IRI.
 - **Read-only and read-write.** A query runs in a read-only transaction at its level, or in a read-write one at the
   partition's latest state; an update needs a read-write transaction (`SPQ0801`). An `INSERT DATA` whose triples the
-  catalog classifies coordination-free is what a DirectWrite carries; the frontend decides from the catalog.
+  catalog classifies coordination-free is what a DirectWrite carries; the role holding the client endpoint, the frontend until stage 5.9 and compute from it, decides from the catalog.
 - **Results.** A query's result is a stream of columnar batches, one column per projected variable, terms in the
   encoding of `../binary_protocol/PROTOCOL.md` section 10, `ABSENT` for unbound, IRIs by text, reifiers and handles by their IRIs; an
   update's result is the count of triples it inserted and deleted. The reply carries the epoch read at, the monotonic
