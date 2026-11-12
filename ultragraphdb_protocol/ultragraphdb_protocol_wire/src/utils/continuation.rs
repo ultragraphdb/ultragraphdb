@@ -36,7 +36,9 @@ impl Cut<'_> {
         match self {
             Cut::Units(unit) => unit.max(1),
             Cut::Text => char_len(bytes, start),
-            Cut::Texts(ranges) if ranges.iter().any(|r| r.contains(&start)) => char_len(bytes, start),
+            Cut::Texts(ranges) if ranges.iter().any(|r| r.contains(&start)) => {
+                char_len(bytes, start)
+            }
             Cut::Texts(_) => 1,
         }
     }
@@ -171,7 +173,11 @@ fn least_frame(sections: &[(&[u8], Cut<'_>)], cursors: &[usize]) -> usize {
         .filter(|(_, ((bytes, _), cursor))| **cursor < bytes.len())
         .map(|(index, ((bytes, cut), cursor))| {
             let unit = cut.unit(bytes, *cursor);
-            let held = if index + 1 < count { align8(unit) } else { unit };
+            let held = if index + 1 < count {
+                align8(unit)
+            } else {
+                unit
+            };
             HEADER_SIZE + 8 * count + held
         })
         .min()
@@ -191,7 +197,11 @@ fn next_parts<'a>(
     let mut parts = Vec::with_capacity(count);
     for (index, ((bytes, cut), cursor)) in sections.iter().zip(cursors.iter_mut()).enumerate() {
         at = align8(at);
-        let end_by = if index + 1 < count { room / 8 * 8 } else { room };
+        let end_by = if index + 1 < count {
+            room / 8 * 8
+        } else {
+            room
+        };
         let space = end_by.saturating_sub(at);
         let start = *cursor;
         let limit = start.saturating_add(space).min(bytes.len());

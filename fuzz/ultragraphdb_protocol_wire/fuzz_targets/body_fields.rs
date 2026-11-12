@@ -539,18 +539,25 @@ fn describe_entries(fields: &[EntryFields]) -> Vec<DescribeEntry> {
             })
         })
         .collect();
-    entries.sort_by(|a, b| (a.kind().number(), a.name().as_bytes()).cmp(&(b.kind().number(), b.name().as_bytes())));
+    entries.sort_by(|a, b| {
+        (a.kind().number(), a.name().as_bytes()).cmp(&(b.kind().number(), b.name().as_bytes()))
+    });
     entries.dedup_by(|a, b| (a.kind(), a.name()) == (b.kind(), b.name()));
     entries
 }
 
 /// The frames `frames` cut an answer into within `max_frame`: each within it, the last alone flagged `LAST`, each taken
 /// by `push`.
-fn continues<E: Debug>(frames: &[Vec<u8>], max_frame: usize, mut push: impl FnMut(&FrameView<'_>) -> Result<(), E>) {
+fn continues<E: Debug>(
+    frames: &[Vec<u8>],
+    max_frame: usize,
+    mut push: impl FnMut(&FrameView<'_>) -> Result<(), E>,
+) {
     assert!(!frames.is_empty(), "an answer takes a frame");
     for (i, frame) in frames.iter().enumerate() {
         assert!(frame.len() <= max_frame, "a frame within max_frame");
-        let view = FrameView::validate(frame, CLUSTER, MAX_FRAME_SIZE).expect("a continuation frame validates");
+        let view = FrameView::validate(frame, CLUSTER, MAX_FRAME_SIZE)
+            .expect("a continuation frame validates");
         assert_eq!(
             view.header().flags() & FLAG_LAST != 0,
             i + 1 == frames.len(),
@@ -1321,7 +1328,9 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                     // A migration report comes with a staged namespace alone.
                     match staged {
                         (0, _) => reply,
-                        (staged, report) => reply.with_staged(*staged).with_migration_report(report.clone()),
+                        (staged, report) => reply
+                            .with_staged(*staged)
+                            .with_migration_report(report.clone()),
                     }
                 }
                 None => request,
@@ -1347,7 +1356,10 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             let language = Language::from_number(1 + language % 3)?;
             let column = |byte: u8| ColumnType::from_number(1 + byte % 13);
             let names = parameters.iter().map(|(name, _)| name.clone()).collect();
-            let types = parameters.iter().map(|(_, t)| column(*t)).collect::<Option<_>>()?;
+            let types = parameters
+                .iter()
+                .map(|(_, t)| column(*t))
+                .collect::<Option<_>>()?;
             let request = Prepare::of_text(0, language, text.clone(), terms, names, types);
             // A reply names its statement, at least 1, and alone carries warnings (PROTOCOL.md 8.1).
             let prepare = match answered {
@@ -1401,10 +1413,7 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             (
                 frame,
                 Box::new(move |f| {
-                    assert_eq!(
-                        ResultView::from_frame(f).unwrap().to_body().unwrap(),
-                        batch
-                    )
+                    assert_eq!(ResultView::from_frame(f).unwrap().to_body().unwrap(), batch)
                 }),
             )
         }
@@ -1414,7 +1423,8 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             entries,
             max_frame,
         } => {
-            let built = Describe::new(*tenant, *read_version).with_entries(describe_entries(entries));
+            let built =
+                Describe::new(*tenant, *read_version).with_entries(describe_entries(entries));
             let max_frame = 1024 + usize::from(*max_frame);
             if let Ok(frames) = built.frames(header.clone(), max_frame) {
                 let mut answer = DescribeFrames::new();
@@ -1455,7 +1465,9 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             let count = unique.len() as u32;
             let request = Purge::new(*tenant, unique);
             let built = match purged {
-                Some((epoch, removed)) => request.purged(1 + epoch % MAX_EPOCH, removed % (count + 1)),
+                Some((epoch, removed)) => {
+                    request.purged(1 + epoch % MAX_EPOCH, removed % (count + 1))
+                }
                 None => request,
             };
             let frame = built.frame(header).ok()?;
@@ -1496,7 +1508,10 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             (
                 frame,
                 Box::new(move |f| {
-                    assert_eq!(MigrateView::from_frame(f).unwrap().to_body().unwrap(), built)
+                    assert_eq!(
+                        MigrateView::from_frame(f).unwrap().to_body().unwrap(),
+                        built
+                    )
                 }),
             )
         }
@@ -1533,7 +1548,10 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             (
                 frame,
                 Box::new(move |f| {
-                    assert_eq!(CatalogView::from_frame(f).unwrap().to_body().unwrap(), built)
+                    assert_eq!(
+                        CatalogView::from_frame(f).unwrap().to_body().unwrap(),
+                        built
+                    )
                 }),
             )
         }

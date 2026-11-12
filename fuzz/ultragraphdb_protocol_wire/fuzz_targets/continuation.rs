@@ -83,7 +83,11 @@ fuzz_target!(|data: &[u8]| {
                 takes_back(&cut, largest, |f| again.push(f));
                 assert!(again.is_last());
                 assert_eq!(
-                    again.view().expect("an answer cut again reads").to_body().ok(),
+                    again
+                        .view()
+                        .expect("an answer cut again reads")
+                        .to_body()
+                        .ok(),
                     Some(body),
                     "a Describe cut again assembles to itself"
                 );

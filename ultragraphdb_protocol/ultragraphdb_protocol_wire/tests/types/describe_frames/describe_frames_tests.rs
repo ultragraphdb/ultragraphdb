@@ -375,7 +375,6 @@ fn test_a_max_frame_holding_no_part_is_refused() -> TestResult {
     Ok(())
 }
 
-
 /// A `max_frame` carrying no part of the answer is refused as `FrameTooLarge` naming the least frame that holds the next
 /// unit of a section with bytes left, the least over those sections (§2.3, §4.1): the frame header and command header,
 /// 256 bytes, the table of nine sections, 72, and the unit at its section's start, padded to 8 for the empty sections

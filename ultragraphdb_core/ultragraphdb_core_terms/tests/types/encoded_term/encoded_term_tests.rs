@@ -679,7 +679,10 @@ fn test_check_refuses_a_measure_without_a_unit_and_a_precision_outside_1_to_12()
     let measure = |unit: &[u8]| [&[0x50][..], &number, &[unit.len() as u8], unit].concat();
     let malformed = |bytes: &[u8], reason| Err(TermError::malformed(bytes.to_vec(), reason));
     let cases: Vec<(Vec<u8>, Result<(), TermError>)> = vec![
-        (measure(b""), malformed(&measure(b""), "a measure without a unit")),
+        (
+            measure(b""),
+            malformed(&measure(b""), "a measure without a unit"),
+        ),
         (
             measure(&[0xFF]),
             malformed(&measure(&[0xFF]), "inline text that is not UTF-8"),

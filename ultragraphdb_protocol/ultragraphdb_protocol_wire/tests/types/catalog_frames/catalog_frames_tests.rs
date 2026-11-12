@@ -178,8 +178,8 @@ fn test_each_frame_but_the_last_holds_what_fits() -> TestResult {
 /// A header flagged `LAST` leaves the flag to the last frame alone (§13.7): every frame before it is sent without it.
 #[test]
 fn test_a_header_flagged_last_flags_the_last_frame_alone() -> TestResult {
-    let frames =
-        Catalog::reply(1, 7, 30, 2, version_bytes()).frames(header().with_flags(FLAG_LAST), 4_096)?;
+    let frames = Catalog::reply(1, 7, 30, 2, version_bytes())
+        .frames(header().with_flags(FLAG_LAST), 4_096)?;
     let flagged = frames
         .iter()
         .map(|frame| Ok(frame_of(frame)?.header().flags() & FLAG_LAST == FLAG_LAST))

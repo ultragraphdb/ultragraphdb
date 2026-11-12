@@ -147,7 +147,10 @@ fn holds_its_rules(frame: &FrameView<'_>) {
     if let Ok(view) = PurgeView::from_frame(frame) {
         assert!((1..=PURGE_IRIS_MAX).contains(&view.iri_count()));
         assert!(view.removed() as usize <= view.iri_count());
-        assert!(view.epoch() != 0 || view.removed() == 0, "a request removes nothing");
+        assert!(
+            view.epoch() != 0 || view.removed() == 0,
+            "a request removes nothing"
+        );
     }
     if let Ok(view) = MigrateView::from_frame(frame) {
         if view.state().is_none() {

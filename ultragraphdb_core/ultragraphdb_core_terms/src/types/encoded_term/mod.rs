@@ -135,7 +135,8 @@ impl EncodedTerm {
         };
         let known = |at: usize| {
             bytes.get(at).is_some_and(|code| {
-                KnownDatatype::from_code(*code).is_some() || TaggedDatatype::from_code(*code).is_some()
+                KnownDatatype::from_code(*code).is_some()
+                    || TaggedDatatype::from_code(*code).is_some()
             })
         };
         // A duration's i64 months at byte 1 and i128 seconds at byte 9, which the length rules proved present: a

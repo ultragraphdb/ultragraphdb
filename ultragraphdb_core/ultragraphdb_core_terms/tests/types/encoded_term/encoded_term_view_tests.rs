@@ -118,9 +118,8 @@ fn test_a_results_reader_refuses_an_iri_and_reads_other_literals_as_the_store() 
 /// (millennium) to 12 (nanosecond). A Result's reader and the store's read them alike.
 #[test]
 fn test_a_measure_and_a_precision_are_read_by_value() -> TestResult {
-    let measure = EncodedTerm::from_bytes(
-        &[&[0x50][..], &1.5f64.to_be_bytes(), &[3], b"m/s"].concat(),
-    )?;
+    let measure =
+        EncodedTerm::from_bytes(&[&[0x50][..], &1.5f64.to_be_bytes(), &[3], b"m/s"].concat())?;
     let expected = TermView::Measure {
         number: 1.5,
         unit: "m/s",
@@ -168,4 +167,3 @@ fn test_codes_34_to_36_are_read_as_typed_literals() -> TestResult {
     }
     Ok(())
 }
-

@@ -103,7 +103,12 @@ fn test_each_answer_sets_status_outcome_generation_and_close() -> TestResult {
         .refused(17)
         .answered(ReferenceStatus::Live, Some(id), 4, 30);
     assert_eq!(
-        (live.outcome(), live.status(), live.generation(), live.close()),
+        (
+            live.outcome(),
+            live.status(),
+            live.generation(),
+            live.close()
+        ),
         (0, Some(ReferenceStatus::Live), 4, 30)
     );
     assert_eq!(live.entity(), Some(id));

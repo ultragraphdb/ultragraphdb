@@ -11,9 +11,21 @@ use ultragraphdb_tool_bdd::TestResult;
 #[test]
 fn test_codes_34_to_36_name_the_three_datatypes() -> TestResult {
     let table = [
-        (34, TaggedDatatype::Bfloat16Vector, "https://w3id.org/ultragraphdb/ns/bfloat16vector"),
-        (35, TaggedDatatype::Measure, "https://w3id.org/ultragraphdb/ns/measure"),
-        (36, TaggedDatatype::Precision, "https://w3id.org/ultragraphdb/ns/precision"),
+        (
+            34,
+            TaggedDatatype::Bfloat16Vector,
+            "https://w3id.org/ultragraphdb/ns/bfloat16vector",
+        ),
+        (
+            35,
+            TaggedDatatype::Measure,
+            "https://w3id.org/ultragraphdb/ns/measure",
+        ),
+        (
+            36,
+            TaggedDatatype::Precision,
+            "https://w3id.org/ultragraphdb/ns/precision",
+        ),
     ];
     for (code, datatype, iri) in table {
         assert_eq!(TaggedDatatype::from_code(code), Some(datatype));

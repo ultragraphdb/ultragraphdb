@@ -10,10 +10,10 @@ use oxsdatatypes::{
 };
 
 use crate::errors::term_error::TermError;
+use crate::types::bfloat16_vector_view::Bfloat16VectorView;
 use crate::types::datatype::Datatype;
 use crate::types::encoded_term::{EncodedTerm, INLINE_MAX, tag};
 use crate::types::hash128::Hash128;
-use crate::types::bfloat16_vector_view::Bfloat16VectorView;
 use crate::types::known_datatype::KnownDatatype;
 use crate::types::tagged_datatype::TaggedDatatype;
 use crate::types::term_view::TermView;

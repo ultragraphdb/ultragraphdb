@@ -112,7 +112,10 @@ fn test_a_lexical_form_of_codes_34_to_36_is_a_literal_of_its_datatype() -> TestR
 fn test_a_value_of_codes_34_to_36_by_value_names_its_code() -> TestResult {
     let encodings: [(Vec<u8>, u8); 3] = [
         (vec![0x41, 1, 0, 0x80, 0x3F], 34),
-        ([&[0x50][..], &1.5f64.to_be_bytes(), &[1], b"m"].concat(), 35),
+        (
+            [&[0x50][..], &1.5f64.to_be_bytes(), &[1], b"m"].concat(),
+            35,
+        ),
         (vec![0x51, 9], 36),
     ];
     for (bytes, code) in encodings {
@@ -121,8 +124,11 @@ fn test_a_value_of_codes_34_to_36_by_value_names_its_code() -> TestResult {
             |_| Ok::<_, TermError>(NamedNode::new_unchecked("http://e/x")),
             |_| Ok(String::new()),
         );
-        assert_eq!(refused, Err(TermError::unknown_datatype(code)), "{bytes:02x?}");
+        assert_eq!(
+            refused,
+            Err(TermError::unknown_datatype(code)),
+            "{bytes:02x?}"
+        );
     }
     Ok(())
 }
-
