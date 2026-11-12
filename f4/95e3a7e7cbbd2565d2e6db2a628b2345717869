@@ -1,0 +1,36 @@
+fuzz/ultragraphdb_protocol_wire/fuzz_targets/body.rs
+  h_080fb89ca1f0c4 150-153
+fuzz/ultragraphdb_protocol_wire/fuzz_targets/body_fields.rs
+  h_080fb89ca1f0c4 542-544,551-555,559-560,1331-1333,1359-1362,1416,1426-1427,1468-1470,1511-1514,1551-1554
+fuzz/ultragraphdb_protocol_wire/fuzz_targets/continuation.rs
+  h_080fb89ca1f0c4 86-90
+ultragraphdb_core/ultragraphdb_core_terms/src/types/encoded_term/encoded_term_view.rs
+  h_080fb89ca1f0c4 13
+ultragraphdb_core/ultragraphdb_core_terms/src/types/encoded_term/mod.rs
+  h_080fb89ca1f0c4 138-139
+ultragraphdb_core/ultragraphdb_core_terms/tests/types/encoded_term/encoded_term_tests.rs
+  h_080fb89ca1f0c4 682-685
+ultragraphdb_core/ultragraphdb_core_terms/tests/types/encoded_term/encoded_term_view_tests.rs
+  h_080fb89ca1f0c4 121-122
+ultragraphdb_core/ultragraphdb_core_terms/tests/types/tagged_datatype_tests.rs
+  h_080fb89ca1f0c4 14-28
+ultragraphdb_core/ultragraphdb_core_terms/tests/types/term_view/term_view_literal_tests.rs
+  h_080fb89ca1f0c4 115-118,127-131
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/utils/continuation.rs
+  h_080fb89ca1f0c4 39-41,176-180,200-204
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/catalog_frames/catalog_frames_tests.rs
+  h_080fb89ca1f0c4 181-182
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/reference_registration/reference_registration_tests.rs
+  h_080fb89ca1f0c4 106-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f495e3a7e7cbbd2565d2e6db2a628b2345717869",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
