@@ -281,6 +281,7 @@ Every external crate is pinned once in `[workspace.dependencies]` and referenced
 | `serde`, `serde_json` | 1.0 | `ultragraphdb_tool_bdd`; every core crate's tests | Golden files |
 | `cucumber`, `futures` | 0.23 / 0.3 | every crate's `bdd` test | The BDD scenarios, run without the libtest harness; `futures::executor::block_on` drives them |
 | `criterion` | 0.8, no default features | `ultragraphdb_store_kv`, `ultragraphdb_transactions_commit`, `ultragraphdb_transactions_txn` (benches) | The kv store's benchmarks, the conflict history's and the read set's, run by `cargo bench` and `bazel run`, never by `make test`. 0.8 depends on `alloca`, whose build script compiles C through `cc`, in the bench targets alone |
+| `hegeltest` | 0.52, `static-engine` | `ultragraphdb_core_ids` (property tests); every crate with a `property` target from stage 5.8 on | Hegel's property testing: inputs drawn by generators, a failure shrunk to its smallest case, state machines checked against a model. `static-engine` compiles the engine, `hegeltest-c`, into the test binary, where the default loads a shared library at run time, which a sandbox does not carry. Development only |
 | `fjall` | 3.1 | `ultragraphdb_store_kv`, `ultragraphdb_tool_test` | The LSM-tree storage engine, pure Rust. `Store::compact` calls fjall's `#[doc(hidden)]` `rotate_memtable_and_wait` and `major_compact`, which carry no stability promise |
 | `moka` | 0.12, `sync` | `ultragraphdb_store_kv` | The posting-list cache, keyed with a per-process `RandomState` |
 | `tracing` | 0.1 | every library crate that logs | Structured log events where the ported Go code logs; its macros are used in `src/` |
@@ -307,7 +308,7 @@ Every external crate is pinned once in `[workspace.dependencies]` and referenced
 The project uses `make` for common development tasks:
 
 * `make build`: Builds the entire workspace with Bazel
-* `make test`: Builds, then runs the doc tests, the unit tests, the BDD tests and the integration tests with Bazel. Integration tests start the role binaries as processes, each copied into the sandbox, with no container, so Bazel caches them; they carry the tags `integration_test` and `exclusive`, since the binaries listen at declared ports
+* `make test`: Builds, then runs the doc tests, the unit tests, the property tests, the BDD tests and the integration tests with Bazel. Integration tests start the role binaries as processes, each copied into the sandbox, with no container, so Bazel caches them; they carry the tags `integration_test` and `exclusive`, since the binaries listen at declared ports
 * `make fix`: Fixes linting issues as reported by `clippy`
 * `make format`: Formats Bazel files with `buildifier` and Rust code with `cargo fmt`
 * `make check`: Checks for outdated and unused dependencies and security vulnerabilities
@@ -406,6 +407,16 @@ its higher up module. Ensure the correct #[cfg(test)] annotation is set for each
 Test targets live in the crate's own `BUILD.bazel`, beside the library. A crate whose tests mirror `src/`
 through `tests/mod.rs` takes one `rust_test` with `crate_root = "tests/mod.rs"`, tagged `unit-test`.
 A `rust_test_suite` over `*_tests.rs` fits only when every test file stands alone.
+
+Property tests are Hegel's (`hegeltest`), from roadmap stage 5.8 on wherever a crate's surface holds a law
+(`openspec/protocols/tdd-protocol.md`, "Phase 2 states every law as a property test"). They live under
+`tests/property/`, rooted at `tests/property/mod.rs` and mirroring `src/`, each file named
+`<source file>_property_tests.rs`, declared as `[[test]] property`, and run by one `rust_test` named `property`,
+tagged `property-test`, with `HEGEL_DERANDOMIZE = "true"` and `HEGEL_DATABASE = "disabled"` in its `env`, so a run is
+a function of its sources. The unit test target's glob excludes `tests/property/**`. The crate takes
+`hegeltest = { workspace = true, features = ["static-engine"] }` among its dev-dependencies: the engine is then
+compiled into the test binary, and the sandbox loads and fetches nothing. `ultragraphdb_core_ids` is the first, with
+the laws of `Version`.
 
 The Rust client is three crates in `ultragraphdb_client/`, each with a test root `tests/mod.rs`,
 declared as `[[test]] unit` under `autotests = false` and run by one `rust_test` tagged `unit-test`;

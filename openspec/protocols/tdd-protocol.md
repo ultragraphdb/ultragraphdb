@@ -157,6 +157,62 @@ exactly the case a caller matching on the variant will get wrong.
 - **WHEN** a variant cannot be provoked through the public API
 - **THEN** either it is removed, or its unreachability is recorded with the argument that makes it unreachable
 
+### Requirement: Phase 2 states every law as a property test
+
+From roadmap stage 5.8 on, a group's phase 2 SHALL state as a property test every law its surface has: something that
+holds for all inputs of a stated kind, and not for the examples a unit test picks. A property test SHALL be written
+with Hegel (`hegeltest`, linked with its `static-engine` feature, so the engine is compiled into the test binary and
+nothing is loaded or fetched at run time), SHALL be written in phase 2 against the unimplemented surface and observed
+failing with the rest of the suite, and SHALL compute what it expects from the drawn inputs by a rule independent of
+the code under test.
+
+A law exists, and a property test is therefore sensible, for at least these:
+
+| Law | Its property |
+|---|---|
+| A builder and its decoder | What the builder builds, the decoder reads back to the same fields, and builds again to the same bytes |
+| A decoder's refusals | An input built to break one rule is refused with that rule's refusal, and with no other |
+| An order | Encoded keys compare as the values they encode |
+| An inverse or an identity | Applying and undoing returns the input; applying twice equals applying once where the text says so |
+| A bound | No input within the stated domain takes a counter, a size or a count past its stated limit |
+| A state machine | Any sequence of its commands keeps its invariants and agrees with a model written from the specification, run as a Hegel state machine |
+
+A group with no such law SHALL say so in its notes and write no property test; a target without a test is never
+created. A property test SHALL NOT replace a scenario, a corner case enumerated in advance or a golden vector: it adds
+the inputs nobody thought of.
+
+Property tests live under `tests/property/`, rooted at `tests/property/mod.rs` and mirroring `src/` below it, each
+file named `<source file>_property_tests.rs`. The crate's `BUILD.bazel` runs them as one `rust_test` named `property`,
+tagged `property-test`, which is the tag `scripts/test.sh` selects for its property step, with `HEGEL_DERANDOMIZE` set
+to `true` and `HEGEL_DATABASE` to `disabled`, so a run is a function of its sources, Bazel caches it, and no run
+depends on the one before. The unit test target excludes `tests/property/**`. The manifest declares the tests as
+`[[test]] property`. Generators SHALL be bounded so that the target runs in seconds: sizes and counts are drawn within
+the limits the specification states, never at them by brute force.
+
+A property that fails has found a defect or a wrong test. Either way the shrunk input Hegel prints SHALL become a
+named unit test with its values written out, beside the corner cases, before the defect is fixed; the reproducer blob
+is not committed, since it is tied to one version of the engine.
+
+#### Scenario: A property test is picked up by its tag
+- **WHEN** a crate's `BUILD.bazel` declares a `rust_test` named `property` tagged `property-test`
+- **THEN** `scripts/test.sh` runs it in its property step, after the unit tests and before the BDD tests
+
+#### Scenario: A property test runs the same way twice
+- **WHEN** the `property` target of a crate is run twice with no source changed
+- **THEN** the second run is answered from Bazel's cache, and an uncached run draws the same inputs as the first
+
+#### Scenario: A property is written before its code
+- **WHEN** a group's phase 2 commit is checked out
+- **THEN** its property tests compile against the unimplemented surface and fail
+
+#### Scenario: A shrunk failure becomes a unit test
+- **WHEN** a property test fails with the shrunk input `epoch = 0`, `sequence = 1`
+- **THEN** a unit test naming those values is added and fails for the same reason before the fix, and passes after it
+
+#### Scenario: A group without a law writes no property target
+- **WHEN** a group changes only a binary's wiring
+- **THEN** its notes say that it holds no law, and its crates gain no `property` target
+
 ### Requirement: Phase 3 audits the suite's input variety before the suite is trusted
 
 Each stage SHALL, before implementing, review its suite's inputs against the corner-case enumeration, so that no

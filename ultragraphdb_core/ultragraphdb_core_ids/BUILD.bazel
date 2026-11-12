@@ -32,12 +32,32 @@ rust_test(
     name = "ultragraphdb_core_ids_tests",
     srcs = glob(
         ["tests/**/*.rs"],
-        exclude = ["tests/bdd.rs"],
+        exclude = [
+            "tests/bdd.rs",
+            "tests/property/**",
+        ],
     ),
     crate_root = "tests/mod.rs",
     data = glob(["testdata/**"]),
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_core_ids"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# The property tests, Hegel's, under `tests/property/`, mirroring `src/`. Derandomized and without an example database,
+# so a run is a function of its sources and Bazel may cache it.
+rust_test(
+    name = "property",
+    srcs = glob(["tests/property/**/*.rs"]),
+    crate_root = "tests/property/mod.rs",
+    env = {
+        "HEGEL_DATABASE": "disabled",
+        "HEGEL_DERANDOMIZE": "true",
+    },
+    tags = ["property-test"],
     deps = [":ultragraphdb_core_ids"] + all_crate_deps(
         normal = True,
         normal_dev = True,

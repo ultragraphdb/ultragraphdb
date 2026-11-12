@@ -25,11 +25,16 @@ xxhash-rust = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
+hegeltest = { workspace = true, features = ["static-engine"] }
 serde = { workspace = true }
 
 [[test]]
 name = "unit"
 path = "tests/mod.rs"
+
+[[test]]
+name = "property"
+path = "tests/property/mod.rs"
 
 [[test]]
 name = "bdd"

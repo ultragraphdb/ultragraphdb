@@ -159,6 +159,7 @@ written before this change is read after it.
 - **The group alone.** `common_system` is tested against an `OrderedLog` double as the owner is today, and its
   session against the frames of each command: golden frames for Session, Check, Ended, Declare, Defaults, Challenge
   and Verify, fuzz targets for each decoder.
+- **Laws.** Property tests with Hegel, from this stage on (`tdd-protocol.md`): the new bodies round-trip and refuse by rule, and the registry and the catalog run as state machines against a model written from the specification, which is where the rules for marks, evictions and checks were found wanting in review.
 - **Failures.** The group's host killed with commits in flight; the frontend killed during a tightening's check; the
   frontend's connection to the group closed and dialled again with requests at partitions; a frontend started before
   storage.

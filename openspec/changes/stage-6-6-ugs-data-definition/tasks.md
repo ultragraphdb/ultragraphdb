@@ -2,8 +2,7 @@ Every task group follows `openspec/protocols/tdd-protocol.md`'s five phases, in 
 (1) the group's public surface compiling with bare `unimplemented!()` bodies; (2) the full suite written against it
 and observed failing for that reason, its run and test count recorded in `notes/group-N.md`: the group's scenarios
 verbatim as Gherkin in the owning crate's `features/<capability>/`, bound by its `bdd` target with `fail_on_skipped`,
-unit tests for the corner cases enumerated in advance, every error variant constructed through the public API, and
-every expected value from a source independent of the code, the conformance corpus first; (3) the suite's inputs
+unit tests for the corner cases enumerated in advance, from stage 5.8 on every law of the surface as a Hegel property test in a `property` target tagged `property-test` (`tdd-protocol.md`, "Phase 2 states every law as a property test"), which this change's rebase names per group, every error variant constructed through the public API, and every expected value from a source independent of the code, the conformance corpus first; (3) the suite's inputs
 reviewed against the corner-case enumeration; (4) the implementation, judged by the suite alone; (5) as the group's
 last step, `scripts/mutants.sh <crate> --diff <base>` once per crate the group changed, and for a group decoding bytes
 or text from a client, a peer or the disk, its fuzz targets and seeds written and built, the runs of

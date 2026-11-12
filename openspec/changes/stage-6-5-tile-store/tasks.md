@@ -9,7 +9,7 @@ value from a source independent of the code, the conformance vectors of `specifi
 group decoding bytes from a peer or the disk, its fuzz targets and seeds written and built. Before an existing crate's
 behaviour changes, its group lifts it into `openspec/protocols/ULTRA_STYLE.md` in a commit of its own; every crate
 this change creates conforms from its first commit, is created in full by the group that builds it, and gets its row
-in `AGENTS.md`'s crate table. Tests return `TestResult`. Bazel is the gate: a group is done when `make test` passes,
+in `AGENTS.md`'s crate table. From stage 5.8 on every group also states its surface's laws as Hegel property tests in phase 2, in a `property` target tagged `property-test` (`tdd-protocol.md`, "Phase 2 states every law as a property test"); this change's rebase names them per group (task 0.7). Tests return `TestResult`. Bazel is the gate: a group is done when `make test` passes,
 cached; the user commits after each group. Removing files waits for the user's approval at the task that removes them.
 A weakness found in a specification is fixed in that specification first.
 
