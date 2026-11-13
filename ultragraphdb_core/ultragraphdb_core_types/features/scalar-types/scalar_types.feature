@@ -90,6 +90,5 @@ Feature: Scalar types
     Then the order is -1, 2.5, 3
 
   Scenario: Language strings sort by collation
-    Given the golden German strings
-    When the golden German strings are sorted with language "de"
-    Then the order equals Dgraph's
+    When the strings "zebra", "ä", "b" and "Apfel" are sorted with language "de"
+    Then the order is "ä", "Apfel", "b", "zebra"

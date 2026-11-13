@@ -45,9 +45,13 @@ struct TokensCase {
 
 fn golden() -> TestResult<Vec<TokensCase>> {
     let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/tok_tokens.json");
+    // An exact token with a language holds the collator's key, which the collation scenario checks.
     Ok(ultragraphdb_tool_bdd::load_golden::<TokensCase>(&path)?
         .cases()
-        .to_vec())
+        .iter()
+        .filter(|c| c.tokenizer != "exact" || c.lang.is_empty())
+        .cloned()
+        .collect())
 }
 
 fn unhex(s: &str) -> TestResult<Vec<u8>> {
@@ -201,7 +205,7 @@ fn every_tokenizer(w: &mut Steps) -> TestResult {
 fn every_token_equal(w: &mut Steps) {
     no_mismatches(w);
     assert_eq!(w.deviating, DEVIATING);
-    assert!(w.compared > 15_000);
+    assert!(w.compared > 12_000);
 }
 
 #[when(expr = "the ints MinInt64, -1, 0, 1 and MaxInt64 are tokenized")]
@@ -451,31 +455,54 @@ fn reduced_to(w: &mut Steps, a: String, b: String, c: String, d: String, e: Stri
     assert_eq!(w.texts, vec![a, b, c, d, e]);
 }
 
-#[when(
-    expr = "the golden German strings are tokenized by the exact tokenizer with language {string}"
-)]
+#[when(expr = "the German strings are tokenized by the exact tokenizer with language {string}")]
 fn german_exact(w: &mut Steps, langs: &[String]) -> TestResult {
     let lang = &langs[0];
     const GERMAN: [&str; 19] = [
         "Äpfel", "Apfel", "apfel", "Zebra", "zebra", "Öl", "Ofen", "Straße", "Strasse", "Müller",
         "Mueller", "Muller", "ß", "", "a b", "Ärger", "Arzt", "über", "Ufer",
     ];
-    let hexes: Vec<String> = GERMAN
-        .iter()
-        .map(|s| s.bytes().map(|b| format!("{b:02x}")).collect())
-        .collect();
-    let cases: Vec<TokensCase> = golden()?
-        .into_iter()
-        .filter(|c| c.tokenizer == "exact" && c.lang == *lang && hexes.contains(&c.input))
-        .collect();
-    assert!(cases.len() >= GERMAN.len());
-    compare_all(w, cases.into_iter());
+    let collator = ultragraphdb_core_text::Collator::for_language(lang).context("a collator")?;
+    let mut keyed = Vec::new();
+    for word in GERMAN {
+        let token = tokens_of("exact", lang, word)?
+            .into_iter()
+            .next()
+            .context("one token")?;
+        keyed.push((token, word));
+    }
+    keyed.sort();
+    let mut collated = GERMAN.to_vec();
+    collated.sort_by(|a, b| collator.compare(a, b));
+    w.texts = keyed.iter().map(|(_, word)| (*word).to_string()).collect();
+    w.groups = vec![
+        collated
+            .iter()
+            .map(|word| word.as_bytes().to_vec())
+            .collect(),
+    ];
+    w.tokens = keyed.into_iter().map(|(token, _)| token).collect();
     Ok(())
 }
 
-#[then(expr = "the tokens equal Dgraph's, byte for byte")]
-fn exact_equal(w: &mut Steps) {
-    no_mismatches(w);
+#[then(
+    expr = "the tokens order as the language collates the strings, each after the base and the delimiter"
+)]
+fn exact_ordered(w: &mut Steps) -> TestResult {
+    let by_token: Vec<Vec<u8>> = w
+        .texts
+        .iter()
+        .map(|word| word.as_bytes().to_vec())
+        .collect();
+    assert_eq!(Some(&by_token), w.groups.first());
+    assert!(!w.tokens.is_empty());
+    for token in &w.tokens {
+        assert!(
+            token.windows(3).any(|at| at == [b'd', b'e', 0x1F]),
+            "{token:?}"
+        );
+    }
+    Ok(())
 }
 
 #[when(expr = "the golden points and polygons are tokenized by the geo tokenizer")]

@@ -613,95 +613,32 @@ fn test_golden_sort_orders() -> TestResult {
     Ok(())
 }
 
-/// A language sort case; the strings, in hex, may hold invalid UTF-8.
-#[derive(Debug, Clone, Deserialize)]
-struct LangSortCase {
-    lang: String,
-    uids: Vec<u64>,
-    in_hex: Vec<String>,
-    out_hex: Vec<String>,
-}
-
-/// The golden language sorts whose strings hold invalid UTF-8, by language, with the ledger entries of
-/// `openspec/notes/dgraph-bugs-found-in-port.md` and the port's expected result: a string value holds valid UTF-8, so
-/// these inputs are not expressible (the user's Q4, entries 17, 18 and 31); converting their bytes to a string is
-/// refused with `Value is not valid UTF-8 for type string`.
-const NOT_EXPRESSIBLE: &[(&str, &str, &str)] = &[
-    ("en", "17, 18, 31", "not expressible"),
-    ("hu", "17, 18, 31", "not expressible"),
-    ("da", "17, 18, 31", "not expressible"),
-    ("cs", "17, 18, 31", "not expressible"),
-    ("ja", "17, 18, 31", "not expressible"),
-    ("fr-CA", "17, 18, 31", "not expressible"),
-    ("en-u-kn-true", "17, 18, 31", "not expressible"),
-    ("en-u-ks-identic", "17, 18, 31", "not expressible"),
-    ("en-u-ka-shifted", "17, 18, 31", "not expressible"),
-    ("en-u-ks-level1", "17, 18, 31", "not expressible"),
-    ("xx-invalid-tag-!", "17, 18, 31", "not expressible"),
-];
-
+/// A sort by a language orders strings as the language collates them, and by their bytes with no language: Swedish
+/// sorts `ä` after `z`, German before `b`, and bytes order every upper-case letter first.
 #[test]
-fn test_golden_language_sort_orders() -> TestResult {
-    let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/types_sort_lang.json");
-    let golden = ultragraphdb_tool_bdd::load_golden::<LangSortCase>(&path)?;
-    assert!(golden.cases().len() >= 33);
-    let (mut checked, mut not_expressible) = (0, 0);
-    for c in golden.cases() {
-        let bytes: Vec<Vec<u8>> = c
-            .in_hex
+fn test_a_sort_by_a_language_orders_as_the_language_collates() -> TestResult {
+    let words = ["zebra", "ä", "b", "Apfel", "apfel"];
+    for (lang, want) in [
+        ("sv", ["apfel", "Apfel", "b", "zebra", "ä"]),
+        ("de", ["ä", "apfel", "Apfel", "b", "zebra"]),
+        ("", ["Apfel", "apfel", "b", "zebra", "ä"]),
+        ("xx-invalid-tag-!", ["Apfel", "apfel", "b", "zebra", "ä"]),
+    ] {
+        let mut rows: Vec<Vec<Val>> = words
             .iter()
-            .map(|s| unhex(s))
-            .collect::<TestResult<_>>()?;
-        let input: Result<Vec<String>, _> = bytes.iter().cloned().map(String::from_utf8).collect();
-        let Ok(input) = input else {
-            assert!(
-                NOT_EXPRESSIBLE.iter().any(|&(lang, _, _)| lang == c.lang),
-                "{}: invalid UTF-8 in a case not listed",
-                c.lang
-            );
-            // Go sorts these bytes as strings; the port refuses them as a string value.
-            for b in bytes {
-                if std::str::from_utf8(&b).is_err() {
-                    let err = convert(&Val::bytes(TypeId::STRING, b), TypeId::STRING)
-                        .err()
-                        .context("expected an error")?;
-                    assert_eq!(err.to_string(), "Value is not valid UTF-8 for type string");
-                }
-            }
-            not_expressible += 1;
-            continue;
-        };
-        let mut rows: Vec<Vec<Val>> = input
-            .into_iter()
-            .map(|s| vec![Val::new(TypeId::STRING, Value::Str(s))])
+            .map(|s| vec![Val::new(TypeId::STRING, Value::Str((*s).to_string()))])
             .collect();
         let mut uids = get_uid_list(rows.len());
-        sort(&mut rows, &mut uids, &[false], &c.lang, &TextCollator)?;
-        let out: Vec<Vec<u8>> = rows
+        sort(&mut rows, &mut uids, &[false], lang, &TextCollator)?;
+        let out: Vec<Option<&str>> = rows
             .iter()
-            .map(|r| {
-                match r[0].value() {
-                    Some(Value::Str(s)) => Ok(s.as_bytes().to_vec()),
-                    other => Err(format!("{other:?}")),
-                }
-                .context("a string value")
+            .map(|r| match r.first().and_then(Val::value) {
+                Some(Value::Str(s)) => Some(s.as_str()),
+                _ => None,
             })
-            .collect::<TestResult<_>>()?;
-        let want: Vec<Vec<u8>> = c
-            .out_hex
-            .iter()
-            .map(|s| unhex(s))
-            .collect::<TestResult<_>>()?;
-        assert_eq!(out, want, "{}", c.lang);
-        assert_eq!(uids, c.uids, "{}", c.lang);
-        checked += 1;
+            .collect();
+        assert_eq!(out, want.map(Some), "{lang:?}");
     }
-    assert_eq!(
-        not_expressible,
-        NOT_EXPRESSIBLE.len(),
-        "every listed case is in the golden file"
-    );
-    assert!(checked >= 22, "{checked} language sorts checked");
     Ok(())
 }
 

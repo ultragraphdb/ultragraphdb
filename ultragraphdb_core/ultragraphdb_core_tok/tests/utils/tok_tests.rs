@@ -10,8 +10,8 @@
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use ultragraphdb_core_tok::{
-    IDENT_FULL_TEXT, IDENT_NGRAM, IDENT_TERM, TOKENIZER_NAMES, TokErrorEnum, Tokenizer,
-    build_ngram_query_tokens, build_tokens, encode_geo_tokens, encode_regex_tokens,
+    IDENT_EXACT_LANG, IDENT_FULL_TEXT, IDENT_NGRAM, IDENT_TERM, TOKENIZER_NAMES, TokErrorEnum,
+    Tokenizer, build_ngram_query_tokens, build_tokens, encode_geo_tokens, encode_regex_tokens,
     get_full_text_tokens, get_ngram_query_tokens, get_ngram_tokens, get_tokenizer,
     get_tokenizer_by_id, get_tokenizer_for_lang, get_tokenizers,
 };
@@ -798,13 +798,49 @@ fn port_tokens(c: &TokensCase) -> Result<Vec<Vec<u8>>, String> {
     })
 }
 
+/// Whether `c` is an exact tokenizer's case with a language, whose tokens are collation keys.
+fn collated(c: &TokensCase) -> bool {
+    c.tokenizer == "exact" && !c.lang.is_empty()
+}
+
+/// An exact token with a language is the language's base, the delimiter `0x1F` and the collation key of the string,
+/// so the tokens order as the language collates the strings: Swedish sorts `ä` after `z`, German before `b`.
+#[test]
+fn test_exact_tokens_with_a_language_order_as_the_language_collates() -> TestResult {
+    let exact = get_tokenizer("exact").context("the exact tokenizer")?;
+    let words = ["zebra", "ä", "b", "Apfel", "apfel", "Äpfel", "", "a b"];
+    for lang in ["sv", "de", "en"] {
+        let collator =
+            ultragraphdb_core_text::Collator::for_language(lang).context("a collator")?;
+        let tokenizer = get_tokenizer_for_lang(&exact, lang);
+        let mut keyed: Vec<(Vec<u8>, &str)> = Vec::new();
+        for word in words {
+            let token = build_tokens(&Value::str(word), &tokenizer)?
+                .into_iter()
+                .next()
+                .context("one token")?;
+            let key = token.strip_prefix(&[IDENT_EXACT_LANG]).unwrap_or(&token);
+            let prefix: Vec<u8> = [lang.as_bytes(), &[0x1F]].concat();
+            assert!(key.starts_with(&prefix), "{lang} {word:?}: {token:?}");
+            keyed.push((token, word));
+        }
+        let mut by_collation = words.to_vec();
+        by_collation.sort_by(|a, b| collator.compare(a, b));
+        keyed.sort();
+        let by_token: Vec<&str> = keyed.iter().map(|(_, word)| *word).collect();
+        assert_eq!(by_token, by_collation, "{lang}");
+    }
+    Ok(())
+}
+
 #[test]
 fn test_tokens_golden() -> TestResult {
     let cases: Vec<TokensCase> = cases("tok_tokens")?;
     assert!(cases.len() > 10_000);
     let mut failures = Vec::new();
     let mut deviating = (Vec::new(), Vec::new());
-    for c in &cases {
+    // An exact token with a language holds the collator's key, which `test_exact_tokens_with_a_language_*` checks.
+    for c in cases.iter().filter(|c| !collated(c)) {
         let decoded = |t: &[String]| t.iter().map(|t| unhex(t)).collect::<TestResult<Vec<_>>>();
         assert!(
             c.fixed.is_none() || deviation(c)?.is_some(),

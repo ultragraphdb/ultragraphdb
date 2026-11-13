@@ -4,8 +4,4 @@
  */
 
 #[cfg(test)]
-mod collator_bytes_tests;
-#[cfg(test)]
-mod collator_golden_tests;
-#[cfg(test)]
 mod collator_tests;

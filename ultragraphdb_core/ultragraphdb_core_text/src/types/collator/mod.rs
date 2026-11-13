@@ -1,67 +1,56 @@
 /*
- * Copyright 2012 The Go Authors. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- *
- * Ported from golang.org/x/text v0.41.0, collate/collate.go. Changed for ultragraphdb: translated to Rust.
- * Copyright (c) 2026. Marvin Hansen.
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-mod collator_compare;
-mod collator_key;
+use std::cmp::Ordering;
+use std::sync::Arc;
 
-use std::sync::LazyLock;
+use icu_collator::options::CollatorOptions;
+use icu_collator::{Collator as IcuCollator, CollatorBorrowed};
+use icu_locale_core::Locale;
 
-use crate::tables::collate_tables::{AVAILABLE_LOCALES, LOCALES};
-use crate::types::numeric_weighter::NumericWeighter;
-use crate::types::options::Options;
-use crate::types::table::Table;
-use crate::types::tag::Tag;
-use crate::types::weighter::Weighter;
-use crate::utils::canonicalize::CanonType;
-use crate::utils::match_lang::match_lang;
-
-/// The locales with a tailoring of their own, parsed without canonicalization: `und` first, then sorted.
-///
-/// The constant parses, so no locale falls back to `und` and every tag keeps its index into `LOCALES`; a debug build
-/// checks it.
-static TAGS: LazyLock<Vec<Tag>> = LazyLock::new(|| {
-    AVAILABLE_LOCALES
-        .split(',')
-        .map(|s| {
-            let parsed = Tag::parse_with(CanonType::RAW, s);
-            debug_assert!(
-                parsed.is_ok(),
-                "the constant AVAILABLE_LOCALES holds valid locale tags"
-            );
-            parsed.unwrap_or_default()
-        })
-        .collect()
-});
-
-/// Compares and sorts strings in the collation order of a language, as Go's `collate.Collator` with the CLDR 23
-/// tables. Keys are Go's own format: primary weights, then `00 00` and the secondary weights, then `00 00` and
-/// the tertiary weights.
+/// The collation order of one language, from CLDR through ICU4X at its default, tertiary, strength: what a sort by a
+/// language compares with, and what an exact index with a language keys its strings by. A clone shares the one
+/// collator, which holds only borrowed, compiled data.
 #[derive(Debug, Clone)]
 pub struct Collator {
-    options: Options,
+    // Shared and immutable: built once per language and read by every comparison.
+    collator: Arc<CollatorBorrowed<'static>>,
 }
 
 impl Collator {
-    /// `collate.New(tag)` without options: the collator of the tailoring that best matches the tag, with the
-    /// collation options of the tag's `-u` extension (`kc`, `kb`, `kn`, `ks`, `ka`).
-    pub fn new(tag: &Tag) -> Collator {
-        let index = match_lang(tag, &TAGS);
-        // The root locale's tailoring, where a tag's index names none.
-        let [root, ..] = LOCALES;
-        let locale = *LOCALES.get(index).unwrap_or(&root);
-        let mut options = Options::new(Weighter::Table(Table::new(locale)));
-        // Set options from the user-supplied tag.
-        options.set_from_tag(tag);
-        if options.numeric
-            && let Weighter::Table(t) = options.t
-        {
-            options.t = Weighter::Numeric(NumericWeighter::new(t));
-        }
-        Collator { options }
+    /// The collation of the BCP 47 tag `lang`, a tag's `-u-` collation keywords included; a language CLDR holds no
+    /// tailoring for collates by the root order. `None` when `lang` is no well-formed tag.
+    #[must_use]
+    pub fn for_language(lang: &str) -> Option<Self> {
+        let locale = Locale::try_from_str(lang).ok()?;
+        IcuCollator::try_new((&locale).into(), CollatorOptions::default())
+            .ok()
+            .map(|collator| Self {
+                collator: Arc::new(collator),
+            })
+    }
+
+    /// Orders `a` and `b` in this collation.
+    #[must_use]
+    pub fn compare(&self, a: &str, b: &str) -> Ordering {
+        self.collator.compare(a, b)
+    }
+
+    /// Orders `a` and `b` in this collation, each invalid UTF-8 sequence collating as U+FFFD.
+    #[must_use]
+    pub fn compare_bytes(&self, a: &[u8], b: &[u8]) -> Ordering {
+        self.collator.compare_utf8(a, b)
+    }
+
+    /// The sort key of `s`: two keys of one collation compare, as bytes, as their strings collate. Each invalid UTF-8
+    /// sequence is keyed as U+FFFD. A key holds for the ICU4X version that wrote it: an index of keys is rebuilt when
+    /// that version's collation data changes.
+    #[must_use]
+    pub fn key_bytes(&self, s: &[u8]) -> Vec<u8> {
+        let mut key = Vec::with_capacity(s.len().saturating_mul(2));
+        let Ok(()) = self.collator.write_sort_key_utf8_to(s, &mut key);
+        key
     }
 }

@@ -5,7 +5,7 @@
 
 //! The behaviour scenarios of `ultragraphdb_core_types`, run by cucumber over the crate's `features/`.
 
-use cucumber::{World, given, then, when};
+use cucumber::{World, then, when};
 use serde::Deserialize;
 use ultragraphdb_core_types::{
     BIG_FLOAT_PRECISION, BigFloat, DateTime, TextCollator, TypeId, Val, Value, convert, encrypt,
@@ -27,7 +27,6 @@ struct Steps {
     hash_ok: bool,
     other_fails: String,
     sorted: Vec<String>,
-    golden_lang: Vec<LangSortCase>,
 }
 
 fn golden<T: for<'de> Deserialize<'de> + Clone>(name: &str) -> TestResult<Vec<T>> {
@@ -544,31 +543,12 @@ fn mixed_order(w: &mut Steps) {
     assert_eq!(w.sorted, ["-1", "2.5", "3"]);
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct LangSortCase {
-    lang: String,
-    #[serde(rename = "in")]
-    input: Vec<String>,
-    out: Vec<String>,
-}
-
-#[given(expr = "the golden German strings")]
-fn german_strings(w: &mut Steps) -> TestResult {
-    w.golden_lang = golden::<LangSortCase>("types_sort_lang")?
-        .into_iter()
-        .filter(|c| c.lang == "de")
-        .collect();
-    assert_eq!(w.golden_lang.len(), 1);
-    Ok(())
-}
-
-#[when(expr = "the golden German strings are sorted with language {string}")]
-fn sort_german(w: &mut Steps, langs: &[String]) -> TestResult {
-    let lang = &langs[0];
-    let c = &w.golden_lang[0];
-    assert_eq!(&c.lang, lang);
-    let mut rows: Vec<Vec<Val>> = c
-        .input
+#[when(
+    expr = "the strings {string}, {string}, {string} and {string} are sorted with language {string}"
+)]
+fn sort_strings(w: &mut Steps, texts: &[String]) -> TestResult {
+    let (lang, strings) = texts.split_last().context("the language")?;
+    let mut rows: Vec<Vec<Val>> = strings
         .iter()
         .map(|s| vec![Val::new(TypeId::STRING, Value::str(s))])
         .collect();
@@ -581,13 +561,9 @@ fn sort_german(w: &mut Steps, langs: &[String]) -> TestResult {
     Ok(())
 }
 
-#[then(expr = "the order equals Dgraph's")]
-fn german_order(w: &mut Steps) {
-    assert_eq!(
-        w.sorted, w.golden_lang[0].out,
-        "input {:?}",
-        w.golden_lang[0].input
-    );
+#[then(expr = "the order is {string}, {string}, {string}, {string}")]
+fn strings_order(w: &mut Steps, a: String, b: String, c: String, d: String) {
+    assert_eq!(w.sorted, vec![a, b, c, d]);
 }
 
 fn main() -> TestResult {

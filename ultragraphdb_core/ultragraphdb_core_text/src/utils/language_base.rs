@@ -3,25 +3,21 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use crate::types::confidence::Confidence;
-use crate::types::tag::Tag;
+use icu_locale_core::Locale;
 
-/// The base language Dgraph's `tok.LangBase` keeps for a language tag: the tag parses without error, is not
-/// `und`, and its base is inferred with more than no confidence. `None` where Dgraph falls back to English.
+/// The language subtag of the BCP 47 tag `lang`, in lower case; `None` when `lang` is no well-formed tag or names no
+/// language (`und`).
 ///
 /// ```
 /// use ultragraphdb_core_text::language_base;
 ///
 /// assert_eq!(language_base("en-US").as_deref(), Some("en"));
-/// assert_eq!(language_base("sh").as_deref(), Some("sr"));
+/// assert_eq!(language_base("zh-Hant").as_deref(), Some("zh"));
 /// assert_eq!(language_base("und"), None);
 /// assert_eq!(language_base("x!"), None);
 /// ```
+#[must_use]
 pub fn language_base(lang: &str) -> Option<String> {
-    let tag = Tag::parse(lang).ok()?;
-    if tag == Tag::default() {
-        return None;
-    }
-    let (base, conf) = tag.base();
-    (conf > Confidence::No).then(|| base.to_string())
+    let language = Locale::try_from_str(lang).ok()?.id.language;
+    (!language.is_unknown()).then(|| language.as_str().to_string())
 }

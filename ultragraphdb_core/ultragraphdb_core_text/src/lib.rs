@@ -3,36 +3,30 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Ported from Go's `golang.org/x/text` v0.41.0 (BSD-3-Clause, The Go Authors; see `LICENSE-GO-TEXT`): `collate`
-//! with its CLDR 23 tables and `language`'s parsing and base inference, as Dgraph v25.5.0 uses them.
+//! Language-aware text: the collation order of a language and the base language of a tag, over ICU4X
+//! (`icu_collator`, `icu_locale_core`) with its compiled CLDR data.
 //!
-//! - [`Tag::parse`] is `language.Parse`, [`Tag::base`] is `Tag.Base`, and [`language_base`] is the part of
-//!   Dgraph's `tok.LangBase` that x/text answers; Dgraph's fallback to `en` is the caller's.
-//! - [`Collator::new`] is `collate.New(tag)`, [`Collator::key`] is `KeyFromString` with Go's key format, and
-//!   [`Collator::compare`] is `CompareString`.
-//! - [`Collator::key_bytes`] and [`Collator::compare_bytes`] are `Key` and `Compare`, the same over bytes that need
-//!   not be valid UTF-8, as a Go string's need not: Dgraph's string values are arbitrary bytes.
+//! - [`Collator::for_language`] is the collation of a BCP 47 language tag; [`Collator::compare`] orders two strings
+//!   in it and [`Collator::key_bytes`] gives a string's sort key, whose bytes compare as the strings collate.
+//! - [`Collator::compare_bytes`] and [`Collator::key_bytes`] take bytes that need not be valid UTF-8: each invalid
+//!   sequence collates as U+FFFD.
+//! - [`language_base`] is a tag's language subtag.
 //!
 //! ```
-//! use ultragraphdb_core_text::{Collator, LanguageError, Tag};
+//! use std::cmp::Ordering;
 //!
-//! # fn main() -> Result<(), LanguageError> {
-//! let de = Collator::new(&Tag::parse("de")?);
-//! assert!(de.key("Äpfel") < de.key("Birnen"));
-//! assert_eq!(de.compare("Äpfel", "Birnen"), std::cmp::Ordering::Less);
-//! assert_eq!(de.compare_bytes(b"\xff", "\u{fffd}".as_bytes()), std::cmp::Ordering::Greater);
-//! # Ok(())
-//! # }
+//! use ultragraphdb_core_text::{Collator, language_base};
+//!
+//! let de = Collator::for_language("de");
+//! assert_eq!(
+//!     de.as_ref().map(|de| de.compare("Äpfel", "Birnen")),
+//!     Some(Ordering::Less)
+//! );
+//! assert_eq!(language_base("en-US").as_deref(), Some("en"));
 //! ```
 
-mod errors;
-mod tables;
 mod types;
 mod utils;
 
-pub use crate::errors::language_error::{LanguageError, LanguageErrorEnum};
-pub use crate::types::base::Base;
 pub use crate::types::collator::Collator;
-pub use crate::types::confidence::Confidence;
-pub use crate::types::tag::Tag;
 pub use crate::utils::language_base::language_base;

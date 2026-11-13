@@ -80,20 +80,21 @@ Ngram token order SHALL be unspecified, and comparisons SHALL sort them.
 - **THEN** the query tokens are the one shingle of both words
 
 ### Requirement: Language tags reduce to their base
-A language tag SHALL reduce to the base `golang.org/x/text/language` infers for it, and an unparsable, undefined or
-no-confidence tag SHALL reduce to `en`.
+A BCP 47 language tag SHALL reduce to its language subtag, in lower case, and an unparsable tag or one naming no
+language (`und`) SHALL reduce to `en`.
 
 #### Scenario: Language tags reduce
 - **WHEN** `en-US`, `zh-Hant`, `sh`, `und` and `x!` are reduced
-- **THEN** the results are `en`, `zh`, `sr`, `en` and `en`
+- **THEN** the results are `en`, `zh`, `sh`, `en` and `en`
 
 ### Requirement: Exact tokens with a language sort by collation
-An exact token with a language SHALL be the language base, the delimiter `0x1F`, and the collation key Go's
-`x/text/collate` produces, so that token order equals the language's collation order.
+An exact token with a language SHALL be the language base, the delimiter `0x1F`, and the string's sort key in the
+language's CLDR collation (ICU4X, tertiary strength), so that token order equals the language's collation order. A key
+holds for the collation data that wrote it: an index of keys is rebuilt when that data changes.
 
 #### Scenario: Collated exact tokens order like the language
-- **WHEN** the golden German strings are tokenized by the exact tokenizer with language `de`
-- **THEN** the tokens equal Dgraph's, byte for byte
+- **WHEN** the German strings are tokenized by the exact tokenizer with language `de`
+- **THEN** the tokens order as the language collates the strings, each after the base and the delimiter
 
 ### Requirement: Geo tokens index S2 cells
 A geo value SHALL yield `p/` tokens for its parent cells and `c/` tokens for its cover: for a point, its cells at

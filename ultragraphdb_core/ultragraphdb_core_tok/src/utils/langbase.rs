@@ -10,8 +10,8 @@
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
 
-use tracing::{error, warn};
-use ultragraphdb_core_text::{Tag, language_base};
+use tracing::warn;
+use ultragraphdb_core_text::language_base;
 
 const EN_BASE: &str = "en";
 
@@ -27,7 +27,6 @@ static LANG_BASE_CACHE: LazyLock<RwLock<HashMap<String, String>>> =
 /// use ultragraphdb_core_tok::lang_base;
 ///
 /// assert_eq!(lang_base("zh-Hant"), "zh");
-/// assert_eq!(lang_base("sh"), "sr");
 /// assert_eq!(lang_base("x-klingon"), "en");
 /// ```
 pub fn lang_base(lang: &str) -> String {
@@ -42,9 +41,6 @@ pub fn lang_base(lang: &str) -> String {
         return s.clone();
     }
     let base = language_base(lang).unwrap_or_else(|| {
-        if let Err(e) = Tag::parse(lang) {
-            error!(lang, error = %e, "While trying to parse lang");
-        }
         warn!(lang, "Unable to find lang. Reverting to English.");
         EN_BASE.to_string()
     });

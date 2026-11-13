@@ -9,72 +9,42 @@ use ultragraphdb_core_types::TextCollator;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_collator::Collator;
 
+/// A text that is no language tag has no collation, and the sort compares bytes; a well-formed tag has one, a
+/// language CLDR does not tailor collating by the root order.
 #[test]
-fn test_text_collator_refuses_what_go_refuses() -> TestResult {
-    // language.Parse refuses a malformed tag and a well-formed unknown one.
-    for lang in ["xx-invalid-tag-!", "xx", ""] {
+fn test_text_collator_refuses_what_is_no_tag() {
+    for lang in ["xx-invalid-tag-!", "", "en--US"] {
         assert!(TextCollator.language(lang).is_none(), "{lang:?}");
     }
-    // Go's collate.New(tag).CompareString of ("a", "B"), ("B", "a"), ("e", "é") and ("ä", "b") under each tag
-    // language.Parse accepts.
-    let cases = [
-        ("en_US", [-1, 1, -1, -1]),
-        ("und", [-1, 1, -1, -1]),
-        ("EN", [-1, 1, -1, -1]),
-        ("de", [-1, 1, -1, -1]),
-        ("zh-Hant-TW", [-1, 1, 1, -1]),
-        ("en-u-ka-shifted", [0, 0, 0, 0]),
-    ];
-    for (lang, want) in cases {
-        let c = TextCollator
-            .language(lang)
-            .ok_or_else(|| format!("{lang} is a tag Go accepts"))
-            .context("a tag Go accepts")?;
-        let got = [("a", "B"), ("B", "a"), ("e", "é"), ("ä", "b")]
-            .map(|(a, b)| TextCollator.compare(&c, a, b) as i8);
-        assert_eq!(got, want, "{lang}");
+    for lang in ["en-US", "und", "EN", "de", "zh-Hant-TW", "xx"] {
+        assert!(TextCollator.language(lang).is_some(), "{lang:?}");
     }
-    Ok(())
 }
 
+/// A language's collation orders its letters: German sorts `ö` with `o`, Swedish after `z`.
 #[test]
-fn test_text_collator_compares_as_compare_string() -> TestResult {
-    let de = TextCollator
-        .language("de")
-        .context("TextCollator.language(\"de\")")?;
+fn test_text_collator_compares_in_the_languages_order() -> TestResult {
+    let de = TextCollator.language("de").context("German")?;
     assert_eq!(
         TextCollator.compare(&de, "öffnen", "zumachen"),
         Ordering::Less
     );
-    let sv = TextCollator
-        .language("sv")
-        .context("TextCollator.language(\"sv\")")?;
+    let sv = TextCollator.language("sv").context("Swedish")?;
     assert_eq!(TextCollator.compare(&sv, "öppna", "zon"), Ordering::Greater);
-    // CompareString, not a comparison of keys: with -u-ka-shifted Go skips the primary level.
-    let shifted = TextCollator
-        .language("en-u-ka-shifted")
-        .context("TextCollator.language(\"en-u-ka-shifted\")")?;
-    assert_eq!(TextCollator.compare(&shifted, "a", "b"), Ordering::Equal);
-    // Strings that collate equal compare by their bytes under -u-ks-identic.
-    let identic = TextCollator
-        .language("en-u-ks-identic")
-        .context("TextCollator.language(\"en-u-ks-identic\")")?;
-    assert_eq!(
-        TextCollator.compare(&identic, "a\u{301}", "\u{e1}"),
-        "a\u{301}".cmp("\u{e1}")
-    );
+    let en = TextCollator.language("en").context("English")?;
+    assert_eq!(TextCollator.compare(&en, "a", "B"), Ordering::Less);
+    assert_eq!(TextCollator.compare(&en, "e", "é"), Ordering::Less);
     Ok(())
 }
 
+/// Bytes compare as their strings do, each invalid UTF-8 sequence as U+FFFD.
 #[test]
-fn test_text_collator_compares_bytes_as_go_compares_strings() -> TestResult {
-    let en = TextCollator
-        .language("en")
-        .context("TextCollator.language(\"en\")")?;
-    // An invalid byte weighs as U+FFFD's implicit weight, above U+FFFD's own.
+fn test_text_collator_compares_bytes_with_invalid_utf8_as_the_replacement_character() -> TestResult
+{
+    let en = TextCollator.language("en").context("English")?;
     assert_eq!(
         TextCollator.compare_bytes(&en, b"\xff", "\u{fffd}".as_bytes()),
-        Ordering::Greater
+        Ordering::Equal
     );
     assert_eq!(
         TextCollator.compare_bytes(&en, b"\xfe", b"\xff"),

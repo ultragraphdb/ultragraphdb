@@ -5,5 +5,3 @@
 
 #[cfg(test)]
 mod collator;
-#[cfg(test)]
-mod tag;

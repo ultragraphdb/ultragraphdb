@@ -110,8 +110,8 @@ identifier, and SHALL order strings of a language by that language's collation.
 - **THEN** the order is `-1`, `2.5`, `3`
 
 #### Scenario: Language strings sort by collation
-- **WHEN** the golden German strings are sorted with language `de`
-- **THEN** the order equals Dgraph's
+- **WHEN** the strings `zebra`, `ä`, `b` and `Apfel` are sorted with language `de`
+- **THEN** the order is `ä`, `Apfel`, `b`, `zebra`
 
 ### Requirement: Floats outside int64 are refused as ints and as datetimes
 Converting a float or a bigfloat to an int or to a datetime SHALL refuse every value outside int64, NaN and the

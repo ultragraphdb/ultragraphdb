@@ -9,7 +9,6 @@
 
 use std::cmp::Ordering;
 
-use ultragraphdb_core_text::Tag;
 use ultragraphdb_traits_collator::Collator;
 
 /// Dgraph's language collation: `collate.New(tag)` for a tag `language.Parse` accepts, compared with
@@ -21,9 +20,7 @@ impl Collator for TextCollator {
     type Language = ultragraphdb_core_text::Collator;
 
     fn language(&self, lang: &str) -> Option<Self::Language> {
-        Tag::parse(lang)
-            .ok()
-            .map(|tag| ultragraphdb_core_text::Collator::new(&tag))
+        ultragraphdb_core_text::Collator::for_language(lang)
     }
 
     fn compare_bytes(&self, language: &Self::Language, a: &[u8], b: &[u8]) -> Ordering {

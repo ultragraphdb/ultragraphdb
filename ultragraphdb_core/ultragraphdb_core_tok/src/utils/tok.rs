@@ -8,7 +8,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_core_text::{Collator, Tag};
+use ultragraphdb_core_text::Collator;
 use ultragraphdb_core_types::Value;
 
 use crate::errors::tok_error::TokError;
@@ -92,13 +92,15 @@ pub fn get_tokenizer_for_lang(t: &Tokenizer, lang: &str) -> Tokenizer {
         Kind::Term(_) => Tokenizer::new(Kind::Term(lang.to_string())),
         Kind::NGram(_) => Tokenizer::new(Kind::NGram(lang.to_string())),
         Kind::Exact(_) => {
-            // The constant tag en parses, so the default `und` is never taken; a debug build checks it.
-            let tag = Tag::parse(lang).or_else(|_| Tag::parse("en"));
-            debug_assert!(tag.is_ok(), "the constant tag en parses");
-            Tokenizer::new(Kind::Exact(Some(Box::new(ExactLang {
-                lang_base: lang_base(lang),
-                collator: Collator::new(&tag.unwrap_or_default()),
-            }))))
+            // English's collation stands in for a tag that does not parse; with no collation at all, the exact
+            // tokenizer keys by bytes, as it does without a language.
+            let collator = Collator::for_language(lang).or_else(|| Collator::for_language("en"));
+            Tokenizer::new(Kind::Exact(collator.map(|collator| {
+                Box::new(ExactLang {
+                    lang_base: lang_base(lang),
+                    collator,
+                })
+            })))
         }
         Kind::BigFloat
         | Kind::Geo

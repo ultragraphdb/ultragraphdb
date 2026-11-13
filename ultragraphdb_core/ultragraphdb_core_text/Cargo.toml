@@ -9,8 +9,7 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 readme.workspace = true
-# Contains a port of golang.org/x/text (BSD-3-Clause, see LICENSE-GO-TEXT) beside this repository's Apache-2.0 code.
-license = "Apache-2.0 AND BSD-3-Clause"
+license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish.workspace = true
@@ -20,13 +19,13 @@ autotests = false
 workspace = true
 
 [dependencies]
-ultragraphdb_common_utils = { workspace = true }
+# External crates
+icu_collator = { workspace = true }
+icu_locale_core = { workspace = true }
 
 
 [dev-dependencies]
 ultragraphdb_tool_bdd = { workspace = true }
-# External crates
-serde = { workspace = true }
 
 [[test]]
 name = "unit"

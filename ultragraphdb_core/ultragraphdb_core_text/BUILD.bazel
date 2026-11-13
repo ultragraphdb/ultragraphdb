@@ -40,7 +40,6 @@ rust_test(
         ["tests/**/*.rs"],
     ),
     crate_root = "tests/mod.rs",
-    data = glob(["testdata/**"]),
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
     deps = [":ultragraphdb_core_text"] + all_crate_deps(
