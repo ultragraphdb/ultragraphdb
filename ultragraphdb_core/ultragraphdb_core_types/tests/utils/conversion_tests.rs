@@ -7,9 +7,10 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_geo::{Geometry, Position};
 use ultragraphdb_core_types::{
-    CivilTime, DateTime, Geometry, Layout, TypeId, Val, Value, Zone, convert, float_array_as_bytes,
-    marshal, verify_password,
+    CivilTime, DateTime, TypeId, Val, Value, Zone, convert, float_array_as_bytes, marshal,
+    verify_password,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -1058,7 +1059,7 @@ fn test_marshal_json() -> TestResult {
     );
     let d = "1.5".parse::<Decimal>().ok().context("a decimal")?;
     assert_eq!(j(Val::new(TypeId::DECIMAL, Value::Decimal(d)))?, "1.5");
-    let p = Geometry::point(Layout::XY, &[1.0, 2.0])?;
+    let p = Geometry::point(Position::new(1.0, 2.0)?);
     assert_eq!(
         j(Val::new(TypeId::GEO, Value::Geo(p)))?,
         r#"{"type":"Point","coordinates":[1,2]}"#
@@ -1105,10 +1106,9 @@ fn test_marshal_json_nil() {
             TypeId::DATETIME,
             Err("interface conversion: interface {} is nil, not time.Time"),
         ),
-        // geom.T is an interface type, so Go's assertion names no static interface type.
         (
             TypeId::GEO,
-            Err("interface conversion: interface is nil, not geom.T"),
+            Err("interface conversion: interface {} is nil, not geometry"),
         ),
         (TypeId::UID, Err("invalid type for MarshalJSON: 7")),
         (
@@ -1140,20 +1140,11 @@ fn test_marshal_json_nil() {
 }
 
 /// One value of each Go type the port's `Value` stands for, as Go's `Val.Value` holds it: `[]uint8`, `string`,
-/// `int64`, `float64`, `bool`, `time.Time`, a pointer to each of go-geom's geometry types, `uint64`, `decimal` and
+/// `int64`, `float64`, `bool`, `time.Time`, a geometry of each type, `uint64`, `decimal` and
 /// `[]float32`.
 fn marshal_json_values() -> TestResult<Vec<(&'static str, Value)>> {
     use oxsdatatypes::Decimal;
-    let ring = || {
-        vec![
-            vec![0.0, 0.0],
-            vec![1.0, 0.0],
-            vec![0.0, 1.0],
-            vec![0.0, 0.0],
-        ]
-    };
-    let line = || vec![vec![1.0, 2.0], vec![3.0, 4.0]];
-    let point = Geometry::point(Layout::XY, &[1.0, 2.0])?;
+    let geo = |text: &str| Geometry::from_geojson(text).map(Value::Geo);
     Ok(vec![
         ("Bytes", Value::Bytes(b"ab".to_vec())),
         ("Str", Value::str("a")),
@@ -1164,30 +1155,32 @@ fn marshal_json_values() -> TestResult<Vec<(&'static str, Value)>> {
             "DateTime",
             Value::DateTime(DateTime::utc(2006, 1, 2, 15, 4, 5, 0)),
         ),
-        ("Point", Value::Geo(point.clone())),
+        ("Point", geo(r#"{"type":"Point","coordinates":[1,2]}"#)?),
         (
             "LineString",
-            Value::Geo(Geometry::line_string(Layout::XY, &line())?),
+            geo(r#"{"type":"LineString","coordinates":[[1,2],[3,4]]}"#)?,
         ),
         (
             "Polygon",
-            Value::Geo(Geometry::polygon(Layout::XY, &[ring()])?),
+            geo(r#"{"type":"Polygon","coordinates":[[[0,0],[1,0],[0,1],[0,0]]]}"#)?,
         ),
         (
             "MultiPoint",
-            Value::Geo(Geometry::multi_point(Layout::XY, &[Some(vec![1.0, 2.0])])?),
+            geo(r#"{"type":"MultiPoint","coordinates":[[1,2]]}"#)?,
         ),
         (
             "MultiLineString",
-            Value::Geo(Geometry::multi_line_string(Layout::XY, &[line()])?),
+            geo(r#"{"type":"MultiLineString","coordinates":[[[1,2],[3,4]]]}"#)?,
         ),
         (
             "MultiPolygon",
-            Value::Geo(Geometry::multi_polygon(Layout::XY, &[vec![ring()]])?),
+            geo(r#"{"type":"MultiPolygon","coordinates":[[[[0,0],[1,0],[0,1],[0,0]]]]}"#)?,
         ),
         (
             "GeometryCollection",
-            Value::Geo(Geometry::collection(vec![point])),
+            geo(
+                r#"{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[1,2]}]}"#,
+            )?,
         ),
         ("Uid", Value::Uid(7)),
         (
@@ -1250,13 +1243,13 @@ fn mismatched_default_binary() -> Vec<MismatchCase> {
                 Err("interface conversion: interface {} is float64, not string"),
                 Err("interface conversion: interface {} is bool, not string"),
                 Err("interface conversion: interface {} is time.Time, not string"),
-                Err("interface conversion: interface {} is *geom.Point, not string"),
-                Err("interface conversion: interface {} is *geom.LineString, not string"),
-                Err("interface conversion: interface {} is *geom.Polygon, not string"),
-                Err("interface conversion: interface {} is *geom.MultiPoint, not string"),
-                Err("interface conversion: interface {} is *geom.MultiLineString, not string"),
-                Err("interface conversion: interface {} is *geom.MultiPolygon, not string"),
-                Err("interface conversion: interface {} is *geom.GeometryCollection, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
                 Err("interface conversion: interface {} is uint64, not string"),
                 Err("interface conversion: interface {} is decimal, not string"),
                 Err("interface conversion: interface {} is []float32, not string"),
@@ -1297,13 +1290,13 @@ fn mismatched_int_float() -> Vec<MismatchCase> {
                 Err("interface conversion: interface {} is float64, not int64"),
                 Err("interface conversion: interface {} is bool, not int64"),
                 Err("interface conversion: interface {} is time.Time, not int64"),
-                Err("interface conversion: interface {} is *geom.Point, not int64"),
-                Err("interface conversion: interface {} is *geom.LineString, not int64"),
-                Err("interface conversion: interface {} is *geom.Polygon, not int64"),
-                Err("interface conversion: interface {} is *geom.MultiPoint, not int64"),
-                Err("interface conversion: interface {} is *geom.MultiLineString, not int64"),
-                Err("interface conversion: interface {} is *geom.MultiPolygon, not int64"),
-                Err("interface conversion: interface {} is *geom.GeometryCollection, not int64"),
+                Err("interface conversion: interface {} is geometry, not int64"),
+                Err("interface conversion: interface {} is geometry, not int64"),
+                Err("interface conversion: interface {} is geometry, not int64"),
+                Err("interface conversion: interface {} is geometry, not int64"),
+                Err("interface conversion: interface {} is geometry, not int64"),
+                Err("interface conversion: interface {} is geometry, not int64"),
+                Err("interface conversion: interface {} is geometry, not int64"),
                 Err("interface conversion: interface {} is uint64, not int64"),
                 Err("interface conversion: interface {} is decimal, not int64"),
                 Err("interface conversion: interface {} is []float32, not int64"),
@@ -1318,13 +1311,13 @@ fn mismatched_int_float() -> Vec<MismatchCase> {
                 Ok("1.5"),
                 Err("interface conversion: interface {} is bool, not float64"),
                 Err("interface conversion: interface {} is time.Time, not float64"),
-                Err("interface conversion: interface {} is *geom.Point, not float64"),
-                Err("interface conversion: interface {} is *geom.LineString, not float64"),
-                Err("interface conversion: interface {} is *geom.Polygon, not float64"),
-                Err("interface conversion: interface {} is *geom.MultiPoint, not float64"),
-                Err("interface conversion: interface {} is *geom.MultiLineString, not float64"),
-                Err("interface conversion: interface {} is *geom.MultiPolygon, not float64"),
-                Err("interface conversion: interface {} is *geom.GeometryCollection, not float64"),
+                Err("interface conversion: interface {} is geometry, not float64"),
+                Err("interface conversion: interface {} is geometry, not float64"),
+                Err("interface conversion: interface {} is geometry, not float64"),
+                Err("interface conversion: interface {} is geometry, not float64"),
+                Err("interface conversion: interface {} is geometry, not float64"),
+                Err("interface conversion: interface {} is geometry, not float64"),
+                Err("interface conversion: interface {} is geometry, not float64"),
                 Err("interface conversion: interface {} is uint64, not float64"),
                 Err("interface conversion: interface {} is decimal, not float64"),
                 Err("interface conversion: interface {} is []float32, not float64"),
@@ -1344,13 +1337,13 @@ fn mismatched_bool_datetime() -> Vec<MismatchCase> {
                 Err("interface conversion: interface {} is float64, not bool"),
                 Ok("true"),
                 Err("interface conversion: interface {} is time.Time, not bool"),
-                Err("interface conversion: interface {} is *geom.Point, not bool"),
-                Err("interface conversion: interface {} is *geom.LineString, not bool"),
-                Err("interface conversion: interface {} is *geom.Polygon, not bool"),
-                Err("interface conversion: interface {} is *geom.MultiPoint, not bool"),
-                Err("interface conversion: interface {} is *geom.MultiLineString, not bool"),
-                Err("interface conversion: interface {} is *geom.MultiPolygon, not bool"),
-                Err("interface conversion: interface {} is *geom.GeometryCollection, not bool"),
+                Err("interface conversion: interface {} is geometry, not bool"),
+                Err("interface conversion: interface {} is geometry, not bool"),
+                Err("interface conversion: interface {} is geometry, not bool"),
+                Err("interface conversion: interface {} is geometry, not bool"),
+                Err("interface conversion: interface {} is geometry, not bool"),
+                Err("interface conversion: interface {} is geometry, not bool"),
+                Err("interface conversion: interface {} is geometry, not bool"),
                 Err("interface conversion: interface {} is uint64, not bool"),
                 Err("interface conversion: interface {} is decimal, not bool"),
                 Err("interface conversion: interface {} is []float32, not bool"),
@@ -1365,15 +1358,13 @@ fn mismatched_bool_datetime() -> Vec<MismatchCase> {
                 Err("interface conversion: interface {} is float64, not time.Time"),
                 Err("interface conversion: interface {} is bool, not time.Time"),
                 Ok(r#""2006-01-02T15:04:05Z""#),
-                Err("interface conversion: interface {} is *geom.Point, not time.Time"),
-                Err("interface conversion: interface {} is *geom.LineString, not time.Time"),
-                Err("interface conversion: interface {} is *geom.Polygon, not time.Time"),
-                Err("interface conversion: interface {} is *geom.MultiPoint, not time.Time"),
-                Err("interface conversion: interface {} is *geom.MultiLineString, not time.Time"),
-                Err("interface conversion: interface {} is *geom.MultiPolygon, not time.Time"),
-                Err(
-                    "interface conversion: interface {} is *geom.GeometryCollection, not time.Time",
-                ),
+                Err("interface conversion: interface {} is geometry, not time.Time"),
+                Err("interface conversion: interface {} is geometry, not time.Time"),
+                Err("interface conversion: interface {} is geometry, not time.Time"),
+                Err("interface conversion: interface {} is geometry, not time.Time"),
+                Err("interface conversion: interface {} is geometry, not time.Time"),
+                Err("interface conversion: interface {} is geometry, not time.Time"),
+                Err("interface conversion: interface {} is geometry, not time.Time"),
                 Err("interface conversion: interface {} is uint64, not time.Time"),
                 Err("interface conversion: interface {} is decimal, not time.Time"),
                 Err("interface conversion: interface {} is []float32, not time.Time"),
@@ -1387,12 +1378,12 @@ fn mismatched_geo_uid() -> Vec<MismatchCase> {
         (
             TypeId::GEO,
             [
-                Err("interface conversion: []uint8 is not geom.T: missing method Bounds"),
-                Err("interface conversion: string is not geom.T: missing method Bounds"),
-                Err("interface conversion: int64 is not geom.T: missing method Bounds"),
-                Err("interface conversion: float64 is not geom.T: missing method Bounds"),
-                Err("interface conversion: bool is not geom.T: missing method Bounds"),
-                Err("interface conversion: time.Time is not geom.T: missing method Bounds"),
+                Err("interface conversion: interface {} is []uint8, not geometry"),
+                Err("interface conversion: interface {} is string, not geometry"),
+                Err("interface conversion: interface {} is int64, not geometry"),
+                Err("interface conversion: interface {} is float64, not geometry"),
+                Err("interface conversion: interface {} is bool, not geometry"),
+                Err("interface conversion: interface {} is time.Time, not geometry"),
                 Ok(r#"{"type":"Point","coordinates":[1,2]}"#),
                 Ok(r#"{"type":"LineString","coordinates":[[1,2],[3,4]]}"#),
                 Ok(r#"{"type":"Polygon","coordinates":[[[0,0],[1,0],[0,1],[0,0]]]}"#),
@@ -1402,9 +1393,9 @@ fn mismatched_geo_uid() -> Vec<MismatchCase> {
                 Ok(
                     r#"{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[1,2]}]}"#,
                 ),
-                Err("interface conversion: uint64 is not geom.T: missing method Bounds"),
-                Err("interface conversion: decimal is not geom.T: missing method Bounds"),
-                Err("interface conversion: []float32 is not geom.T: missing method Bounds"),
+                Err("interface conversion: interface {} is uint64, not geometry"),
+                Err("interface conversion: interface {} is decimal, not geometry"),
+                Err("interface conversion: interface {} is []float32, not geometry"),
             ],
         ),
         (
@@ -1442,13 +1433,13 @@ fn mismatched_password_string() -> Vec<MismatchCase> {
                 Err("interface conversion: interface {} is float64, not string"),
                 Err("interface conversion: interface {} is bool, not string"),
                 Err("interface conversion: interface {} is time.Time, not string"),
-                Err("interface conversion: interface {} is *geom.Point, not string"),
-                Err("interface conversion: interface {} is *geom.LineString, not string"),
-                Err("interface conversion: interface {} is *geom.Polygon, not string"),
-                Err("interface conversion: interface {} is *geom.MultiPoint, not string"),
-                Err("interface conversion: interface {} is *geom.MultiLineString, not string"),
-                Err("interface conversion: interface {} is *geom.MultiPolygon, not string"),
-                Err("interface conversion: interface {} is *geom.GeometryCollection, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
                 Err("interface conversion: interface {} is uint64, not string"),
                 Err("interface conversion: interface {} is decimal, not string"),
                 Err("interface conversion: interface {} is []float32, not string"),
@@ -1463,13 +1454,13 @@ fn mismatched_password_string() -> Vec<MismatchCase> {
                 Err("interface conversion: interface {} is float64, not string"),
                 Err("interface conversion: interface {} is bool, not string"),
                 Err("interface conversion: interface {} is time.Time, not string"),
-                Err("interface conversion: interface {} is *geom.Point, not string"),
-                Err("interface conversion: interface {} is *geom.LineString, not string"),
-                Err("interface conversion: interface {} is *geom.Polygon, not string"),
-                Err("interface conversion: interface {} is *geom.MultiPoint, not string"),
-                Err("interface conversion: interface {} is *geom.MultiLineString, not string"),
-                Err("interface conversion: interface {} is *geom.MultiPolygon, not string"),
-                Err("interface conversion: interface {} is *geom.GeometryCollection, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
+                Err("interface conversion: interface {} is geometry, not string"),
                 Err("interface conversion: interface {} is uint64, not string"),
                 Err("interface conversion: interface {} is decimal, not string"),
                 Err("interface conversion: interface {} is []float32, not string"),
@@ -1510,13 +1501,13 @@ fn mismatched_object_decimal() -> Vec<MismatchCase> {
                 Err("interface conversion: interface {} is float64, not decimal"),
                 Err("interface conversion: interface {} is bool, not decimal"),
                 Err("interface conversion: interface {} is time.Time, not decimal"),
-                Err("interface conversion: interface {} is *geom.Point, not decimal"),
-                Err("interface conversion: interface {} is *geom.LineString, not decimal"),
-                Err("interface conversion: interface {} is *geom.Polygon, not decimal"),
-                Err("interface conversion: interface {} is *geom.MultiPoint, not decimal"),
-                Err("interface conversion: interface {} is *geom.MultiLineString, not decimal"),
-                Err("interface conversion: interface {} is *geom.MultiPolygon, not decimal"),
-                Err("interface conversion: interface {} is *geom.GeometryCollection, not decimal"),
+                Err("interface conversion: interface {} is geometry, not decimal"),
+                Err("interface conversion: interface {} is geometry, not decimal"),
+                Err("interface conversion: interface {} is geometry, not decimal"),
+                Err("interface conversion: interface {} is geometry, not decimal"),
+                Err("interface conversion: interface {} is geometry, not decimal"),
+                Err("interface conversion: interface {} is geometry, not decimal"),
+                Err("interface conversion: interface {} is geometry, not decimal"),
                 Err("interface conversion: interface {} is uint64, not decimal"),
                 Ok("1.5"),
                 Err("interface conversion: interface {} is []float32, not decimal"),
@@ -1570,262 +1561,6 @@ fn mismatched_vfloat_unknown() -> Vec<MismatchCase> {
             ],
         ),
     ]
-}
-
-/// Go v25.5.0's `Val.MarshalJSON` of a geometry with a non-finite coordinate, as Go 1.27 answers it through
-/// go-geom's `geojson.Marshal`: the error names the first non-finite coordinate in output order, members of
-/// collections in order and nested collections depth first.
-#[test]
-fn test_marshal_json_geo_non_finite() -> TestResult {
-    use ultragraphdb_core_types::marshal_json;
-    let cases: Vec<GeoCase> = [
-        non_finite_points_lines_and_polygons()?,
-        non_finite_multis()?,
-        non_finite_multipolygons_collections_and_measures()?,
-        non_finite_wider_layouts_and_nesting()?,
-    ]
-    .concat();
-    let failures: Vec<String> = cases
-        .into_iter()
-        .filter_map(|(name, g, what)| {
-            let got =
-                marshal_json(&Val::new(TypeId::GEO, Value::Geo(g))).map_err(|e| e.to_string());
-            let want = Err(format!("json: unsupported value: {what}"));
-            (got != want).then(|| format!("{name}: got {got:?}, Go {want:?}"))
-        })
-        .collect();
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-    Ok(())
-}
-
-/// A case's name, a geometry with a non-finite coordinate, and the coordinate Go's error names.
-type GeoCase = (&'static str, Geometry, &'static str);
-
-const INF: f64 = f64::INFINITY;
-const NINF: f64 = f64::NEG_INFINITY;
-const NAN: f64 = f64::NAN;
-
-fn pt(x: f64, y: f64) -> TestResult<Geometry> {
-    Ok(Geometry::point(Layout::XY, &[x, y])?)
-}
-
-fn line(c: &[[f64; 2]]) -> Vec<Vec<f64>> {
-    c.iter().map(|c| c.to_vec()).collect()
-}
-
-fn non_finite_points_lines_and_polygons() -> TestResult<Vec<GeoCase>> {
-    Ok(vec![
-        ("point +Inf first", pt(INF, 1.0)?, "+Inf"),
-        ("point -Inf second", pt(1.0, NINF)?, "-Inf"),
-        ("point NaN second", pt(1.0, NAN)?, "NaN"),
-        ("point NaN then +Inf", pt(NAN, INF)?, "NaN"),
-        ("point -Inf then NaN", pt(NINF, NAN)?, "-Inf"),
-        (
-            "point xyz +Inf third",
-            Geometry::point(Layout::XYZ, &[1.0, 2.0, INF])?,
-            "+Inf",
-        ),
-        (
-            "linestring +Inf in second coord",
-            Geometry::line_string(Layout::XY, &line(&[[1.0, 2.0], [3.0, INF]]))?,
-            "+Inf",
-        ),
-        (
-            "linestring -Inf first then NaN",
-            Geometry::line_string(Layout::XY, &line(&[[NINF, 2.0], [NAN, 3.0]]))?,
-            "-Inf",
-        ),
-        (
-            "linestring NaN first",
-            Geometry::line_string(Layout::XY, &line(&[[NAN, 2.0], [INF, 3.0]]))?,
-            "NaN",
-        ),
-        (
-            "polygon NaN then +Inf",
-            Geometry::polygon(
-                Layout::XY,
-                &[line(&[[0.0, 0.0], [1.0, NAN], [INF, 0.0], [0.0, 0.0]])],
-            )?,
-            "NaN",
-        ),
-        (
-            "polygon second ring -Inf",
-            Geometry::polygon(
-                Layout::XY,
-                &[
-                    line(&[[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.0, 0.0]]),
-                    line(&[[0.0, 0.0], [NINF, 0.0], [0.0, NAN], [0.0, 0.0]]),
-                ],
-            )?,
-            "-Inf",
-        ),
-        (
-            "polygon +Inf first",
-            Geometry::polygon(Layout::XY, &[line(&[[INF, 0.0], [NINF, 0.0], [0.0, 0.0]])])?,
-            "+Inf",
-        ),
-    ])
-}
-
-fn non_finite_multis() -> TestResult<Vec<GeoCase>> {
-    Ok(vec![
-        (
-            "multipoint NaN after empty",
-            Geometry::multi_point(
-                Layout::XY,
-                &[
-                    Some(vec![1.0, 2.0]),
-                    None,
-                    Some(vec![NAN, 1.0]),
-                    Some(vec![INF, 1.0]),
-                ],
-            )?,
-            "NaN",
-        ),
-        (
-            "multipoint -Inf first",
-            Geometry::multi_point(Layout::XY, &[Some(vec![NINF, 2.0]), Some(vec![NAN, 1.0])])?,
-            "-Inf",
-        ),
-        (
-            "multilinestring -Inf in second line",
-            Geometry::multi_line_string(
-                Layout::XY,
-                &[line(&[[1.0, 2.0]]), line(&[[3.0, NINF], [NAN, 0.0]])],
-            )?,
-            "-Inf",
-        ),
-        (
-            "multilinestring +Inf first",
-            Geometry::multi_line_string(Layout::XY, &[line(&[[INF, 2.0]]), line(&[[3.0, NINF]])])?,
-            "+Inf",
-        ),
-        (
-            "multipolygon +Inf in second polygon",
-            Geometry::multi_polygon(
-                Layout::XY,
-                &[
-                    vec![line(&[[0.0, 0.0], [1.0, 0.0], [0.0, 0.0]])],
-                    vec![line(&[[0.0, 0.0], [INF, NAN], [0.0, 0.0]])],
-                ],
-            )?,
-            "+Inf",
-        ),
-    ])
-}
-
-fn non_finite_multipolygons_collections_and_measures() -> TestResult<Vec<GeoCase>> {
-    Ok(vec![
-        (
-            "multipolygon NaN first",
-            Geometry::multi_polygon(
-                Layout::XY,
-                &[
-                    vec![line(&[[NAN, 0.0], [1.0, 0.0], [0.0, 0.0]])],
-                    vec![line(&[[0.0, 0.0], [INF, 0.0], [0.0, 0.0]])],
-                ],
-            )?,
-            "NaN",
-        ),
-        (
-            "multipolygon -Inf after empty polygon",
-            Geometry::multi_polygon(
-                Layout::XY,
-                &[vec![], vec![line(&[[0.0, 0.0], [0.0, NINF], [0.0, 0.0]])]],
-            )?,
-            "-Inf",
-        ),
-        (
-            "collection -Inf in second member",
-            Geometry::collection(vec![
-                pt(1.0, 2.0)?,
-                Geometry::line_string(Layout::XY, &line(&[[1.0, 2.0], [NINF, 0.0]]))?,
-                pt(NAN, 0.0)?,
-            ]),
-            "-Inf",
-        ),
-        (
-            "collection nested NaN before +Inf",
-            Geometry::collection(vec![
-                Geometry::collection(vec![pt(1.0, 1.0)?]),
-                Geometry::collection(vec![pt(NAN, 0.0)?]),
-                pt(INF, 0.0)?,
-            ]),
-            "NaN",
-        ),
-        (
-            "collection +Inf first member",
-            Geometry::collection(vec![pt(INF, 0.0)?, pt(NAN, 0.0)?]),
-            "+Inf",
-        ),
-        (
-            "point xym NaN m",
-            Geometry::point(Layout::XYM, &[1.0, 2.0, NAN])?,
-            "NaN",
-        ),
-        (
-            "point xyzm -Inf m",
-            Geometry::point(Layout::XYZM, &[1.0, 2.0, 3.0, NINF])?,
-            "-Inf",
-        ),
-    ])
-}
-
-fn non_finite_wider_layouts_and_nesting() -> TestResult<Vec<GeoCase>> {
-    Ok(vec![
-        (
-            "linestring xyzm NaN z before +Inf m",
-            Geometry::line_string(
-                Layout::XYZM,
-                &[vec![1.0, 2.0, 3.0, 4.0], vec![5.0, 6.0, NAN, INF]],
-            )?,
-            "NaN",
-        ),
-        (
-            "multipoint xyz NaN z in second point",
-            Geometry::multi_point(
-                Layout::XYZ,
-                &[Some(vec![1.0, 2.0, 3.0]), Some(vec![4.0, 5.0, NAN])],
-            )?,
-            "NaN",
-        ),
-        (
-            "multilinestring +Inf in third line",
-            Geometry::multi_line_string(
-                Layout::XY,
-                &[
-                    line(&[[1.0, 2.0], [3.0, 4.0]]),
-                    line(&[[5.0, 6.0]]),
-                    line(&[[7.0, 8.0], [9.0, INF]]),
-                ],
-            )?,
-            "+Inf",
-        ),
-        (
-            "collection thrice nested -Inf in second ring before +Inf",
-            Geometry::collection(vec![
-                Geometry::collection(vec![Geometry::collection(vec![Geometry::multi_polygon(
-                    Layout::XY,
-                    &[vec![
-                        line(&[[0.0, 0.0], [1.0, 0.0], [0.0, 0.0]]),
-                        line(&[[0.0, 0.0], [0.0, NINF], [NAN, 0.0]]),
-                    ]],
-                )?])]),
-                pt(INF, 0.0)?,
-            ]),
-            "-Inf",
-        ),
-        (
-            "collection +Inf after empty members",
-            Geometry::collection(vec![
-                Geometry::collection(vec![]),
-                Geometry::point_empty(Layout::XY),
-                Geometry::multi_point(Layout::XY, &[])?,
-                pt(1.0, INF)?,
-            ]),
-            "+Inf",
-        ),
-    ])
 }
 
 /// Go v25.5.0's `ParseVFloat` on inputs at its edges: any run of closing brackets, blank lists, separators that
@@ -2029,23 +1764,40 @@ fn bool_decimal_and_refused_texts() -> TestResult<Vec<TextCase>> {
     ])
 }
 
+/// A text that is no GeoJSON geometry is refused as geo, naming the text.
 #[test]
-fn test_convert_null_geojson_to_geo_is_nil() -> TestResult {
-    let got = conv(TypeId::STRING, b"null".to_vec(), TypeId::GEO).context("null as geo")?;
-    assert_eq!(got, Val::nil(TypeId::GEO));
-    Ok(())
+fn test_convert_text_that_is_no_geometry_is_refused() {
+    for text in ["null", "{}", "{'type':'Point','coordinates':[181,0]}"] {
+        let got = conv(TypeId::STRING, text.as_bytes().to_vec(), TypeId::GEO);
+        assert!(
+            got.as_ref().is_err_and(
+                |e| e.starts_with(&format!("Error while unmarshalling: [{text}] as geojson: "))
+            ),
+            "{got:?}"
+        );
+    }
 }
 
+/// A geometry converts to its well-known binary and to GeoJSON in single quotes, and back from both.
 #[test]
-fn test_convert_geo_without_geojson_to_string_is_nil() -> TestResult {
-    let g = Geometry::point(Layout::XY, &[f64::NAN, 0.0])?;
+fn test_convert_geo_round_trips() -> TestResult {
+    let geometry = Geometry::point(Position::new(8.63, 50.12)?);
+    let text = "{'type':'Point','coordinates':[8.63,50.12]}";
+    let read =
+        conv(TypeId::STRING, text.as_bytes().to_vec(), TypeId::GEO).context("text as geo")?;
+    assert_eq!(read, Val::new(TypeId::GEO, Value::Geo(geometry.clone())));
+    let written =
+        conv(TypeId::GEO, geometry.to_wkb(), TypeId::STRING).context("geo as a string")?;
+    assert_eq!(written, Val::new(TypeId::STRING, Value::str(text)));
+    let binary = conv(TypeId::GEO, geometry.to_wkb(), TypeId::BINARY).context("geo as binary")?;
     assert_eq!(
-        g.to_geojson(),
-        None,
-        "a non-finite coordinate has no GeoJSON"
+        binary,
+        Val::new(TypeId::BINARY, Value::Bytes(geometry.to_wkb()))
     );
-    let got = conv(TypeId::GEO, g.marshal_wkb()?, TypeId::STRING).context("geo as a string")?;
-    assert_eq!(got, Val::nil(TypeId::STRING));
+    assert_eq!(
+        marshal(&read, TypeId::BINARY).map_err(|e| e.to_string()),
+        Ok(binary)
+    );
     Ok(())
 }
 

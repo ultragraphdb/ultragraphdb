@@ -385,7 +385,9 @@ impl VectorIndex<f32> for Layered {
         draw: &mut impl FnMut() -> f64,
     ) -> Result<Vec<KeyValue>, Self::Error> {
         // The level of an HNSW node, floor(-ln(u) * ml), with ml = 1 / ln(2).
-        let level = (-draw().ln() / std::f64::consts::LN_2).floor() as u8;
+        // A draw in (0, 1] gives a level of zero or above; one past a byte takes the highest.
+        let level =
+            u8::try_from((-draw().ln() / std::f64::consts::LN_2).floor() as i64).unwrap_or(u8::MAX);
         let kv = KeyValue::new(uuid, "level", vec![level]);
         txn.add_mutation(&uuid.to_be_bytes(), &kv)?;
         Ok(vec![kv])

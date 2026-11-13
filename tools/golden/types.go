@@ -6,9 +6,6 @@ package main
 // Golden vectors for ultragraphdb_core_types: Dgraph's scalar values (types/conversion.go, value.go,
 // scalar_types.go, password.go, sort.go). Every value goes through the fork's own functions: Convert from the
 // binary or text form of a type to every other type, then Marshal of the result to binary and to string.
-//
-// The types vectors are generated with GOFLAGS=-gcflags=all=-d=fmahash=n like the S2 ones (types_s2.go); they come
-// out the same without it.
 
 import (
 	"encoding/binary"

@@ -3466,6 +3466,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_core_cell"
+version = "0.1.0"
+dependencies = [
+ "ultragraphdb_tool_bdd",
+]
+
+[[package]]
 name = "ultragraphdb_core_codec"
 version = "0.1.0"
 dependencies = [
@@ -3476,6 +3483,14 @@ dependencies = [
  "ultragraphdb_error_store",
  "ultragraphdb_tool_bdd",
  "xxhash-rust",
+]
+
+[[package]]
+name = "ultragraphdb_core_geo"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -3548,6 +3563,8 @@ dependencies = [
  "serde",
  "sha2",
  "tracing",
+ "ultragraphdb_core_cell",
+ "ultragraphdb_core_geo",
  "ultragraphdb_core_text",
  "ultragraphdb_core_types",
  "ultragraphdb_error_options",
@@ -3563,11 +3580,11 @@ version = "0.1.0"
 dependencies = [
  "bcrypt",
  "cucumber",
- "dashu-int",
  "futures",
  "oxsdatatypes",
  "serde",
  "serde_json",
+ "ultragraphdb_core_geo",
  "ultragraphdb_core_text",
  "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_collator",

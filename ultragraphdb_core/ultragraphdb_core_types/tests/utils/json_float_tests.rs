@@ -3,12 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The JSON layout of a double, reached through `marshal_json` of a float and of a geometry's coordinates: the
+//! The JSON layout of a double, reached through `marshal_json` of a float: the
 //! shortest digits that read back to it, in full from 1e-6 to below 1e21 and in exponent form outside. Each float's
 //! bits are given beside its text where the literal alone is ambiguous.
 
-use ultragraphdb_core_types::{Geometry, Layout, TypeId, Val, Value, marshal_json};
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_core_types::{TypeId, Val, Value, marshal_json};
 
 fn json(f: f64) -> Result<String, String> {
     marshal_json(&Val::new(TypeId::FLOAT, Value::Float(f)))
@@ -73,14 +72,4 @@ fn a_non_finite_float_is_refused_by_name() {
     ] {
         assert_eq!(json(f), Err(want.to_string()), "{f}");
     }
-}
-
-#[test]
-fn a_geometrys_coordinates_take_the_same_layout() -> TestResult {
-    let p = Geometry::point(Layout::XY, &[-0.0, 9.999999999999999e20])?;
-    assert_eq!(
-        String::from_utf8(marshal_json(&Val::new(TypeId::GEO, Value::Geo(p)))?)?,
-        r#"{"type":"Point","coordinates":[-0,999999999999999900000]}"#
-    );
-    Ok(())
 }

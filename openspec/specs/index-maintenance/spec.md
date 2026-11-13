@@ -123,6 +123,12 @@ datatype unindexed, which is still held:
   `<a> <where> "{\"type\": \"Point\", \"coordinates\": [8.63, 50.12]}"^^geo:geoJSONLiteral` is written
 - **THEN** the value-index keys of `where` for the point's S2 cell tokens hold `a`
 
+#### Scenario: A geometry other than a point is held unindexed
+- **WHEN** `where` is declared with a `geo` index and
+  `<a> <where> "{\"type\": \"LineString\", \"coordinates\": [[8.63, 50.12], [8.64, 50.13]]}"^^geo:geoJSONLiteral`
+  is written
+- **THEN** `a` holds the line, and no value-index key of `where` holds `a`
+
 ### Requirement: Writes read only what they need
 Inserting a statement SHALL read the subject's forward list of its predicate, so that a statement already held is
 neither counted again in the statistics nor written over its statement IDs, and SHALL write its reverse,

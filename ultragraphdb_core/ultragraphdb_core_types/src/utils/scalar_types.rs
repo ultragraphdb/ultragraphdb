@@ -16,15 +16,14 @@ use crate::types::date_time::DateTime;
 use crate::types::date_time::date_time_parse::{
     LAYOUT_DATE_TIME, LAYOUT_RFC3339, LAYOUT_Y, LAYOUT_YM, LAYOUT_YMD, LAYOUT_YMD_ZONE, parse,
 };
-use crate::types::geometry::Geometry;
 use crate::types::type_id::TypeId;
 use crate::types::val::Val;
 use crate::types::value::Value;
 
 /// Dgraph's `ValueForType`: the zero value of a type; a type without one gives a nil value of `DefaultID`.
 ///
-/// Go returns pointers to the zero values; this port returns the values. A geo value's zero is Go's nil `geom.T`,
-/// which this port represents as an empty geometry collection.
+/// Go returns pointers to the zero values; this port returns the values. A geo value's zero is the empty geometry
+/// collection.
 pub fn value_for_type(id: TypeId) -> Val {
     let v = match id {
         TypeId::BINARY => Value::Bytes(Vec::new()),
@@ -34,7 +33,7 @@ pub fn value_for_type(id: TypeId) -> Val {
         TypeId::DATETIME => Value::DateTime(DateTime::zero()),
         TypeId::DECIMAL => Value::Decimal(oxsdatatypes::Decimal::from(0_i64)),
         TypeId::STRING | TypeId::DEFAULT | TypeId::PASSWORD => Value::Str(String::new()),
-        TypeId::GEO => Value::Geo(Geometry::collection(Vec::new())),
+        TypeId::GEO => Value::Geo(ultragraphdb_core_geo::Geometry::empty()),
         TypeId::UID => Value::Uid(0),
         TypeId::VFLOAT => Value::VFloat(Vec::new()),
         _ => return Val::nil(TypeId::DEFAULT),

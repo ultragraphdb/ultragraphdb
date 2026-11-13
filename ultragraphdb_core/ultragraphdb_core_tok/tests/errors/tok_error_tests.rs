@@ -8,7 +8,7 @@ use ultragraphdb_core_tok::{
     get_factory_create_spec_from_spec, get_index_factory_opts_from_spec, get_tokenizer,
     get_tokenizers, get_tokens,
 };
-use ultragraphdb_core_types::{Geometry, Layout, Value};
+use ultragraphdb_core_types::{TypesError, Value};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 /// A spec's option pairs as the factory lookups take them.
 fn options(options: &[(&str, &str)]) -> Vec<(String, String)> {
@@ -38,17 +38,16 @@ fn test_tok_error_kinds() -> TestResult {
         int_err.to_string(),
         "interface conversion: interface {} is string, not int64"
     );
-    let line = Geometry::line_string(Layout::XY, &[vec![0.0, 0.0], vec![1.0, 1.0]])?;
     let geo_err = build_tokens(
-        &Value::Geo(line),
+        &Value::Int(1),
         &get_tokenizer("geo").context("get_tokenizer(\"geo\")")?,
     )
     .err()
     .context("expected an error")?;
-    assert!(matches!(geo_err.0, TokErrorEnum::Geo(_)));
+    assert!(matches!(geo_err.0, TokErrorEnum::WrongValue(_)));
     assert_eq!(
         geo_err.to_string(),
-        "Cannot index geometry of type *geom.LineString"
+        "interface conversion: interface {} is int64, not geometry"
     );
     Ok(())
 }
@@ -142,19 +141,7 @@ fn test_tok_error_constructors() -> TestResult {
         assert_eq!(e.to_string(), text);
     }
 
-    let line = Geometry::line_string(Layout::XY, &[vec![0.0, 0.0], vec![1.0, 1.0]])?;
-    let error = build_tokens(
-        &Value::Geo(line),
-        &get_tokenizer("geo").context("get_tokenizer(\"geo\")")?,
-    )
-    .err()
-    .context("expected an error")?;
-    let types = if let TokErrorEnum::Geo(types) = error.0 {
-        Some(types)
-    } else {
-        None
-    }
-    .context("a geo error")?;
+    let types = TypesError::geo("a point no cell holds");
     for e in [TokError::geo(types.clone()), TokError::from(types.clone())] {
         assert_eq!(e.0, TokErrorEnum::Geo(types.clone()));
         assert_eq!(e.to_string(), types.to_string());

@@ -37,10 +37,6 @@ pub enum TypesErrorEnum {
 }
 
 impl TypesError {
-    pub(crate) fn new(kind: TypesErrorEnum) -> Self {
-        Self(kind)
-    }
-
     /// The message, as `Display` writes it.
     pub fn message(&self) -> &str {
         match &self.0 {
@@ -52,20 +48,6 @@ impl TypesError {
             | TypesErrorEnum::Password(m)
             | TypesErrorEnum::Compare(m) => m,
         }
-    }
-
-    /// The same classification with `prefix: ` before the message, as Go's `errors.Wrapf` writes it.
-    pub(crate) fn wrap(self, prefix: &str) -> Self {
-        let msg = format!("{prefix}: {}", self.message());
-        Self::new(match self.0 {
-            TypesErrorEnum::Conversion(_) => TypesErrorEnum::Conversion(msg),
-            TypesErrorEnum::Number(_) => TypesErrorEnum::Number(msg),
-            TypesErrorEnum::Time(_) => TypesErrorEnum::Time(msg),
-            TypesErrorEnum::Decimal(_) => TypesErrorEnum::Decimal(msg),
-            TypesErrorEnum::Geo(_) => TypesErrorEnum::Geo(msg),
-            TypesErrorEnum::Password(_) => TypesErrorEnum::Password(msg),
-            TypesErrorEnum::Compare(_) => TypesErrorEnum::Compare(msg),
-        })
     }
 
     /// A [`TypesErrorEnum::Conversion`] error with its message.

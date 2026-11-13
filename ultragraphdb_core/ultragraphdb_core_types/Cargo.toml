@@ -23,10 +23,10 @@ workspace = true
 
 [dependencies]
 ultragraphdb_traits_collator = { workspace = true }
+ultragraphdb_core_geo = { workspace = true }
 ultragraphdb_core_text = { workspace = true }
 # External crates
 bcrypt = { workspace = true }
-dashu-int = { workspace = true }
 oxsdatatypes = { workspace = true }
 serde_json = { workspace = true }
 

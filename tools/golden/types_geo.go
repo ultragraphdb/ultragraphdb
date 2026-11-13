@@ -19,11 +19,6 @@ import (
 	"github.com/dgraph-io/dgraph/v25/types"
 )
 
-func init() {
-	register("types_geo_index", "ultragraphdb_core_types", genTypesGeoIndex)
-	register("types_geojson", "ultragraphdb_core_types", genTypesGeoJSON)
-}
-
 func goldenGeoms() []geom.T {
 	return []geom.T{
 		geom.NewPoint(geom.XY).MustSetCoords(geom.Coord{-122.082506, 37.4249518}),

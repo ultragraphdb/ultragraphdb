@@ -9,7 +9,7 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_types::{
-    CivilTime, DateTime, Geometry, TYPE_NAMES, TypeId, Value, Zone, good_time_zone, parse_time,
+    CivilTime, DateTime, TYPE_NAMES, TypeId, Value, Zone, good_time_zone, parse_time,
     value_for_type,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -126,7 +126,7 @@ fn test_type_for_name() {
 }
 
 /// Go's `ValueForType` returns pointers to each type's zero value; this port returns the values, a geometry's
-/// nil `geom.T` as an empty collection. A type without a zero (object, and any unknown) is a nil default.
+/// as the empty collection. A type without a zero (object, and any unknown) is a nil default.
 #[test]
 fn test_value_for_type() -> TestResult {
     let cases = [
@@ -138,7 +138,7 @@ fn test_value_for_type() -> TestResult {
         (TypeId::DATETIME, Some(Value::DateTime(DateTime::zero()))),
         (
             TypeId::GEO,
-            Some(Value::Geo(Geometry::collection(Vec::new()))),
+            Some(Value::Geo(ultragraphdb_core_geo::Geometry::empty())),
         ),
         (TypeId::UID, Some(Value::Uid(0))),
         (TypeId::PASSWORD, Some(Value::str(""))),

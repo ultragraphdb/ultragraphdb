@@ -1,8 +1,5 @@
-#
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
-#
-
 [workspace]
 resolver = "2"
 members = [
@@ -60,6 +57,8 @@ ultragraphdb_common_version = { path = "ultragraphdb_common/ultragraphdb_common_
 ultragraphdb_core_algo = { path = "ultragraphdb_core/ultragraphdb_core_algo" }
 ultragraphdb_core_body = { path = "ultragraphdb_core/ultragraphdb_core_body" }
 ultragraphdb_core_catalog = { path = "ultragraphdb_core/ultragraphdb_core_catalog" }
+ultragraphdb_core_cell = { path = "ultragraphdb_core/ultragraphdb_core_cell" }
+ultragraphdb_core_geo = { path = "ultragraphdb_core/ultragraphdb_core_geo" }
 ultragraphdb_core_codec = { path = "ultragraphdb_core/ultragraphdb_core_codec" }
 ultragraphdb_core_ids = { path = "ultragraphdb_core/ultragraphdb_core_ids" }
 ultragraphdb_core_keys = { path = "ultragraphdb_core/ultragraphdb_core_keys" }
@@ -122,7 +121,6 @@ bcrypt = { version = "0.19" }
 compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "polling", "fs", "net", "time"] }
 criterion = { version = "0.8" }
 cucumber = { version = "0.23" }
-dashu-int = { version = "0.6", default-features = false }
 fjall = { version = "3.1", default-features = false }
 futures = { version = "0.3", default-features = false }
 getrandom = { version = "0.4", default-features = false }
@@ -161,7 +159,6 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "json", "env-filter"]
 unicode-normalization = { version = "0.1", default-features = false }
 xxhash-rust = { version = "0.8", default-features = false, features = ["xxh3"] }
 
-
 [workspace.lints.clippy]
 # The one lint table of the workspace: every crate takes it with `[lints] workspace = true`.
 # It is Ultra Style's lint set (openspec/protocols/ULTRA_STYLE.md, "The lint set").
@@ -176,8 +173,8 @@ todo = "deny"
 unimplemented = "warn"  # unimplemented is used during TDD so warn simplifies the impl stage w/o blocking compilation.
 let_underscore_must_use = "deny"
 let_underscore_untyped = "deny"
-#cast_possible_truncation = "deny"          # 16; float casts with Go semantics, which only `as` expresses
-#cast_sign_loss = "deny"                    # 4; the same float casts
+#cast_possible_truncation = "deny"    # 16; float casts with Go semantics, which only `as` expresses
+cast_sign_loss = "deny" 
 cast_possible_wrap = "deny"
 cast_lossless = "deny"
 wildcard_enum_match_arm = "deny"

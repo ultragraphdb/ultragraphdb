@@ -5,7 +5,8 @@
 
 //! Dgraph's `Val` and `Safe` (types/scalar_types.go).
 
-use ultragraphdb_core_types::{DateTime, Geometry, TypeId, Val, Value};
+use ultragraphdb_core_geo::Geometry;
+use ultragraphdb_core_types::{DateTime, TypeId, Val, Value};
 
 #[test]
 fn test_constructors_and_accessors() {
@@ -58,10 +59,7 @@ fn test_safe_gives_the_zero_value_of_a_nil() {
         (TypeId::STRING, Some(Value::str(""))),
         (TypeId::DEFAULT, Some(Value::str(""))),
         (TypeId::PASSWORD, Some(Value::str(""))),
-        (
-            TypeId::GEO,
-            Some(Value::Geo(Geometry::collection(Vec::new()))),
-        ),
+        (TypeId::GEO, Some(Value::Geo(Geometry::empty()))),
         (TypeId::UID, Some(Value::Uid(0))),
         (TypeId::VFLOAT, Some(Value::VFloat(Vec::new()))),
         (TypeId::OBJECT, None),

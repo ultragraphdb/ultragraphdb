@@ -89,6 +89,8 @@ fn encodings() -> TestResult<Vec<ConvCase>> {
         .filter(|c| {
             c.from != TypeId::DECIMAL.enum_value()
                 && c.to != TypeId::DECIMAL.enum_value()
+                // A geometry is this repository's own: its cases are ultragraphdb_core_geo's.
+                && c.from != TypeId::GEO.enum_value()
                 && c.from != TypeId::BINARY.enum_value()
                 && c.to == TypeId::BINARY.enum_value()
                 && !c.input.starts_with("string:")

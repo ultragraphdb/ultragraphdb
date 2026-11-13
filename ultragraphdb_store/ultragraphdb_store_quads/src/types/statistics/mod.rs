@@ -133,9 +133,11 @@ fn estimate(registers: &[u8; SKETCH_REGISTERS]) -> u64 {
             .iter()
             .map(|r| 2f64.powi(-i32::from(*r)))
             .sum::<f64>();
-    if raw <= 2.5 * m && zeros > 0 {
-        (m * (m / zeros as f64).ln()).round() as u64
+    let rounded = if raw <= 2.5 * m && zeros > 0 {
+        (m * (m / zeros as f64).ln()).round()
     } else {
-        raw.round() as u64
-    }
+        raw.round()
+    };
+    // The float saturates into an i64, and an estimate, a count, is never below zero.
+    u64::try_from(rounded as i64).unwrap_or(0)
 }

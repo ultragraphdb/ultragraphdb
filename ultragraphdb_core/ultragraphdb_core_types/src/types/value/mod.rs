@@ -8,9 +8,9 @@
  */
 
 use oxsdatatypes::Decimal;
+use ultragraphdb_core_geo::Geometry;
 
 use crate::types::date_time::DateTime;
-use crate::types::geometry::Geometry;
 
 /// The value of a [`Val`](crate::Val): raw bytes before conversion, or a converted Go value.
 ///
@@ -30,7 +30,7 @@ pub enum Value {
     Bool(bool),
     /// `time.Time`.
     DateTime(DateTime),
-    /// `geom.T`.
+    /// A geometry in CRS84.
     Geo(Geometry),
     /// `uint64`.
     Uid(u64),
@@ -55,7 +55,7 @@ impl Value {
             Value::Float(_) => "float64",
             Value::Bool(_) => "bool",
             Value::DateTime(_) => "time.Time",
-            Value::Geo(g) => g.kind().go_type(),
+            Value::Geo(_) => "geometry",
             Value::Uid(_) => "uint64",
             Value::Decimal(_) => "decimal",
             Value::VFloat(_) => "[]float32",

@@ -9,13 +9,14 @@
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use ultragraphdb_core_geo::{Geometry, Position};
 use ultragraphdb_core_tok::{
     IDENT_EXACT_LANG, IDENT_FULL_TEXT, IDENT_NGRAM, IDENT_TERM, TOKENIZER_NAMES, TokErrorEnum,
     Tokenizer, build_ngram_query_tokens, build_tokens, encode_geo_tokens, encode_regex_tokens,
     get_full_text_tokens, get_ngram_query_tokens, get_ngram_tokens, get_tokenizer,
     get_tokenizer_by_id, get_tokenizer_for_lang, get_tokenizers,
 };
-use ultragraphdb_core_types::{DateTime, Geometry, Layout, TypeId, Val, Value, convert};
+use ultragraphdb_core_types::{DateTime, TypeId, Val, Value, convert};
 
 use crate::golden::{LOWERCASE_DEVIATIONS, cases, digests_masked, unhex, untext};
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -980,8 +981,8 @@ fn values_of_every_type() -> TestResult<Vec<(&'static str, Value)>> {
         ("bool", Value::Bool(true)),
         ("time.Time", Value::DateTime(DateTime::from_unix(0, 0))),
         (
-            "*geom.Point",
-            Value::Geo(Geometry::point(Layout::XY, &[1.0, 2.0])?),
+            "geometry",
+            Value::Geo(Geometry::point(Position::new(1.0, 2.0)?)),
         ),
         ("uint64", Value::Uid(1)),
         (
@@ -1036,13 +1037,12 @@ fn assert_typed_tokens_of_every_type() -> TestResult {
     Ok(())
 }
 
-/// The geo tokenizer's tokens of a point, and Go's assertion text for every other type.
+/// The geo tokenizer's tokens of a point, and its refusal of every other type.
 fn assert_geo_tokens_of_every_type() -> TestResult {
-    // geom.T is an interface, whose failed assertion Go words by the first method the value lacks.
     for (go, v) in values_of_every_type()? {
         let got = build_tokens(&v, &tokenizer("geo")?);
-        if go == "*geom.Point" {
-            // Go's tokens of POINT(1 2), in its order: the parent cells, then the cover cell.
+        if go == "geometry" {
+            // The tokens of POINT(1 2): the cells holding it from level 5 to 16, then the cell at level 16.
             let want: Vec<Vec<u8>> = [
                 "p/1004",
                 "p/1003",
@@ -1065,10 +1065,33 @@ fn assert_geo_tokens_of_every_type() -> TestResult {
         } else {
             assert_eq!(
                 got.err().context("expected an error")?.to_string(),
-                format!("interface conversion: {go} is not geom.T: missing method Bounds"),
+                format!("interface conversion: interface {{}} is {go}, not geometry"),
                 "geo of {go}"
             );
         }
+    }
+    Ok(())
+}
+
+/// A point's elevation plays no part in its cells, and a geometry of another shape gives no token.
+#[test]
+fn test_geo_tokens_are_a_points_alone() -> TestResult {
+    let geo = tokenizer("geo")?;
+    let flat = Position::new(13.404954, 52.520008)?;
+    let tokens = build_tokens(&Value::Geo(Geometry::point(flat)), &geo)?;
+    assert_eq!(tokens.len(), 13);
+    let raised = Geometry::point(flat.with_elevation(34.0)?);
+    assert_eq!(build_tokens(&Value::Geo(raised), &geo)?, tokens);
+    for text in [
+        r#"{"type":"LineString","coordinates":[[0,0],[1,1]]}"#,
+        r#"{"type":"Polygon","coordinates":[[[0,0],[4,0],[4,3],[0,0]]]}"#,
+        r#"{"type":"MultiPoint","coordinates":[[1,2],[3,4]]}"#,
+        r#"{"type":"MultiLineString","coordinates":[[[1,2],[3,4]]]}"#,
+        r#"{"type":"MultiPolygon","coordinates":[[[[0,0],[4,0],[4,3],[0,0]]]]}"#,
+        r#"{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[1,2]}]}"#,
+    ] {
+        let value = Value::Geo(Geometry::from_geojson(text)?);
+        assert_eq!(build_tokens(&value, &geo)?, Vec::<Vec<u8>>::new(), "{text}");
     }
     Ok(())
 }

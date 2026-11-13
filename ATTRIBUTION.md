@@ -4,33 +4,6 @@ UltraGraphDB is built on ideas from other databases, research systems and standa
 high-level concept the design takes from another project and the project it comes from, then lists every
 named project with its website and its licence as stated on 2026-11-02.
 
-The concepts come from the design notes in `openspec/notes/`. Each is marked with one of two kinds:
-
-- **Borrowed**: the design adopts the concept or mechanism, or ports the code that implements it.
-- **Inspired**: the design draws on the concept and changes it.
-
-Code ported from Dgraph and its Go dependencies keeps the copyright line of its source file and states that
-it was changed, as `AGENTS.md` sets out under *Ported code and attribution*. The libraries the workspace
-links are listed with their versions in `AGENTS.md` under *External dependencies*.
-
-## Notes cited
-
-| Key  | Note in `openspec/notes/`                                   |
-|------|-------------------------------------------------------------|
-| DIST | `UltraGraphDB Distribution Architecture.md`                 |
-| SPC  | `UltraGraphDB Shard-per-Core Write Path.md`                 |
-| SQL  | `UltraGraphDB Schema and Query Language.md`                 |
-| DQE  | `UltraGraphDB Dual Query Engine Plan.md`                    |
-| RM   | `UltraGraphDB Roadmap Dual Query Engine and Tile Storage.md` |
-| ACP  | `UltraGraphDB Agentic Context Projection.md`                |
-| SCD  | `UltraGraphDB Single-Container Deployment.md`               |
-| SEC  | `security.md`                                               |
-| PERF | `perf-optimization.md`                                      |
-| BL   | `backlog.md`                                                |
-| PORT | `archive/dgraph-port-overview.md`                           |
-| BUG  | `archive/dgraph-bugs-found-in-port.md`                      |
-| NC   | `archive/native-clients.md`                                 |
-
 ## Index
 
 Each row gives a concept, the slug of the project it comes from, and the kind of attribution. The slugs
@@ -45,13 +18,10 @@ resolve in [Projects](#projects), [Publications](#publications) and [Standards](
 | `dgraph`         | Identifiers resolved in a dictionary pass before quads are written, as Dgraph's bulk loader assigns UIDs first                                                                                                             | Borrowed | DQE       |
 | `dgraph`         | A batch's requests applied in order                                                                                                                                                                                         | Borrowed | PERF      |
 | `dgraph`         | Shape-preserving tree results, from DQL, in UltraQL                                                                                                                                                                         | Borrowed | RM        |
-| `dgraph-rs`      | The Rust client, copied and renamed as `ultragraphdb_client`                                                                                                                                                                | Borrowed | PORT      |
 | `badger`         | A store without transactions of its own, the outcome decided above it (Badger's managed mode)                                                                                                                               | Borrowed | PORT      |
 | `badger`         | The commit timestamp kept in the key, newest version first; compaction drops versions below the discard timestamp                                                                                                          | Borrowed | PORT, PERF |
 | `go`             | `encoding/json` decoding semantics, ported; float arithmetic without fused multiply-add, as amd64 Go computes; `errors.Join` text                                                                                          | Borrowed | PORT, BUG |
 | `s2`             | Spatial index on S2 cell coverings                                                                                                                                                                                          | Borrowed | SQL, DQE  |
-| `golang-geo`     | S2 geometry and the geo index tokens, ported from the Go implementation of S2                                                                                                                                               | Borrowed | PORT      |
-| `go-geom`        | Geometry types, ported                                                                                                                                                                                                      | Borrowed | PORT      |
 | `bleve`          | Text analysis: tokenizers and token filters, ported                                                                                                                                                                         | Borrowed | PORT, BUG |
 | `bleve-segment`  | Unicode word segmentation, ported                                                                                                                                                                                           | Borrowed | BUG       |
 | `go-farm`        | The `Fingerprint64` hash, ported                                                                                                                                                                                            | Borrowed | PORT      |
@@ -173,8 +143,6 @@ Licences as each project states them on 2026-11-02, read from the project's lice
 | `gdbmeter`       | GDBMeter                               | https://github.com/gdbmeter/gdbmeter             | MIT                                                                                                                                                       |
 | `go`             | The Go programming language            | https://go.dev                                   | BSD-3-Clause                                                                                                                                              |
 | `go-farm`        | go-farm                                | https://github.com/dgryski/go-farm               | MIT                                                                                                                                                       |
-| `go-geom`        | go-geom                                | https://github.com/twpayne/go-geom               | BSD-2-Clause                                                                                                                                              |
-| `golang-geo`     | golang/geo (S2 for Go)                 | https://github.com/golang/geo                    | Apache-2.0                                                                                                                                                |
 | `graphblas`      | GraphBLAS                              | https://graphblas.org                            | A C API specification; its reference implementation, SuiteSparse:GraphBLAS, is Apache-2.0                                                                 |
 | `gridgraph`      | GridGraph                              | https://github.com/thu-pacman/GridGraph          | Apache-2.0                                                                                                                                                |
 | `iggy`           | Apache Iggy                            | https://iggy.apache.org                          | Apache-2.0                                                                                                                                                |

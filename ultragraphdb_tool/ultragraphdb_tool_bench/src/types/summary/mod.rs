@@ -25,7 +25,9 @@ impl Summary {
         // A rank is clamped to `1..=n`, so every read is of a sample; `values` is not empty. `q` lies in 0 to 1, so the
         // product lies in 0 to `n`, which the saturating cast into a `usize` keeps whole.
         let rank = |q: f64| {
-            let i = ((q * n as f64).ceil() as usize).clamp(1, n) - 1;
+            // The rank is one or above for a quantile above zero; the float saturates into an i64 first.
+            let rank = usize::try_from((q * n as f64).ceil() as i64).unwrap_or(1);
+            let i = rank.clamp(1, n) - 1;
             values.get(i).copied().unwrap_or_default()
         };
         let summary = Self {

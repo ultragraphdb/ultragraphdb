@@ -96,15 +96,18 @@ holds for the collation data that wrote it: an index of keys is rebuilt when tha
 - **WHEN** the German strings are tokenized by the exact tokenizer with language `de`
 - **THEN** the tokens order as the language collates the strings, each after the base and the delimiter
 
-### Requirement: Geo tokens index S2 cells
-A geo value SHALL yield `p/` tokens for its parent cells and `c/` tokens for its cover: for a point, its cells at
-levels 5 to 16 and its level-16 cell; for a polygon or multipolygon, an S2 cover of each outer ring at levels 5 to 16
-with at most 18 cells, and every ancestor of each cover cell down to level 5. Other geometries SHALL be refused with
-`Cannot index geometry of type <T>`.
+### Requirement: Geo tokens index a point's S2 cells
+A point SHALL yield a `p/` token for each S2 cell holding it at levels 5 to 16, coarsest first, and a `c/` token for
+its level-16 cell, each the prefix and the cell's token: its identifier in hexadecimal without the trailing zeros. A
+point's elevation SHALL play no part. A geometry of another type SHALL yield no token: it is stored and not indexed.
 
 #### Scenario: Geo tokens match Dgraph
-- **WHEN** the golden points and polygons are tokenized by the geo tokenizer
+- **WHEN** the golden points are tokenized by the geo tokenizer
 - **THEN** the tokens, sorted, equal Dgraph's
+
+#### Scenario: A geometry other than a point gives no token
+- **WHEN** a line, a polygon, a multi-geometry and a collection are tokenized by the geo tokenizer
+- **THEN** each yields no token
 
 ### Requirement: Tokenizer registry
 Tokenizers SHALL be looked up by name and SHALL report whether they are sortable, lossy and valid for a value type. The

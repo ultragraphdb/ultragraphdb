@@ -11,7 +11,9 @@
 use std::collections::HashSet;
 
 use sha2::{Digest, Sha256};
-use ultragraphdb_core_types::{DateTime, Value, decimal_trunc_i64, index_geo_tokens};
+use ultragraphdb_core_cell::CellId;
+use ultragraphdb_core_geo::Shape;
+use ultragraphdb_core_types::{DateTime, TypesError, Value, decimal_trunc_i64};
 
 use crate::errors::tok_error::TokError;
 use crate::types::analysis_token::AnalysisToken;
@@ -25,12 +27,17 @@ use crate::utils::stopwords::filter_stopwords;
 /// Shingles of this many bytes or more are replaced by their SHA-256 digest.
 const MAX_SHINGLE_LEN: usize = 30;
 
+/// The coarsest cell level the geo index uses, about 250 km by 380 km.
+const MIN_CELL_LEVEL: u8 = 5;
+/// The finest cell level the geo index uses, about 120 m by 180 m.
+const MAX_CELL_LEVEL: u8 = 16;
+
 impl Tokenizer {
     /// Go's `Tokens`: the tokens of a value, without the identifier byte ([`build_tokens`](crate::build_tokens)
     /// adds it).
     ///
     /// The ngram tokenizer's tokens are in no particular order in Dgraph, which collects them in a map; this port
-    /// returns them sorted. Geo tokens come in cell order.
+    /// returns them sorted. Geo tokens come from the coarsest cell to the finest.
     ///
     /// A string value is valid UTF-8; the exact, hash, trigram and sha256 tokenizers read its bytes, as Dgraph's do.
     pub fn tokens(&self, v: &Value) -> Result<Vec<Vec<u8>>, TokError> {
@@ -99,19 +106,35 @@ impl Tokenizer {
     }
 }
 
-/// The geo tokenizer: the value's S2 cell tokens, in cell order.
+/// The geo tokenizer: a point's cells. Each cell holding the point from [`MIN_CELL_LEVEL`] to [`MAX_CELL_LEVEL`]
+/// gives a token `p/` and the cell's token, coarsest first, and the cell at [`MAX_CELL_LEVEL`] one more, `c/` and
+/// its token. A point's elevation plays no part. A geometry of another shape gives no token: it is stored and
+/// not indexed.
 fn geo_tokens(v: &Value) -> Result<Vec<Vec<u8>>, TokError> {
     let Value::Geo(g) = v else {
-        // geom.T is an interface: Go's assertion names the first method the value lacks.
-        return Err(TokError::wrong_value(format!(
-            "interface conversion: {} is not geom.T: missing method Bounds",
-            v.go_type()
-        )));
+        return Err(wrong(v, "geometry"));
     };
-    Ok(index_geo_tokens(g)?
-        .into_iter()
-        .map(String::into_bytes)
-        .collect())
+    let position = match g.shape() {
+        Shape::Point(position) => position,
+        Shape::LineString(_)
+        | Shape::Polygon(_)
+        | Shape::MultiPoint(_)
+        | Shape::MultiLineString(_)
+        | Shape::MultiPolygon(_)
+        | Shape::GeometryCollection(_) => return Ok(Vec::new()),
+    };
+    // A position's coordinates are finite, so a leaf holds it and has an ancestor at every level.
+    let no_cell = || TokError::geo(TypesError::geo("a point no cell holds"));
+    let leaf = CellId::at(position.lat(), position.lng()).ok_or_else(no_cell)?;
+    let token = |prefix: &str, level: u8| {
+        leaf.parent(level)
+            .map(|cell| format!("{prefix}{}", cell.token()).into_bytes())
+            .ok_or_else(no_cell)
+    };
+    (MIN_CELL_LEVEL..=MAX_CELL_LEVEL)
+        .map(|level| token("p/", level))
+        .chain([token("c/", MAX_CELL_LEVEL)])
+        .collect()
 }
 
 /// The exact tokenizer: the string's bytes, or with a language its base, the delimiter and its collation key.

@@ -6,6 +6,8 @@
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::ParseBoolError;
 
+use ultragraphdb_core_geo::GeoError;
+
 use crate::errors::types_error::TypesError;
 
 /// A text that is no integer.
@@ -26,5 +28,12 @@ impl From<ParseFloatError> for TypesError {
 impl From<ParseBoolError> for TypesError {
     fn from(e: ParseBoolError) -> Self {
         TypesError::number(e.to_string())
+    }
+}
+
+/// A text or bytes that are no geometry.
+impl From<GeoError> for TypesError {
+    fn from(e: GeoError) -> Self {
+        TypesError::geo(e.to_string())
     }
 }

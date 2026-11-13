@@ -5,7 +5,8 @@
 
 //! The Go values a `Val` holds, and their `%T`.
 
-use ultragraphdb_core_types::{DateTime, Geometry, Layout, Value};
+use ultragraphdb_core_geo::{Geometry, Position};
+use ultragraphdb_core_types::{DateTime, Value};
 use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
@@ -17,8 +18,7 @@ fn test_str() {
 
 #[test]
 fn test_go_type_is_gos_percent_t() -> TestResult {
-    let point = Geometry::point(Layout::XY, &[1.0, 2.0])?;
-    let line = Geometry::line_string(Layout::XY, &[vec![0.0, 0.0], vec![1.0, 1.0]])?;
+    let point = Geometry::point(Position::new(1.0, 2.0)?);
     let cases = [
         (Value::Bytes(vec![1]), "[]uint8"),
         (Value::str("x"), "string"),
@@ -26,12 +26,8 @@ fn test_go_type_is_gos_percent_t() -> TestResult {
         (Value::Float(1.0), "float64"),
         (Value::Bool(true), "bool"),
         (Value::DateTime(DateTime::zero()), "time.Time"),
-        (Value::Geo(point), "*geom.Point"),
-        (Value::Geo(line), "*geom.LineString"),
-        (
-            Value::Geo(Geometry::collection(Vec::new())),
-            "*geom.GeometryCollection",
-        ),
+        (Value::Geo(point), "geometry"),
+        (Value::Geo(Geometry::empty()), "geometry"),
         (Value::Uid(1), "uint64"),
         (
             Value::Decimal(oxsdatatypes::Decimal::from(0_i64)),

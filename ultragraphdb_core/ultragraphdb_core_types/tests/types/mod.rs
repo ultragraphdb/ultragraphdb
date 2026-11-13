@@ -4,20 +4,10 @@
  */
 
 #[cfg(test)]
-mod area_tests;
-#[cfg(test)]
 #[cfg(test)]
 mod civil_time_tests;
 #[cfg(test)]
 mod date_time;
-#[cfg(test)]
-mod geometry;
-#[cfg(test)]
-mod geometry_kind_tests;
-#[cfg(test)]
-mod layout_tests;
-#[cfg(test)]
-mod length_tests;
 #[cfg(test)]
 mod sharded_map;
 #[cfg(test)]

@@ -8,7 +8,6 @@ use ultragraphdb_core_catalog::CatalogErrorEnum;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, Region};
 use ultragraphdb_core_mapping::{Change, MappingErrorEnum, StatementRef};
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_core_tok::TokErrorEnum;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_apply::{ChangesetErrorEnum, VectorQuery};
 use ultragraphdb_store_hnsw::HnswErrorEnum;
@@ -509,32 +508,13 @@ fn test_a_drop_whose_scan_fails_is_refused_with_the_store_s_error() -> TestResul
     Ok(())
 }
 
-/// A geometry the geo index cannot cover refuses the write with the tokenizer's error: Dgraph's `indexCells`
-/// (`types/s2index.go`) indexes points, polygons and multipolygons, and refuses any other geometry with
-/// `Cannot index geometry of type %T`, here `*geom.LineString`. Nothing of the changeset is held.
+/// The geo index covers points: a geometry of another shape under it is held like any value, and gives the index
+/// no token.
 #[test]
-fn test_a_geometry_the_geo_index_cannot_cover_is_refused_with_the_tokenizer_s_error() -> TestResult
-{
+fn test_a_geometry_the_geo_index_does_not_cover_is_held() -> TestResult {
     let a = changesets()?;
     declare(&a, "where", "with a `geo` index")?;
     let line = r#"<a> <where> "{\"type\": \"LineString\", \"coordinates\": [[8.63, 50.12], [8.64, 50.13]]}"^^geo:geoJSONLiteral"#;
-    let refused = apply(&a, vec![insert(line)?])
-        .err()
-        .context("the error of apply(&a, vec![insert(line)?])")?;
-    assert!(
-        matches!(&refused.0, ChangesetErrorEnum::Tok(t) if matches!(t.0, TokErrorEnum::Geo(_))),
-        "{refused:?}"
-    );
-    assert_eq!(
-        refused.to_string(),
-        "Cannot index geometry of type *geom.LineString"
-    );
-    assert!(
-        crate::utils::changesets::holds_nothing(&a, "a")?,
-        "<a> holds nothing"
-    );
-    // The same predicate without the index holds the line.
-    declare(&a, "where", "")?;
     write_changes(&a, vec![insert(line)?])?;
     assert_eq!(objects(&a, "a", "where")?.len(), 1);
     Ok(())

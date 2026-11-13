@@ -14,10 +14,10 @@
 #![deny(clippy::arithmetic_side_effects)]
 
 use oxsdatatypes::{Decimal, Double, Integer};
+use ultragraphdb_core_geo::Geometry;
 
 use crate::errors::types_error::TypesError;
 use crate::types::date_time::DateTime;
-use crate::types::geometry::Geometry;
 use crate::types::type_id::TypeId;
 use crate::types::val::Val;
 use crate::types::value::Value;
@@ -211,7 +211,7 @@ fn convert_binary(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Ty
             ))),
         },
         TypeId::DATETIME => ok(Value::DateTime(DateTime::unmarshal_binary(data)?)),
-        TypeId::GEO => ok(Value::Geo(Geometry::unmarshal_wkb(data)?)),
+        TypeId::GEO => ok(Value::Geo(Geometry::from_wkb(data)?)),
         TypeId::PASSWORD => ok(Value::Str(utf8(data, "password")?)),
         TypeId::VFLOAT => {
             if !data.len().is_multiple_of(4) {
@@ -248,14 +248,13 @@ fn convert_string(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Ty
                 .iter()
                 .map(|&c| if c == b'\'' { b'"' } else { c })
                 .collect();
-            match Geometry::from_geojson(&text) {
-                Ok(Some(g)) => ok(Value::Geo(g)),
-                Ok(None) => Ok(Val::nil(to_id)),
-                Err(e) => Err(e.wrap(&format!(
-                    "Error while unmarshalling: [{}] as geojson",
+            let geometry = Geometry::from_geojson(&text).map_err(|e| {
+                TypesError::geo(format!(
+                    "Error while unmarshalling: [{}] as geojson: {e}",
                     lossy(data)
-                ))),
-            }
+                ))
+            })?;
+            ok(Value::Geo(geometry))
         }
         TypeId::PASSWORD => ok(Value::Str(encrypt(data)?)),
         TypeId::VFLOAT => ok(Value::VFloat(parse_vfloat(data)?)),
@@ -382,14 +381,11 @@ fn convert_date_time(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val,
 /// [`convert`] from a geo value.
 fn convert_geo(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
     let ok = |v: Value| Ok(Val::new(to_id, v));
-    let g = Geometry::unmarshal_wkb(data)?;
+    let g = Geometry::from_wkb(data)?;
     match to_id {
         TypeId::GEO => ok(Value::Geo(g)),
-        TypeId::BINARY => ok(Value::Bytes(g.marshal_wkb()?)),
-        TypeId::STRING | TypeId::DEFAULT => match g.to_geojson() {
-            Some(s) => ok(Value::str(s.replace('"', "'"))),
-            None => Ok(Val::nil(to_id)),
-        },
+        TypeId::BINARY => ok(Value::Bytes(g.to_wkb())),
+        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(g.to_geojson().replace('"', "'"))),
         _ => Err(cant_convert(from_id, to_id)),
     }
 }
@@ -523,12 +519,8 @@ fn marshal_encoded(val: &Value, from_id: TypeId, to_id: TypeId) -> Result<Val, T
                 return Err(TypesError::conversion("Expected a Geo type"));
             };
             match to_id {
-                TypeId::BINARY => ok(Value::Bytes(vc.marshal_wkb()?)),
-                // Go returns no error and leaves the target untouched when GeoJSON encoding fails.
-                _ if is_str => match vc.to_geojson() {
-                    Some(s) => ok(Value::str(s.replace('"', "'"))),
-                    None => Ok(value_for_type(to_id)),
-                },
+                TypeId::BINARY => ok(Value::Bytes(vc.to_wkb())),
+                _ if is_str => ok(Value::str(vc.to_geojson().replace('"', "'"))),
                 _ => Err(cant_convert(from_id, to_id)),
             }
         }
@@ -558,33 +550,18 @@ pub fn marshal_binary(v: &Val) -> Result<Vec<u8>, TypesError> {
     }
 }
 
-/// The first coordinate go-geom's `geojson.Marshal` writes that is NaN or infinite: each geometry writes its flat
-/// coordinates in order, and a collection its members in order, nested collections depth first. NaN when there is
-/// none, which [`Geometry::to_geojson`] refuses only for such a coordinate.
-fn first_non_finite(g: &Geometry) -> f64 {
-    let mut stack = vec![g];
-    // Each geometry is pushed once, by its parent, so the loop turns once per geometry of the tree.
-    while let Some(next) = stack.pop() {
-        if let Some(f) = next.flat_coords().iter().find(|f| !f.is_finite()) {
-            return *f;
-        }
-        stack.extend(next.geoms().iter().rev());
-    }
-    f64::NAN
-}
-
 /// Dgraph's `Val.MarshalJSON`: a converted value in Dgraph's JSON output. A decimal is its unquoted
 /// `MarshalText`; a geometry is GeoJSON.
 ///
 /// A value stands for the Go value Dgraph's `Val` holds, of the Go type [`Value::go_type`] names: bytes a `[]uint8`,
 /// a string a `string`, an int an `int64`, a float a `float64`, a bool a `bool`, a datetime a `time.Time`, a
-/// geometry its `*geom.Point`, `*geom.LineString`, ... or `*geom.GeometryCollection`, a uid a `uint64`, a bigfloat
+/// geometry a `geometry`, a uid a `uint64`, a bigfloat
 /// a `big.Float` and a vector a `[]float32`.
 ///
 /// # Errors
 ///
 /// Go's errors: `invalid type for MarshalJSON` for a binary, uid, object, vfloat or unknown type, whatever the
-/// value; `json: unsupported value` naming a NaN or infinite float, or a geometry's first such coordinate; a
+/// value; `json: unsupported value` naming a NaN or infinite float; a
 /// datetime's range error. Where Go's type assertion on the value panics, for a nil value or one of another Go
 /// type, the panic's text, e.g. `interface conversion: interface {} is bool, not int64`. A string or default type
 /// asserts `Safe`, which gives its zero value for nil and the value itself otherwise.
@@ -609,17 +586,14 @@ pub fn marshal_json(v: &Val) -> Result<Vec<u8>, TypesError> {
             })?;
             format!("\"{s}\"")
         }
-        (TypeId::GEO, Some(Value::Geo(g))) => g
-            .to_geojson()
-            .ok_or_else(|| unsupported(non_finite_name(first_non_finite(g))))?,
+        (TypeId::GEO, Some(Value::Geo(g))) => g.to_geojson(),
         (TypeId::DECIMAL, Some(Value::Decimal(d))) => d.to_string(),
         (TypeId::STRING | TypeId::DEFAULT, None) => crate::utils::json::encode_string(b""),
         (TypeId::STRING | TypeId::DEFAULT | TypeId::PASSWORD, Some(Value::Str(s))) => {
             crate::utils::json::encode_string(s.as_bytes())
         }
         // Go's assertion on `v.Value` panics when it holds nil or a value of another Go type; this port returns the
-        // panic's text. `geom.T` is an interface type: Go's text for an assertion to one names no static interface
-        // type, and a value of another Go type lacks `Bounds`, the first of geom.T's methods by name.
+        // panic's text.
         (
             t @ (TypeId::INT
             | TypeId::BOOL
@@ -637,18 +611,11 @@ pub fn marshal_json(v: &Val) -> Result<Vec<u8>, TypesError> {
                 TypeId::BOOL => "bool",
                 TypeId::FLOAT => "float64",
                 TypeId::DATETIME => "time.Time",
-                TypeId::GEO => "geom.T",
+                TypeId::GEO => "geometry",
                 TypeId::DECIMAL => "decimal",
                 _ => "string",
             };
             return Err(match (t, val) {
-                (TypeId::GEO, None) => {
-                    TypesError::conversion("interface conversion: interface is nil, not geom.T")
-                }
-                (TypeId::GEO, Some(val)) => TypesError::conversion(format!(
-                    "interface conversion: {} is not geom.T: missing method Bounds",
-                    val.go_type()
-                )),
                 (_, Some(val)) => assertion(val, want),
                 (_, None) => TypesError::conversion(format!(
                     "interface conversion: interface {{}} is nil, not {want}"

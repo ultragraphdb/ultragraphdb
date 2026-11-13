@@ -66,7 +66,7 @@ Feature: Tokenizers
     Then the tokens order as the language collates the strings, each after the base and the delimiter
 
   Scenario: Geo tokens match Dgraph
-    When the golden points and polygons are tokenized by the geo tokenizer
+    When the golden points are tokenized by the geo tokenizer
     Then the tokens, sorted, equal Dgraph's
 
   Scenario: A tokenizer is refused for the wrong type

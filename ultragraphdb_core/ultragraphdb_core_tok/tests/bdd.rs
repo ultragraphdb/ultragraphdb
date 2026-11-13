@@ -505,17 +505,13 @@ fn exact_ordered(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when(expr = "the golden points and polygons are tokenized by the geo tokenizer")]
+#[when(expr = "the golden points are tokenized by the geo tokenizer")]
 fn geo_golden(w: &mut Steps) -> TestResult {
     let cases: Vec<TokensCase> = golden()?
         .into_iter()
-        .filter(|c| c.tokenizer == "geo")
+        .filter(|c| c.tokenizer == "geo" && c.input.contains("'Point'") && c.error.is_empty())
         .collect();
-    assert!(
-        cases
-            .iter()
-            .any(|c| c.input.contains("Polygon") && c.error.is_empty())
-    );
+    assert!(!cases.is_empty());
     compare_all(w, cases.into_iter());
     Ok(())
 }

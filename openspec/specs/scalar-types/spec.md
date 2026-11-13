@@ -16,7 +16,7 @@ password 8, string 9, object 10, decimal 11, float32vector 12, with schema names
 ### Requirement: Values encode byte-identically to Dgraph
 Converting a value to binary SHALL produce Dgraph's bytes: int as 8 bytes little-endian two's complement, float
 as 8 bytes little-endian IEEE-754, bool as one byte 0 or 1, string, default and password as their bytes,
-datetime in Go's `time.MarshalBinary` layout, geo as little-endian WKB, decimal as its canonical `xsd:decimal` text, and
+datetime in Go's `time.MarshalBinary` layout, geo as little-endian ISO WKB of a geometry in CRS84, decimal as its canonical `xsd:decimal` text, and
 float32vector as little-endian f32 values.
 
 #### Scenario: Every type's encoding matches its golden vector
