@@ -1,0 +1,83 @@
+openspec/specs/scalar-types/spec.md
+  s_d14a54f3ee4b57::t_27fc775433e3c9 49,51
+ultragraphdb_core/ultragraphdb_core_tok/src/bleve/light_stemmer_fr.rs
+  s_d14a54f3ee4b57::t_bb94db5929bdda 261,276
+ultragraphdb_core/ultragraphdb_core_tok/src/bleve/lowercase.rs
+  s_d14a54f3ee4b57::t_4eb4ae57520948 23-24,26,29
+ultragraphdb_core/ultragraphdb_core_tok/src/bleve/segment_words.rs
+  s_d14a54f3ee4b57::t_db17372184be6c 293,310-318
+ultragraphdb_core/ultragraphdb_core_tok/tests/utils/index_factory_tests.rs
+  s_d14a54f3ee4b57::t_9b4cab2ae36971 33-38,54,76
+ultragraphdb_core/ultragraphdb_core_types/Cargo.toml
+  s_d14a54f3ee4b57::t_bfa8d56d96b35f 31
+ultragraphdb_core/ultragraphdb_core_types/features/scalar-types/scalar_types.feature
+  s_d14a54f3ee4b57::t_214973e45320c8 52,54
+ultragraphdb_core/ultragraphdb_core_types/src/errors/types_error/types_error_from.rs
+  s_d14a54f3ee4b57::t_b623b60476d83a 6-7,11-27
+ultragraphdb_core/ultragraphdb_core_types/src/s2/cellid/mod.rs
+  s_d14a54f3ee4b57::t_467e42214459ad 86
+ultragraphdb_core/ultragraphdb_core_types/src/types/geometry/geometry_geojson.rs
+  s_d14a54f3ee4b57::t_91b3a859fbbdbd 5-6,24,71,91
+ultragraphdb_core/ultragraphdb_core_types/src/utils/conversion.rs
+  s_d14a54f3ee4b57::t_4e813a83589959 24-25,74,85,149,155,220,234,236,244,323,344,355,486,506,596,598,614
+ultragraphdb_core/ultragraphdb_core_types/src/utils/json.rs
+  s_d14a54f3ee4b57::t_1816704e9b1261 6-7,9-40,42-60,62-63,65-81
+ultragraphdb_core/ultragraphdb_core_types/src/utils/json_float.rs
+  s_d14a54f3ee4b57::t_fbd312b0f43174 2-3,6-8,13-26,28
+ultragraphdb_core/ultragraphdb_core_types/src/utils/mod.rs
+  s_d14a54f3ee4b57::t_27329baedc8082 14
+ultragraphdb_core/ultragraphdb_core_types/src/utils/numbers.rs
+  s_d14a54f3ee4b57::t_340c6cf62b2532 6,8,10-31,33-38,41-67,71-80
+ultragraphdb_core/ultragraphdb_core_types/src/utils/password.rs
+  s_d14a54f3ee4b57::t_ad473e37d38993 81-84
+ultragraphdb_core/ultragraphdb_core_types/src/utils/s2index.rs
+  s_d14a54f3ee4b57::t_8ba33e0773632b 16,93,107
+ultragraphdb_core/ultragraphdb_core_types/src/utils/value.rs
+  s_d14a54f3ee4b57::t_9b7c5d95e617fb 16,36,93,97
+ultragraphdb_core/ultragraphdb_core_types/tests/errors/types_error/types_error_tests.rs
+  s_d14a54f3ee4b57::t_a798aa0638bb6d 18,20-21,60,62-70
+ultragraphdb_core/ultragraphdb_core_types/tests/types/geometry/geometry_geojson_tests.rs
+  s_d14a54f3ee4b57::t_4a0f20d5481ee7 33,42-46,48,73-74,76-86,90-91
+ultragraphdb_core/ultragraphdb_core_types/tests/types/geometry/geometry_tests.rs
+  s_d14a54f3ee4b57::t_e0c85e072c522b 15-22,62-74,247,261,315
+ultragraphdb_core/ultragraphdb_core_types/tests/utils/conversion_tests.rs
+  s_d14a54f3ee4b57::t_38f102e5c8abdb 159,165,171,577-579,582-586,592,766-769,775,789-792,798,1044,1049,1848-1849,1926,1928,1965,1969
+ultragraphdb_core/ultragraphdb_core_types/tests/utils/json_float_tests.rs
+  s_d14a54f3ee4b57::t_90bf0dd5663109 6-8,20,41-44,46-48,66,68
+ultragraphdb_core/ultragraphdb_core_types/tests/utils/password_tests.rs
+  s_d14a54f3ee4b57::t_dd3ea0b55b2545 118,167
+ultragraphdb_core/ultragraphdb_core_types/tests/utils/s2_tests.rs
+  s_d14a54f3ee4b57::t_4bb97ab3ce9b08 15-22,51,63,68,92-100
+ultragraphdb_core/ultragraphdb_core_types/tests/utils/value_tests.rs
+  s_d14a54f3ee4b57::t_ec6008fe64c397 115,118,129
+ultragraphdb_error/ultragraphdb_error_options/tests/errors/options_error/options_error_tests.rs
+  s_d14a54f3ee4b57::t_7a35e57639faea 31
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_write/changeset_write_declare_tests.rs
+  s_d14a54f3ee4b57::t_3d6fa965730f45 212-217,222,227
+ultragraphdb_store/ultragraphdb_store_posting/src/errors/posting_error/posting_error_display.rs
+  s_d14a54f3ee4b57::t_2f80433a37d118 29-30
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/list/list_iterate_tests.rs
+  s_d14a54f3ee4b57::t_ef2d6b9f404fdf 99,102-105
+ultragraphdb_traits/ultragraphdb_traits_index/src/utils/option_parser.rs
+  s_d14a54f3ee4b57::t_706c56cfa2f40a 5-6,14,19,21,26,28,33,38-53,55,57,60,62,64
+ultragraphdb_traits/ultragraphdb_traits_index/tests/types/allowed_options/allowed_options_tests.rs
+  s_d14a54f3ee4b57::t_ed0fe06f73e8a9 10-21,56
+ultragraphdb_traits/ultragraphdb_traits_index/tests/utils/option_parser_tests.rs
+  s_d14a54f3ee4b57::t_7320184346e2e4 12-23,35,43,59,66,80,87,99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c06b4d439db02a877c58bca02860a8670984cc0b",
+  "prompts": {},
+  "sessions": {
+    "s_d14a54f3ee4b57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "763dd999-2deb-442f-8d19-3d08b11dfa90",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
