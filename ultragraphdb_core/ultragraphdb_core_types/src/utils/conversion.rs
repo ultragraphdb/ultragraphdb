@@ -21,11 +21,11 @@ use crate::types::geometry::Geometry;
 use crate::types::type_id::TypeId;
 use crate::types::val::Val;
 use crate::types::value::Value;
-use crate::utils::json_float::json_float;
+use crate::utils::json_float::{json_float, non_finite_name};
+use crate::utils::numbers;
 use crate::utils::password::encrypt;
 use crate::utils::scalar_types::{parse_time, value_for_type};
 use crate::utils::value::{bytes_as_float_array, float_array_as_bytes, float_array_as_string};
-use ultragraphdb_common_utils::{go_fmt, go_strconv};
 
 const NANO_SECONDS_IN_SEC: i64 = 1_000_000_000;
 
@@ -71,7 +71,7 @@ fn le_i64(data: &[u8]) -> Result<i64, TypesError> {
         Some(b) => Ok(i64::from_le_bytes(*b)),
         None => Err(TypesError::conversion(format!(
             "invalid data for int64 {}",
-            go_fmt::byte_slice(data)
+            format_args!("{data:?}")
         ))),
     }
 }
@@ -82,7 +82,7 @@ fn le_f64(data: &[u8]) -> Result<f64, TypesError> {
         Some(b) => Ok(f64::from_bits(u64::from_le_bytes(*b))),
         None => Err(TypesError::conversion(format!(
             "invalid data for float {}",
-            go_fmt::byte_slice(data)
+            format_args!("{data:?}")
         ))),
     }
 }
@@ -146,21 +146,13 @@ pub fn parse_vfloat(s: impl AsRef<[u8]>) -> Result<Vec<f32>, TypesError> {
     if trimmed.contains(',') {
         return trimmed
             .split(',')
-            .map(|v| {
-                go_strconv::parse_float(v.trim(), 32)
-                    .map(|f| f as f32)
-                    .map_err(|_| cannot_convert_to_vfloat(s))
-            })
+            .map(|v| numbers::parse_f32(v.trim()).map_err(|_| cannot_convert_to_vfloat(s)))
             .collect();
     }
     trimmed
         .split(' ')
         .filter(|v| !v.is_empty())
-        .map(|v| {
-            go_strconv::parse_float(v, 32)
-                .map(|f| f as f32)
-                .map_err(|_| cannot_convert_to_vfloat(s))
-        })
+        .map(|v| numbers::parse_f32(v).map_err(|_| cannot_convert_to_vfloat(s)))
         .collect()
 }
 
@@ -225,7 +217,7 @@ fn convert_binary(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Ty
             if !data.len().is_multiple_of(4) {
                 return Err(TypesError::conversion(format!(
                     "invalid data for vector of floats: {}",
-                    go_fmt::byte_slice(data)
+                    format_args!("{data:?}")
                 )));
             }
             ok(Value::VFloat(bytes_as_float_array(data)))
@@ -239,9 +231,9 @@ fn convert_string(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Ty
     let ok = |v: Value| Ok(Val::new(to_id, v));
     match to_id {
         TypeId::BINARY => ok(Value::Bytes(data.to_vec())),
-        TypeId::INT => ok(Value::Int(go_strconv::parse_int(data, 10)?)),
+        TypeId::INT => ok(Value::Int(numbers::parse_int(data)?)),
         TypeId::FLOAT => {
-            let f = go_strconv::parse_float(data, 64)?;
+            let f = numbers::parse_float(data)?;
             if f.is_nan() {
                 return Err(TypesError::conversion("Got invalid value: NaN"));
             }
@@ -249,7 +241,7 @@ fn convert_string(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Ty
         }
         TypeId::DECIMAL => ok(Value::Decimal(parse_decimal(data)?)),
         TypeId::STRING | TypeId::DEFAULT => ok(Value::Str(utf8(data, "string")?)),
-        TypeId::BOOL => ok(Value::Bool(go_strconv::parse_bool(data)?)),
+        TypeId::BOOL => ok(Value::Bool(numbers::parse_bool(data)?)),
         TypeId::DATETIME => ok(Value::DateTime(parse_time(data)?)),
         TypeId::GEO => {
             let text: Vec<u8> = data
@@ -328,7 +320,7 @@ fn convert_float(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Typ
             ok(Value::Int(vc as i64))
         }
         TypeId::BOOL => ok(Value::Bool(vc != 0.0)),
-        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(go_strconv::format_float(vc, b'G', 64))),
+        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(numbers::format_float(vc))),
         TypeId::DATETIME => {
             if !in_int64(vc) {
                 return Err(float_out_of_range());
@@ -349,7 +341,7 @@ fn convert_bool(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Type
         _ => {
             return Err(TypesError::conversion(format!(
                 "invalid value for bool {}",
-                go_fmt::byte_slice(data)
+                format_args!("{data:?}")
             )));
         }
     };
@@ -360,7 +352,7 @@ fn convert_bool(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Type
         TypeId::FLOAT => ok(Value::Float(if vc { 1.0 } else { 0.0 })),
         TypeId::VFLOAT => ok(Value::VFloat(vec![if vc { 1.0 } else { 0.0 }])),
         TypeId::DECIMAL => ok(Value::Decimal(Decimal::from(i64::from(vc)))),
-        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(go_strconv::format_bool(vc))),
+        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(vc.to_string())),
         _ => Err(cant_convert(from_id, to_id)),
     }
 }
@@ -491,7 +483,7 @@ fn marshal_encoded(val: &Value, from_id: TypeId, to_id: TypeId) -> Result<Val, T
                 return Err(assertion(val, "float64"));
             };
             match to_id {
-                _ if is_str => ok(Value::str(go_strconv::format_float(*vc, b'G', 64))),
+                _ if is_str => ok(Value::str(numbers::format_float(*vc))),
                 TypeId::BINARY => ok(Value::Bytes(vc.to_bits().to_le_bytes().to_vec())),
                 _ => Err(cant_convert(from_id, to_id)),
             }
@@ -511,7 +503,7 @@ fn marshal_encoded(val: &Value, from_id: TypeId, to_id: TypeId) -> Result<Val, T
                 return Err(assertion(val, "bool"));
             };
             match to_id {
-                _ if is_str => ok(Value::str(go_strconv::format_bool(*vc))),
+                _ if is_str => ok(Value::str(vc.to_string())),
                 TypeId::BINARY => ok(Value::Bytes(vec![u8::from(*vc)])),
                 _ => Err(cant_convert(from_id, to_id)),
             }
@@ -601,9 +593,9 @@ pub fn marshal_json(v: &Val) -> Result<Vec<u8>, TypesError> {
         |what: &str| TypesError::conversion(format!("json: unsupported value: {what}"));
     let text = match (v.tid(), v.value()) {
         (TypeId::INT, Some(Value::Int(i))) => i.to_string(),
-        (TypeId::BOOL, Some(Value::Bool(b))) => go_strconv::format_bool(*b).into(),
+        (TypeId::BOOL, Some(Value::Bool(b))) => b.to_string(),
         (TypeId::FLOAT, Some(Value::Float(f))) => {
-            json_float(*f).ok_or_else(|| unsupported(&go_strconv::format_float(*f, b'g', 64)))?
+            json_float(*f).ok_or_else(|| unsupported(non_finite_name(*f)))?
         }
         (TypeId::DATETIME, Some(Value::DateTime(t))) => {
             // Go 1.27's json.Marshal reports the time's range error as a MarshalerError, without the
@@ -619,7 +611,7 @@ pub fn marshal_json(v: &Val) -> Result<Vec<u8>, TypesError> {
         }
         (TypeId::GEO, Some(Value::Geo(g))) => g
             .to_geojson()
-            .ok_or_else(|| unsupported(&go_strconv::format_float(first_non_finite(g), b'g', 64)))?,
+            .ok_or_else(|| unsupported(non_finite_name(first_non_finite(g))))?,
         (TypeId::DECIMAL, Some(Value::Decimal(d))) => d.to_string(),
         (TypeId::STRING | TypeId::DEFAULT, None) => crate::utils::json::encode_string(b""),
         (TypeId::STRING | TypeId::DEFAULT | TypeId::PASSWORD, Some(Value::Str(s))) => {

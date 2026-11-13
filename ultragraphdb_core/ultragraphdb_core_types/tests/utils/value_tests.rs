@@ -112,10 +112,10 @@ fn test_float_array_translation() {
 fn test_float_array_as_string() {
     assert_eq!(
         float_array_as_string(&[0.1, 1.0, -2.5e-7, 3.4e38]),
-        "[0.1,1,-0.00000025,340000000000000000000000000000000000000]"
+        "[0.1,1,-2.5E-7,3.4E38]"
     );
     assert_eq!(float_array_as_string(&[]), "[]");
-    // Go 1.27's FormatFloat(float64(f), 'f', -1, 32) of the special and extreme float32 values.
+    // The special and extreme float32 values: exponent form below 1e-6 and from 1e21.
     assert_eq!(
         float_array_as_string(&[
             f32::NAN,
@@ -126,8 +126,7 @@ fn test_float_array_as_string() {
             f32::MAX,
             16777217.0,
         ]),
-        "[NaN,+Inf,-Inf,-0,0.000000000000000000000000000000000000000000001,\
-         340282350000000000000000000000000000000,16777216]"
+        "[NaN,INF,-INF,-0,1E-45,3.4028235E38,16777216]"
     );
 }
 

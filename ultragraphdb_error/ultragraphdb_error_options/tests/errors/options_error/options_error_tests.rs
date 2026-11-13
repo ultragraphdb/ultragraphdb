@@ -28,7 +28,7 @@ fn test_constructors_build_their_variant() {
 fn test_message_is_the_variants_text() {
     for e in [
         OptionsError::not_allowed("option x is not allowed!".into()),
-        OptionsError::parse("strconv.Atoi: parsing \"x\": invalid syntax".into()),
+        OptionsError::parse("invalid digit found in string".into()),
         OptionsError::invalid("Can't create a vector index for l1"),
         OptionsError::type_mismatch("unable to assign a value of type int to type string".into()),
     ] {

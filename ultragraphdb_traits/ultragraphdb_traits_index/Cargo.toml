@@ -20,7 +20,6 @@ workspace = true
 
 [dependencies]
 ultragraphdb_core_ids = { workspace = true }
-ultragraphdb_common_utils = { workspace = true }
 ultragraphdb_error_options = { workspace = true }
 
 [dev-dependencies]

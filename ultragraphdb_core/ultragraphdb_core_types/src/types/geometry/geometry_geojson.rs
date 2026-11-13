@@ -2,9 +2,8 @@
  * Copyright (c) 2013, Tom Payne. All rights reserved.
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * Ported from go-geom v1.6.1, encoding/geojson/geojson.go. Changed for ultragraphdb: translated to Rust over the
- * port of encoding/json in ultragraphdb_common_utils, with Go 1.27's type errors; Go's JSON layout of the geometry
- * struct and of float64 coordinates; nested geometry collections decoded on a stack rather than by recursion.
+ * Ported from go-geom v1.6.1, encoding/geojson/geojson.go. Changed for ultragraphdb: translated to Rust over
+ * serde_json; nested geometry collections decoded on a stack rather than by recursion.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -19,13 +18,10 @@ use crate::types::geometry_kind::GeometryKind;
 use crate::types::layout::Layout;
 use crate::utils::json::{self, JsonValue};
 use crate::utils::json_float::json_float;
-use ultragraphdb_common_utils::go_strconv;
-use ultragraphdb_error_json::JsonError;
 
 /// Go's `UnmarshalTypeError` of a value at the root of what it is decoded into, its text.
 fn type_error(value: &str, go_type: &str) -> String {
-    JsonError::unmarshal_type(value.into(), go_type.into(), String::new(), String::new())
-        .to_string()
+    json::type_mismatch(value, go_type, "", "")
 }
 
 /// go-geom's `geojson.Geometry`: the type and the raw coordinates or member geometries (`None` when absent or
@@ -72,8 +68,7 @@ impl Decoder {
         } else {
             (self.root, self.path.join("."))
         };
-        let e = JsonError::unmarshal_type(value.into(), go_type.into(), root.into(), field);
-        self.first = Some(e.to_string());
+        self.first = Some(json::type_mismatch(value, go_type, root, &field));
     }
 
     fn finish<T>(self, v: T) -> Result<T, TypesError> {
@@ -93,7 +88,7 @@ impl Decoder {
     fn float(&mut self, v: &JsonValue) -> f64 {
         match v {
             JsonValue::Null => 0.0,
-            JsonValue::Number(n) => match go_strconv::parse_float(n, 64) {
+            JsonValue::Number(n) => match n.parse::<f64>() {
                 Ok(f) => f,
                 Err(_) => {
                     self.error(&format!("number {n}"), "float64");

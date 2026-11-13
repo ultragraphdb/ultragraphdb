@@ -96,11 +96,13 @@ fn test_a_read_at_the_complete_version_goes_ahead_and_one_below_is_refused() -> 
             key: known_key()?
         }
     );
-    // Go's errors.Errorf("readTs: %d less than minTs: %d for key: %q", 4, 5, key): %q quotes each byte as \xNN but
-    // 0x07, \a, written by hand over the key's 57 bytes.
+    // The key is written in quotes with each byte that is no printable ASCII escaped.
     assert_eq!(
         error.to_string(),
-        "readTs: 4 less than minTs: 5 for key: \"\\x10\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x01\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\a\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x01\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x01\\x00\\x00\\x00\\x00\\x00\\x00\""
+        format!(
+            "readTs: 4 less than minTs: 5 for key: \"{}\"",
+            known_key()?.escape_ascii()
+        )
     );
     assert_eq!(
         l.length(4, 0),

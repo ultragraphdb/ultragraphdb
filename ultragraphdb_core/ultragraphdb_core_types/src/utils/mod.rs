@@ -11,6 +11,7 @@ pub(crate) mod go_conv;
 pub(crate) mod go_sort;
 pub(crate) mod json;
 pub(crate) mod json_float;
+pub(crate) mod numbers;
 pub(crate) mod password;
 pub(crate) mod s2;
 pub(crate) mod s2index;

@@ -2,51 +2,64 @@
  * SPDX-FileCopyrightText: © 2017-2026 Istari Digital, Inc.
  * SPDX-License-Identifier: Apache-2.0
  *
- * Ported from Dgraph v25.5.0, tok/options/option_parser.go. Changed for ultragraphdb: translated to Rust over Go's
- * strconv parsers, ultragraphdb_common_utils::go_strconv.
+ * Ported from Dgraph v25.5.0, tok/options/option_parser.go. Changed for ultragraphdb: translated to Rust over the
+ * standard library's number parsers.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_common_utils::go_strconv;
 use ultragraphdb_error_options::OptionsError;
 
 use crate::types::option_value::OptionValue;
 
-/// The option's text did not parse, with Go's `strconv` message.
+/// The option's text did not parse, with the standard library's message.
 fn parse_error(e: &impl ToString) -> OptionsError {
     OptionsError::parse(e.to_string())
 }
 
-/// Dgraph's `IntOptParser`: Go's `strconv.Atoi`.
+/// An option holding a signed integer in decimal.
 pub fn int_opt_parser(v: &str) -> Result<OptionValue, OptionsError> {
-    go_strconv::atoi(v)
+    v.parse::<i64>()
         .map(OptionValue::Int)
         .map_err(|e| parse_error(&e))
 }
 
-/// Dgraph's `UintOptParser`: Go's `strconv.ParseUint(v, 10, 64)`.
+/// An option holding an unsigned integer in decimal.
 pub fn uint_opt_parser(v: &str) -> Result<OptionValue, OptionsError> {
-    go_strconv::parse_uint(v, 10)
+    v.parse::<u64>()
         .map(OptionValue::Uint)
         .map_err(|e| parse_error(&e))
 }
 
-/// Dgraph's `StringOptParser`: the text as it is.
+/// An option holding its text as it is.
 pub fn string_opt_parser(v: &str) -> Result<OptionValue, OptionsError> {
     Ok(OptionValue::Str(v.to_string()))
 }
 
-/// Dgraph's `Float64OptParser`: Go's `strconv.ParseFloat(v, 64)`.
-pub fn float64_opt_parser(v: &str) -> Result<OptionValue, OptionsError> {
-    go_strconv::parse_float(v, 64)
-        .map(OptionValue::Float)
-        .map_err(|e| parse_error(&e))
+/// The text of a float too large for its type, which the standard library reads as an infinity.
+const OUT_OF_RANGE: &str = "number too large to fit in target type";
+
+/// `f`, read from `v`, refused when it is an infinity `v` does not name: digits past the type's range.
+fn in_range(v: &str, f: f64) -> Result<OptionValue, OptionsError> {
+    let named = v
+        .trim_start_matches(['+', '-'])
+        .get(..3)
+        .is_some_and(|start| start.eq_ignore_ascii_case("inf"));
+    if f.is_infinite() && !named {
+        return Err(parse_error(&OUT_OF_RANGE));
+    }
+    Ok(OptionValue::Float(f))
 }
 
-/// Dgraph's `Float32OptParser`: Go's `strconv.ParseFloat(v, 32)`, which still returns a float64, rounded to float32
-/// precision.
-pub fn float32_opt_parser(v: &str) -> Result<OptionValue, OptionsError> {
-    go_strconv::parse_float(v, 32)
-        .map(OptionValue::Float)
+/// An option holding a double.
+pub fn float64_opt_parser(v: &str) -> Result<OptionValue, OptionsError> {
+    v.parse::<f64>()
         .map_err(|e| parse_error(&e))
+        .and_then(|f| in_range(v, f))
+}
+
+/// An option holding a float: the text's nearest `f32`, widened.
+pub fn float32_opt_parser(v: &str) -> Result<OptionValue, OptionsError> {
+    v.parse::<f32>()
+        .map_err(|e| parse_error(&e))
+        .and_then(|f| in_range(v, f64::from(f)))
 }

@@ -6,8 +6,6 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_common_utils::go_strconv;
-
 use crate::s2::gomath;
 use crate::s2::latlng::LatLng;
 use crate::s2::point::Point;
@@ -85,7 +83,7 @@ impl CellId {
             Ok(len @ 0..=16) => len,
             _ => return CellId(0),
         };
-        let Ok(mut n) = go_strconv::parse_uint(s, 16) else {
+        let Ok(mut n) = u64::from_str_radix(s, 16) else {
             return CellId(0);
         };
         if len < 16 {

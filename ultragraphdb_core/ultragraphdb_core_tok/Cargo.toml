@@ -20,7 +20,6 @@ autotests = false
 workspace = true
 
 [dependencies]
-ultragraphdb_common_utils = { workspace = true }
 ultragraphdb_error_options = { workspace = true }
 ultragraphdb_traits_index = { workspace = true }
 ultragraphdb_core_types = { workspace = true }

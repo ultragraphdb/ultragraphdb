@@ -7,6 +7,18 @@ use ultragraphdb_error_options::OptionsErrorEnum;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_index::{AllowedOptions, OptionValue, OptionValuePair, Options};
 
+/// The standard library's message for refusing `text` as a `T`.
+fn refused<T>(text: &str) -> String
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    text.parse::<T>()
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default()
+}
+
 #[test]
 fn test_allowed_options() -> TestResult {
     let mut ao = AllowedOptions::new();
@@ -41,10 +53,7 @@ fn test_allowed_options() -> TestResult {
         .populate_options(&[OptionValuePair::new("i", "x")], &mut opts)
         .err()
         .context("the error of populate_options(..)")?;
-    assert_eq!(
-        populate_err.to_string(),
-        "strconv.Atoi: parsing \"x\": invalid syntax"
-    );
+    assert_eq!(populate_err.to_string(), refused::<i64>("x"));
     let pair = OptionValuePair::new("s", "v");
     assert_eq!((pair.option(), pair.value()), ("s", "v"));
     assert_eq!(ao.parse_pair(&pair)?, OptionValue::Str("v".into()));

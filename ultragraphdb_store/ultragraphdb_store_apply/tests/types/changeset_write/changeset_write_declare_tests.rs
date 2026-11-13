@@ -209,18 +209,22 @@ fn test_vector_options_their_factory_refuses_are_refused() -> TestResult {
     )
     .err()
     .context("the error of apply(..)")?;
-    // maxLevels takes an integer, parsed by Go's strconv.Atoi (Dgraph's `IntOptParser`, tok/options/option_parser.go),
-    // whose error for "x" is `strconv.Atoi: parsing "x": invalid syntax`.
+    // maxLevels takes an integer, and the error is the standard library's for the text it refuses.
+    let not_an_integer = "x"
+        .parse::<i64>()
+        .err()
+        .context("x is no integer")?
+        .to_string();
     assert_eq!(
         refused.0,
         ChangesetErrorEnum::VectorOption {
             factory: "hnsw".into(),
-            error: "strconv.Atoi: parsing \"x\": invalid syntax".into(),
+            error: not_an_integer.clone(),
         }
     );
     assert_eq!(
         refused.to_string(),
-        "IndexFactory: hnsw issues this error: 'strconv.Atoi: parsing \"x\": invalid syntax'"
+        format!("IndexFactory: hnsw issues this error: '{not_an_integer}'")
     );
     // A factory the registry does not know is the catalog's refusal, checked before any option or dimension.
     let unknown = PredicateDeclaration::new(ex("emb"))

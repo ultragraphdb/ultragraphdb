@@ -10,7 +10,6 @@
  */
 
 use crate::errors::types_error::TypesError;
-use ultragraphdb_common_utils::go_strconv;
 
 const PWD_LEN_LIMIT: usize = 6;
 const DEFAULT_COST: u32 = 10;
@@ -79,7 +78,10 @@ pub fn verify_password(
     // checked above holds every part below.
     let n = if h2 == b'$' { 3 } else { 4 };
     let cost_digits = h.get(n..n + 2).ok_or_else(too_short)?;
-    let cost = go_strconv::atoi(cost_digits).map_err(|e| TypesError::password(e.to_string()))?;
+    let cost = std::str::from_utf8(cost_digits)
+        .ok()
+        .and_then(|digits| digits.parse::<i64>().ok())
+        .ok_or_else(|| TypesError::password("crypto/bcrypt: a cost that is no number"))?;
     if !(MIN_COST..=MAX_COST).contains(&cost) {
         return Err(TypesError::password(format!(
             "crypto/bcrypt: cost {cost} is outside allowed inclusive range {MIN_COST}..{MAX_COST}"

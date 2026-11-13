@@ -3,13 +3,28 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_error_num::NumError;
+use std::num::{ParseFloatError, ParseIntError};
+use std::str::ParseBoolError;
 
 use crate::errors::types_error::TypesError;
 
-/// A number Go's `strconv` refused, with its text.
-impl From<NumError> for TypesError {
-    fn from(e: NumError) -> Self {
+/// A text that is no integer.
+impl From<ParseIntError> for TypesError {
+    fn from(e: ParseIntError) -> Self {
+        TypesError::number(e.to_string())
+    }
+}
+
+/// A text that is no float.
+impl From<ParseFloatError> for TypesError {
+    fn from(e: ParseFloatError) -> Self {
+        TypesError::number(e.to_string())
+    }
+}
+
+/// A text that is no boolean.
+impl From<ParseBoolError> for TypesError {
+    fn from(e: ParseBoolError) -> Self {
         TypesError::number(e.to_string())
     }
 }

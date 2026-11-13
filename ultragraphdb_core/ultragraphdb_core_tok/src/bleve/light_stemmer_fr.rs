@@ -6,8 +6,6 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_common_utils::go_unicode;
-
 /// bleve's `stemmer_fr_light` on one term.
 pub(crate) fn stem(term: &str) -> String {
     stem_runes(term.chars().collect()).iter().collect()
@@ -260,7 +258,7 @@ fn norm(mut s: Vec<char>) -> Vec<char> {
         if s.last() == Some(&'e') {
             let _last: Option<char> = s.pop();
         }
-        if matches!(s.as_slice(), [.., a, b] if a == b && go_unicode::is_letter(*b)) {
+        if matches!(s.as_slice(), [.., a, b] if a == b && b.is_alphabetic()) {
             let _last: Option<char> = s.pop();
         }
     }
@@ -275,7 +273,7 @@ fn remove_doubled_letters(s: &mut Vec<char>) {
     let mut ch = first;
     let mut j = 1;
     while let Some(&c) = s.get(j) {
-        if c == ch && go_unicode::is_letter(ch) {
+        if c == ch && ch.is_alphabetic() {
             let _duplicate: char = s.remove(j);
         } else {
             ch = c;

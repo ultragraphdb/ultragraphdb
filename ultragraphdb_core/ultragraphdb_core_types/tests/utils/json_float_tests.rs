@@ -3,9 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The float layout of Go 1.27's `json.Marshal`, jsonwire's `AppendFloat` for a float64, reached through
-//! `marshal_json` of a float and of a geometry's coordinates. Every expected text is the output of a Go 1.27
-//! program marshalling the same float64, whose bits are given beside it where the literal alone is ambiguous.
+//! The JSON layout of a double, reached through `marshal_json` of a float and of a geometry's coordinates: the
+//! shortest digits that read back to it, in full from 1e-6 to below 1e21 and in exponent form outside. Each float's
+//! bits are given beside its text where the literal alone is ambiguous.
 
 use ultragraphdb_core_types::{Geometry, Layout, TypeId, Val, Value, marshal_json};
 use ultragraphdb_tool_bdd::TestResult;
@@ -17,7 +17,7 @@ fn json(f: f64) -> Result<String, String> {
 }
 
 #[test]
-fn a_float_is_laid_out_as_go_1_27_marshals_it() {
+fn a_float_takes_its_shortest_digits() {
     for (bits, want) in [
         // Zero and negative zero.
         (0x0000000000000000_u64, "0"),
@@ -38,14 +38,14 @@ fn a_float_is_laid_out_as_go_1_27_marshals_it() {
         (0x4415af1d78b58c40, "100000000000000000000"),
         (0x444b1ae4d6e2ef4f, "999999999999999900000"),
         (0x441ac53a7e04bcda, "123456789012345680000"),
-        (0x444b1ae4d6e2ef50, "1e+21"),
-        (0xc44b1ae4d6e2ef50, "-1e+21"),
-        (0x444b1ae4d6e2ef51, "1.0000000000000001e+21"),
-        (0x54b249ad2594c37d, "1e+100"),
+        (0x444b1ae4d6e2ef50, "1e21"),
+        (0xc44b1ae4d6e2ef50, "-1e21"),
+        (0x444b1ae4d6e2ef51, "1.0000000000000001e21"),
+        (0x54b249ad2594c37d, "1e100"),
         // The extremes, and float32's largest and smallest as float64s.
-        (0x7fefffffffffffff, "1.7976931348623157e+308"),
-        (0xffefffffffffffff, "-1.7976931348623157e+308"),
-        (0x47efffffe0000000, "3.4028234663852886e+38"),
+        (0x7fefffffffffffff, "1.7976931348623157e308"),
+        (0xffefffffffffffff, "-1.7976931348623157e308"),
+        (0x47efffffe0000000, "3.4028234663852886e38"),
         (0x36a0000000000000, "1.401298464324817e-45"),
         // Ordinary values.
         (0x3ff0000000000000, "1"),
@@ -63,9 +63,9 @@ fn a_float_is_laid_out_as_go_1_27_marshals_it() {
     }
 }
 
-/// Go 1.27's `UnsupportedValueError` for each value JSON has no number for, its text `%v` of the float.
+/// Each value JSON has no number for is refused, the error naming it.
 #[test]
-fn a_non_finite_float_is_refused_with_go_1_27s_text() {
+fn a_non_finite_float_is_refused_by_name() {
     for (f, want) in [
         (f64::NAN, "json: unsupported value: NaN"),
         (f64::INFINITY, "json: unsupported value: +Inf"),

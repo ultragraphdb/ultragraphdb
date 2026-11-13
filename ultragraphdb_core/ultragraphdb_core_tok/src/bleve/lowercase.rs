@@ -10,8 +10,6 @@
 
 use std::borrow::Cow;
 
-use ultragraphdb_common_utils::go_unicode;
-
 /// bleve's `toLowerDeferredCopy` as its comment states it, "exactly like bytes.ToLower()" but for its one intended
 /// difference: every rune by Go's `unicode.ToLower`, and a `Σ` ending the term as `ς` (bleve's test takes `ὈΔΥΣΣ`
 /// to `ὀδυσς`). The term is borrowed when no rune changes.
@@ -22,12 +20,13 @@ use ultragraphdb_common_utils::go_unicode;
 /// (ledger 30). This port does neither.
 pub(crate) fn to_lower(term: &str) -> Cow<'_, str> {
     let lower = |(i, c): (usize, char)| {
-        let l = go_unicode::to_lower(c);
+        // A rune lowercases to one rune: `İ`, the one character whose lowercase form is two, gives its first, `i`.
+        let l = c.to_lowercase().next().unwrap_or(c);
         // Σ is the one rune that lowercases to σ.
-        if l == 0x03C3 && l != u32::from(c) && i + c.len_utf8() == term.len() {
+        if l == 'σ' && l != c && i + c.len_utf8() == term.len() {
             'ς'
         } else {
-            char::from_u32(l).unwrap_or(c)
+            l
         }
     };
     if term.char_indices().all(|ic| lower(ic) == ic.1) {

@@ -13,7 +13,7 @@ use crate::errors::types_error::TypesError;
 use crate::s2::{CellId, LatLng, Loop, Point, RegionCoverer};
 use crate::types::geometry::Geometry;
 use crate::types::geometry_kind::GeometryKind;
-use ultragraphdb_common_utils::go_strconv;
+use crate::utils::numbers;
 
 /// Dgraph's `MinCellLevel`: the largest cells the index uses (about 250 km by 380 km).
 pub const MIN_CELL_LEVEL: i64 = 5;
@@ -90,10 +90,7 @@ fn lat_lng_from_coord(c: &[f64]) -> Result<LatLng, TypesError> {
             Ok(LatLng::from_degrees(*lat, *lng))
         }
         _ => {
-            let coords: Vec<String> = c
-                .iter()
-                .map(|f| go_strconv::format_float(*f, b'g', 64))
-                .collect();
+            let coords: Vec<String> = c.iter().map(|f| numbers::format_float(*f)).collect();
             Err(TypesError::geo(format!(
                 "Invalid coordinates [{}]: a point needs two finite numbers",
                 coords.join(" ")
@@ -107,7 +104,7 @@ fn polygon_debug(p: &Geometry) -> String {
     let floats: Vec<String> = p
         .flat_coords()
         .iter()
-        .map(|f| go_strconv::format_float(*f, b'g', 64))
+        .map(|f| numbers::format_float(*f))
         .collect();
     let ends: Vec<String> = p.ends().iter().map(usize::to_string).collect();
     format!(

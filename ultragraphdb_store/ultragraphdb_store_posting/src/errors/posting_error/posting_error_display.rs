@@ -5,7 +5,6 @@
 
 use std::fmt::{Display, Formatter, Result};
 
-use ultragraphdb_common_utils::go_strconv;
 use ultragraphdb_error_store::go_hex_dump;
 
 use super::{PostingError, PostingErrorEnum};
@@ -21,15 +20,14 @@ impl Display for PostingError {
                 f.write_str("cannot read posting list using multi-part list key")
             }
             PostingErrorEnum::TsTooOld => f.write_str("Transaction is too old"),
-            // list.go: "readTs: %d less than minTs: %d for key: %q".
             PostingErrorEnum::ReadBelowMinTs {
                 read_ts,
                 min_ts,
                 key,
             } => write!(
                 f,
-                "readTs: {read_ts} less than minTs: {min_ts} for key: {}",
-                go_strconv::quote(key)
+                "readTs: {read_ts} less than minTs: {min_ts} for key: \"{}\"",
+                key.escape_ascii()
             ),
             PostingErrorEnum::DeleteBelowMinTs {
                 delete_below_ts,

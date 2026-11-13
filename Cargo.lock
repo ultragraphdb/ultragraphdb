@@ -3343,16 +3343,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ultragraphdb_common_utils"
-version = "0.1.0"
-dependencies = [
- "dashu-int",
- "ultragraphdb_error_json",
- "ultragraphdb_error_num",
- "ultragraphdb_tool_bdd",
-]
-
-[[package]]
 name = "ultragraphdb_common_version"
 version = "0.1.0"
 
@@ -3558,7 +3548,6 @@ dependencies = [
  "serde",
  "sha2",
  "tracing",
- "ultragraphdb_common_utils",
  "ultragraphdb_core_text",
  "ultragraphdb_core_types",
  "ultragraphdb_error_options",
@@ -3579,10 +3568,7 @@ dependencies = [
  "oxsdatatypes",
  "serde",
  "serde_json",
- "ultragraphdb_common_utils",
  "ultragraphdb_core_text",
- "ultragraphdb_error_json",
- "ultragraphdb_error_num",
  "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_collator",
 ]
@@ -3604,15 +3590,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ultragraphdb_error_json"
-version = "0.1.0"
-
-[[package]]
 name = "ultragraphdb_error_log"
-version = "0.1.0"
-
-[[package]]
-name = "ultragraphdb_error_num"
 version = "0.1.0"
 
 [[package]]
@@ -3882,7 +3860,6 @@ dependencies = [
  "futures",
  "loom",
  "tracing",
- "ultragraphdb_common_utils",
  "ultragraphdb_core_algo",
  "ultragraphdb_core_codec",
  "ultragraphdb_core_ids",
@@ -4107,7 +4084,6 @@ dependencies = [
 name = "ultragraphdb_traits_index"
 version = "0.1.0"
 dependencies = [
- "ultragraphdb_common_utils",
  "ultragraphdb_core_ids",
  "ultragraphdb_error_options",
  "ultragraphdb_tool_bdd",

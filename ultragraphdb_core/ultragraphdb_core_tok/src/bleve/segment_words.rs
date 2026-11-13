@@ -8,8 +8,6 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_common_utils::go_utf8;
-
 use crate::tables::segment_tables::{
     S_EOF_TRANS, S_FIRST_FINAL, S_INDEX_OFFSETS, S_INDICIES, S_KEY_OFFSETS, S_RANGE_LENGTHS,
     S_SINGLE_LENGTHS, S_START, S_TRANS_ACTIONS, S_TRANS_KEYS, S_TRANS_TARGS,
@@ -292,7 +290,7 @@ fn finish_token(data: &[u8], finish: Finish, start: usize, mut end: usize) -> Fo
             while last <= end
                 && let Some(rest) = data.get(last..).filter(|rest| !rest.is_empty())
             {
-                last += go_utf8::decode_rune(rest).1;
+                last += first_rune_len(rest);
             }
             end = last - 1;
             SegmentType::None
@@ -308,4 +306,13 @@ fn found(start: usize, end: usize, typ: SegmentType) -> Found {
         advance: end + 1,
         typ,
     }
+}
+
+/// The bytes the first character of `rest` takes: a character's length, or 1 for a byte that begins no UTF-8
+/// character.
+fn first_rune_len(rest: &[u8]) -> usize {
+    rest.utf8_chunks()
+        .next()
+        .and_then(|chunk| chunk.valid().chars().next())
+        .map_or(1, char::len_utf8)
 }

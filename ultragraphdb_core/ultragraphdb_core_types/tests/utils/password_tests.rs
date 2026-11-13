@@ -115,7 +115,7 @@ fn test_verify_password() {
 
 /// golang.org/x/crypto/bcrypt v0.56.0's `CompareHashAndPassword` on malformed hashes of "123456", as Go answers
 /// them: the version byte is only bounded above, any minor version or none is accepted, the cost is read with
-/// `strconv.Atoi` and range-checked, the salt is base64-decoded, and bytes past the 60th are ignored.
+/// a decimal number and range-checked, the salt is base64-decoded, and bytes past the 60th are ignored.
 #[test]
 fn test_verify_password_malformed_hashes() {
     let cases: Vec<(String, String)> = malformed_hashes()
@@ -164,7 +164,7 @@ fn malformed_hashes() -> Vec<(String, &'static str)> {
         ),
         (
             format!("$2a$1x${rest}"),
-            "strconv.Atoi: parsing \"1x\": invalid syntax",
+            "crypto/bcrypt: a cost that is no number",
         ),
         (
             format!("$2a$10$!{}", &rest[1..]),

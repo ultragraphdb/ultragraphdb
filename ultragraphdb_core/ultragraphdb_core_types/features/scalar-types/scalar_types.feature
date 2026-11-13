@@ -49,9 +49,9 @@ Feature: Scalar types
     When the bytes [], [0], [1] and [2] are converted to bool
     Then the results are false, false and true, and [2] fails
 
-  Scenario: Floats format as Go's shortest G form
+  Scenario: Floats format as their shortest digits
     When the float 2.5e-7 is converted to string
-    Then the result is "2.5E-07"
+    Then the result is "2.5E-7"
 
   Scenario: A decimal parses its XSD form
     When "1000", "-0.5", "1.50" and "1e3" are parsed as decimal

@@ -9,6 +9,18 @@ use ultragraphdb_traits_index::{
     uint_opt_parser,
 };
 
+/// The standard library's message for refusing `text` as a `T`.
+fn refused<T>(text: &str) -> String
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    text.parse::<T>()
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default()
+}
+
 #[test]
 fn test_int_opt_parser() -> TestResult {
     assert_eq!(
@@ -20,7 +32,7 @@ fn test_int_opt_parser() -> TestResult {
             .err()
             .context("the error of int_opt_parser(\"9223372036854775808\")")?
             .to_string(),
-        "strconv.Atoi: parsing \"9223372036854775808\": value out of range"
+        refused::<i64>("9223372036854775808")
     );
     assert_eq!(int_opt_parser("+7")?, OptionValue::Int(7));
     assert_eq!(
@@ -28,7 +40,7 @@ fn test_int_opt_parser() -> TestResult {
             .err()
             .context("the error of int_opt_parser(\"-\")")?
             .to_string(),
-        "strconv.Atoi: parsing \"-\": invalid syntax"
+        refused::<i64>("-")
     );
     Ok(())
 }
@@ -44,14 +56,14 @@ fn test_uint_opt_parser() -> TestResult {
             .err()
             .context("the error of uint_opt_parser(\"-1\")")?
             .to_string(),
-        "strconv.ParseUint: parsing \"-1\": invalid syntax"
+        refused::<u64>("-1")
     );
     assert_eq!(
         uint_opt_parser("18446744073709551616")
             .err()
             .context("the error of uint_opt_parser(\"18446744073709551616\")")?
             .to_string(),
-        "strconv.ParseUint: parsing \"18446744073709551616\": value out of range"
+        refused::<u64>("18446744073709551616")
     );
     Ok(())
 }
@@ -65,14 +77,14 @@ fn test_float_and_string_opt_parsers() -> TestResult {
             .err()
             .context("the error of float64_opt_parser(\"x\")")?
             .to_string(),
-        "strconv.ParseFloat: parsing \"x\": invalid syntax"
+        refused::<f64>("x")
     );
     assert_eq!(
         float64_opt_parser("1e999")
             .err()
             .context("the error of float64_opt_parser(\"1e999\")")?
             .to_string(),
-        "strconv.ParseFloat: parsing \"1e999\": value out of range"
+        "number too large to fit in target type"
     );
     assert!(matches!(float64_opt_parser("Inf")?, OptionValue::Float(f) if f.is_infinite()));
     assert_eq!(
@@ -84,7 +96,7 @@ fn test_float_and_string_opt_parsers() -> TestResult {
             .err()
             .context("the error of float32_opt_parser(\"1e39\")")?
             .to_string(),
-        "strconv.ParseFloat: parsing \"1e39\": value out of range"
+        "number too large to fit in target type"
     );
     Ok(())
 }

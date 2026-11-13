@@ -46,9 +46,9 @@ Conversions SHALL accept and refuse the same inputs as Dgraph's `types.Convert`,
 - **WHEN** the bytes `[]`, `[0]`, `[1]` and `[2]` are converted to bool
 - **THEN** the results are false, false and true, and `[2]` fails
 
-#### Scenario: Floats format as Go's shortest G form
+#### Scenario: Floats format as their shortest digits
 - **WHEN** the float 2.5e-7 is converted to string
-- **THEN** the result is `2.5E-07`
+- **THEN** the result is `2.5E-7`
 
 ### Requirement: Decimals are XSD decimals
 A decimal value SHALL be an `xsd:decimal` of up to 38 digits, 18 of them after the point, parsed from the XSD lexical

@@ -13,8 +13,8 @@
 
 use crate::types::type_id::TypeId;
 use crate::types::value::Value;
+use crate::utils::numbers;
 use crate::utils::scalar_types::parse_time;
-use ultragraphdb_common_utils::go_strconv;
 
 /// Dgraph's `BytesAsFloatArray`: little-endian float32 values; trailing bytes short of four are ignored.
 pub fn bytes_as_float_array(encoded: &[u8]) -> Vec<f32> {
@@ -33,10 +33,7 @@ pub fn float_array_as_bytes(v: &[f32]) -> Vec<u8> {
 
 /// Dgraph's `FloatArrayAsString`: `[a,b,...]`, each Go's shortest float32 `'f'` form.
 pub fn float_array_as_string(v: &[f32]) -> String {
-    let items: Vec<String> = v
-        .iter()
-        .map(|f| go_strconv::format_float(f64::from(*f), b'f', 32))
-        .collect();
+    let items: Vec<String> = v.iter().map(|f| numbers::format_f32(*f)).collect();
     format!("[{}]", items.join(","))
 }
 
@@ -93,11 +90,11 @@ pub fn type_for_value(v: &[u8]) -> (TypeId, Option<Value>) {
             return (TypeId::DATETIME, Some(Value::DateTime(t)));
         }
     } else if check_int(b) {
-        if let Ok(i) = go_strconv::parse_int(b, 10) {
+        if let Ok(i) = numbers::parse_int(b) {
             return (TypeId::INT, Some(Value::Int(i)));
         }
     } else if check_float(b)
-        && let Ok(f) = go_strconv::parse_float(b, 64)
+        && let Ok(f) = numbers::parse_float(b)
     {
         return (TypeId::FLOAT, Some(Value::Float(f)));
     }
