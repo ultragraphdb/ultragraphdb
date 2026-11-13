@@ -864,26 +864,57 @@ fn test_convert_float_to_date_time_outside_int64() {
     }
 }
 
+/// A decimal of seconds outside int64 is no datetime; one inside it is, its fraction kept.
 #[test]
-fn test_convert_big_float_to_date_time_outside_int64() {
-    for text in [
-        "1e19",
-        "9223372036854775808",
-        "-9223372036854775809",
-        "+Inf",
-        "-Inf",
-    ] {
+fn test_convert_decimal_to_date_time_outside_int64() {
+    for text in ["9223372036854775808", "-9223372036854775809"] {
         assert_eq!(
-            conv(TypeId::BIGFLOAT, text.into(), TypeId::DATETIME),
+            conv(TypeId::DECIMAL, text.into(), TypeId::DATETIME),
             Err("Float out of int64 range".into()),
             "{text}"
         );
     }
     for text in ["9223372036854775807.5", "-9223372036854775808", "1.5"] {
         assert!(
-            conv(TypeId::BIGFLOAT, text.into(), TypeId::DATETIME).is_ok(),
+            conv(TypeId::DECIMAL, text.into(), TypeId::DATETIME).is_ok(),
             "{text}"
         );
+    }
+}
+
+/// A decimal converts exactly: to and from its text, from an int, truncated toward zero to an int, and to a datetime's
+/// nanoseconds; a text that is no `xsd:decimal`, an exponent included, is refused.
+#[test]
+fn test_convert_decimal() {
+    let ok = |s: &str| Ok::<String, String>(s.into());
+    assert_eq!(
+        conv_text(TypeId::STRING, "1.50", TypeId::DECIMAL),
+        ok("1.5")
+    );
+    assert_eq!(
+        conv_text(TypeId::STRING, " -0.125 ", TypeId::DECIMAL),
+        ok("-0.125")
+    );
+    assert_eq!(conv_text(TypeId::DECIMAL, "2.9", TypeId::INT), ok("2"));
+    assert_eq!(conv_text(TypeId::DECIMAL, "-2.9", TypeId::INT), ok("-2"));
+    assert_eq!(conv_text(TypeId::DECIMAL, "0.0", TypeId::BOOL), ok("false"));
+    assert_eq!(conv_text(TypeId::DECIMAL, "0.1", TypeId::BOOL), ok("true"));
+    for refused in ["1e3", "0x1p3", "Inf", "NaN", "1_000", "", "1,5"] {
+        assert!(
+            conv_text(TypeId::STRING, refused, TypeId::DECIMAL).is_err(),
+            "{refused:?}"
+        );
+    }
+}
+
+/// `text` as a `from` value converted to `to`, then to a string: the string, or the error's text.
+fn conv_text(from: TypeId, text: &str, to: TypeId) -> Result<String, String> {
+    let converted =
+        convert(&Val::bytes(from, text.as_bytes().to_vec()), to).map_err(|e| e.to_string())?;
+    let binary = marshal(&converted, TypeId::STRING).map_err(|e| e.to_string())?;
+    match binary.into_value() {
+        Some(Value::Str(s)) => Ok(s),
+        other => Err(format!("{other:?}")),
     }
 }
 
@@ -1048,10 +1079,6 @@ struct Rendered {
     #[serde(default)]
     str_err: String,
     #[serde(default)]
-    prec: u32,
-    #[serde(default)]
-    p: String,
-    #[serde(default)]
     salted: bool,
     #[serde(default)]
     panic: String,
@@ -1085,7 +1112,6 @@ fn variant_of(go_type: &str) -> &'static str {
         "float64" => "Float",
         "bool" => "Bool",
         "time.Time" => "DateTime",
-        "big.Float" | "*big.Float" => "BigFloat",
         "[]float32" => "VFloat",
         "<nil>" => "nil",
         t => {
@@ -1106,7 +1132,7 @@ fn variant(v: Option<&Value>) -> &'static str {
         Some(Value::DateTime(_)) => "DateTime",
         Some(Value::Geo(_)) => "Geo",
         Some(Value::Uid(_)) => "Uid",
-        Some(Value::BigFloat(_)) => "BigFloat",
+        Some(Value::Decimal(_)) => "Decimal",
         Some(Value::VFloat(_)) => "VFloat",
     }
 }
@@ -1125,175 +1151,12 @@ fn marshal_bytes(v: &Val, to: TypeId) -> Result<Vec<u8>, String> {
 enum Expected {
     /// The conversion fails with this text.
     Err(&'static str),
-    /// The conversion succeeds, and the value marshals to binary and to string as these texts.
-    Marshals {
-        bin: &'static str,
-        str: &'static str,
-    },
 }
 
 /// The golden conversions on which the port differs from Go: the case, as `from -> to of input`, the ledger entry of
 /// `openspec/notes/dgraph-bugs-found-in-port.md` (`None` where Go panics, which the port does not), and the port's
 /// result.
 const DEVIATIONS: &[(&str, Option<u32>, Expected)] = &[
-    // Go panics on SetFloat64(NaN); the port returns the panic text as its error.
-    (
-        "3 -> 11 of 010000000000f87f",
-        None,
-        Expected::Err("Float.SetFloat64(NaN)"),
-    ),
-    // Go converts to a *big.Float and then panics asserting a big.Float in Marshal; the port marshals the value.
-    (
-        "4 -> 11 of 00",
-        None,
-        Expected::Marshals { bin: "0", str: "0" },
-    ),
-    (
-        "4 -> 11 of 01",
-        None,
-        Expected::Marshals { bin: "1", str: "1" },
-    ),
-    (
-        "4 -> 11 of 0105",
-        None,
-        Expected::Marshals { bin: "1", str: "1" },
-    ),
-    (
-        "5 -> 11 of 01000000000000000000000000ffff",
-        None,
-        Expected::Marshals {
-            bin: "-6.7953645788713455e+09",
-            str: "-6795364579",
-        },
-    ),
-    (
-        "5 -> 11 of 010000000ebb4b37e500000000ffff",
-        None,
-        Expected::Marshals {
-            bin: "1.136214245e+09",
-            str: "1136214245",
-        },
-    ),
-    (
-        "5 -> 11 of 010000000ece17b88000000000ffff",
-        None,
-        Expected::Marshals {
-            bin: "1.4516064e+09",
-            str: "1451606400",
-        },
-    ),
-    (
-        "5 -> 11 of 010000000ec28be770000f4240ffff",
-        None,
-        Expected::Marshals {
-            bin: "1.257894000001e+09",
-            str: "1257894000",
-        },
-    ),
-    (
-        "5 -> 11 of 010000000e774eac70000f4240ffff",
-        None,
-        Expected::Marshals {
-            bin: "-4.409999999e+06",
-            str: "-4409999.999",
-        },
-    ),
-    (
-        "5 -> 11 of 010000000df76694f000000000ffff",
-        None,
-        Expected::Marshals {
-            bin: "-2.1503268e+09",
-            str: "-2150326800",
-        },
-    ),
-    (
-        "5 -> 11 of 010000000ed2a0ba821dcd6500fe98",
-        None,
-        Expected::Marshals {
-            bin: "1.5276942105e+09",
-            str: "1527694210",
-        },
-    ),
-    (
-        "5 -> 11 of 010000000ed29cbaf100000000059f",
-        None,
-        Expected::Marshals {
-            bin: "1.527432177e+09",
-            str: "1527432177",
-        },
-    ),
-    (
-        "5 -> 11 of 020000000ed29dbece075bcd15014a0f",
-        None,
-        Expected::Marshals {
-            bin: "1.5274987021234567e+09",
-            str: "1527498702",
-        },
-    ),
-    (
-        "5 -> 11 of 010000000ed29e0c35000000000000",
-        None,
-        Expected::Marshals {
-            bin: "1.527518517e+09",
-            str: "1527518517",
-        },
-    ),
-    (
-        "5 -> 11 of 010000000ed29caca50000000005dc",
-        None,
-        Expected::Marshals {
-            bin: "1.527428517e+09",
-            str: "1527428517",
-        },
-    ),
-    (
-        "5 -> 11 of 01000000497786387f3b9ac9ffffff",
-        None,
-        Expected::Marshals {
-            bin: "-4.8521162319337225e+09",
-            str: "-4852116232",
-        },
-    ),
-    (
-        "5 -> 11 of 01000000497786388000000000ffff",
-        None,
-        Expected::Marshals {
-            bin: "-4.8521162319337225e+09",
-            str: "-4852116232",
-        },
-    ),
-    (
-        "5 -> 11 of 01fffffffffc3c478000000000ffff",
-        None,
-        Expected::Marshals {
-            bin: "-6.8585229788713455e+09",
-            str: "-6858522979",
-        },
-    ),
-    (
-        "5 -> 11 of 01000000109d53740432f2d800ffff",
-        None,
-        Expected::Marshals {
-            bin: "-9.223372036854776e+09",
-            str: "-9223372037",
-        },
-    ),
-    (
-        "5 -> 11 of 010000000c51d079fb08a7f1ffffff",
-        None,
-        Expected::Marshals {
-            bin: "9.223372036854776e+09",
-            str: "9223372037",
-        },
-    ),
-    (
-        "5 -> 11 of 010000000eb04dabc000000007ffff",
-        None,
-        Expected::Marshals {
-            bin: "9.518256e+08",
-            str: "951825600",
-        },
-    ),
     // Go converts a float outside int64 as its platform does; the port refuses it.
     (
         "3 -> 5 of 408cb5781daf1544",
@@ -1450,41 +1313,6 @@ const DEVIATIONS: &[(&str, Option<u32>, Expected)] = &[
         Some(10),
         Expected::Err("Float out of int64 range"),
     ),
-    (
-        "11 -> 5 of 31653231",
-        Some(10),
-        Expected::Err("Float out of int64 range"),
-    ),
-    (
-        "11 -> 5 of 3132333435363738393031323334353637383930313233343536373839302e313233",
-        Some(10),
-        Expected::Err("Float out of int64 range"),
-    ),
-    (
-        "11 -> 5 of 392e33653138",
-        Some(10),
-        Expected::Err("Float out of int64 range"),
-    ),
-    (
-        "11 -> 5 of 2d392e33653138",
-        Some(10),
-        Expected::Err("Float out of int64 range"),
-    ),
-    (
-        "11 -> 5 of 2b496e66",
-        Some(10),
-        Expected::Err("Float out of int64 range"),
-    ),
-    (
-        "11 -> 5 of 2d496e66",
-        Some(10),
-        Expected::Err("Float out of int64 range"),
-    ),
-    (
-        "11 -> 5 of 3165343030",
-        Some(10),
-        Expected::Err("Float out of int64 range"),
-    ),
 ];
 
 /// The golden conversions whose Go string holds bytes that are not UTF-8: a string value holds valid UTF-8, so the
@@ -1541,17 +1369,6 @@ fn check_rendered(
             Err(format!("{ctx}: want nil, got {:?}", out.value()))
         };
     }
-    if let Some(Value::BigFloat(b)) = out.value()
-        && (b.prec() != want.prec || b.text_p() != want.p)
-    {
-        return Err(format!(
-            "{ctx}: bigfloat {} at {}, Go {} at {}",
-            b.text_p(),
-            b.prec(),
-            want.p,
-            want.prec
-        ));
-    }
     if want.salted {
         return check_salted(c, input_plain, out, want, &ctx);
     }
@@ -1595,22 +1412,12 @@ fn check_marshalled(
     let bin = marshal_bytes(out, TypeId::BINARY);
     let st = marshal_bytes(out, TypeId::STRING);
     if !want.panic.is_empty() {
-        // Go panics in Marshal; the port marshals the value.
-        let Some(Expected::Marshals { bin: b, str: s }) = deviation else {
-            return Err(format!(
-                "{ctx}: Go panics ({}), no deviation listed",
-                want.panic
-            ));
-        };
-        return if bin.as_deref() == Ok(b.as_bytes()) && st.as_deref() == Ok(s.as_bytes()) {
-            Ok(Outcome::Deviation)
-        } else {
-            Err(format!(
-                "{ctx}: binary {:?} and string {:?}, listed {b:?} and {s:?}",
-                bin.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
-                st.map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-            ))
-        };
+        // Go panics in Marshal, on a case no deviation speaks for.
+        let _listed: Option<&Expected> = deviation;
+        return Err(format!(
+            "{ctx}: Go panics ({}), no deviation listed",
+            want.panic
+        ));
     }
     if deviation.is_some() {
         return Err(format!(
@@ -1647,13 +1454,20 @@ fn check_marshalled(
     }
 }
 
+/// Whether `c` converts from or to Dgraph's type 11, a big float: the decimal that took its number has tests of its
+/// own.
+fn replaced(c: &ConvCase) -> bool {
+    let decimal = TypeId::DECIMAL.enum_value();
+    c.from == decimal || c.to == decimal
+}
+
 #[test]
 fn test_golden_conversion_matrix() -> TestResult {
     let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/types_convert.json");
     let golden = ultragraphdb_tool_bdd::load_golden::<ConvCase>(&path)?;
     let mut failures = Vec::new();
     let (mut deviations, mut not_utf8_cases) = (0, 0);
-    for c in golden.cases() {
+    for c in golden.cases().iter().filter(|c| !replaced(c)) {
         let (input, plain) = match c.input.strip_prefix("string:") {
             Some(v) => (
                 Val::new(TypeId::new(c.from), Value::str(v)),
@@ -1722,7 +1536,8 @@ fn test_golden_conversion_matrix() -> TestResult {
 
 #[test]
 fn test_marshal_json() -> TestResult {
-    use ultragraphdb_core_types::{BigFloat, marshal_json};
+    use oxsdatatypes::Decimal;
+    use ultragraphdb_core_types::marshal_json;
     let j = |v: Val| -> TestResult<String> { Ok(String::from_utf8(marshal_json(&v)?)?) };
     assert_eq!(j(Val::new(TypeId::INT, Value::Int(-3)))?, "-3");
     assert_eq!(j(Val::new(TypeId::FLOAT, Value::Float(1e21)))?, "1e+21");
@@ -1740,9 +1555,8 @@ fn test_marshal_json() -> TestResult {
         ))?,
         r#""2006-01-02T15:04:05Z""#
     );
-    let b =
-        BigFloat::unmarshal_text("1.5", 200).context("BigFloat::unmarshal_text(\"1.5\", 200)")?;
-    assert_eq!(j(Val::new(TypeId::BIGFLOAT, Value::BigFloat(b)))?, "1.5");
+    let d = "1.5".parse::<Decimal>().ok().context("a decimal")?;
+    assert_eq!(j(Val::new(TypeId::DECIMAL, Value::Decimal(d)))?, "1.5");
     let p = Geometry::point(Layout::XY, &[1.0, 2.0])?;
     assert_eq!(
         j(Val::new(TypeId::GEO, Value::Geo(p)))?,
@@ -1803,8 +1617,8 @@ fn test_marshal_json_nil() {
         (TypeId::STRING, Ok(r#""""#)),
         (TypeId::OBJECT, Err("invalid type for MarshalJSON: 10")),
         (
-            TypeId::BIGFLOAT,
-            Err("interface conversion: interface {} is nil, not big.Float"),
+            TypeId::DECIMAL,
+            Err("interface conversion: interface {} is nil, not decimal"),
         ),
         (TypeId::VFLOAT, Err("invalid type for MarshalJSON: 12")),
         (TypeId::new(13), Err("invalid type for MarshalJSON: 13")),
@@ -1825,10 +1639,10 @@ fn test_marshal_json_nil() {
 }
 
 /// One value of each Go type the port's `Value` stands for, as Go's `Val.Value` holds it: `[]uint8`, `string`,
-/// `int64`, `float64`, `bool`, `time.Time`, a pointer to each of go-geom's geometry types, `uint64`, `big.Float` and
+/// `int64`, `float64`, `bool`, `time.Time`, a pointer to each of go-geom's geometry types, `uint64`, `decimal` and
 /// `[]float32`.
 fn marshal_json_values() -> TestResult<Vec<(&'static str, Value)>> {
-    use ultragraphdb_core_types::BigFloat;
+    use oxsdatatypes::Decimal;
     let ring = || {
         vec![
             vec![0.0, 0.0],
@@ -1876,11 +1690,8 @@ fn marshal_json_values() -> TestResult<Vec<(&'static str, Value)>> {
         ),
         ("Uid", Value::Uid(7)),
         (
-            "BigFloat",
-            Value::BigFloat(
-                BigFloat::unmarshal_text("1.5", 200)
-                    .context("BigFloat::unmarshal_text(\"1.5\", 200)")?,
-            ),
+            "Decimal",
+            Value::Decimal("1.5".parse::<Decimal>().ok().context("a decimal")?),
         ),
         ("VFloat", Value::VFloat(vec![1.0, 2.0])),
     ])
@@ -1901,7 +1712,7 @@ fn test_marshal_json_mismatched_value() -> TestResult {
         mismatched_bool_datetime(),
         mismatched_geo_uid(),
         mismatched_password_string(),
-        mismatched_object_bigfloat(),
+        mismatched_object_decimal(),
         mismatched_vfloat_unknown(),
     ]
     .concat();
@@ -1946,7 +1757,7 @@ fn mismatched_default_binary() -> Vec<MismatchCase> {
                 Err("interface conversion: interface {} is *geom.MultiPolygon, not string"),
                 Err("interface conversion: interface {} is *geom.GeometryCollection, not string"),
                 Err("interface conversion: interface {} is uint64, not string"),
-                Err("interface conversion: interface {} is big.Float, not string"),
+                Err("interface conversion: interface {} is decimal, not string"),
                 Err("interface conversion: interface {} is []float32, not string"),
             ],
         ),
@@ -1993,7 +1804,7 @@ fn mismatched_int_float() -> Vec<MismatchCase> {
                 Err("interface conversion: interface {} is *geom.MultiPolygon, not int64"),
                 Err("interface conversion: interface {} is *geom.GeometryCollection, not int64"),
                 Err("interface conversion: interface {} is uint64, not int64"),
-                Err("interface conversion: interface {} is big.Float, not int64"),
+                Err("interface conversion: interface {} is decimal, not int64"),
                 Err("interface conversion: interface {} is []float32, not int64"),
             ],
         ),
@@ -2014,7 +1825,7 @@ fn mismatched_int_float() -> Vec<MismatchCase> {
                 Err("interface conversion: interface {} is *geom.MultiPolygon, not float64"),
                 Err("interface conversion: interface {} is *geom.GeometryCollection, not float64"),
                 Err("interface conversion: interface {} is uint64, not float64"),
-                Err("interface conversion: interface {} is big.Float, not float64"),
+                Err("interface conversion: interface {} is decimal, not float64"),
                 Err("interface conversion: interface {} is []float32, not float64"),
             ],
         ),
@@ -2040,7 +1851,7 @@ fn mismatched_bool_datetime() -> Vec<MismatchCase> {
                 Err("interface conversion: interface {} is *geom.MultiPolygon, not bool"),
                 Err("interface conversion: interface {} is *geom.GeometryCollection, not bool"),
                 Err("interface conversion: interface {} is uint64, not bool"),
-                Err("interface conversion: interface {} is big.Float, not bool"),
+                Err("interface conversion: interface {} is decimal, not bool"),
                 Err("interface conversion: interface {} is []float32, not bool"),
             ],
         ),
@@ -2063,7 +1874,7 @@ fn mismatched_bool_datetime() -> Vec<MismatchCase> {
                     "interface conversion: interface {} is *geom.GeometryCollection, not time.Time",
                 ),
                 Err("interface conversion: interface {} is uint64, not time.Time"),
-                Err("interface conversion: interface {} is big.Float, not time.Time"),
+                Err("interface conversion: interface {} is decimal, not time.Time"),
                 Err("interface conversion: interface {} is []float32, not time.Time"),
             ],
         ),
@@ -2091,7 +1902,7 @@ fn mismatched_geo_uid() -> Vec<MismatchCase> {
                     r#"{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[1,2]}]}"#,
                 ),
                 Err("interface conversion: uint64 is not geom.T: missing method Bounds"),
-                Err("interface conversion: big.Float is not geom.T: missing method Bounds"),
+                Err("interface conversion: decimal is not geom.T: missing method Bounds"),
                 Err("interface conversion: []float32 is not geom.T: missing method Bounds"),
             ],
         ),
@@ -2138,7 +1949,7 @@ fn mismatched_password_string() -> Vec<MismatchCase> {
                 Err("interface conversion: interface {} is *geom.MultiPolygon, not string"),
                 Err("interface conversion: interface {} is *geom.GeometryCollection, not string"),
                 Err("interface conversion: interface {} is uint64, not string"),
-                Err("interface conversion: interface {} is big.Float, not string"),
+                Err("interface conversion: interface {} is decimal, not string"),
                 Err("interface conversion: interface {} is []float32, not string"),
             ],
         ),
@@ -2159,14 +1970,14 @@ fn mismatched_password_string() -> Vec<MismatchCase> {
                 Err("interface conversion: interface {} is *geom.MultiPolygon, not string"),
                 Err("interface conversion: interface {} is *geom.GeometryCollection, not string"),
                 Err("interface conversion: interface {} is uint64, not string"),
-                Err("interface conversion: interface {} is big.Float, not string"),
+                Err("interface conversion: interface {} is decimal, not string"),
                 Err("interface conversion: interface {} is []float32, not string"),
             ],
         ),
     ]
 }
 
-fn mismatched_object_bigfloat() -> Vec<MismatchCase> {
+fn mismatched_object_decimal() -> Vec<MismatchCase> {
     vec![
         (
             TypeId::OBJECT,
@@ -2190,26 +2001,24 @@ fn mismatched_object_bigfloat() -> Vec<MismatchCase> {
             ],
         ),
         (
-            TypeId::BIGFLOAT,
+            TypeId::DECIMAL,
             [
-                Err("interface conversion: interface {} is []uint8, not big.Float"),
-                Err("interface conversion: interface {} is string, not big.Float"),
-                Err("interface conversion: interface {} is int64, not big.Float"),
-                Err("interface conversion: interface {} is float64, not big.Float"),
-                Err("interface conversion: interface {} is bool, not big.Float"),
-                Err("interface conversion: interface {} is time.Time, not big.Float"),
-                Err("interface conversion: interface {} is *geom.Point, not big.Float"),
-                Err("interface conversion: interface {} is *geom.LineString, not big.Float"),
-                Err("interface conversion: interface {} is *geom.Polygon, not big.Float"),
-                Err("interface conversion: interface {} is *geom.MultiPoint, not big.Float"),
-                Err("interface conversion: interface {} is *geom.MultiLineString, not big.Float"),
-                Err("interface conversion: interface {} is *geom.MultiPolygon, not big.Float"),
-                Err(
-                    "interface conversion: interface {} is *geom.GeometryCollection, not big.Float",
-                ),
-                Err("interface conversion: interface {} is uint64, not big.Float"),
+                Err("interface conversion: interface {} is []uint8, not decimal"),
+                Err("interface conversion: interface {} is string, not decimal"),
+                Err("interface conversion: interface {} is int64, not decimal"),
+                Err("interface conversion: interface {} is float64, not decimal"),
+                Err("interface conversion: interface {} is bool, not decimal"),
+                Err("interface conversion: interface {} is time.Time, not decimal"),
+                Err("interface conversion: interface {} is *geom.Point, not decimal"),
+                Err("interface conversion: interface {} is *geom.LineString, not decimal"),
+                Err("interface conversion: interface {} is *geom.Polygon, not decimal"),
+                Err("interface conversion: interface {} is *geom.MultiPoint, not decimal"),
+                Err("interface conversion: interface {} is *geom.MultiLineString, not decimal"),
+                Err("interface conversion: interface {} is *geom.MultiPolygon, not decimal"),
+                Err("interface conversion: interface {} is *geom.GeometryCollection, not decimal"),
+                Err("interface conversion: interface {} is uint64, not decimal"),
                 Ok("1.5"),
-                Err("interface conversion: interface {} is []float32, not big.Float"),
+                Err("interface conversion: interface {} is []float32, not decimal"),
             ],
         ),
     ]
@@ -2569,7 +2378,7 @@ fn test_parse_vfloat() {
 }
 
 /// Go v25.5.0's `Val.MarshalJSON`, as Go 1.27 writes it: `encoding/json`'s float layout and escapes, a time's
-/// RFC 3339 form and its range error, a bigfloat's `MarshalText`, and the type identifier of every type it refuses.
+/// RFC 3339 form and its range error, a decimal's text, and the type identifier of every type it refuses.
 #[test]
 fn test_marshal_json_go_texts() -> TestResult {
     use ultragraphdb_core_types::marshal_json;
@@ -2581,7 +2390,7 @@ fn test_marshal_json_go_texts() -> TestResult {
     let cases: Vec<TextCase> = [
         number_and_year_texts(),
         zone_and_string_texts(),
-        bool_bigfloat_and_refused_texts()?,
+        bool_decimal_and_refused_texts()?,
     ]
     .concat();
     let failures: Vec<String> = cases
@@ -2687,18 +2496,18 @@ fn zone_and_string_texts() -> Vec<TextCase> {
     ]
 }
 
-/// A bool, bigfloats, and the types MarshalJSON refuses.
-fn bool_bigfloat_and_refused_texts() -> TestResult<Vec<TextCase>> {
-    use ultragraphdb_core_types::BigFloat;
+/// A bool, decimals, and the types MarshalJSON refuses.
+fn bool_decimal_and_refused_texts() -> TestResult<Vec<TextCase>> {
+    use oxsdatatypes::Decimal;
     let big = |s: &str| -> TestResult<Val> {
         Ok(Val::new(
-            TypeId::BIGFLOAT,
-            Value::BigFloat(BigFloat::unmarshal_text(s, 200).context("a big float")?),
+            TypeId::DECIMAL,
+            Value::Decimal(s.parse::<Decimal>().ok().context("a decimal")?),
         ))
     };
     Ok(vec![
         (Val::new(TypeId::BOOL, Value::Bool(false)), Ok("false")),
-        (big("1e100")?, Ok("1e+100")),
+        (big("100.50")?, Ok("100.5")),
         (big("-0.125")?, Ok("-0.125")),
         (
             Val::nil(TypeId::UID),

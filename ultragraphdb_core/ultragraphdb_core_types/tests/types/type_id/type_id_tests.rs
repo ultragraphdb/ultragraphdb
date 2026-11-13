@@ -20,7 +20,7 @@ const IDS: [(TypeId, i32, &str); 14] = [
     (TypeId::PASSWORD, 8, "password"),
     (TypeId::STRING, 9, "string"),
     (TypeId::OBJECT, 10, ""),
-    (TypeId::BIGFLOAT, 11, "bigfloat"),
+    (TypeId::DECIMAL, 11, "decimal"),
     (TypeId::VFLOAT, 12, "float32vector"),
     (TypeId::UNDEFINED, 100, ""),
 ];
@@ -54,7 +54,7 @@ fn test_type_for_name() {
         ("uid", 7),
         ("string", 9),
         ("password", 8),
-        ("bigfloat", 11),
+        ("decimal", 11),
         ("float32vector", 12),
     ];
     let names: Vec<(&str, i32)> = TYPE_NAMES

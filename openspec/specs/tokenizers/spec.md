@@ -7,7 +7,7 @@ the tokenizer registry, producing the tokens Dgraph's indexes hold.
 ### Requirement: Tokenizer identifiers
 Each index token SHALL start with its tokenizer's identifier byte, equal to Dgraph's: term `0x01`, exact `0x02`, exact
 with a language `0x03`, year `0x04`, geo `0x05`, int `0x06`, float `0x07`, fulltext `0x08`, bool `0x09`, trigram `0x0A`,
-hash `0x0B`, sha256 `0x0C`, bigfloat `0x0D`, ngram `0x0F`, month `0x41`, day `0x42`, hour `0x43`. The identifier
+hash `0x0B`, sha256 `0x0C`, decimal `0x0D`, ngram `0x0F`, month `0x41`, day `0x42`, hour `0x43`. The identifier
 `0x0E` SHALL name the vector index factory, whose one token for any value is `float`.
 
 #### Scenario: Every tokenizer's tokens match the golden vectors
@@ -15,7 +15,7 @@ hash `0x0B`, sha256 `0x0C`, bigfloat `0x0D`, ngram `0x0F`, month `0x41`, day `0x
 - **THEN** every token, identifier byte included, equals Dgraph's
 
 ### Requirement: Sortable tokens preserve order
-Int tokens, and float and bigfloat tokens truncated toward zero to int64, SHALL be a sign byte (0 for negative, 1
+Int tokens, and float and decimal tokens truncated toward zero to int64, SHALL be a sign byte (0 for negative, 1
 otherwise) followed by the int64 as u64 big-endian, so that byte order is non-decreasing in value; bool tokens SHALL
 be the int token of 0 or 1; year, month, day and hour tokens SHALL be big-endian u16 fields in UTC.
 

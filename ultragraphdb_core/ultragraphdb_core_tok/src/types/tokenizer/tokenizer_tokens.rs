@@ -11,7 +11,7 @@
 use std::collections::HashSet;
 
 use sha2::{Digest, Sha256};
-use ultragraphdb_core_types::{DateTime, Value, index_geo_tokens};
+use ultragraphdb_core_types::{DateTime, Value, decimal_trunc_i64, index_geo_tokens};
 
 use crate::errors::tok_error::TokError;
 use crate::types::analysis_token::AnalysisToken;
@@ -35,11 +35,11 @@ impl Tokenizer {
     /// A string value is valid UTF-8; the exact, hash, trigram and sha256 tokenizers read its bytes, as Dgraph's do.
     pub fn tokens(&self, v: &Value) -> Result<Vec<Vec<u8>>, TokError> {
         match self.kind() {
-            Kind::BigFloat => {
-                let Value::BigFloat(b) = v else {
-                    return Err(wrong(v, "big.Float"));
+            Kind::Decimal => {
+                let Value::Decimal(d) = v else {
+                    return Err(wrong(v, "decimal"));
                 };
-                Ok(vec![encode_int(b.to_i64())])
+                Ok(vec![encode_int(decimal_trunc_i64(*d))])
             }
             Kind::Geo => geo_tokens(v),
             Kind::Int => {

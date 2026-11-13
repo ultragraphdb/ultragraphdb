@@ -49,7 +49,7 @@ fn golden() -> TestResult<Vec<TokensCase>> {
     Ok(ultragraphdb_tool_bdd::load_golden::<TokensCase>(&path)?
         .cases()
         .iter()
-        .filter(|c| c.tokenizer != "exact" || c.lang.is_empty())
+        .filter(|c| (c.tokenizer != "exact" || c.lang.is_empty()) && c.tokenizer != "bigfloat")
         .cloned()
         .collect())
 }
@@ -93,7 +93,7 @@ fn value(c: &TokensCase) -> TestResult<Value> {
         "float" => Value::Float(f64::from_bits(u64::from_str_radix(&c.input, 16)?)),
         "bool" => Value::Bool(c.input == "true"),
         "vfloat" => Value::VFloat(vec![1.0, 2.0, 3.0]),
-        "bigfloat" => from_text(TypeId::BIGFLOAT)?,
+        "decimal" => from_text(TypeId::DECIMAL)?,
         "datetime" => from_text(TypeId::DATETIME)?,
         _ => from_text(TypeId::GEO)?,
     })

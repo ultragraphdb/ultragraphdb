@@ -7,7 +7,8 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use crate::types::big_float::BigFloat;
+use oxsdatatypes::Decimal;
+
 use crate::types::date_time::DateTime;
 use crate::types::geometry::Geometry;
 
@@ -34,7 +35,7 @@ pub enum Value {
     /// `uint64`.
     Uid(u64),
     /// `big.Float`.
-    BigFloat(BigFloat),
+    Decimal(Decimal),
     /// `[]float32`.
     VFloat(Vec<f32>),
 }
@@ -56,7 +57,7 @@ impl Value {
             Value::DateTime(_) => "time.Time",
             Value::Geo(g) => g.kind().go_type(),
             Value::Uid(_) => "uint64",
-            Value::BigFloat(_) => "big.Float",
+            Value::Decimal(_) => "decimal",
             Value::VFloat(_) => "[]float32",
         }
     }

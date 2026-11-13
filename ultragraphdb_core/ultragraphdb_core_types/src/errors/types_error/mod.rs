@@ -26,8 +26,8 @@ pub enum TypesErrorEnum {
     Number(String),
     /// Go's `time` package refused a text or binary datetime.
     Time(String),
-    /// Go's `math/big` refused a big-float text.
-    BigFloat(String),
+    /// A text is no `xsd:decimal`, or a value lies outside a decimal's range.
+    Decimal(String),
     /// A geometry could not be decoded, encoded, indexed or queried.
     Geo(String),
     /// A password was too short or did not match its hash.
@@ -47,7 +47,7 @@ impl TypesError {
             TypesErrorEnum::Conversion(m)
             | TypesErrorEnum::Number(m)
             | TypesErrorEnum::Time(m)
-            | TypesErrorEnum::BigFloat(m)
+            | TypesErrorEnum::Decimal(m)
             | TypesErrorEnum::Geo(m)
             | TypesErrorEnum::Password(m)
             | TypesErrorEnum::Compare(m) => m,
@@ -61,7 +61,7 @@ impl TypesError {
             TypesErrorEnum::Conversion(_) => TypesErrorEnum::Conversion(msg),
             TypesErrorEnum::Number(_) => TypesErrorEnum::Number(msg),
             TypesErrorEnum::Time(_) => TypesErrorEnum::Time(msg),
-            TypesErrorEnum::BigFloat(_) => TypesErrorEnum::BigFloat(msg),
+            TypesErrorEnum::Decimal(_) => TypesErrorEnum::Decimal(msg),
             TypesErrorEnum::Geo(_) => TypesErrorEnum::Geo(msg),
             TypesErrorEnum::Password(_) => TypesErrorEnum::Password(msg),
             TypesErrorEnum::Compare(_) => TypesErrorEnum::Compare(msg),
@@ -83,9 +83,9 @@ impl TypesError {
         Self(TypesErrorEnum::Time(msg.into()))
     }
 
-    /// A [`TypesErrorEnum::BigFloat`] error with its message.
-    pub fn big_float(msg: impl Into<String>) -> Self {
-        Self(TypesErrorEnum::BigFloat(msg.into()))
+    /// A [`TypesErrorEnum::Decimal`] error with its message.
+    pub fn decimal(msg: impl Into<String>) -> Self {
+        Self(TypesErrorEnum::Decimal(msg.into()))
     }
 
     /// A [`TypesErrorEnum::Geo`] error with its message.

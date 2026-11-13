@@ -8,8 +8,8 @@
 use cucumber::{World, then, when};
 use serde::Deserialize;
 use ultragraphdb_core_types::{
-    BIG_FLOAT_PRECISION, BigFloat, DateTime, TextCollator, TypeId, Val, Value, convert, encrypt,
-    marshal, parse_time, sort, type_for_value, verify_password,
+    DateTime, TextCollator, TypeId, Val, Value, convert, encrypt, marshal, parse_time, sort,
+    type_for_value, verify_password,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -87,7 +87,9 @@ fn encodings() -> TestResult<Vec<ConvCase>> {
     Ok(golden::<ConvCase>("types_convert")?
         .into_iter()
         .filter(|c| {
-            c.from != TypeId::BINARY.enum_value()
+            c.from != TypeId::DECIMAL.enum_value()
+                && c.to != TypeId::DECIMAL.enum_value()
+                && c.from != TypeId::BINARY.enum_value()
                 && c.to == TypeId::BINARY.enum_value()
                 && !c.input.starts_with("string:")
                 && c.out
@@ -100,10 +102,10 @@ fn encodings() -> TestResult<Vec<ConvCase>> {
 // ---------- Type identifiers ----------
 
 #[when(
-    expr = "the names \"int\", \"datetime\", \"uid\", \"bigfloat\" and \"float32vector\" are looked up"
+    expr = "the names \"int\", \"datetime\", \"uid\", \"decimal\" and \"float32vector\" are looked up"
 )]
 fn look_up_names(w: &mut Steps) {
-    w.ids = ["int", "datetime", "uid", "bigfloat", "float32vector"]
+    w.ids = ["int", "datetime", "uid", "decimal", "float32vector"]
         .iter()
         .map(|n| TypeId::for_name(n))
         .collect();
@@ -228,7 +230,7 @@ fn outcome(r: Result<Val, ultragraphdb_core_types::TypesError>) -> String {
 }
 
 #[when(
-    expr = "the floats {string}, {string} and {string} and the bigfloat {string} are each converted to datetime"
+    expr = "the floats {string}, {string} and {string} and the decimal {string} are each converted to datetime"
 )]
 fn floats_to_datetime(w: &mut Steps, a: String, b: String, c: String, big: String) -> TestResult {
     for f in [a, b, c] {
@@ -236,7 +238,7 @@ fn floats_to_datetime(w: &mut Steps, a: String, b: String, c: String, big: Strin
         let v = Val::bytes(TypeId::FLOAT, f.to_bits().to_le_bytes().to_vec());
         w.failures.push(outcome(convert(&v, TypeId::DATETIME)));
     }
-    let v = Val::bytes(TypeId::BIGFLOAT, big.into_bytes());
+    let v = Val::bytes(TypeId::DECIMAL, big.into_bytes());
     w.failures.push(outcome(convert(&v, TypeId::DATETIME)));
     Ok(())
 }
@@ -312,71 +314,16 @@ fn text_is(w: &mut Steps, s: &[String]) {
     assert_eq!(s, [w.text.as_str()]);
 }
 
-// ---------- Big floats ----------
+// ---------- Decimals ----------
 
-#[derive(Debug, Clone, Deserialize)]
-struct BigFloatCase {
-    kind: String,
-    #[serde(rename = "in")]
-    input: String,
-    #[serde(default)]
-    err: String,
-    #[serde(default)]
-    p: String,
-    #[serde(default)]
-    text: String,
-}
-
-#[when(
-    expr = "the golden big-float inputs are parsed and formatted: hand-picked, random, exact midpoints between adjacent 200-bit values, and powers of two"
-)]
-fn big_float_golden(w: &mut Steps) -> TestResult {
-    let cases = golden::<BigFloatCase>("types_bigfloat")?;
-    for kind in ["hand", "random", "midpoint", "pow2"] {
-        assert!(cases.iter().any(|c| c.kind == kind), "no {kind} vectors");
-    }
-    for c in cases {
-        match BigFloat::unmarshal_text(&c.input, BIG_FLOAT_PRECISION) {
-            Err(e) if e == c.err => {}
-            Ok(b)
-                if c.err.is_empty()
-                    && b.text_p() == c.p
-                    && (c.kind == "extreme" || b.marshal_text().is_ok_and(|t| t == c.text)) => {}
-            other => w.failures.push(format!(
-                "{:?}: {other:?}, Go {} {} {}",
-                c.input, c.p, c.text, c.err
-            )),
-        }
-    }
-    Ok(())
-}
-
-#[then(expr = "every 200-bit value equals Go's and every text equals Go's MarshalText")]
-fn big_floats_match(w: &mut Steps) {
-    assert!(w.failures.is_empty(), "{}", w.failures.join("\n"));
-}
-
-#[when(expr = "2^-1100 at 200 bits is formatted")]
-fn format_pow2(w: &mut Steps) -> TestResult {
-    w.text = BigFloat::unmarshal_text("0x1p-1100", BIG_FLOAT_PRECISION)
-        .context("2^-1100 as a big float")?
-        .marshal_text()?;
-    Ok(())
-}
-
-#[then(expr = "the text is {string}")]
-fn the_text_is(w: &mut Steps, s: &[String]) {
-    assert_eq!(s, [w.text.as_str()]);
-}
-
-#[when(expr = "{string}, {string}, {string} and {string} are parsed as bigfloat")]
-fn parse_big_floats(w: &mut Steps, a: String, b: String, c: String, d: String) {
-    w.texts = [a, b, c, d]
+#[when(expr = "{string}, {string}, {string} and {string} are parsed as decimal")]
+fn parse_decimals(w: &mut Steps, texts: &[String]) {
+    w.texts = texts
         .iter()
         .map(
-            |s| match convert(&Val::bytes(TypeId::STRING, s.as_bytes()), TypeId::BIGFLOAT) {
+            |s| match convert(&Val::bytes(TypeId::STRING, s.as_bytes()), TypeId::DECIMAL) {
                 Ok(v) => match v.into_value() {
-                    Some(Value::BigFloat(f)) => f.marshal_text().map_err(|e| e.to_string()),
+                    Some(Value::Decimal(d)) => Ok(d.to_string()),
                     other => Err(format!("{other:?}")),
                 },
                 Err(e) => Err(e.to_string()),
@@ -386,17 +333,11 @@ fn parse_big_floats(w: &mut Steps, a: String, b: String, c: String, d: String) {
 }
 
 #[then(expr = "the first three give {string}, {string} and {string}, and {string} is refused")]
-fn big_float_syntax(w: &mut Steps, words: &[String]) {
-    let (texts, refused) = words.split_at(3);
+fn decimal_syntax(w: &mut Steps, words: &[String]) {
+    let (texts, _refused) = words.split_at(3);
     let want: Vec<Result<String, String>> = texts.iter().cloned().map(Ok).collect();
     assert_eq!(&w.texts[..3], want.as_slice());
-    assert_eq!(
-        w.texts[3],
-        Err(format!(
-            "math/big: cannot unmarshal \"{}\" into a *big.Float (number has no digits)",
-            refused[0]
-        ))
-    );
+    assert!(w.texts[3].is_err(), "{:?}", w.texts[3]);
 }
 
 // ---------- Datetimes ----------

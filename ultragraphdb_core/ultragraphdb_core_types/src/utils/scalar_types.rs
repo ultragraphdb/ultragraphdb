@@ -12,7 +12,6 @@
 #![deny(clippy::arithmetic_side_effects)]
 
 use crate::errors::types_error::TypesError;
-use crate::types::big_float::BigFloat;
 use crate::types::date_time::DateTime;
 use crate::types::date_time::date_time_parse::{
     LAYOUT_DATE_TIME, LAYOUT_RFC3339, LAYOUT_Y, LAYOUT_YM, LAYOUT_YMD, LAYOUT_YMD_ZONE, parse,
@@ -21,9 +20,6 @@ use crate::types::geometry::Geometry;
 use crate::types::type_id::TypeId;
 use crate::types::val::Val;
 use crate::types::value::Value;
-
-/// Dgraph's `BigFloatPrecision`: the bits of a bigfloat value.
-pub const BIG_FLOAT_PRECISION: u32 = 200;
 
 /// Dgraph's `ValueForType`: the zero value of a type; a type without one gives a nil value of `DefaultID`.
 ///
@@ -36,7 +32,7 @@ pub fn value_for_type(id: TypeId) -> Val {
         TypeId::FLOAT => Value::Float(0.0),
         TypeId::BOOL => Value::Bool(false),
         TypeId::DATETIME => Value::DateTime(DateTime::zero()),
-        TypeId::BIGFLOAT => Value::BigFloat(BigFloat::zero(BIG_FLOAT_PRECISION)),
+        TypeId::DECIMAL => Value::Decimal(oxsdatatypes::Decimal::from(0_i64)),
         TypeId::STRING | TypeId::DEFAULT | TypeId::PASSWORD => Value::Str(String::new()),
         TypeId::GEO => Value::Geo(Geometry::collection(Vec::new())),
         TypeId::UID => Value::Uid(0),

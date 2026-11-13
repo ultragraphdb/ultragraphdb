@@ -15,7 +15,7 @@ use ultragraphdb_core_tok::{
     get_full_text_tokens, get_ngram_query_tokens, get_ngram_tokens, get_tokenizer,
     get_tokenizer_by_id, get_tokenizer_for_lang, get_tokenizers,
 };
-use ultragraphdb_core_types::{BigFloat, DateTime, Geometry, Layout, TypeId, Val, Value, convert};
+use ultragraphdb_core_types::{DateTime, Geometry, Layout, TypeId, Val, Value, convert};
 
 use crate::golden::{LOWERCASE_DEVIATIONS, cases, digests_masked, unhex, untext};
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -594,7 +594,7 @@ fn test_registry_lookups() -> TestResult {
         (0x0A, "trigram"),
         (0x0B, "hash"),
         (0x0C, "sha256"),
-        (0x0D, "bigfloat"),
+        (0x0D, "decimal"),
         (0x0E, "hnsw"),
         (0x0F, "ngram"),
         (0x41, "month"),
@@ -695,7 +695,7 @@ struct TokensCase {
 
 fn converted(kind: &str, text: &str) -> TestResult<Value> {
     let to = match kind {
-        "bigfloat" => TypeId::BIGFLOAT,
+        "decimal" => TypeId::DECIMAL,
         "datetime" => TypeId::DATETIME,
         _ => TypeId::GEO,
     };
@@ -798,9 +798,38 @@ fn port_tokens(c: &TokensCase) -> Result<Vec<Vec<u8>>, String> {
     })
 }
 
-/// Whether `c` is an exact tokenizer's case with a language, whose tokens are collation keys.
+/// Whether `c` is a case Dgraph's golden no longer speaks for: an exact tokenizer's with a language, whose tokens are
+/// collation keys, and a big float's, the type the decimal replaced.
 fn collated(c: &TokensCase) -> bool {
-    c.tokenizer == "exact" && !c.lang.is_empty()
+    (c.tokenizer == "exact" && !c.lang.is_empty()) || c.tokenizer == "bigfloat"
+}
+
+/// A decimal's token is its identifier and its value truncated toward zero as an int token, saturating past int64,
+/// so decimals order by their whole part.
+#[test]
+fn test_decimal_tokens_truncate_toward_zero() -> TestResult {
+    let decimal = get_tokenizer("decimal").context("the decimal tokenizer")?;
+    let int = get_tokenizer("int").context("the int tokenizer")?;
+    for (text, whole) in [
+        ("0", 0),
+        ("2.9", 2),
+        ("-2.9", -2),
+        ("123456789.000000001", 123_456_789),
+        ("99999999999999999999", i64::MAX),
+        ("-99999999999999999999", i64::MIN),
+    ] {
+        let value = Value::Decimal(
+            text.parse::<oxsdatatypes::Decimal>()
+                .ok()
+                .context("a decimal")?,
+        );
+        let token = build_tokens(&value, &decimal)?;
+        let as_int = build_tokens(&Value::Int(whole), &int)?;
+        let body = |tokens: &[Vec<u8>]| tokens.first().and_then(|t| t.get(1..)).map(<[u8]>::to_vec);
+        assert_eq!(body(&token), body(&as_int), "{text}");
+        assert_eq!(token.first().and_then(|t| t.first()), Some(&0x0D), "{text}");
+    }
+    Ok(())
 }
 
 /// An exact token with a language is the language's base, the delimiter `0x1F` and the collation key of the string,
@@ -956,8 +985,13 @@ fn values_of_every_type() -> TestResult<Vec<(&'static str, Value)>> {
         ),
         ("uint64", Value::Uid(1)),
         (
-            "big.Float",
-            Value::BigFloat(BigFloat::from_f64(1.5, 53).context("BigFloat::from_f64(1.5, 53)")?),
+            "decimal",
+            Value::Decimal(
+                "1.5"
+                    .parse::<oxsdatatypes::Decimal>()
+                    .ok()
+                    .context("a decimal")?,
+            ),
         ),
         ("[]float32", Value::VFloat(vec![1.0])),
     ])
@@ -968,7 +1002,7 @@ fn assert_typed_tokens_of_every_type() -> TestResult {
     let int1 = b"\x01\x00\x00\x00\x00\x00\x00\x00\x01";
     // The token each typed tokenizer gives its own type's value of `values_of_every_type`, the epoch for datetime.
     let typed: [(&str, &str, Vec<u8>); 8] = [
-        ("bigfloat", "big.Float", [&[0x0d][..], int1].concat()),
+        ("decimal", "decimal", [&[0x0d][..], int1].concat()),
         ("int", "int64", [&[0x06][..], int1].concat()),
         ("float", "float64", [&[0x07][..], int1].concat()),
         ("year", "time.Time", b"\x04\x07\xb2".to_vec()),

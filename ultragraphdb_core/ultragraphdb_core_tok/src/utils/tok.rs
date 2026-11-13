@@ -20,7 +20,7 @@ use crate::utils::langbase::lang_base;
 
 /// The names of the tokenizers Dgraph registers, the vector index factory included.
 pub const TOKENIZER_NAMES: [&str; 17] = [
-    "bigfloat", "hnsw", "geo", "int", "float", "year", "hour", "month", "day", "exact", "bool",
+    "decimal", "hnsw", "geo", "int", "float", "year", "hour", "month", "day", "exact", "bool",
     "trigram", "hash", "term", "fulltext", "ngram", "sha256",
 ];
 
@@ -34,7 +34,7 @@ pub const TOKENIZER_NAMES: [&str; 17] = [
 /// ```
 pub fn get_tokenizer(name: &str) -> Option<Tokenizer> {
     let kind = match name {
-        "bigfloat" => Kind::BigFloat,
+        "decimal" => Kind::Decimal,
         "hnsw" => Kind::Factory(VectorIndexFactory::hnsw()),
         "geo" => Kind::Geo,
         "int" => Kind::Int,
@@ -102,7 +102,7 @@ pub fn get_tokenizer_for_lang(t: &Tokenizer, lang: &str) -> Tokenizer {
                 })
             })))
         }
-        Kind::BigFloat
+        Kind::Decimal
         | Kind::Geo
         | Kind::Int
         | Kind::Float

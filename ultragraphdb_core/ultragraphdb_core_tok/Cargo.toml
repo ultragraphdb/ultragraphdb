@@ -32,6 +32,7 @@ unicode-normalization = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+oxsdatatypes = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 # External crates

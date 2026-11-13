@@ -5,7 +5,7 @@
 
 //! The Go values a `Val` holds, and their `%T`.
 
-use ultragraphdb_core_types::{BIG_FLOAT_PRECISION, BigFloat, DateTime, Geometry, Layout, Value};
+use ultragraphdb_core_types::{DateTime, Geometry, Layout, Value};
 use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
@@ -34,8 +34,8 @@ fn test_go_type_is_gos_percent_t() -> TestResult {
         ),
         (Value::Uid(1), "uint64"),
         (
-            Value::BigFloat(BigFloat::zero(BIG_FLOAT_PRECISION)),
-            "big.Float",
+            Value::Decimal(oxsdatatypes::Decimal::from(0_i64)),
+            "decimal",
         ),
         (Value::VFloat(vec![1.0]), "[]float32"),
     ];

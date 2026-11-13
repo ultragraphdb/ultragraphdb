@@ -6,7 +6,7 @@ Feature: Scalar types
   passwords and sort order (openspec/specs/scalar-types/spec.md).
 
   Scenario: Schema type names map to identifiers
-    When the names "int", "datetime", "uid", "bigfloat" and "float32vector" are looked up
+    When the names "int", "datetime", "uid", "decimal" and "float32vector" are looked up
     Then they map to identifiers 2, 5, 7, 11 and 12
 
   Scenario: Every type's encoding matches its golden vector
@@ -30,7 +30,7 @@ Feature: Scalar types
     Then conversion fails with "Float out of int64 range"
 
   Scenario: A float beyond int64 seconds is not a datetime
-    When the floats "1e19", "+Inf" and "NaN" and the bigfloat "1e19" are each converted to datetime
+    When the floats "1e19", "+Inf" and "NaN" and the decimal "9223372036854775808" are each converted to datetime
     Then each conversion fails with "Float out of int64 range"
 
   Scenario: Bytes that are not UTF-8 do not become a string
@@ -53,17 +53,9 @@ Feature: Scalar types
     When the float 2.5e-7 is converted to string
     Then the result is "2.5E-07"
 
-  Scenario: Big-float golden vectors match Go
-    When the golden big-float inputs are parsed and formatted: hand-picked, random, exact midpoints between adjacent 200-bit values, and powers of two
-    Then every 200-bit value equals Go's and every text equals Go's MarshalText
-
-  Scenario: A power of two formats as Go shortens it
-    When 2^-1100 at 200 bits is formatted
-    Then the text is "7.3621518290228626754368661771449651176491350325096363488672e-332"
-
-  Scenario: Go's big-float syntax is accepted
-    When "1_000", "0x1.8p1", "Inf" and "NaN" are parsed as bigfloat
-    Then the first three give "1000", "3" and "+Inf", and "NaN" is refused
+  Scenario: A decimal parses its XSD form
+    When "1000", "-0.5", "1.50" and "1e3" are parsed as decimal
+    Then the first three give "1000", "-0.5" and "1.5", and "1e3" is refused
 
   Scenario: Partial dates parse
     When "2018", "2018-10" and "2018-10-03" are parsed

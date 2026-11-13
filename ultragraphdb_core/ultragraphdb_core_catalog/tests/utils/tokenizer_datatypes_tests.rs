@@ -20,7 +20,7 @@ fn test_each_tokenizer_takes_the_datatypes_of_the_table() {
         ("int", xsd("unsignedByte")),
         ("float", xsd("double")),
         ("float", xsd("float")),
-        ("bigfloat", xsd("decimal")),
+        ("decimal", xsd("decimal")),
         ("bool", xsd("boolean")),
         ("day", xsd("date")),
         ("hour", xsd("dateTime")),

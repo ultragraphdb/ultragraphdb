@@ -27,7 +27,7 @@ const INTEGER_TYPES: [&str; 13] = [
 ];
 
 /// Whether tokenizer `tokenizer` indexes literals of `datatype`, by the index-maintenance specification's table:
-/// `int` the integers, `float` the doubles and floats, `bigfloat` the decimals, `bool` the booleans, the date
+/// `int` the integers, `float` the doubles and floats, `decimal` the decimals, `bool` the booleans, the date
 /// tokenizers the date-times and, but for `hour`, the dates, the string tokenizers the strings and language strings,
 /// `geo` GeoJSON. A literal of another datatype is held and left unindexed.
 pub fn tokenizer_takes(tokenizer: &str, datatype: &str) -> bool {
@@ -35,7 +35,7 @@ pub fn tokenizer_takes(tokenizer: &str, datatype: &str) -> bool {
     match tokenizer {
         "int" => INTEGER_TYPES.iter().any(|t| xsd(t)),
         "float" => xsd("double") || xsd("float"),
-        "bigfloat" => xsd("decimal"),
+        "decimal" => xsd("decimal"),
         "bool" => xsd("boolean"),
         "year" | "month" | "day" => xsd("dateTime") || xsd("dateTimeStamp") || xsd("date"),
         "hour" => xsd("dateTime") || xsd("dateTimeStamp"),

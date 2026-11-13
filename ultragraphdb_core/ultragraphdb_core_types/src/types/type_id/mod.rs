@@ -34,8 +34,8 @@ impl TypeId {
     pub const STRING: TypeId = TypeId(9);
     /// `pb.Posting_OBJECT`, which Dgraph's types package has no constant for.
     pub const OBJECT: TypeId = TypeId(10);
-    /// `BigFloatID`.
-    pub const BIGFLOAT: TypeId = TypeId(11);
+    /// An `xsd:decimal`: up to 38 digits, 18 of them after the point.
+    pub const DECIMAL: TypeId = TypeId(11);
     /// `VFloatID`: a vector of float32.
     pub const VFLOAT: TypeId = TypeId(12);
     /// `UndefinedID`.
@@ -64,7 +64,7 @@ impl TypeId {
             7 => "uid",
             8 => "password",
             9 => "string",
-            11 => "bigfloat",
+            11 => "decimal",
             12 => "float32vector",
             _ => "",
         }
@@ -98,6 +98,6 @@ pub const TYPE_NAMES: [(&str, TypeId); 12] = [
     ("uid", TypeId::UID),
     ("string", TypeId::STRING),
     ("password", TypeId::PASSWORD),
-    ("bigfloat", TypeId::BIGFLOAT),
+    ("decimal", TypeId::DECIMAL),
     ("float32vector", TypeId::VFLOAT),
 ];

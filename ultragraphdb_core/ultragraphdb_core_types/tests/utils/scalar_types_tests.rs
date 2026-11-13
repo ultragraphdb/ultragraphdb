@@ -9,8 +9,8 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_types::{
-    BIG_FLOAT_PRECISION, CivilTime, DateTime, Geometry, TYPE_NAMES, TypeId, Value, Zone,
-    good_time_zone, parse_time, value_for_type,
+    CivilTime, DateTime, Geometry, TYPE_NAMES, TypeId, Value, Zone, good_time_zone, parse_time,
+    value_for_type,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -150,16 +150,12 @@ fn test_value_for_type() -> TestResult {
         assert_eq!(val.tid(), tid, "{}", tid.name());
         assert_eq!(val.value(), want.as_ref(), "{}", tid.name());
     }
-    let big = value_for_type(TypeId::BIGFLOAT);
-    assert_eq!(big.tid(), TypeId::BIGFLOAT);
-    let b = match big.value() {
-        Some(Value::BigFloat(b)) => Ok(b),
-        other => Err(format!("{other:?}")),
-    }
-    .context("a bigfloat value")?;
-    assert!(b.is_zero() && !b.is_neg());
-    assert_eq!(b.prec(), 200);
-    assert_eq!(BIG_FLOAT_PRECISION, 200);
+    let decimal = value_for_type(TypeId::DECIMAL);
+    assert_eq!(decimal.tid(), TypeId::DECIMAL);
+    assert_eq!(
+        decimal.value(),
+        Some(&Value::Decimal(oxsdatatypes::Decimal::from(0_i64)))
+    );
     for tid in [TypeId::OBJECT, TypeId::UNDEFINED, TypeId::new(99)] {
         let val = value_for_type(tid);
         assert_eq!(val.tid(), TypeId::DEFAULT, "{tid:?}");

@@ -3553,6 +3553,7 @@ version = "0.1.0"
 dependencies = [
  "cucumber",
  "futures",
+ "oxsdatatypes",
  "rust-stemmers",
  "serde",
  "sha2",
@@ -3575,6 +3576,7 @@ dependencies = [
  "cucumber",
  "dashu-int",
  "futures",
+ "oxsdatatypes",
  "serde",
  "serde_json",
  "ultragraphdb_common_utils",

@@ -30,6 +30,7 @@ ultragraphdb_core_text = { workspace = true }
 # External crates
 bcrypt = { workspace = true }
 dashu-int = { workspace = true }
+oxsdatatypes = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_tool_bdd = { workspace = true }

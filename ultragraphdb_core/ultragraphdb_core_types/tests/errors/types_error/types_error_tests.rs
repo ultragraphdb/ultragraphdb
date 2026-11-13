@@ -46,7 +46,7 @@ fn test_every_constructor_builds_its_variant_and_displays_its_message() {
         (TypesError::conversion, TypesErrorEnum::Conversion),
         (TypesError::number, TypesErrorEnum::Number),
         (TypesError::time, TypesErrorEnum::Time),
-        (TypesError::big_float, TypesErrorEnum::BigFloat),
+        (TypesError::decimal, TypesErrorEnum::Decimal),
         (TypesError::geo, TypesErrorEnum::Geo),
         (TypesError::password, TypesErrorEnum::Password),
         (TypesError::compare, TypesErrorEnum::Compare),

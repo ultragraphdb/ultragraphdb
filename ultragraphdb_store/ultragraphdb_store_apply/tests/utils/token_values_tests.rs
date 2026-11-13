@@ -151,18 +151,18 @@ fn test_bool_takes_both_lexical_forms_of_each_value() -> TestResult {
 }
 
 #[test]
-fn test_bigfloat_takes_decimals() -> TestResult {
-    // 2.50 and 2.5 are one value; the bigfloat token is encodeInt of its integer part, 2.
+fn test_decimal_takes_decimals() -> TestResult {
+    // 2.50 and 2.5 are one value; the decimal token is encodeInt of its integer part, 2.
     let two = vec![vec![1, 0, 0, 0, 0, 0, 0, 0, 2]];
-    assert_eq!(tokens(&typed("2.50", xsd::DECIMAL), "bigfloat")?, two);
-    assert_eq!(tokens(&typed("2.5", xsd::DECIMAL), "bigfloat")?, two);
+    assert_eq!(tokens(&typed("2.50", xsd::DECIMAL), "decimal")?, two);
+    assert_eq!(tokens(&typed("2.5", xsd::DECIMAL), "decimal")?, two);
     // 123456789: 0x075BCD15.
     assert_eq!(
-        tokens(&typed("123456789", xsd::DECIMAL), "bigfloat")?,
+        tokens(&typed("123456789", xsd::DECIMAL), "decimal")?,
         vec![vec![1, 0, 0, 0, 0, 0x07, 0x5B, 0xCD, 0x15]]
     );
-    assert_eq!(value(&typed("2,5", xsd::DECIMAL), "bigfloat"), None);
-    assert_eq!(value(&typed("2.5", xsd::DOUBLE), "bigfloat"), None);
+    assert_eq!(value(&typed("2,5", xsd::DECIMAL), "decimal"), None);
+    assert_eq!(value(&typed("2.5", xsd::DOUBLE), "decimal"), None);
     Ok(())
 }
 

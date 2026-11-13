@@ -16,7 +16,7 @@ use ultragraphdb_core_types::TypeId;
 
 use crate::types::vector_index_factory::VectorIndexFactory;
 use crate::utils::ident::{
-    IDENT_BIG_FLOAT, IDENT_BOOL, IDENT_DAY, IDENT_DELIMITER, IDENT_EXACT, IDENT_EXACT_LANG,
+    IDENT_BOOL, IDENT_DAY, IDENT_DECIMAL, IDENT_DELIMITER, IDENT_EXACT, IDENT_EXACT_LANG,
     IDENT_FLOAT, IDENT_FULL_TEXT, IDENT_GEO, IDENT_HASH, IDENT_HOUR, IDENT_INT, IDENT_MONTH,
     IDENT_NGRAM, IDENT_SHA, IDENT_TERM, IDENT_TRIGRAM, IDENT_VFLOAT, IDENT_YEAR,
 };
@@ -31,7 +31,7 @@ pub struct Tokenizer(Kind);
 
 #[derive(Debug, Clone)]
 pub(crate) enum Kind {
-    BigFloat,
+    Decimal,
     Geo,
     Int,
     Float,
@@ -69,7 +69,7 @@ impl Tokenizer {
     /// Go's `Name`: the unique name the schema's `@index` names it by.
     pub fn name(&self) -> &'static str {
         match &self.0 {
-            Kind::BigFloat => "bigfloat",
+            Kind::Decimal => "decimal",
             Kind::Geo => "geo",
             Kind::Int => "int",
             Kind::Float => "float",
@@ -92,7 +92,7 @@ impl Tokenizer {
     /// Go's `Type`: the name of the value type it tokenizes.
     pub fn type_name(&self) -> &'static str {
         match &self.0 {
-            Kind::BigFloat => "bigfloat",
+            Kind::Decimal => "decimal",
             Kind::Geo => "geo",
             Kind::Int => "int",
             Kind::Float => "float",
@@ -112,7 +112,7 @@ impl Tokenizer {
     /// The value type it tokenizes, `TypeForName` of [`type_name`](Self::type_name).
     pub fn type_id(&self) -> TypeId {
         match &self.0 {
-            Kind::BigFloat => TypeId::BIGFLOAT,
+            Kind::Decimal => TypeId::DECIMAL,
             Kind::Geo => TypeId::GEO,
             Kind::Int => TypeId::INT,
             Kind::Float => TypeId::FLOAT,
@@ -137,7 +137,7 @@ impl Tokenizer {
     /// Go's `Identifier`: the byte every token of this tokenizer starts with.
     pub fn identifier(&self) -> u8 {
         match &self.0 {
-            Kind::BigFloat => IDENT_BIG_FLOAT,
+            Kind::Decimal => IDENT_DECIMAL,
             Kind::Geo => IDENT_GEO,
             Kind::Int => IDENT_INT,
             Kind::Float => IDENT_FLOAT,
@@ -162,7 +162,7 @@ impl Tokenizer {
     pub fn is_sortable(&self) -> bool {
         matches!(
             self.0,
-            Kind::BigFloat
+            Kind::Decimal
                 | Kind::Int
                 | Kind::Float
                 | Kind::Year
@@ -193,7 +193,7 @@ impl Tokenizer {
                 p.push(IDENT_DELIMITER);
                 Some(p)
             }
-            Kind::BigFloat
+            Kind::Decimal
             | Kind::Geo
             | Kind::Int
             | Kind::Float
@@ -216,7 +216,7 @@ impl Tokenizer {
     pub fn index_factory(&self) -> Option<&VectorIndexFactory> {
         match &self.0 {
             Kind::Factory(f) => Some(f),
-            Kind::BigFloat
+            Kind::Decimal
             | Kind::Geo
             | Kind::Int
             | Kind::Float

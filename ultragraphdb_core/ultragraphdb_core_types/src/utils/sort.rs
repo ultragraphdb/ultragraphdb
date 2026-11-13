@@ -80,7 +80,7 @@ impl<C: Collator> ByValue<'_, C> {
     }
 }
 
-/// Dgraph's `IsSortable`: datetime, int, float, string, default and bigfloat.
+/// Dgraph's `IsSortable`: datetime, int, float, string, default and decimal.
 pub fn is_sortable(tid: TypeId) -> bool {
     matches!(
         tid,
@@ -89,7 +89,7 @@ pub fn is_sortable(tid: TypeId) -> bool {
             | TypeId::FLOAT
             | TypeId::STRING
             | TypeId::DEFAULT
-            | TypeId::BIGFLOAT
+            | TypeId::DECIMAL
     )
 }
 
@@ -240,7 +240,7 @@ pub fn less(a: &Val, b: &Val) -> Result<bool, TypesError> {
         | TypeId::FLOAT
         | TypeId::STRING
         | TypeId::DEFAULT
-        | TypeId::BIGFLOAT => Ok(less_vals::<TextCollator>(a, b, None)),
+        | TypeId::DECIMAL => Ok(less_vals::<TextCollator>(a, b, None)),
         t => Err(TypesError::compare(format!(
             "Compare not supported for type: {}",
             t.enum_value()
@@ -257,7 +257,7 @@ fn less_vals<C: Collator>(a: &Val, b: &Val, cl: Option<&Collation<'_, C>>) -> bo
         (Some(Value::Int(x)), Some(Value::Int(y))) => x < y,
         (Some(Value::Float(x)), Some(Value::Float(y))) => x < y,
         (Some(Value::Uid(x)), Some(Value::Uid(y))) => x < y,
-        (Some(Value::BigFloat(x)), Some(Value::BigFloat(y))) => x.compare(y) == Ordering::Less,
+        (Some(Value::Decimal(x)), Some(Value::Decimal(y))) => x < y,
         _ if matches!(a.tid(), TypeId::STRING | TypeId::DEFAULT) => {
             let sa = match a.safe() {
                 Some(Value::Str(s)) => s,
@@ -312,7 +312,7 @@ pub fn equal(a: &Val, b: &Val) -> Result<bool, TypesError> {
         | TypeId::STRING
         | TypeId::DEFAULT
         | TypeId::BOOL
-        | TypeId::BIGFLOAT => Ok(equal_vals(a, b)),
+        | TypeId::DECIMAL => Ok(equal_vals(a, b)),
         t => Err(TypesError::compare(format!(
             "Equal not supported for type: {}",
             t.enum_value()
@@ -331,9 +331,7 @@ pub(crate) fn equal_vals(a: &Val, b: &Val) -> bool {
         (TypeId::FLOAT, Some(Value::Float(x)), Some(Value::Float(y))) => x == y,
         (TypeId::STRING | TypeId::DEFAULT, Some(Value::Str(x)), Some(Value::Str(y))) => x == y,
         (TypeId::BOOL, Some(Value::Bool(x)), Some(Value::Bool(y))) => x == y,
-        (TypeId::BIGFLOAT, Some(Value::BigFloat(x)), Some(Value::BigFloat(y))) => {
-            x.compare(y) == Ordering::Equal
-        }
+        (TypeId::DECIMAL, Some(Value::Decimal(x)), Some(Value::Decimal(y))) => x == y,
         _ => false,
     }
 }

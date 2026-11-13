@@ -5,9 +5,7 @@
 
 //! Dgraph's `Val` and `Safe` (types/scalar_types.go).
 
-use ultragraphdb_core_types::{
-    BIG_FLOAT_PRECISION, BigFloat, DateTime, Geometry, TypeId, Val, Value,
-};
+use ultragraphdb_core_types::{DateTime, Geometry, TypeId, Val, Value};
 
 #[test]
 fn test_constructors_and_accessors() {
@@ -54,8 +52,8 @@ fn test_safe_gives_the_zero_value_of_a_nil() {
         (TypeId::BOOL, Some(Value::Bool(false))),
         (TypeId::DATETIME, Some(Value::DateTime(DateTime::zero()))),
         (
-            TypeId::BIGFLOAT,
-            Some(Value::BigFloat(BigFloat::zero(BIG_FLOAT_PRECISION))),
+            TypeId::DECIMAL,
+            Some(Value::Decimal(oxsdatatypes::Decimal::from(0_i64))),
         ),
         (TypeId::STRING, Some(Value::str(""))),
         (TypeId::DEFAULT, Some(Value::str(""))),

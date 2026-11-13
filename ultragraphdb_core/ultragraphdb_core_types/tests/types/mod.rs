@@ -6,7 +6,6 @@
 #[cfg(test)]
 mod area_tests;
 #[cfg(test)]
-mod big_float;
 #[cfg(test)]
 mod civil_time_tests;
 #[cfg(test)]

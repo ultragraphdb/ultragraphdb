@@ -6,17 +6,17 @@ ordering, passwords and facet values.
 ## Requirements
 ### Requirement: Scalar type identifiers
 The type identifiers SHALL equal Dgraph's: default 0, binary 1, int 2, float 3, bool 4, datetime 5, geo 6, uid 7,
-password 8, string 9, object 10, bigfloat 11, float32vector 12, with schema names as in Dgraph's
-`types/scalar_types.go`.
+password 8, string 9, object 10, decimal 11, float32vector 12, with schema names as in Dgraph's
+`types/scalar_types.go` but for `decimal`, which takes the number Dgraph's `bigfloat` held.
 
 #### Scenario: Schema type names map to identifiers
-- **WHEN** the names `int`, `datetime`, `uid`, `bigfloat` and `float32vector` are looked up
+- **WHEN** the names `int`, `datetime`, `uid`, `decimal` and `float32vector` are looked up
 - **THEN** they map to identifiers 2, 5, 7, 11 and 12
 
 ### Requirement: Values encode byte-identically to Dgraph
 Converting a value to binary SHALL produce Dgraph's bytes: int as 8 bytes little-endian two's complement, float
 as 8 bytes little-endian IEEE-754, bool as one byte 0 or 1, string, default and password as their bytes,
-datetime in Go's `time.MarshalBinary` layout, geo as little-endian WKB, bigfloat as the shortest `g` text, and
+datetime in Go's `time.MarshalBinary` layout, geo as little-endian WKB, decimal as its canonical `xsd:decimal` text, and
 float32vector as little-endian f32 values.
 
 #### Scenario: Every type's encoding matches its golden vector
@@ -50,24 +50,15 @@ Conversions SHALL accept and refuse the same inputs as Dgraph's `types.Convert`,
 - **WHEN** the float 2.5e-7 is converted to string
 - **THEN** the result is `2.5E-07`
 
-### Requirement: Big floats parse and format as Go's math/big
-A bigfloat value SHALL be parsed and formatted as Go's `big.Float` at 200 bits does, byte for byte: parsing as
-`UnmarshalText` (base prefixes `0x`, `0b`, `0o`, underscores, `Inf`, and Go's rounding through a 264-bit power of five,
-which is not always correctly rounded), and formatting as `MarshalText`, the shortest digits within Go's symmetric
-half-ulp interval in `%g` layout.
+### Requirement: Decimals are XSD decimals
+A decimal value SHALL be an `xsd:decimal` of up to 38 digits, 18 of them after the point, parsed from the XSD lexical
+form (an optional sign, digits, an optional point and digits; no exponent, no `Inf`, no `NaN`) and written in its
+canonical form, without trailing zeros. A decimal SHALL convert exactly from an int and from a datetime's
+nanoseconds, to an int by truncating toward zero, and SHALL order and compare by value.
 
-#### Scenario: Big-float golden vectors match Go
-- **WHEN** the golden big-float inputs are parsed and formatted: hand-picked, random, exact midpoints between adjacent
-  200-bit values, and powers of two
-- **THEN** every 200-bit value equals Go's and every text equals Go's `MarshalText`
-
-#### Scenario: A power of two formats as Go shortens it
-- **WHEN** 2^-1100 at 200 bits is formatted
-- **THEN** the text is `7.3621518290228626754368661771449651176491350325096363488672e-332`
-
-#### Scenario: Go's big-float syntax is accepted
-- **WHEN** `1_000`, `0x1.8p1`, `Inf` and `NaN` are parsed as bigfloat
-- **THEN** the first three give `1000`, `3` and `+Inf`, and `NaN` is refused
+#### Scenario: A decimal parses its XSD form
+- **WHEN** `1000`, `-0.5`, `1.50` and `1e3` are parsed as decimal
+- **THEN** the first three give `1000`, `-0.5` and `1.5`, and `1e3` is refused
 
 ### Requirement: Datetime parsing accepts Dgraph's forms
 Datetime parsing SHALL accept a year, a year and month, a date, RFC 3339, RFC 3339 without a zone, and
@@ -114,7 +105,7 @@ identifier, and SHALL order strings of a language by that language's collation.
 - **THEN** the order is `ä`, `Apfel`, `b`, `zebra`
 
 ### Requirement: Floats outside int64 are refused as ints and as datetimes
-Converting a float or a bigfloat to an int or to a datetime SHALL refuse every value outside int64, NaN and the
+Converting a float or a decimal to an int or to a datetime SHALL refuse every value outside int64, NaN and the
 infinities with `Float out of int64 range`. A datetime takes the value as seconds. Dgraph's guard lets exactly 2^63
 through to an int, and its datetime conversion has none; both give results that differ between amd64 and arm64
 (ledger 10).
@@ -124,7 +115,7 @@ through to an int, and its datetime conversion has none; both give results that 
 - **THEN** conversion fails with `Float out of int64 range`
 
 #### Scenario: A float beyond int64 seconds is not a datetime
-- **WHEN** the floats `1e19`, `+Inf` and `NaN` and the bigfloat `1e19` are each converted to datetime
+- **WHEN** the floats `1e19`, `+Inf` and `NaN` and the decimal `9223372036854775808` are each converted to datetime
 - **THEN** each conversion fails with `Float out of int64 range`
 
 ### Requirement: String values are valid UTF-8

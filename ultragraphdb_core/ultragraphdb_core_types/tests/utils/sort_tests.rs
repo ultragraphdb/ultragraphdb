@@ -691,7 +691,7 @@ fn test_sort_of_mismatched_shapes_is_refused() -> TestResult {
 
 #[test]
 fn test_is_sortable() {
-    // Dgraph's IsSortable: datetime, int, float, string, default and bigfloat.
+    // Dgraph's IsSortable: datetime, int, float, string, default and decimal.
     for (tid, want) in [
         (TypeId::DEFAULT, true),
         (TypeId::BINARY, false),
@@ -704,7 +704,7 @@ fn test_is_sortable() {
         (TypeId::PASSWORD, false),
         (TypeId::STRING, true),
         (TypeId::OBJECT, false),
-        (TypeId::BIGFLOAT, true),
+        (TypeId::DECIMAL, true),
         (TypeId::VFLOAT, false),
     ] {
         assert_eq!(is_sortable(tid), want, "{}", tid.name());

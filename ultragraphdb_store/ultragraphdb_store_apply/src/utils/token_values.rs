@@ -43,10 +43,7 @@ pub fn token_value(literal: LiteralRef<'_>, tokenizer: &str) -> Option<Value> {
             .parse::<Boolean>()
             .ok()
             .map(|b| Value::Bool(bool::from(b))),
-        "bigfloat" => lexical
-            .parse::<Decimal>()
-            .ok()
-            .and_then(|d| text(d.to_string(), TypeId::BIGFLOAT)),
+        "decimal" => lexical.parse::<Decimal>().ok().map(Value::Decimal),
         "year" | "month" | "day" | "hour" => {
             let canonical = if local == "date" {
                 let date = lexical.parse::<Date>().ok()?;

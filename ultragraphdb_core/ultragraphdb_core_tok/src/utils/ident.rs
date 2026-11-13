@@ -42,8 +42,8 @@ pub const IDENT_TRIGRAM: u8 = 0xA;
 pub const IDENT_HASH: u8 = 0xB;
 /// The sha256 tokenizer.
 pub const IDENT_SHA: u8 = 0xC;
-/// The bigfloat tokenizer.
-pub const IDENT_BIG_FLOAT: u8 = 0xD;
+/// The decimal tokenizer.
+pub const IDENT_DECIMAL: u8 = 0xD;
 /// The vector index factory.
 pub const IDENT_VFLOAT: u8 = 0xE;
 /// The ngram tokenizer.

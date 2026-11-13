@@ -98,7 +98,7 @@ datatype unindexed, which is still held:
 |---|---|
 | `int` | `xsd:integer` and the types derived from it, within 64 bits |
 | `float` | `xsd:double`, `xsd:float` |
-| `bigfloat` | `xsd:decimal` |
+| `decimal` | `xsd:decimal` |
 | `bool` | `xsd:boolean` |
 | `year`, `month`, `day`, `hour` | `xsd:dateTime`, `xsd:dateTimeStamp`; `xsd:date` for `year`, `month` and `day`. A value without a time zone is indexed as UTC |
 | `exact`, `hash`, `term`, `fulltext`, `trigram`, `ngram`, `sha256` | `xsd:string`, `rdf:langString`, `rdf:dirLangString` |

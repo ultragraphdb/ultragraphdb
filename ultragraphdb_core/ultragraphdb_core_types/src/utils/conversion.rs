@@ -13,8 +13,9 @@
 // workspace table because elsewhere it flags provably bounded index math).
 #![deny(clippy::arithmetic_side_effects)]
 
+use oxsdatatypes::{Decimal, Double, Integer};
+
 use crate::errors::types_error::TypesError;
-use crate::types::big_float::BigFloat;
 use crate::types::date_time::DateTime;
 use crate::types::geometry::Geometry;
 use crate::types::type_id::TypeId;
@@ -22,7 +23,7 @@ use crate::types::val::Val;
 use crate::types::value::Value;
 use crate::utils::json_float::json_float;
 use crate::utils::password::encrypt;
-use crate::utils::scalar_types::{BIG_FLOAT_PRECISION, parse_time, value_for_type};
+use crate::utils::scalar_types::{parse_time, value_for_type};
 use crate::utils::value::{bytes_as_float_array, float_array_as_bytes, float_array_as_string};
 use ultragraphdb_common_utils::{go_fmt, go_strconv};
 
@@ -86,12 +87,34 @@ fn le_f64(data: &[u8]) -> Result<f64, TypesError> {
     }
 }
 
-fn parse_big_float(data: &[u8]) -> Result<BigFloat, TypesError> {
-    BigFloat::unmarshal_text(data, BIG_FLOAT_PRECISION).map_err(TypesError::big_float)
+/// The `xsd:decimal` `data` writes.
+fn parse_decimal(data: &[u8]) -> Result<Decimal, TypesError> {
+    std::str::from_utf8(data)
+        .ok()
+        .and_then(|text| text.trim().parse::<Decimal>().ok())
+        .ok_or_else(|| TypesError::decimal(format!("{:?} is no decimal", lossy(data))))
 }
 
-fn big_float_from_f64(f: f64, prec: u32) -> Result<BigFloat, TypesError> {
-    BigFloat::from_f64(f, prec).ok_or_else(|| TypesError::conversion("Float.SetFloat64(NaN)"))
+/// The decimal nearest `f`, refused for NaN, an infinity and a value past a decimal's range.
+fn decimal_from_f64(f: f64) -> Result<Decimal, TypesError> {
+    Decimal::try_from(Double::from(f))
+        .map_err(|_| TypesError::decimal(format!("{f} is outside a decimal's range")))
+}
+
+/// `d` truncated toward zero, when that lies in int64.
+fn decimal_to_i64(d: Decimal) -> Option<i64> {
+    let whole = if d.is_negative() {
+        d.checked_ceil()
+    } else {
+        d.checked_floor()
+    }?;
+    Integer::try_from(whole).ok().map(i64::from)
+}
+
+/// `d` truncated toward zero to int64, saturating at int64's ends: the value a decimal index orders by.
+#[must_use]
+pub fn decimal_trunc_i64(d: Decimal) -> i64 {
+    decimal_to_i64(d).unwrap_or(if d.is_negative() { i64::MIN } else { i64::MAX })
 }
 
 /// Go's `time.Unix(secs, nsecs).UTC()` from a float of seconds, as Dgraph splits it. Go converts floats outside int64
@@ -101,18 +124,6 @@ fn date_time_from_float_secs(secs: i64, float_secs: f64) -> DateTime {
     let frac = float_secs - secs as f64;
     let nsecs = (frac * NANO_SECONDS_IN_SEC as f64) as i64;
     DateTime::from_unix(secs, nsecs)
-}
-
-/// Whether a big float lies in int64, from -2^63 to below 2^63.
-fn big_float_in_int64(t: &BigFloat) -> bool {
-    let bound = |f: f64| BigFloat::from_f64(f, 64);
-    match (bound(-TWO_POW_63), bound(TWO_POW_63)) {
-        (Some(lo), Some(hi)) => {
-            t.compare(&lo) != std::cmp::Ordering::Less && t.compare(&hi) == std::cmp::Ordering::Less
-        }
-        // from_f64 refuses NaN alone, and both bounds are finite.
-        _ => false,
-    }
 }
 
 /// Dgraph's `ParseVFloat`: `[a, b, ...]` or `[a b ...]` of float32 values, or an empty string.
@@ -168,7 +179,7 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
         TypeId::BINARY => convert_binary(data, from_id, to_id),
         TypeId::STRING | TypeId::DEFAULT => convert_string(data, from_id, to_id),
         TypeId::INT => convert_int(data, from_id, to_id),
-        TypeId::BIGFLOAT => convert_big_float(data, from_id, to_id),
+        TypeId::DECIMAL => convert_decimal(data, from_id, to_id),
         TypeId::FLOAT => convert_float(data, from_id, to_id),
         TypeId::BOOL => convert_bool(data, from_id, to_id),
         TypeId::DATETIME => convert_date_time(data, from_id, to_id),
@@ -199,7 +210,7 @@ fn convert_binary(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Ty
         TypeId::STRING | TypeId::DEFAULT => ok(Value::Str(utf8(data, "string")?)),
         TypeId::INT => ok(Value::Int(le_i64(data)?)),
         TypeId::FLOAT => ok(Value::Float(le_f64(data)?)),
-        TypeId::BIGFLOAT => ok(Value::BigFloat(parse_big_float(data)?)),
+        TypeId::DECIMAL => ok(Value::Decimal(parse_decimal(data)?)),
         TypeId::BOOL => match data.first() {
             None | Some(0) => ok(Value::Bool(false)),
             Some(1) => ok(Value::Bool(true)),
@@ -236,7 +247,7 @@ fn convert_string(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Ty
             }
             ok(Value::Float(f))
         }
-        TypeId::BIGFLOAT => ok(Value::BigFloat(parse_big_float(data)?)),
+        TypeId::DECIMAL => ok(Value::Decimal(parse_decimal(data)?)),
         TypeId::STRING | TypeId::DEFAULT => ok(Value::Str(utf8(data, "string")?)),
         TypeId::BOOL => ok(Value::Bool(go_strconv::parse_bool(data)?)),
         TypeId::DATETIME => ok(Value::DateTime(parse_time(data)?)),
@@ -269,7 +280,7 @@ fn convert_int(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Types
         TypeId::BINARY => ok(Value::Bytes(vc.to_le_bytes().to_vec())),
         // Rounds to the nearest float, as Go's float64(int64) and float32(int64) do.
         TypeId::FLOAT => ok(Value::Float(vc as f64)),
-        TypeId::BIGFLOAT => ok(Value::BigFloat(BigFloat::from_i64(vc, BIG_FLOAT_PRECISION))),
+        TypeId::DECIMAL => ok(Value::Decimal(Decimal::from(vc))),
         TypeId::BOOL => ok(Value::Bool(vc != 0)),
         TypeId::STRING | TypeId::DEFAULT => ok(Value::str(vc.to_string())),
         TypeId::DATETIME => ok(Value::DateTime(DateTime::from_unix(vc, 0))),
@@ -278,25 +289,23 @@ fn convert_int(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Types
     }
 }
 
-/// [`convert`] from a bigfloat value.
-fn convert_big_float(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
+/// [`convert`] from a decimal value.
+fn convert_decimal(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
     let ok = |v: Value| Ok(Val::new(to_id, v));
-    let t = parse_big_float(data)?;
+    let t = parse_decimal(data)?;
+    let float = f64::from(Double::from(t));
     match to_id {
-        TypeId::BIGFLOAT => ok(Value::BigFloat(t)),
-        TypeId::FLOAT => ok(Value::Float(t.to_f64())),
-        TypeId::BINARY => ok(Value::Bytes(t.marshal_text()?.into_bytes())),
-        TypeId::INT => ok(Value::Int(t.to_i64())),
-        TypeId::BOOL => ok(Value::Bool(!t.is_zero())),
-        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(t.text_g(10)?)),
+        TypeId::DECIMAL => ok(Value::Decimal(t)),
+        TypeId::FLOAT => ok(Value::Float(float)),
+        TypeId::BINARY => ok(Value::Bytes(t.to_string().into_bytes())),
+        TypeId::INT => ok(Value::Int(
+            decimal_to_i64(t).ok_or_else(float_out_of_range)?,
+        )),
+        TypeId::BOOL => ok(Value::Bool(t != Decimal::from(0_i64))),
+        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(t.to_string())),
         TypeId::DATETIME => {
-            if !big_float_in_int64(&t) {
-                return Err(float_out_of_range());
-            }
-            ok(Value::DateTime(date_time_from_float_secs(
-                t.to_i64(),
-                t.to_f64(),
-            )))
+            let secs = decimal_to_i64(t).ok_or_else(float_out_of_range)?;
+            ok(Value::DateTime(date_time_from_float_secs(secs, float)))
         }
         _ => Err(cant_convert(from_id, to_id)),
     }
@@ -308,10 +317,7 @@ fn convert_float(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Typ
     let vc = le_f64(data)?;
     match to_id {
         TypeId::FLOAT => ok(Value::Float(vc)),
-        TypeId::BIGFLOAT => ok(Value::BigFloat(big_float_from_f64(
-            vc,
-            BIG_FLOAT_PRECISION,
-        )?)),
+        TypeId::DECIMAL => ok(Value::Decimal(decimal_from_f64(vc)?)),
         TypeId::BINARY => ok(Value::Bytes(vc.to_bits().to_le_bytes().to_vec())),
         TypeId::INT => {
             // Dgraph's guard lets 2^63 through, which its platforms convert differently (ledger 10). Within the
@@ -353,10 +359,7 @@ fn convert_bool(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Type
         TypeId::INT => ok(Value::Int(i64::from(vc))),
         TypeId::FLOAT => ok(Value::Float(if vc { 1.0 } else { 0.0 })),
         TypeId::VFLOAT => ok(Value::VFloat(vec![if vc { 1.0 } else { 0.0 }])),
-        TypeId::BIGFLOAT => ok(Value::BigFloat(BigFloat::from_i64(
-            i64::from(vc),
-            BIG_FLOAT_PRECISION,
-        ))),
+        TypeId::DECIMAL => ok(Value::Decimal(Decimal::from(i64::from(vc)))),
         TypeId::STRING | TypeId::DEFAULT => ok(Value::str(go_strconv::format_bool(vc))),
         _ => Err(cant_convert(from_id, to_id)),
     }
@@ -375,16 +378,11 @@ fn convert_date_time(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val,
         TypeId::FLOAT => ok(Value::Float(
             t.unix_nano() as f64 / NANO_SECONDS_IN_SEC as f64,
         )),
-        TypeId::BIGFLOAT => {
-            // As the float's, each cast rounds to the nearest float; 1e9 is exact.
-            let x = big_float_from_f64(NANO_SECONDS_IN_SEC as f64, 53)?;
-            let y = big_float_from_f64(t.unix_nano() as f64, 53)?;
-            // x is 1e9, so the quotient is never NaN.
-            let q = y.quo(&x, 53).ok_or_else(|| {
-                TypesError::big_float("division of zero by zero or infinity by infinity")
-            })?;
-            ok(Value::BigFloat(q))
-        }
+        // Exact: nine decimal places hold a nanosecond.
+        TypeId::DECIMAL => ok(Value::Decimal(
+            Decimal::new(i128::from(t.unix_nano()), 9)
+                .map_err(|_| TypesError::decimal("a datetime outside a decimal's range"))?,
+        )),
         _ => Err(cant_convert(from_id, to_id)),
     }
 }
@@ -464,7 +462,7 @@ pub fn marshal(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
         }
         TypeId::INT
         | TypeId::FLOAT
-        | TypeId::BIGFLOAT
+        | TypeId::DECIMAL
         | TypeId::BOOL
         | TypeId::DATETIME
         | TypeId::GEO => marshal_encoded(val, from_id, to_id),
@@ -472,7 +470,7 @@ pub fn marshal(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
     }
 }
 
-/// [`marshal`] of a value whose binary form is an encoding of its own: an int, float, bigfloat, bool, datetime
+/// [`marshal`] of a value whose binary form is an encoding of its own: an int, float, decimal, bool, datetime
 /// or geo value.
 fn marshal_encoded(val: &Value, from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
     let ok = |v: Value| Ok(Val::new(to_id, v));
@@ -498,13 +496,13 @@ fn marshal_encoded(val: &Value, from_id: TypeId, to_id: TypeId) -> Result<Val, T
                 _ => Err(cant_convert(from_id, to_id)),
             }
         }
-        TypeId::BIGFLOAT => {
-            let Value::BigFloat(vc) = val else {
-                return Err(assertion(val, "big.Float"));
+        TypeId::DECIMAL => {
+            let Value::Decimal(vc) = val else {
+                return Err(assertion(val, "decimal"));
             };
             match to_id {
-                _ if is_str => ok(Value::str(vc.text_g(10)?)),
-                TypeId::BINARY => ok(Value::Bytes(vc.marshal_text()?.into_bytes())),
+                _ if is_str => ok(Value::str(vc.to_string())),
+                TypeId::BINARY => ok(Value::Bytes(vc.to_string().into_bytes())),
                 _ => Err(cant_convert(from_id, to_id)),
             }
         }
@@ -583,7 +581,7 @@ fn first_non_finite(g: &Geometry) -> f64 {
     f64::NAN
 }
 
-/// Dgraph's `Val.MarshalJSON`: a converted value in Dgraph's JSON output. A bigfloat is its unquoted
+/// Dgraph's `Val.MarshalJSON`: a converted value in Dgraph's JSON output. A decimal is its unquoted
 /// `MarshalText`; a geometry is GeoJSON.
 ///
 /// A value stands for the Go value Dgraph's `Val` holds, of the Go type [`Value::go_type`] names: bytes a `[]uint8`,
@@ -622,7 +620,7 @@ pub fn marshal_json(v: &Val) -> Result<Vec<u8>, TypesError> {
         (TypeId::GEO, Some(Value::Geo(g))) => g
             .to_geojson()
             .ok_or_else(|| unsupported(&go_strconv::format_float(first_non_finite(g), b'g', 64)))?,
-        (TypeId::BIGFLOAT, Some(Value::BigFloat(b))) => b.marshal_text()?,
+        (TypeId::DECIMAL, Some(Value::Decimal(d))) => d.to_string(),
         (TypeId::STRING | TypeId::DEFAULT, None) => crate::utils::json::encode_string(b""),
         (TypeId::STRING | TypeId::DEFAULT | TypeId::PASSWORD, Some(Value::Str(s))) => {
             crate::utils::json::encode_string(s.as_bytes())
@@ -636,7 +634,7 @@ pub fn marshal_json(v: &Val) -> Result<Vec<u8>, TypesError> {
             | TypeId::FLOAT
             | TypeId::DATETIME
             | TypeId::GEO
-            | TypeId::BIGFLOAT
+            | TypeId::DECIMAL
             | TypeId::PASSWORD
             | TypeId::STRING
             | TypeId::DEFAULT),
@@ -648,7 +646,7 @@ pub fn marshal_json(v: &Val) -> Result<Vec<u8>, TypesError> {
                 TypeId::FLOAT => "float64",
                 TypeId::DATETIME => "time.Time",
                 TypeId::GEO => "geom.T",
-                TypeId::BIGFLOAT => "big.Float",
+                TypeId::DECIMAL => "decimal",
                 _ => "string",
             };
             return Err(match (t, val) {
