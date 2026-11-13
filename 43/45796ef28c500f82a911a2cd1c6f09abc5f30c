@@ -1,0 +1,19 @@
+ROADMAP.md
+  s_d14a54f3ee4b57::t_0e8657ccd5220b 12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4345796ef28c500f82a911a2cd1c6f09abc5f30c",
+  "prompts": {},
+  "sessions": {
+    "s_d14a54f3ee4b57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "763dd999-2deb-442f-8d19-3d08b11dfa90",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
