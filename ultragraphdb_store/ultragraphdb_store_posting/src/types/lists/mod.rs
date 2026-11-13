@@ -9,8 +9,6 @@ mod lists_read;
 mod lists_rollup;
 pub(crate) mod state;
 
-use std::sync::{Condvar, Mutex};
-
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_traits_store::{ListCache, Store};
 
@@ -22,6 +20,7 @@ use crate::types::lists::state::State;
 use crate::types::lists_config::ListsConfig;
 use crate::types::rollup_queues::RollupQueues;
 use crate::utils::lock::{lock, wait};
+use crate::utils::sync::{Condvar, Mutex};
 
 /// The posting lists of one store: the reads through the cache, the single writer of rounds, batches and rollups, the
 /// read gate, the visibility watermark and the rollup queues. What Dgraph spreads over `MemoryLayer`, the oracle,

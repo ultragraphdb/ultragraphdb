@@ -31,7 +31,10 @@ rust_test(
     name = "ultragraphdb_protocol_transport_tests",
     srcs = glob(
         ["tests/**/*.rs"],
-        exclude = ["tests/bdd.rs"],
+        exclude = [
+            "tests/bdd.rs",
+            "tests/loom/**",
+        ],
     ),
     crate_root = "tests/mod.rs",
     # The address_parse fuzz target's seeds, which a unit test parses one by one.
@@ -42,6 +45,39 @@ rust_test(
         normal = True,
         normal_dev = True,
     ),
+)
+
+# The library again under `--cfg loom`, the pool's shared state built on Loom's types, for the Loom tests alone.
+rust_library(
+    name = "ultragraphdb_protocol_transport_loom",
+    testonly = True,
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    crate_name = "ultragraphdb_protocol_transport",
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    rustc_flags = [
+        "--cfg",
+        "loom",
+    ],
+    deps = all_crate_deps(normal = True) + ["@crates//:loom"],
+)
+
+# The Loom tests, under `tests/loom/`, mirroring `src/`: every interleaving of each model's threads, against the
+# library built under `--cfg loom`.
+rust_test(
+    name = "loom",
+    srcs = glob(["tests/loom/**/*.rs"]),
+    crate_root = "tests/loom/mod.rs",
+    rustc_flags = [
+        "--cfg",
+        "loom",
+    ],
+    tags = ["loom-test"],
+    deps = [
+        ":ultragraphdb_protocol_transport_loom",
+        "@crates//:loom",
+    ],
 )
 
 # cucumber runs its own main: the libtest harness is off, and the feature files are runfiles. bdd.rs includes the unit

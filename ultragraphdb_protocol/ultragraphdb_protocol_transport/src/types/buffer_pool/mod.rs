@@ -4,11 +4,12 @@
  */
 
 use std::future::poll_fn;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::PoisonError;
 use std::task::{Poll, Waker};
 
 use crate::errors::transport_error::TransportError;
 use crate::types::pooled_buffer::PooledBuffer;
+use crate::utils::sync::{Arc, Mutex, MutexGuard};
 
 /// The pool's state, locked; a lock poisoned by a panic elsewhere still holds whole buffers.
 pub(crate) fn lock(state: &Mutex<PoolState>) -> MutexGuard<'_, PoolState> {

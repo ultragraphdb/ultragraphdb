@@ -8,4 +8,5 @@ pub mod list_keys;
 pub mod lock;
 pub mod posting_codec;
 pub mod postings;
+pub(crate) mod sync;
 pub mod walk_lists;

@@ -6,11 +6,12 @@
 mod leased_blocks_block_source;
 
 use std::collections::{BTreeMap, VecDeque};
-use std::sync::{Arc, Mutex, MutexGuard};
 
 use ultragraphdb_core_ids::TypePrefix;
 use ultragraphdb_error_cluster::ClusterError;
 use ultragraphdb_traits_blocks::SequenceBlock;
+
+use crate::utils::sync::{Arc, Mutex, MutexGuard};
 
 /// The sequence blocks the metadata group leased to one partition, which the partition's store takes through
 /// `BlockSource::lease`: its host leases a block from the group ([`MetadataGroup::lease_block`](crate::MetadataGroup)),

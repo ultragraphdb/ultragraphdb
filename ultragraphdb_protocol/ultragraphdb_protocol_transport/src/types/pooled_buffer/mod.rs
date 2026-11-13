@@ -5,9 +5,8 @@
 
 mod pooled_buffer_drop;
 
-use std::sync::{Arc, Mutex};
-
 use crate::types::buffer_pool::PoolState;
+use crate::utils::sync::{Arc, Mutex};
 
 /// A buffer taken from a [`crate::BufferPool`], given back to it when dropped.
 #[derive(Debug)]

@@ -4,3 +4,4 @@
  */
 
 pub mod split_mix;
+pub(crate) mod sync;

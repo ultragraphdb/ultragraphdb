@@ -22,6 +22,10 @@ workspace = true
 ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
 
+# Loom's types under `--cfg loom`, which the Loom tests build the crate with (`tests/loom/`).
+[target.'cfg(loom)'.dependencies]
+loom = { workspace = true }
+
 [dev-dependencies]
 ultragraphdb_tool_bdd = { workspace = true }
 # External crates

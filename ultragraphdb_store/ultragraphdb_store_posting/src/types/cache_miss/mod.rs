@@ -5,10 +5,9 @@
 
 mod cache_miss_drop;
 
-use std::sync::Mutex;
-
 use crate::types::list::List;
 use crate::types::lists::state::State;
+use crate::utils::sync::Mutex;
 
 /// A read that missed the cache: the list it read from the store, and the fill it may make. The fill is the list
 /// as of the applied timestamp when the read began, its `base`; [`crate::Lists::fill`] makes it only if no commit

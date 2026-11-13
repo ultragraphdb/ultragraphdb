@@ -30,6 +30,10 @@ ultragraphdb_traits_store = { workspace = true }
 tracing = { workspace = true }
 xxhash-rust = { workspace = true }
 
+# Loom's types under `--cfg loom`, which the Loom tests build the crate with (`tests/loom/`).
+[target.'cfg(loom)'.dependencies]
+loom = { workspace = true }
+
 [dev-dependencies]
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }

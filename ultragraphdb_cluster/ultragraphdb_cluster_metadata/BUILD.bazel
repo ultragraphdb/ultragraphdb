@@ -41,6 +41,7 @@ rust_test(
         ["tests/**/*.rs"],
         exclude = [
             "tests/bdd.rs",
+            "tests/loom/**",
             "tests/utils/cluster.rs",
             "tests/utils/partition_model.rs",
         ],
@@ -53,6 +54,42 @@ rust_test(
         normal = True,
         normal_dev = True,
     ),
+)
+
+# The library again under `--cfg loom`, the leased blocks' queue built on Loom's types, for the Loom tests alone.
+rust_library(
+    name = "ultragraphdb_cluster_metadata_loom",
+    testonly = True,
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    crate_name = "ultragraphdb_cluster_metadata",
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    rustc_flags = [
+        "--cfg",
+        "loom",
+    ],
+    deps = all_crate_deps(normal = True) + ["@crates//:loom"],
+)
+
+# The Loom tests, under `tests/loom/`, mirroring `src/`: every interleaving of each model's threads, against the
+# library built under `--cfg loom`.
+rust_test(
+    name = "loom",
+    srcs = glob(["tests/loom/**/*.rs"]),
+    crate_root = "tests/loom/mod.rs",
+    rustc_flags = [
+        "--cfg",
+        "loom",
+    ],
+    tags = ["loom-test"],
+    deps = [
+        ":ultragraphdb_cluster_metadata_loom",
+        "//ultragraphdb_core/ultragraphdb_core_ids",
+        "//ultragraphdb_tool/ultragraphdb_tool_bdd",
+        "//ultragraphdb_traits/ultragraphdb_traits_blocks",
+        "@crates//:loom",
+    ],
 )
 
 # cucumber runs its own main: the libtest harness is off, and the feature files are runfiles. bdd.rs includes the unit

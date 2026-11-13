@@ -2999,6 +2999,7 @@ version = "0.1.0"
 dependencies = [
  "cucumber",
  "futures",
+ "loom",
  "ultragraphdb_cluster_placement",
  "ultragraphdb_cluster_sequencer",
  "ultragraphdb_core_ids",
@@ -3620,6 +3621,7 @@ version = "0.1.0"
 dependencies = [
  "cucumber",
  "futures",
+ "loom",
  "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_wire",
  "ultragraphdb_tool_bdd",
@@ -3806,6 +3808,7 @@ version = "0.1.0"
 dependencies = [
  "cucumber",
  "futures",
+ "loom",
  "tracing",
  "ultragraphdb_common_utils",
  "ultragraphdb_core_algo",

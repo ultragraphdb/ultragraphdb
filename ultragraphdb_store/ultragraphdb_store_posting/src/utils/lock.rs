@@ -3,7 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::PoisonError;
+
+use crate::utils::sync::{Condvar, Mutex, MutexGuard};
 
 /// Locks `mutex`, taking its value even when a thread panicked while holding it: every critical section of this
 /// crate leaves its state whole before it can fail, so a panic leaves nothing half-written.

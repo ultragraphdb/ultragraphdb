@@ -41,6 +41,7 @@
 //! ```
 
 mod types;
+mod utils;
 
 pub use crate::types::catalog_check::CatalogCheck;
 pub use crate::types::catalog_record::CatalogRecord;
