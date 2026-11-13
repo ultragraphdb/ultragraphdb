@@ -1,0 +1,23 @@
+ultragraphdb_store/ultragraphdb_store_posting/src/errors/posting_error/posting_error_display.rs
+  s_d14a54f3ee4b57::t_414e9e5ca7c5e3 15-19,44,47-51
+ROADMAP.md
+  s_d14a54f3ee4b57::t_98ea10cf819db8 36
+  s_d14a54f3ee4b57::t_0e8657ccd5220b 12
+  s_d14a54f3ee4b57::t_bb62becc6f45b8 37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4992d5edacbf56de9b69e07fcbf2d39655419275",
+  "prompts": {},
+  "sessions": {
+    "s_d14a54f3ee4b57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "763dd999-2deb-442f-8d19-3d08b11dfa90",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
