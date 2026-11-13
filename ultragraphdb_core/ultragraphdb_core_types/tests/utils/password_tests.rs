@@ -11,233 +11,111 @@ use serde::Deserialize;
 use ultragraphdb_core_types::{encrypt, verify_password};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
+/// A bcrypt hash of "123456".
+const GOOD: &str = "$2a$10$LMGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC";
+const MISMATCH: &str = "bcrypt: the password does not match its hash";
+
 #[test]
 fn test_encrypt() -> TestResult {
-    let cases = [
-        ("", 0, true),
-        ("12345", 0, true),
-        ("123456", 60, false),
-        ("1234567890", 60, false),
-    ];
-    for (input, want, want_err) in cases {
-        let got = encrypt(input);
-        assert_eq!(got.is_err(), want_err, "{input}");
-        match got {
-            Err(e) => assert_eq!(
-                e.to_string(),
-                "Password too short, i.e. should have at least 6 chars",
-                "{input}"
-            ),
-            Ok(h) => {
-                assert_eq!(h.len(), want, "{input}");
-                assert!(h.starts_with("$2a$10$"), "{h}");
-                verify_password(input, &h)?;
-            }
-        }
+    for short in ["", "12345"] {
+        assert_eq!(
+            encrypt(short).err().context("a refusal")?.to_string(),
+            "Password too short, i.e. should have at least 6 chars",
+            "{short}"
+        );
+    }
+    for plain in ["123456", "1234567890"] {
+        let hash = encrypt(plain)?;
+        assert_eq!(hash.len(), GOOD.len(), "{plain}");
+        assert!(hash.starts_with("$2a$10$"), "{hash}");
+        verify_password(plain, &hash)?;
+        assert_ne!(encrypt(plain)?, hash, "a salt of its own each time");
     }
     Ok(())
 }
 
-/// golang.org/x/crypto/bcrypt v0.56.0 refuses to hash more than 72 bytes; compared, a longer password is read as
-/// its first 72 bytes.
+/// A password of more than 72 bytes is refused, hashed or compared: bcrypt reads 72 and nothing is cut.
 #[test]
-fn test_encrypt_length_limit() -> TestResult {
+fn test_the_length_limit() -> TestResult {
     let at_limit = "x".repeat(72);
-    let h = encrypt(&at_limit)?;
-    assert_eq!(h.len(), 60);
+    let hash = encrypt(&at_limit)?;
+    verify_password(&at_limit, &hash)?;
     assert_eq!(
         encrypt("x".repeat(73))
             .err()
-            .context("expected an error")?
+            .context("a refusal")?
             .to_string(),
         "bcrypt: password length exceeds 72 bytes"
     );
-    verify_password("x".repeat(73), &h)?;
     assert_eq!(
-        verify_password("x".repeat(71), &h)
+        verify_password("x".repeat(73), &hash)
             .err()
-            .context("expected an error")?
+            .context("a refusal")?
             .to_string(),
-        "crypto/bcrypt: hashedPassword is not the hash of the given password"
+        "bcrypt: password length exceeds 72 bytes"
+    );
+    assert_eq!(
+        verify_password("x".repeat(71), &hash)
+            .err()
+            .context("a refusal")?
+            .to_string(),
+        MISMATCH
     );
     Ok(())
 }
 
 #[test]
-fn test_verify_password() {
-    let cases = [
-        ("", "", true),
-        (
-            "",
-            "$2a$10$LMGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC",
-            true,
-        ),
-        ("1234567890", "", true),
-        (
-            "12345",
-            "$2a$10$LMGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC",
-            true,
-        ),
-        (
-            "12345678",
-            "$2a$10$LMGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC",
-            true,
-        ),
-        (
-            "123456",
-            "$2a$10$LMGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC",
-            false,
-        ),
-        (
-            "123456",
-            "$2a$10$kXtSFCVmzsu0lwVqaWxo5OXlLGUakcY2t18QcqcVpvoTHsPqclOca",
-            false,
-        ),
-        (
-            "1234567890",
-            "$2a$10$WdCWNpOP6c4l7ECv3hEWKeD3oSiszlRJFmT4uRT1P/W9V9zUye8pS",
-            false,
-        ),
-    ];
-    for (plain, hash, want_err) in cases {
-        let got = verify_password(plain, hash);
-        assert_eq!(got.is_err(), want_err, "{plain} {hash}");
-        if let Err(e) = got {
-            let want = if plain.len() < 6 || hash.is_empty() {
-                "Invalid password/crypted string"
-            } else {
-                "crypto/bcrypt: hashedPassword is not the hash of the given password"
-            };
-            assert_eq!(e.to_string(), want, "{plain} {hash}");
-        }
-    }
-}
-
-/// golang.org/x/crypto/bcrypt v0.56.0's `CompareHashAndPassword` on malformed hashes of "123456", as Go answers
-/// them: the version byte is only bounded above, any minor version or none is accepted, the cost is read with
-/// a decimal number and range-checked, the salt is base64-decoded, and bytes past the 60th are ignored.
-#[test]
-fn test_verify_password_malformed_hashes() {
-    let cases: Vec<(String, String)> = malformed_hashes()
-        .into_iter()
-        .map(|(h, w)| (h, w.to_string()))
-        .chain(malformed_salts())
-        .collect();
-    let failures: Vec<String> = cases
-        .iter()
-        .filter_map(|(hash, want)| {
-            let got = verify_password("123456", hash)
+fn test_verify_password() -> TestResult {
+    verify_password("123456", GOOD)?;
+    verify_password(
+        "123456",
+        "$2a$10$kXtSFCVmzsu0lwVqaWxo5OXlLGUakcY2t18QcqcVpvoTHsPqclOca",
+    )?;
+    verify_password(
+        "1234567890",
+        "$2a$10$WdCWNpOP6c4l7ECv3hEWKeD3oSiszlRJFmT4uRT1P/W9V9zUye8pS",
+    )?;
+    for (plain, hash, want) in [
+        ("", "", "Invalid password/crypted string"),
+        ("", GOOD, "Invalid password/crypted string"),
+        ("1234567890", "", "Invalid password/crypted string"),
+        ("12345", GOOD, "Invalid password/crypted string"),
+        ("12345678", GOOD, MISMATCH),
+    ] {
+        assert_eq!(
+            verify_password(plain, hash)
                 .err()
-                .map(|e| e.to_string())
-                .unwrap_or_default();
-            (got != *want).then(|| format!("{hash}: got {got:?}, Go {want:?}"))
-        })
-        .collect();
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+                .context("a refusal")?
+                .to_string(),
+            want,
+            "{plain} {hash}"
+        );
+    }
+    Ok(())
 }
 
-/// A bcrypt hash of "123456".
-const GOOD: &str = "$2a$10$LMGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC";
-
-/// Hashes of "123456" malformed outside the salt, and Go's error text for each, empty where Go accepts it.
-fn malformed_hashes() -> Vec<(String, &'static str)> {
-    let rest = &GOOD[7..];
-    vec![
-        (GOOD.into(), ""),
-        (format!("$2b$10${rest}"), ""),
-        (format!("$2y$10${rest}"), ""),
-        (format!("$2x$10${rest}"), ""),
-        (format!("$1a$10${rest}"), ""),
-        (format!("$2$10${rest}"), ""),
-        (format!("{GOOD}xyz"), ""),
-        (
-            format!("$2a$03${rest}"),
-            "crypto/bcrypt: cost 3 is outside allowed inclusive range 4..31",
-        ),
-        (
-            format!("$2a$32${rest}"),
-            "crypto/bcrypt: cost 32 is outside allowed inclusive range 4..31",
-        ),
-        (
-            format!("$2a$-1${rest}"),
-            "crypto/bcrypt: cost -1 is outside allowed inclusive range 4..31",
-        ),
-        (
-            format!("$2a$1x${rest}"),
-            "crypto/bcrypt: a cost that is no number",
-        ),
-        (
-            format!("$2a$10$!{}", &rest[1..]),
-            "illegal base64 data at input byte 0",
-        ),
-        (
-            format!("{}!", &GOOD[..59]),
-            "crypto/bcrypt: hashedPassword is not the hash of the given password",
-        ),
-        (
-            GOOD[..59].to_string(),
-            "crypto/bcrypt: hashedPassword is not the hash of the given password",
-        ),
-        (
-            format!("x{}", &GOOD[1..]),
-            "crypto/bcrypt: bcrypt hashes must start with '$', but hashedSecret started with 'x'",
-        ),
-        (
-            format!("$3a$10${rest}"),
-            "crypto/bcrypt: bcrypt algorithm version '3' requested is newer than current version '2'",
-        ),
-        (
-            GOOD[..58].into(),
-            "crypto/bcrypt: hashedSecret too short to be a bcrypted password",
-        ),
-        // The bytes after the version and after the cost are skipped unread; Atoi takes a sign.
-        (format!("$2a?10?{rest}"), ""),
-        (
-            format!("$2a$+1${rest}"),
-            "crypto/bcrypt: cost 1 is outside allowed inclusive range 4..31",
-        ),
-    ]
-}
-
-/// Hashes of "123456" with a malformed salt, and Go's error text for each.
-fn malformed_salts() -> Vec<(String, String)> {
-    // Go's base64 decoder on the salt, which x/crypto pads with "==": misplaced padding, line breaks it skips and
-    // bytes outside the alphabet.
-    let (salt, hash) = (&GOOD[7..29], &GOOD[29..]);
-    let salted = |s: String| format!("$2a$10${s}{hash}");
-    let corrupt = |i: usize| format!("illegal base64 data at input byte {i}");
-    let mismatch = "crypto/bcrypt: hashedPassword is not the hash of the given password";
-    let salts: Vec<(String, String)> = vec![
-        (format!("{}={}", &salt[..2], &salt[3..]), corrupt(2)),
-        (format!("{}={}", &salt[..3], &salt[4..]), corrupt(4)),
-        (format!("{}=={}", &salt[..2], &salt[4..]), corrupt(4)),
-        (format!("\n{}", &salt[1..]), corrupt(22)),
-        (format!("{}=", &salt[..21]), corrupt(21)),
-        (format!("{}==", &salt[..20]), corrupt(20)),
-        (
-            format!("{}\r\n\n\n{}", &salt[..4], &salt[8..]),
-            mismatch.into(),
-        ),
-        (format!("{}\u{e9}", &salt[..20]), corrupt(20)),
-    ];
-    salts.into_iter().map(|(s, w)| (salted(s), w)).collect()
-}
-
-/// Deviation: x/crypto v0.56.0 accepts this hash, whose salt holds four line breaks and decodes to 13 bytes, because
-/// its hash part was computed with that 13-byte salt (probed with Go 1.27). The port takes 16-byte salts only and
-/// reports a mismatch.
+/// A hash that is no bcrypt hash is refused as one, never as a mismatch that reads like a wrong password.
 #[test]
-fn test_verify_password_short_salt_deviation() -> TestResult {
-    assert_eq!(
-        verify_password(
-            "123456",
-            "$2a$10$LMGg\r\n\n\nOq4/YrWXjAy6W.mpHTlrSY83rd7rKFKeChhiM0T8c8GSC"
-        )
-        .err()
-        .context("expected an error")?
-        .to_string(),
-        "crypto/bcrypt: hashedPassword is not the hash of the given password"
-    );
+fn test_a_malformed_hash_is_refused() -> TestResult {
+    let cut = GOOD.get(..40).context("a prefix")?;
+    let malformed: [&[u8]; 8] = [
+        b"x",
+        cut.as_bytes(),
+        b"x2a$10$LMGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC",
+        b"$2a$03$LMGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC",
+        b"$2a$32$LMGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC",
+        b"$2a$xx$LMGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC",
+        b"$2a$10$!MGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC",
+        b"$2a$10$\xffMGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC",
+    ];
+    for hash in malformed {
+        let refusal = verify_password("123456", hash)
+            .err()
+            .context("a refusal")?
+            .to_string();
+        assert!(refusal.starts_with("bcrypt: "), "{refusal}");
+        assert_ne!(refusal, MISMATCH, "{hash:?}");
+    }
     Ok(())
 }
 
@@ -282,12 +160,16 @@ fn test_golden_go_written_hashes() -> TestResult {
             }
         }
     }
+    // What Go's bcrypt accepts and refuses, the bcrypt crate does: a hash Go wrote verifies its password alone.
     for v in &f.verify {
-        let got = verify_password(&v.plain, &v.hash)
-            .err()
-            .map(|e| e.to_string())
-            .unwrap_or_default();
-        assert_eq!(got, v.err, "{} {}", v.plain, v.hash);
+        let got = verify_password(&v.plain, &v.hash);
+        assert_eq!(
+            got.is_err(),
+            !v.err.is_empty(),
+            "{} {}: {got:?}",
+            v.plain,
+            v.hash
+        );
     }
     Ok(())
 }

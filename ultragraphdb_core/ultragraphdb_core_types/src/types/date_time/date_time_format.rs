@@ -1,72 +1,53 @@
 /*
- * Copyright 2022 The Go Authors. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- *
- * Ported from Go 1.27, src/time/format_rfc3339.go and format.go (appendInt, appendNano). Changed for ultragraphdb:
- * translated to Rust.
- * Copyright (c) 2026. Marvin Hansen.
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
 use crate::errors::types_error::TypesError;
 use crate::types::date_time::DateTime;
 
-/// Go's `appendInt`: `x` in decimal, zero-padded to `width` digits, with a leading `-` when negative.
-fn append_int(b: &mut String, x: i64, width: usize) {
-    if x < 0 {
-        b.push('-');
-    }
-    let digits = x.unsigned_abs().to_string();
-    (digits.len()..width).for_each(|_| b.push('0'));
-    b.push_str(&digits);
-}
+/// The widest zone offset RFC 3339 writes: 23 hours and 59 minutes, in seconds.
+pub(crate) const MAX_OFFSET: i32 = 23 * 3_600 + 59 * 60;
 
 impl DateTime {
-    /// Go's `MarshalText`: RFC 3339 with nanoseconds, trailing zeros trimmed, `Z` for a zero offset.
+    /// The time as RFC 3339 text in its zone: the date, `T`, the clock time, the nanoseconds when there are any
+    /// with their trailing zeros dropped, and `Z` for an offset of zero or the offset as `+hh:mm`. An offset's
+    /// seconds have no place in the text and are left out.
+    ///
+    /// # Errors
+    ///
+    /// [`TypesError::time`] for a year outside 0 to 9999 and for an offset past 23:59, neither of which RFC 3339
+    /// writes.
     pub fn marshal_text(&self) -> Result<String, TypesError> {
         let c = self.civil();
-        let mut b = String::with_capacity(35);
-        append_int(&mut b, c.year, 4);
-        b.push('-');
-        append_int(&mut b, c.month, 2);
-        b.push('-');
-        append_int(&mut b, c.day, 2);
-        b.push('T');
-        append_int(&mut b, c.hour, 2);
-        b.push(':');
-        append_int(&mut b, c.min, 2);
-        b.push(':');
-        append_int(&mut b, c.sec, 2);
-        let ns = self.nanosecond();
-        if ns != 0 {
-            let frac = format!("{ns:09}");
-            b.push('.');
-            b.push_str(frac.trim_end_matches('0'));
-        }
         if !(0..=9999).contains(&c.year) {
-            return Err(TypesError::time(
-                "Time.MarshalText: year outside of range [0,9999]",
-            ));
+            return Err(TypesError::time(format!(
+                "datetime: a year of {} is outside 0 to 9999",
+                c.year
+            )));
         }
         let offset = self.offset();
+        if offset.unsigned_abs() > MAX_OFFSET.unsigned_abs() {
+            return Err(TypesError::time(format!(
+                "datetime: a zone offset of {offset} seconds is past 23:59"
+            )));
+        }
+        let mut text = format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+            c.year, c.month, c.day, c.hour, c.min, c.sec
+        );
+        if self.nanosecond() != 0 {
+            let fraction = format!(".{:09}", self.nanosecond());
+            text.push_str(fraction.trim_end_matches('0'));
+        }
         if offset == 0 {
-            b.push('Z');
-            return Ok(b);
-        }
-        let mut zone = offset / 60;
-        if zone < 0 {
-            b.push('-');
-            zone = -zone;
+            text.push('Z');
         } else {
-            b.push('+');
+            // The sign is the whole minutes': an offset below a minute writes as `+00:00`.
+            let minutes = offset.unsigned_abs() / 60;
+            let sign = if offset <= -60 { '-' } else { '+' };
+            text.push_str(&format!("{sign}{:02}:{:02}", minutes / 60, minutes % 60));
         }
-        if zone / 60 >= 24 {
-            return Err(TypesError::time(
-                "Time.MarshalText: timezone hour outside of range [0,23]",
-            ));
-        }
-        append_int(&mut b, i64::from(zone / 60), 2);
-        b.push(':');
-        append_int(&mut b, i64::from(zone % 60), 2);
-        Ok(b)
+        Ok(text)
     }
 }

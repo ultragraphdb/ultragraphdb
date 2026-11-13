@@ -8,13 +8,14 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use std::cmp::Ordering;
+
 use ultragraphdb_traits_index::Metric;
 
 use crate::errors::hnsw_error::HnswError;
 use crate::traits::hnsw_float::HnswFloat;
 use crate::types::persistent_heap_element::PersistentHeapElement;
 use crate::utils::distance::{cosine_similarity, dot_product, euclidean_distance};
-use crate::utils::go_sort;
 
 /// Dgraph's `SimilarityType`: a metric with its distance function, the order its scores rank in and how a layer
 /// result keeps them sorted. Euclidean distance ranks low scores first; cosine similarity and dot product rank high
@@ -79,20 +80,13 @@ impl SimilarityType {
         val: PersistentHeapElement<T>,
     ) {
         let similarity = self.is_similarity_metric();
-        let found = go_sort::search(slice.len(), |i| {
-            // The search asks only indexes below the length.
-            Ok::<_, std::convert::Infallible>(slice.get(i).is_some_and(|e| {
-                if similarity {
-                    e.value() < val.value()
-                } else {
-                    e.value() > val.value()
-                }
-            }))
-        });
-        let i = match found {
-            Ok(i) => i,
-            Err(never) => match never {},
+        // The elements `val` does not beat come first. A NaN score beats nothing and nothing beats it.
+        let beaten = if similarity {
+            Ordering::Less
+        } else {
+            Ordering::Greater
         };
+        let i = slice.partition_point(|e| e.value().partial_cmp(&val.value()) != Some(beaten));
         slice.insert(i, val);
     }
 }

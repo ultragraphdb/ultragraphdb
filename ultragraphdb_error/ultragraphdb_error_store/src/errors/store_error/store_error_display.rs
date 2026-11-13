@@ -6,7 +6,7 @@
 use std::fmt;
 
 use crate::errors::store_error::{StoreError, StoreErrorEnum};
-use crate::utils::go_hex_dump::go_hex_dump;
+use crate::utils::hex_dump::hex_dump;
 
 impl fmt::Display for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -16,7 +16,7 @@ impl fmt::Display for StoreError {
             StoreErrorEnum::KeyTooLarge { size, limit, head } => write!(
                 f,
                 "Key with size {size} exceeded {limit} limit. Key:\n{}",
-                go_hex_dump(head)
+                hex_dump(head)
             ),
             StoreErrorEnum::ReadFailed { key, reason } => {
                 write!(f, "Read of key {} failed: {reason}", hex(key))

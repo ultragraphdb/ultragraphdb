@@ -23,7 +23,6 @@ use ultragraphdb_core_ids::SystemId;
 use crate::errors::hnsw_error::HnswError;
 use crate::traits::hnsw_float::HnswFloat;
 use crate::types::similarity_type::SimilarityType;
-use crate::utils::{go_math, go_sort};
 
 /// Dgraph's `ParseEdges`: the IDs of a dead list, a JSON array whose elements are strings of 32 lowercase
 /// hexadecimal digits, each a system ID's 128-bit value. Blank text and an empty array are no IDs.
@@ -99,8 +98,8 @@ pub fn insert_layer(max_levels: usize, rand_float: f64) -> usize {
     (0..max_levels)
         .zip((0..max_levels).rev())
         .find(|&(_, exponent)| {
-            let exponent = u32::try_from(exponent).unwrap_or(u32::MAX);
-            rand_float < go_math::pow(1.0 / 5.0, exponent)
+            let exponent = i32::try_from(exponent).unwrap_or(i32::MAX);
+            rand_float < 0.2_f64.powi(exponent)
         })
         .map_or(0, |(level, _)| level)
 }
@@ -174,11 +173,18 @@ pub fn insert_uids_top_k_by_score<T: HnswFloat, E>(
             continue;
         }
         let score_new = score(uid)?;
-        // The search asks only indexes below the length.
-        let pos = go_sort::search(edges.len(), |i| match edges.get(i) {
-            Some(&edge) => Ok(sim.is_better_score(score_new, score(edge)?)),
-            None => Ok(true),
-        })?;
+        // The edges the new ID does not beat come first; a score that fails ends the search with its error.
+        let mut failed = None;
+        let pos = edges.partition_point(|&edge| match score(edge) {
+            Ok(score_edge) => !sim.is_better_score(score_new, score_edge),
+            Err(e) => {
+                let _first: &mut E = failed.get_or_insert(e);
+                false
+            }
+        });
+        if let Some(e) = failed {
+            return Err(e);
+        }
         edges.insert(pos, uid);
         edges.truncate(keep);
     }

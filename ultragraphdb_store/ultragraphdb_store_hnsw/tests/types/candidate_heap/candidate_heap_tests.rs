@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, tok/hnsw/persistent_hnsw_test.go (TestCandidateHeapMinHeap, TestCandidateHeapMaxHeap,
- * TestCandidateHeapPushPop). Changed for ultragraphdb: translated to Rust; added: the leaf `pop_last` drops is Go's.
+ * TestCandidateHeapPushPop). Changed for ultragraphdb: translated to Rust; added: the leaf `pop_last` drops.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -52,10 +52,10 @@ fn test_candidate_heap_push_pop() -> TestResult {
     Ok(())
 }
 
-/// Go's `PopLast` removes the heap array's last element, a leaf, not the worst: after building [0.5, 0.1, 0.9, 0.3]
-/// into a min-heap, Go's array is [0.1, 0.3, 0.9, 0.5], so 0.5 goes and 0.9 stays.
+/// `pop_last` removes the heap's last leaf, not the worst candidate: [0.5, 0.1, 0.9, 0.3] built least first is
+/// [0.1, 0.3, 0.9, 0.5], so 0.5 goes and 0.9 stays.
 #[test]
-fn test_pop_last_drops_gos_leaf() -> TestResult {
+fn test_pop_last_drops_the_last_leaf() -> TestResult {
     let mut heap = CandidateHeap::build(elements()?, false);
     heap.pop_last();
     assert_eq!(drain(heap), vec![0.1, 0.3, 0.9]);
@@ -63,7 +63,7 @@ fn test_pop_last_drops_gos_leaf() -> TestResult {
     empty.pop_last();
     assert!(
         empty.pop().is_none(),
-        "popping an empty heap is no candidate, where Go panics"
+        "popping an empty heap is no candidate"
     );
     Ok(())
 }

@@ -9,10 +9,7 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 readme.workspace = true
-# Contains ports of Go's standard library (math, math/big, encoding/json, time, sort, container/heap;
-# BSD-3-Clause, see LICENSE-GO) and of go-geom (BSD-2-Clause, see LICENSE-GO-GEOM) beside this repository's Apache-2.0
-# code.
-license = "Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause"
+license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish.workspace = true

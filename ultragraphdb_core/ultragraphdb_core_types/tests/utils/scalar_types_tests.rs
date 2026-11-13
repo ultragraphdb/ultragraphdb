@@ -182,14 +182,14 @@ fn test_parse_time_with_tz() -> TestResult {
 
 #[test]
 fn test_parse_time_rejection() -> TestResult {
-    // Go's time.ParseError always opens with the quoted input; the full texts are in the golden vectors.
+    // A refusal opens with the text it refuses.
     for input in INVALID_DATES {
         let err = parse_time(input)
             .err()
             .context("expected an error")?
             .to_string();
         assert!(
-            err.starts_with(&format!("parsing time \"{input}\"")),
+            err.starts_with(&format!("datetime {input:?}: ")),
             "{input}: {err}"
         );
     }
@@ -203,10 +203,7 @@ fn test_parse_time_non_rfc3339() -> TestResult {
             .err()
             .context("expected an error")?
             .to_string();
-        assert!(
-            err.contains("time zone offset hour out of range"),
-            "{input}: {err}"
-        );
+        assert!(err.ends_with("zone offset out of range"), "{input}: {err}");
     }
     Ok(())
 }
@@ -254,26 +251,87 @@ fn test_golden_parse_time() -> TestResult {
     let golden = ultragraphdb_tool_bdd::load_golden::<ParseTimeCase>(&path)?;
     for c in golden.cases() {
         let got = parse_time(&c.input);
+        // What Go's time.Parse refuses is refused; the reason is this crate's own.
         if !c.err.is_empty() {
-            assert_eq!(
-                got.err().context("expected an error")?.to_string(),
-                c.err,
-                "{}",
-                c.input
-            );
+            assert!(got.is_err(), "{}: {got:?}", c.input);
             continue;
         }
         let t = got
             .map_err(|e| format!("{}: {e}", c.input))
             .context("parsing a golden time")?;
-        let bin = t
-            .marshal_binary()
-            .map(|b| hex(&b))
-            .unwrap_or_else(|e| format!("error: {e}"));
-        assert_eq!(bin, c.bin, "{}", c.input);
-        let text = t.marshal_text().unwrap_or_else(|e| format!("error: {e}"));
-        assert_eq!(text, c.text, "{}", c.input);
+        // A form Go refuses to write is recorded as its error.
+        let bin = t.marshal_binary().map(|b| hex(&b));
+        if c.bin.starts_with("error") {
+            assert!(bin.is_err(), "{}: {bin:?}", c.input);
+        } else {
+            assert_eq!(
+                bin.map_err(|e| e.to_string()),
+                Ok(c.bin.clone()),
+                "{}",
+                c.input
+            );
+        }
+        let text = t.marshal_text();
+        if c.text.starts_with("error") {
+            assert!(text.is_err(), "{}: {text:?}", c.input);
+        } else {
+            assert_eq!(
+                text.map_err(|e| e.to_string()),
+                Ok(c.text.clone()),
+                "{}",
+                c.input
+            );
+        }
         assert_eq!((t.unix(), t.nanosecond()), (c.unix, c.nsec), "{}", c.input);
+    }
+    Ok(())
+}
+
+/// With a numeric offset and an abbreviation the offset decides the zone, whatever the abbreviation says, and
+/// an offset of zero named `UTC` is UTC. An offset past 23:59 is refused in either form.
+#[test]
+fn test_the_numeric_offset_decides_the_zone() -> TestResult {
+    let read = parse_time("2006-01-02 15:04:05 +0530 UTC")?;
+    assert_eq!(read.zone(), Zone::Fixed(19_800));
+    assert_eq!(read.marshal_text()?, "2006-01-02T15:04:05+05:30");
+    assert_eq!(
+        parse_time("2006-01-02 15:04:05 +0000 UTC")?.zone(),
+        Zone::Utc
+    );
+    assert_eq!(
+        parse_time("2006-01-02 15:04:05 +0000 GMT")?.zone(),
+        Zone::Fixed(0)
+    );
+    for refused in [
+        "2018-10-03T08:05:01+24:00",
+        "2018-10-03T08:05:01-24:00",
+        "2006-01-02 15:04:05 +2400 MST",
+        "2006-01-02 15:04:05 +0530 utc",
+        "2006-01-02 15:04:05 +0530 TOOLONG",
+        "2006-01-02 15:04:05 +0530",
+    ] {
+        assert!(parse_time(refused).is_err(), "{refused}");
+    }
+    Ok(())
+}
+
+/// What a datetime reads, it writes back: every text the six shapes accept reads again from its RFC 3339 form
+/// to the same instant and offset.
+#[test]
+fn test_a_datetime_reads_back_from_its_text() -> TestResult {
+    for text in [
+        "0000",
+        "2018-10",
+        "2016-02-29",
+        "2018-10-03T08:05:01",
+        "2018-10-03T08:05:01.000000001Z",
+        "9999-12-31T23:59:59.999999999-23:59",
+        "2006-01-02 15:04:05,25 -0700 MST",
+    ] {
+        let read = parse_time(text)?;
+        let again = parse_time(read.marshal_text()?)?;
+        assert!(read.equal(&again), "{text}");
+        assert_eq!(read.offset(), again.offset(), "{text}");
     }
     Ok(())
 }

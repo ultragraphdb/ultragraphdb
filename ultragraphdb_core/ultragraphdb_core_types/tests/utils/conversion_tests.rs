@@ -139,13 +139,13 @@ fn binary_edge_cases() -> Vec<EdgeCase> {
             TypeId::BINARY,
             Some(vec![8]),
             TypeId::DATETIME,
-            Err("Time.UnmarshalBinary:"),
+            Err("datetime:"),
         ),
         (
             TypeId::BINARY,
             Some(vec![]),
             TypeId::DATETIME,
-            Err("Time.UnmarshalBinary:"),
+            Err("datetime:"),
         ),
     ]
 }
@@ -175,7 +175,7 @@ fn scalar_edge_cases() -> Vec<EdgeCase> {
             TypeId::STRING,
             Some(vec![]),
             TypeId::DATETIME,
-            Err(r#"parsing time "" as "2006-01-02T15:04:05": cannot parse "" as "2006""#),
+            Err(r#"datetime "": not a year, a year and month, a date, or a date and time"#),
         ),
         (
             TypeId::INT,
@@ -224,7 +224,7 @@ fn datetime_edge_cases() -> TestResult<Vec<EdgeCase>> {
             TypeId::DATETIME,
             Some(vec![]),
             TypeId::DATETIME,
-            Err("Time.UnmarshalBinary: no data"),
+            Err("datetime: no bytes"),
         ),
         (
             TypeId::DATETIME,
@@ -236,7 +236,7 @@ fn datetime_edge_cases() -> TestResult<Vec<EdgeCase>> {
             TypeId::DATETIME,
             Some(vec![]),
             TypeId::BINARY,
-            Err("Time.UnmarshalBinary: no data"),
+            Err("datetime: no bytes"),
         ),
         (
             TypeId::DATETIME,
@@ -248,7 +248,7 @@ fn datetime_edge_cases() -> TestResult<Vec<EdgeCase>> {
             TypeId::DATETIME,
             Some(vec![]),
             TypeId::STRING,
-            Err("Time.UnmarshalBinary: no data"),
+            Err("datetime: no bytes"),
         ),
         (
             TypeId::DATETIME,
@@ -267,7 +267,7 @@ fn datetime_number_edge_cases() -> TestResult<Vec<EdgeCase>> {
             TypeId::DATETIME,
             Some(vec![]),
             TypeId::DEFAULT,
-            Err("Time.UnmarshalBinary: no data"),
+            Err("datetime: no bytes"),
         ),
         (
             TypeId::DATETIME,
@@ -279,7 +279,7 @@ fn datetime_number_edge_cases() -> TestResult<Vec<EdgeCase>> {
             TypeId::DATETIME,
             Some(vec![]),
             TypeId::INT,
-            Err("Time.UnmarshalBinary: no data"),
+            Err("datetime: no bytes"),
         ),
         (
             TypeId::DATETIME,
@@ -291,7 +291,7 @@ fn datetime_number_edge_cases() -> TestResult<Vec<EdgeCase>> {
             TypeId::DATETIME,
             Some(vec![]),
             TypeId::FLOAT,
-            Err("Time.UnmarshalBinary: no data"),
+            Err("datetime: no bytes"),
         ),
         (
             TypeId::DATETIME,
@@ -1647,8 +1647,6 @@ type TextCase = (Val, Result<&'static str, &'static str>);
 /// Ints, floats and the years outside of RFC 3339's range.
 fn number_and_year_texts() -> Vec<TextCase> {
     let float = |f: f64| Val::new(TypeId::FLOAT, Value::Float(f));
-    let year_range =
-        "json: error calling MarshalJSON for type *time.Time: year outside of range [0,9999]";
     vec![
         (
             Val::new(TypeId::INT, Value::Int(i64::MIN)),
@@ -1672,14 +1670,14 @@ fn number_and_year_texts() -> Vec<TextCase> {
                 TypeId::DATETIME,
                 Value::DateTime(DateTime::utc(10000, 1, 1, 0, 0, 0, 0)),
             ),
-            Err(year_range),
+            Err("datetime: a year of 10000 is outside 0 to 9999"),
         ),
         (
             Val::new(
                 TypeId::DATETIME,
                 Value::DateTime(DateTime::utc(-1, 1, 1, 0, 0, 0, 0)),
             ),
-            Err(year_range),
+            Err("datetime: a year of -1 is outside 0 to 9999"),
         ),
     ]
 }
@@ -1711,9 +1709,7 @@ fn zone_and_string_texts() -> Vec<TextCase> {
                     Zone::Fixed(25 * 3600),
                 )),
             ),
-            Err(
-                "json: error calling MarshalJSON for type *time.Time: timezone hour outside of range [0,23]",
-            ),
+            Err("datetime: a zone offset of 90000 seconds is past 23:59"),
         ),
         (
             Val::new(

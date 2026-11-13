@@ -3,10 +3,10 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Go's `hex.Dump`, called directly and reached through the key-size error that prints it. Every expected text is
-//! Go's own output, from `fmt.Printf("%q", hex.Dump(…))`, or Go's `TestDump` in `src/encoding/hex/hex_test.go`.
+//! The canonical hex dump, called directly and reached through the key-size error that prints it. Every expected
+//! text is what Go 1.27's `hex.Dump` writes for the same bytes, the form `hexdump -C` shares.
 
-use ultragraphdb_error_store::{StoreError, go_hex_dump};
+use ultragraphdb_error_store::{StoreError, hex_dump};
 
 fn dump(data: &[u8]) -> String {
     let text = StoreError::key_too_large(0, 0, data.to_vec()).to_string();
@@ -35,7 +35,7 @@ fn test_dump_pads_a_line_shorter_than_eight_bytes() {
 #[test]
 fn test_dump_of_nothing_is_empty() {
     assert_eq!(dump(b""), "");
-    assert_eq!(go_hex_dump(b""), "");
+    assert_eq!(hex_dump(b""), "");
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn test_exported_dump_is_the_one_the_error_prints() {
     let data = b"\x00\x01key with a namespace";
     let want = "00000000  00 01 6b 65 79 20 77 69  74 68 20 61 20 6e 61 6d  |..key with a nam|\n\
                 00000010  65 73 70 61 63 65                                 |espace|\n";
-    assert_eq!(go_hex_dump(data), want);
+    assert_eq!(hex_dump(data), want);
     assert_eq!(dump(data), want);
 }
 
@@ -53,7 +53,7 @@ fn test_dump_matches_gos_test_dump() {
     // Go's TestDump: forty bytes, byte i being i+30, and its expectedHexDump.
     let input: Vec<u8> = (0..40u8).map(|i| i + 30).collect();
     assert_eq!(
-        go_hex_dump(&input),
+        hex_dump(&input),
         "00000000  1e 1f 20 21 22 23 24 25  26 27 28 29 2a 2b 2c 2d  |.. !\"#$%&'()*+,-|\n\
          00000010  2e 2f 30 31 32 33 34 35  36 37 38 39 3a 3b 3c 3d  |./0123456789:;<=|\n\
          00000020  3e 3f 40 41 42 43 44 45                           |>?@ABCDE|\n"
@@ -98,7 +98,7 @@ fn test_dump_matches_go_at_every_line_length_boundary() {
     ];
     for (n, want) in cases {
         let input: Vec<u8> = (b'A'..).take(n).collect();
-        assert_eq!(go_hex_dump(&input), want, "{n} bytes");
+        assert_eq!(hex_dump(&input), want, "{n} bytes");
     }
 }
 
@@ -106,7 +106,7 @@ fn test_dump_matches_go_at_every_line_length_boundary() {
 fn test_dump_prints_only_32_to_126_as_characters() {
     // Go 1.27: hex.Dump([]byte{0x1f, 0x20, 0x7e, 0x7f, 0x80, 0xff}).
     assert_eq!(
-        go_hex_dump(&[0x1f, 0x20, 0x7e, 0x7f, 0x80, 0xff]),
+        hex_dump(&[0x1f, 0x20, 0x7e, 0x7f, 0x80, 0xff]),
         "00000000  1f 20 7e 7f 80 ff                                 |. ~...|\n"
     );
 }
@@ -134,7 +134,7 @@ fn test_dump_of_every_byte_value_matches_go() {
     ]
     .concat();
     let input: Vec<u8> = (0..=255u8).collect();
-    assert_eq!(go_hex_dump(&input), want);
+    assert_eq!(hex_dump(&input), want);
 }
 
 #[test]
@@ -146,7 +146,7 @@ fn test_dump_offsets_past_four_hex_digits_match_go() {
         .take(65_537)
         .map(|i| i.wrapping_mul(13))
         .collect();
-    let text = go_hex_dump(&input);
+    let text = hex_dump(&input);
     let lines: Vec<&str> = text.split('\n').collect();
     assert_eq!((text.len(), lines.len()), (323_648, 4_098));
     assert_eq!(

@@ -4,7 +4,7 @@
  */
 
 //! The `Collator` trait: the language collation Dgraph's sort compares strings by, with the collation itself
-//! supplied by the caller (`ultragraphdb_core_types::TextCollator` ports Go's `golang.org/x/text/collate`).
+//! supplied by the caller (`ultragraphdb_core_types::TextCollator` collates over ICU4X).
 
 mod traits;
 

@@ -63,7 +63,7 @@ Feature: Scalar types
 
   Scenario: An out-of-range zone offset is refused
     When "2018-10-03T08:05:01+25:00" is parsed
-    Then parsing fails with "time zone offset hour out of range"
+    Then parsing fails with "zone offset out of range"
 
   Scenario: Untyped values infer their type
     When "true", "TRUE", "t", "2018", "2018-10", "1World" and "2.99792e8" are inferred

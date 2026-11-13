@@ -1,10 +1,6 @@
 /*
- * Copyright 2009 The Go Authors. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- *
- * Ported from Go 1.27, src/time/time.go. Changed for ultragraphdb: translated to Rust; the part of time.Time that
- * Dgraph's datetime values use (instant, fixed zone offset, binary and RFC 3339 forms, the layouts ParseTime tries).
- * Copyright (c) 2026. Marvin Hansen.
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
 mod date_time_binary;
@@ -13,29 +9,32 @@ mod date_time_format;
 pub(crate) mod date_time_parse;
 
 use crate::types::civil_time::CivilTime;
-use crate::types::date_time::date_time_calendar::{
-    ABSOLUTE_TO_UNIX, INTERNAL_TO_UNIX, UNIX_TO_INTERNAL, date_to_abs_days,
-};
-use crate::utils::go_conv::go_uint32;
+use crate::types::date_time::date_time_calendar::days_from_civil;
+
+/// The seconds of a day.
+pub(crate) const DAY: i64 = 86_400;
+/// The nanoseconds of a second.
+pub(crate) const SECOND: i64 = 1_000_000_000;
+/// The seconds from January 1 of year 1 to January 1 of 1970, both at 00:00:00 UTC.
+pub(crate) const YEAR_ONE_TO_UNIX: i64 = 62_135_596_800;
 
 /// The zone a [`DateTime`] is presented in: UTC, or a fixed offset east of UTC in seconds.
 ///
-/// Go also has `time.Local`. Dgraph never sets it, and a time in the local zone writes the same binary and text
-/// forms as one in a fixed zone of the same offset, so this port records every parsed offset as `Fixed`, even 0:
-/// only `Z` (and the zone name `UTC`) gives `Utc`, as in a Dgraph whose local zone is not Go's `time.UTC`.
+/// A text ending in `Z` reads as `Utc` and one ending in a numeric offset as `Fixed`, an offset of zero included:
+/// the two write the same text and differ in their binary form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Zone {
-    /// Go's `time.UTC`; binary offset `-1` (`FF FF`).
+    /// UTC; binary offset `-1` (`FF FF`).
     Utc,
     /// A fixed offset east of UTC, in seconds.
     Fixed(i32),
 }
 
-/// Go's `time.Time` without the monotonic clock: an instant (seconds since January 1, year 1, and nanoseconds)
-/// and the zone it is presented in.
+/// An instant, as seconds since 1970-01-01T00:00:00 UTC and nanoseconds within the second, and the zone it is
+/// presented in. Two times are the same instant whatever their zones.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DateTime {
-    sec: i64,
+    unix: i64,
     nsec: u32,
     zone: Zone,
 }
@@ -47,51 +46,46 @@ impl Default for DateTime {
 }
 
 impl DateTime {
-    /// Go's zero `time.Time{}`: January 1, year 1, 00:00:00 UTC.
+    /// The zero time: January 1, year 1, 00:00:00 UTC.
+    #[must_use]
     pub const fn zero() -> Self {
         Self {
-            sec: 0,
+            unix: -YEAR_ONE_TO_UNIX,
             nsec: 0,
             zone: Zone::Utc,
         }
     }
 
-    /// Go's `time.Date(year, month, day, hour, min, sec, nsec, loc)`: `civil` read in `zone`, normalising
-    /// out-of-range fields as Go does.
+    /// The instant `civil` names when read in `zone`. A field past its range carries into the next: month 13 is
+    /// January of the year after, day 0 the last day of the month before. An instant past what the seconds since
+    /// 1970 count in 64 bits is the nearest one they do.
     #[must_use]
     pub fn new(civil: CivilTime, zone: Zone) -> Self {
-        let CivilTime {
-            year,
-            month,
-            day,
-            hour,
-            min,
-            sec,
-            nsec,
-        } = civil;
-        // Go's month is normalised from zero, then counted from one again.
-        let (year, month) = norm(year, month.wrapping_sub(1), 12);
-        let month = month + 1;
-        let (sec, nsec) = norm(sec, nsec, 1_000_000_000);
-        let (min, sec) = norm(min, sec, 60);
-        let (hour, min) = norm(hour, min, 60);
-        let (day, hour) = norm(day, hour, 24);
-        // Go's int64(uint64): the day count read as two's complement. Go's uint32(month) and int32(nsec) keep the
-        // low 32 bits of the normalised month, 1 to 12, and nanoseconds, 0 to 999,999,999.
-        let month = go_uint32(month);
-        let nsec = go_uint32(nsec);
-        let mut unix = date_to_abs_days(year, month, day)
-            .cast_signed()
-            .wrapping_mul(86400)
-            .wrapping_add(hour * 3600 + min * 60 + sec)
-            .wrapping_add(ABSOLUTE_TO_UNIX);
-        if let Zone::Fixed(offset) = zone {
-            unix = unix.wrapping_sub(i64::from(offset));
-        }
-        Self::from_unix_zone(unix, nsec, zone)
+        let wide = i128::from;
+        // Months from zero, so the carry into the year is a division.
+        let months = wide(civil.month) - 1;
+        let year = wide(civil.year) + months.div_euclid(12);
+        let month = months.rem_euclid(12) + 1;
+        let days = days_from_civil(year, month, 1) + wide(civil.day) - 1;
+        let nanos = wide(civil.nsec);
+        let offset = match zone {
+            Zone::Utc => 0,
+            Zone::Fixed(offset) => i128::from(offset),
+        };
+        let seconds = days * wide(DAY)
+            + wide(civil.hour) * 3_600
+            + wide(civil.min) * 60
+            + wide(civil.sec)
+            + nanos.div_euclid(wide(SECOND))
+            - offset;
+        let unix = i64::try_from(seconds).unwrap_or(if seconds < 0 { i64::MIN } else { i64::MAX });
+        // The remainder lies from 0 to 999,999,999.
+        let nsec = u32::try_from(nanos.rem_euclid(wide(SECOND))).unwrap_or(0);
+        Self { unix, nsec, zone }
     }
 
-    /// `time.Date(...)` in UTC.
+    /// The instant of the given civil time in UTC, as [`DateTime::new`] reads it.
+    #[must_use]
     pub fn utc(year: i64, month: i64, day: i64, hour: i64, min: i64, sec: i64, nsec: i64) -> Self {
         Self::new(
             CivilTime::new(year, month, day, hour, min, sec, nsec),
@@ -99,45 +93,37 @@ impl DateTime {
         )
     }
 
-    /// Go's `time.Unix(sec, nsec).UTC()`.
+    /// The instant `sec` seconds and `nsec` nanoseconds after 1970-01-01T00:00:00 UTC, in UTC. Nanoseconds past a
+    /// second carry into the seconds, which stop at the ends of 64 bits.
+    #[must_use]
     pub fn from_unix(sec: i64, nsec: i64) -> Self {
-        let (mut sec, mut nsec) = (sec, nsec);
-        if !(0..1_000_000_000).contains(&nsec) {
-            let n = nsec / 1_000_000_000;
-            sec = sec.wrapping_add(n);
-            nsec -= n * 1_000_000_000;
-            if nsec < 0 {
-                nsec += 1_000_000_000;
-                sec = sec.wrapping_sub(1);
-            }
-        }
-        // Go's int32(nsec) keeps the low 32 bits of the normalised 0 to 999,999,999.
-        Self::from_unix_zone(sec, go_uint32(nsec), Zone::Utc)
+        Self::from_unix_zone(
+            sec.saturating_add(nsec.div_euclid(SECOND)),
+            // The remainder lies from 0 to 999,999,999.
+            u32::try_from(nsec.rem_euclid(SECOND)).unwrap_or(0),
+            Zone::Utc,
+        )
     }
 
+    /// The instant `unix` seconds and `nsec` nanoseconds, below a second, after 1970, presented in `zone`.
     pub(crate) fn from_unix_zone(unix: i64, nsec: u32, zone: Zone) -> Self {
-        Self {
-            sec: unix.wrapping_add(UNIX_TO_INTERNAL),
-            nsec,
-            zone,
-        }
+        Self { unix, nsec, zone }
     }
 
-    pub(crate) fn from_internal(sec: i64, nsec: u32, zone: Zone) -> Self {
-        Self { sec, nsec, zone }
-    }
-
-    /// The same instant presented in another zone (Go's `In`, `UTC`).
+    /// The same instant presented in another zone.
+    #[must_use]
     pub fn with_zone(self, zone: Zone) -> Self {
         Self { zone, ..self }
     }
 
     /// The zone this time is presented in.
+    #[must_use]
     pub fn zone(&self) -> Zone {
         self.zone
     }
 
     /// The zone's offset east of UTC in seconds.
+    #[must_use]
     pub fn offset(&self) -> i32 {
         match self.zone {
             Zone::Utc => 0,
@@ -145,50 +131,35 @@ impl DateTime {
         }
     }
 
-    /// Go's `Unix()`: seconds since 1970-01-01 UTC.
+    /// Seconds since 1970-01-01T00:00:00 UTC.
+    #[must_use]
     pub fn unix(&self) -> i64 {
-        self.sec.wrapping_add(INTERNAL_TO_UNIX)
+        self.unix
     }
 
-    /// Go's `UnixNano()`, wrapping outside the years 1678 to 2262 as Go's does.
+    /// Nanoseconds since 1970-01-01T00:00:00 UTC, wrapping outside the years 1678 to 2262, which 64 bits hold.
+    #[must_use]
     pub fn unix_nano(&self) -> i64 {
-        self.unix()
-            .wrapping_mul(1_000_000_000)
+        self.unix
+            .wrapping_mul(SECOND)
             .wrapping_add(i64::from(self.nsec))
     }
 
-    /// Go's `Nanosecond()`.
+    /// The nanoseconds within the second.
+    #[must_use]
     pub fn nanosecond(&self) -> u32 {
         self.nsec
     }
 
-    pub(crate) fn internal_sec(&self) -> i64 {
-        self.sec
-    }
-
-    /// Go's `Before`: whether this instant is earlier than `other`.
+    /// Whether this instant is earlier than `other`.
+    #[must_use]
     pub fn before(&self, other: &DateTime) -> bool {
-        self.sec < other.sec || self.sec == other.sec && self.nsec < other.nsec
+        (self.unix, self.nsec) < (other.unix, other.nsec)
     }
 
-    /// Go's `Equal`: the same instant, whatever the zones.
+    /// Whether this is the same instant as `other`, whatever the zones.
+    #[must_use]
     pub fn equal(&self, other: &DateTime) -> bool {
-        self.sec == other.sec && self.nsec == other.nsec
+        (self.unix, self.nsec) == (other.unix, other.nsec)
     }
-}
-
-/// Go's `norm`: moves `lo` into `[0, base)`, carrying into `hi`, wrapping as Go's int arithmetic does.
-fn norm(hi: i64, lo: i64, base: i64) -> (i64, i64) {
-    let (mut hi, mut lo) = (hi, lo);
-    if lo < 0 {
-        let n = lo.wrapping_neg().wrapping_sub(1) / base + 1;
-        hi = hi.wrapping_sub(n);
-        lo = lo.wrapping_add(n.wrapping_mul(base));
-    }
-    if lo >= base {
-        let n = lo / base;
-        hi = hi.wrapping_add(n);
-        lo = lo.wrapping_sub(n.wrapping_mul(base));
-    }
-    (hi, lo)
 }

@@ -6,8 +6,6 @@
 #[cfg(test)]
 mod distance_tests;
 #[cfg(test)]
-mod go_math_tests;
-#[cfg(test)]
 mod helper_tests;
 #[cfg(test)]
 pub mod helpers;

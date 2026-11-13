@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, types/sort.go. Changed for ultragraphdb: translated to Rust; the language collator is
- * a parameter (the Collator trait, TextCollator for golang.org/x/text/collate); `SortWithFacet`, a query-layer
- * function of protobuf facets, is not ported.
+ * a parameter (the Collator trait); rows are ordered by the standard library's sort under a total order, stably;
+ * `SortWithFacet`, a query-layer function of protobuf facets, is not ported.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -13,13 +13,10 @@ use std::cmp::Ordering;
 use ultragraphdb_traits_collator::Collator;
 
 use crate::errors::types_error::TypesError;
-use crate::traits::sort_data::SortData;
 use crate::types::text_collator::TextCollator;
 use crate::types::type_id::TypeId;
 use crate::types::val::Val;
 use crate::types::value::Value;
-use crate::utils::go_sort;
-use crate::utils::select::quick_select;
 
 /// Dgraph's `cl`: the collator a sort compares strings with, and the language it collates.
 struct Collation<'c, C: Collator> {
@@ -27,57 +24,122 @@ struct Collation<'c, C: Collator> {
     language: C::Language,
 }
 
-/// Dgraph's `byValue`: rows of values sorted together with their uids.
-struct ByValue<'a, C: Collator> {
-    values: &'a mut [Vec<Val>],
-    uids: &'a mut [u64],
-    desc: &'a [bool],
-    cl: Option<Collation<'a, C>>,
-    len: usize,
+/// How two rows order: key by key, each in its own direction, a row's missing or nil key after every value
+/// whatever the direction, and the next key deciding between keys that are equal or both nil. A total order, so
+/// the standard library's sorts take it for any rows.
+fn cmp_rows<C: Collator>(
+    first: &[Val],
+    second: &[Val],
+    desc: &[bool],
+    cl: Option<&Collation<'_, C>>,
+) -> Ordering {
+    (0..first.len().max(second.len()))
+        .map(|at| match (row_key(first, at), row_key(second, at)) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Greater,
+            (Some(_), None) => Ordering::Less,
+            (Some(a), Some(b)) => {
+                let order = cmp_vals(a, b, cl);
+                if desc.get(at).copied().unwrap_or(false) {
+                    order.reverse()
+                } else {
+                    order
+                }
+            }
+        })
+        .find(|order| order.is_ne())
+        .unwrap_or(Ordering::Equal)
 }
 
-impl<C: Collator> SortData for ByValue<'_, C> {
-    fn len(&self) -> usize {
-        self.len
-    }
+/// A row's key at `at`, when the row holds a value there.
+fn row_key(row: &[Val], at: usize) -> Option<&Val> {
+    row.get(at).filter(|v| v.value().is_some())
+}
 
-    fn less(&self, i: usize, j: usize) -> bool {
-        let (Some(first), Some(second)) = (self.values.get(i), self.values.get(j)) else {
-            return false;
+/// A value's text; the empty text for a value that holds none.
+fn text_of(v: &Val) -> &str {
+    match v.value() {
+        Some(Value::Str(s)) => s,
+        _ => "",
+    }
+}
+
+/// How two values order, totally: values of one type by that type, an int and a float by their exact numbers,
+/// values of other types by type identifier. A NaN float goes past the infinity of its sign.
+fn cmp_vals<C: Collator>(a: &Val, b: &Val, cl: Option<&Collation<'_, C>>) -> Ordering {
+    match (a.value(), b.value()) {
+        (Some(Value::Int(x)), Some(Value::Float(y))) => cmp_int_float(*x, *y),
+        (Some(Value::Float(x)), Some(Value::Int(y))) => cmp_int_float(*y, *x).reverse(),
+        _ if a.tid() != b.tid() => a.tid().cmp(&b.tid()),
+        (Some(Value::DateTime(x)), Some(Value::DateTime(y))) => {
+            if x.before(y) {
+                Ordering::Less
+            } else if y.before(x) {
+                Ordering::Greater
+            } else {
+                Ordering::Equal
+            }
+        }
+        (Some(Value::Int(x)), Some(Value::Int(y))) => x.cmp(y),
+        (Some(Value::Float(x)), Some(Value::Float(y))) => {
+            x.partial_cmp(y).unwrap_or_else(|| x.total_cmp(y))
+        }
+        (Some(Value::Uid(x)), Some(Value::Uid(y))) => x.cmp(y),
+        (Some(Value::Decimal(x)), Some(Value::Decimal(y))) => x.cmp(y),
+        _ if matches!(a.tid(), TypeId::STRING | TypeId::DEFAULT) => {
+            let (sa, sb) = (text_of(a), text_of(b));
+            match cl {
+                Some(cl) => cl
+                    .collator
+                    .compare_bytes(&cl.language, sa.as_bytes(), sb.as_bytes()),
+                None => sa.cmp(sb),
+            }
+        }
+        _ => Ordering::Equal,
+    }
+}
+
+/// How an int orders against a float, by their exact numbers: the float's rounding of the int decides unless the
+/// two are equal there, where the float is whole and the ints decide.
+fn cmp_int_float(x: i64, y: f64) -> Ordering {
+    // Two to the 63rd, the least float past every int.
+    const PAST_EVERY_INT: f64 = 9_223_372_036_854_775_808.0;
+    if y.is_nan() {
+        return if y.is_sign_negative() {
+            Ordering::Greater
+        } else {
+            Ordering::Less
         };
-        if first.is_empty() || second.is_empty() {
-            return false;
-        }
-        // Every row holds one value per sort key, and `desc` one flag per key.
-        for ((a, b), &desc) in first.iter().zip(second).zip(self.desc) {
-            match (a.value(), b.value()) {
-                (None, None) => return desc,
-                (None, _) => return false,
-                (_, None) => return true,
-                _ => {}
-            }
-            if equal_vals(a, b) {
-                continue;
-            }
-            let l = less_vals(a, b, self.cl.as_ref());
-            return if desc { !l } else { l };
-        }
-        false
     }
-
-    fn swap(&mut self, i: usize, j: usize) {
-        self.values.swap(i, j);
-        self.uids.swap(i, j);
+    match (x as f64).partial_cmp(&y) {
+        Some(Ordering::Less) => Ordering::Less,
+        Some(Ordering::Greater) => Ordering::Greater,
+        Some(Ordering::Equal) | None if y >= PAST_EVERY_INT => Ordering::Less,
+        // `y` is whole and within an int's range here, so the cast is its value.
+        Some(Ordering::Equal) | None => x.cmp(&(y as i64)),
     }
 }
 
-impl<C: Collator> ByValue<'_, C> {
-    fn is_nil(&self, i: usize) -> bool {
-        self.values
-            .get(i)
-            .and_then(|row| row.first())
-            .is_none_or(|v| v.value().is_none())
-    }
+/// Moves each row and its uid to the place `order` gives it: place `i` takes row `order[i]`.
+fn arrange(order: &[usize], values: &mut [Vec<Val>], uids: &mut [u64]) {
+    let rows: Vec<Vec<Val>> = order
+        .iter()
+        .map(|&from| values.get_mut(from).map(std::mem::take).unwrap_or_default())
+        .collect();
+    let ids: Vec<u64> = order
+        .iter()
+        .filter_map(|&from| uids.get(from).copied())
+        .collect();
+    values
+        .iter_mut()
+        .zip(rows)
+        .for_each(|(slot, row)| *slot = row);
+    uids.iter_mut().zip(ids).for_each(|(slot, id)| *slot = id);
+}
+
+/// Whether a row's first key is missing or nil.
+fn is_nil(row: &[Val]) -> bool {
+    row.first().is_none_or(|v| v.value().is_none())
 }
 
 /// Dgraph's `IsSortable`: datetime, int, float, string, default and decimal.
@@ -151,14 +213,9 @@ fn collation<'c, C: Collator>(lang: &str, collator: &'c C) -> Option<Collation<'
 
 /// Dgraph's `SortTopN`: moves the `n` smallest rows (nil values last) to the front, in order, with their uids.
 ///
-/// The rows after the first `n` hold the rest in quickselect's order, as Go's do, and `n` of zero sorts no row.
-/// `n` is a limit, read as SQL's `LIMIT` (PostgreSQL, SQLite) and Dgraph's own `first:` read one: a count at or
-/// past the row count sorts every row, the order `n` equal to the row count gives, and no rows stay no rows for
-/// any `n`. That is a deliberate choice. Go's `SortTopN` slices `values[:n]`, which panics past the slice's
-/// capacity and, below it, sorts the empty rows past the end in with the real ones, so Go leaves the case
-/// undefined; Dgraph's one caller, `processSort` in worker/sort.go, clamps `n` to the row count with
-/// `x.PageRange` before the call. `n` is a `usize`, so a negative count, which Go's slice also panics on, is
-/// not expressible.
+/// The rows after the first `n` hold the rest in no stated order, and `n` of zero sorts no row. `n` is a limit,
+/// read as SQL's `LIMIT` and Dgraph's own `first:` read one: a count at or past the row count sorts every row.
+/// Rows that compare equal keep the order they came in when every row is sorted.
 pub fn sort_top_n<C: Collator>(
     values: &mut [Vec<Val>],
     uids: &mut [u64],
@@ -173,35 +230,29 @@ pub fn sort_top_n<C: Collator>(
     check_sortable(values)?;
     check_shape(values, uids.len(), desc.len(), true)?;
     let cl = collation(lang, collator);
-    let len = values.len();
-    let mut s = ByValue {
-        values,
-        uids,
-        desc,
-        cl,
-        len,
-    };
-    let count = s.uids.len();
-    let mut nul = 0;
-    for i in 0..count {
-        if s.is_nil(i) {
-            continue;
+    let rows: &[Vec<Val>] = values;
+    let row = |at: usize| rows.get(at).map_or(&[][..], Vec::as_slice);
+    let cmp = |a: &usize, b: &usize| cmp_rows(row(*a), row(*b), desc, cl.as_ref());
+    // The rows with a first key, in the order they came in, then the rows without.
+    let (mut order, without): (Vec<usize>, Vec<usize>) =
+        (0..rows.len()).partition(|&at| !is_nil(row(at)));
+    let with = order.len();
+    order.extend(without);
+    if n < with {
+        // Fewer are wanted than have a key: the `n` smallest of those come to the front first.
+        if let Some(keyed) = order.get_mut(..with) {
+            let _parts = keyed.select_nth_unstable_by(n, cmp);
         }
-        if i != nul {
-            s.swap(i, nul);
-        }
-        nul += 1;
     }
-    if nul > n {
-        s.len = nul;
-        quick_select(&mut s, 0, nul - 1, n);
+    if let Some(front) = order.get_mut(..n.min(rows.len())) {
+        front.sort_by(cmp);
     }
-    s.len = n.min(len);
-    go_sort::sort(&mut s);
+    arrange(&order, values, uids);
     Ok(())
 }
 
-/// Dgraph's `Sort`: sorts rows of values in place with their uids; a nil value sorts last.
+/// Dgraph's `Sort`: sorts rows of values in place with their uids; a nil value sorts last. Rows that compare equal
+/// keep the order they came in.
 pub fn sort<C: Collator>(
     values: &mut [Vec<Val>],
     uids: &mut [u64],
@@ -215,14 +266,11 @@ pub fn sort<C: Collator>(
     check_sortable(values)?;
     check_shape(values, uids.len(), desc.len(), false)?;
     let cl = collation(lang, collator);
-    let len = values.len();
-    go_sort::sort(&mut ByValue {
-        values,
-        uids,
-        desc,
-        cl,
-        len,
-    });
+    let rows: &[Vec<Val>] = values;
+    let row = |at: usize| rows.get(at).map_or(&[][..], Vec::as_slice);
+    let mut order: Vec<usize> = (0..rows.len()).collect();
+    order.sort_by(|a, b| cmp_rows(row(*a), row(*b), desc, cl.as_ref()));
+    arrange(&order, values, uids);
     Ok(())
 }
 

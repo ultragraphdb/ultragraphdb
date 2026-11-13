@@ -4,7 +4,5 @@
  */
 
 pub(crate) mod distance;
-pub(crate) mod go_math;
-pub(crate) mod go_sort;
 pub(crate) mod helper;
 pub(crate) mod matrix;

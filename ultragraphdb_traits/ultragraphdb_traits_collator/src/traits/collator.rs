@@ -5,9 +5,8 @@
 
 use std::cmp::Ordering;
 
-/// The language collation Dgraph's sort uses for strings with a language (Go's
-/// `collate.New(language.Parse(lang))`, from `golang.org/x/text`); `ultragraphdb_core_types::TextCollator` is
-/// `ultragraphdb_core_text`'s port of it.
+/// The language collation a sort uses for strings with a language; `ultragraphdb_core_types::TextCollator` is
+/// `ultragraphdb_core_text`'s, over ICU4X.
 ///
 /// A sort builds one [`Collator::Language`] per call, as Dgraph builds one `collate.Collator`, and compares strings
 /// with it as Go's `Collator.CompareString` does. Comparing collation keys instead gives a different order under

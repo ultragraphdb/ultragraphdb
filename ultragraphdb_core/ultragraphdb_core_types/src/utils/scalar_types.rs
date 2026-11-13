@@ -13,9 +13,7 @@
 
 use crate::errors::types_error::TypesError;
 use crate::types::date_time::DateTime;
-use crate::types::date_time::date_time_parse::{
-    LAYOUT_DATE_TIME, LAYOUT_RFC3339, LAYOUT_Y, LAYOUT_YM, LAYOUT_YMD, LAYOUT_YMD_ZONE, parse,
-};
+use crate::types::date_time::date_time_parse::parse;
 use crate::types::type_id::TypeId;
 use crate::types::val::Val;
 use crate::types::value::Value;
@@ -47,24 +45,12 @@ pub fn good_time_zone(offset: i64) -> bool {
     (-BOUNDARY..=BOUNDARY).contains(&offset)
 }
 
-/// Dgraph's `ParseTime`: a year, a year and month, a date, RFC 3339, `2006-01-02 15:04:05 -0700 MST`, or RFC 3339
-/// without a zone, chosen by the text's length and shape, with Go's error texts.
+/// Dgraph's `ParseTime`: the datetime a text holds, as a year, a year and month, a date, a date and time with `T`
+/// between them and an optional zone, or a date and time with a numeric offset and a zone abbreviation.
+///
+/// # Errors
+///
+/// [`TypesError`] naming the text and what it breaks.
 pub fn parse_time(val: impl AsRef<[u8]>) -> Result<DateTime, TypesError> {
-    let b = val.as_ref();
-    match b.len() {
-        4 => return parse(LAYOUT_Y, b),
-        7 => return parse(LAYOUT_YM, b),
-        10 => return parse(LAYOUT_YMD, b),
-        _ => {}
-    }
-    if b.len() > LAYOUT_DATE_TIME.len()
-        && b.get(10) == Some(&b'T')
-        && (b.last() == Some(&b'Z') || matches!(b.last_chunk::<3>(), Some([b':', _, _])))
-    {
-        return parse(LAYOUT_RFC3339, b);
-    }
-    if let Ok(t) = parse(LAYOUT_YMD_ZONE, b) {
-        return Ok(t);
-    }
-    parse(LAYOUT_DATE_TIME, b)
+    parse(val.as_ref())
 }

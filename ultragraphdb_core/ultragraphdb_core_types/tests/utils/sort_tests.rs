@@ -122,26 +122,42 @@ fn int_values(rows: &[Vec<Val>]) -> TestResult<Vec<Option<i64>>> {
         .collect()
 }
 
-/// Runs `sort_top_n` over `input` for each `n` and checks the uids and values against one expected order.
-fn assert_top_n(
-    input: &[Option<i64>],
-    desc: bool,
-    ns: &[usize],
-    uids: &[u64],
-    values: &[Option<i64>],
-) -> TestResult {
+/// How two optional ints order in a sort: a nil after every value whatever the direction.
+fn int_order(a: Option<i64>, b: Option<i64>, desc: bool) -> std::cmp::Ordering {
+    match (a, b) {
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (Some(x), Some(y)) if desc => y.cmp(&x),
+        (Some(x), Some(y)) => x.cmp(&y),
+    }
+}
+
+/// Runs `sort_top_n` over `input` for each `n`. The first `n` rows are the `n` smallest in order, every row keeps
+/// its uid, and a count that takes in every row gives the stable order: equal rows as they came in.
+fn assert_top_n(input: &[Option<i64>], desc: bool, ns: &[usize]) -> TestResult {
+    let uid_list = get_uid_list(input.len());
+    let mut stable: Vec<(Option<i64>, u64)> = input.iter().copied().zip(uid_list).collect();
+    let came_in = stable.clone();
+    stable.sort_by(|a, b| int_order(a.0, b.0, desc));
     for &n in ns {
         let (mut rows, mut ul) = int_rows(input);
         sort_top_n(&mut rows, &mut ul, &[desc], "", n, &TextCollator)?;
-        assert_eq!(ul, uids, "uids, desc {desc}, n {n}");
-        assert_eq!(int_values(&rows)?, values, "values, desc {desc}, n {n}");
+        let got: Vec<(Option<i64>, u64)> = int_values(&rows)?.into_iter().zip(ul).collect();
+        let front = n.min(input.len());
+        let values = |pairs: &[(Option<i64>, u64)]| -> Vec<Option<i64>> {
+            pairs.iter().take(front).map(|pair| pair.0).collect()
+        };
+        assert_eq!(values(&got), values(&stable), "desc {desc}, n {n}");
+        let mut by_uid = got.clone();
+        by_uid.sort_by_key(|pair| pair.1);
+        assert_eq!(by_uid, came_in, "each row with its uid, desc {desc}, n {n}");
+        if n >= input.len() {
+            assert_eq!(got, stable, "desc {desc}, n {n}");
+        }
     }
     Ok(())
 }
-
-// The expected orders for n up to the row count are Go 1.27's types.SortTopN over the same rows (Dgraph
-// v25 types/sort.go:95); past the row count Go panics with `slice bounds out of range [:n] with capacity
-// len`, and the port returns the order of n equal to the row count, as SQL's LIMIT and Dgraph's first: do.
 
 #[test]
 fn test_sort_top_n_with_nil_values_and_ties() -> TestResult {
@@ -155,55 +171,14 @@ fn test_sort_top_n_with_nil_values_and_ties() -> TestResult {
         None,
         Some(2),
     ];
-    let asc = [
-        Some(1),
-        Some(2),
-        Some(3),
-        Some(3),
-        Some(5),
-        Some(5),
-        None,
-        None,
-    ];
-    assert_top_n(
-        &input,
-        false,
-        &[0, 1, 2, 3, 5, 6, 7, 8, 9, 100, usize::MAX],
-        &[500, 800, 200, 400, 100, 600, 700, 300],
-        &asc,
-    )?;
-    let desc = [
-        Some(5),
-        Some(5),
-        Some(3),
-        Some(3),
-        Some(2),
-        Some(1),
-        None,
-        None,
-    ];
-    assert_top_n(
-        &input,
-        true,
-        &[0, 2, 3, 6],
-        &[100, 600, 200, 400, 800, 500, 700, 300],
-        &desc,
-    )?;
-    // Sorting all eight rows swaps the two nil rows: Dgraph's Less of two nil values is the direction.
-    assert_top_n(
-        &input,
-        true,
-        &[8, 9, usize::MAX],
-        &[100, 600, 200, 400, 800, 500, 300, 700],
-        &desc,
-    )?;
-    Ok(())
+    let ns = [0, 1, 2, 3, 5, 6, 7, 8, 9, 100, usize::MAX];
+    assert_top_n(&input, false, &ns)?;
+    assert_top_n(&input, true, &ns)
 }
 
 #[test]
 fn test_sort_top_n_counts_past_the_rows_sort_every_row() -> TestResult {
-    // Twelve values and a nil: n of 13 sorts the nil row too, and Go's pdqsort then orders the ties
-    // differently from the insertion sort quickselect ends in.
+    // Twelve values and a nil: a count of 13 or more sorts the nil row too.
     let input = [
         Some(7),
         Some(3),
@@ -219,44 +194,11 @@ fn test_sort_top_n_counts_past_the_rows_sort_every_row() -> TestResult {
         Some(6),
         None,
     ];
-    let values = [
-        Some(-4),
-        Some(-4),
-        Some(0),
-        Some(3),
-        Some(3),
-        Some(3),
-        Some(6),
-        Some(7),
-        Some(8),
-        Some(9),
-        Some(11),
-        Some(12),
-        None,
-    ];
-    assert_top_n(
-        &input,
-        false,
-        &[0, 1, 4, 5, 12],
-        &[
-            700, 1100, 600, 200, 400, 900, 1200, 100, 800, 300, 500, 1000, 1300,
-        ],
-        &values,
-    )?;
-    assert_top_n(
-        &input,
-        false,
-        &[13, 14, usize::MAX],
-        &[
-            1100, 700, 600, 400, 900, 200, 1200, 100, 800, 300, 500, 1000, 1300,
-        ],
-        &values,
-    )?;
-    Ok(())
+    assert_top_n(&input, false, &[0, 1, 4, 5, 12, 13, 14, usize::MAX])
 }
 
 #[test]
-fn test_sort_top_n_leaves_the_rest_selected_not_sorted() -> TestResult {
+fn test_sort_top_n_leaves_the_rest_with_their_uids() -> TestResult {
     let input: Vec<Option<i64>> = [
         14, 2, 27, 2, 9, 30, 5, 18, 2, 21, 11, 0, 25, 7, 16, 9, 3, 29, 12, 1, 23, 9, 6, 19, 8, 28,
         4, 15, 10, 22,
@@ -264,97 +206,9 @@ fn test_sort_top_n_leaves_the_rest_selected_not_sorted() -> TestResult {
     .into_iter()
     .map(Some)
     .collect();
-    top_n_ascending_leaves_the_rest_selected(&input)?;
-    top_n_descending_leaves_the_rest_selected(&input)?;
-    Ok(())
-}
-
-fn some(v: &[i64]) -> Vec<Option<i64>> {
-    v.iter().copied().map(Some).collect()
-}
-
-fn top_n_ascending_leaves_the_rest_selected(input: &[Option<i64>]) -> TestResult {
-    assert_top_n(
-        input,
-        false,
-        &[0, 1, 3, 4],
-        &[
-            1200, 2000, 200, 400, 900, 1700, 2700, 700, 1400, 1600, 2900, 1900, 100, 2200, 2300,
-            2500, 1100, 2800, 500, 1500, 2100, 600, 3000, 2400, 1000, 2600, 300, 1800, 800, 1300,
-        ],
-        &some(&[
-            0, 1, 2, 2, 2, 3, 4, 5, 7, 9, 10, 12, 14, 9, 6, 8, 11, 15, 9, 16, 23, 30, 22, 19, 21,
-            28, 27, 29, 18, 25,
-        ]),
-    )?;
-    assert_top_n(
-        input,
-        false,
-        &[10],
-        &[
-            1200, 2000, 200, 400, 900, 1700, 2700, 700, 2300, 1400, 2500, 1600, 500, 2200, 2900,
-            1900, 1100, 2800, 100, 1500, 2100, 600, 3000, 2400, 1000, 2600, 300, 1800, 800, 1300,
-        ],
-        &some(&[
-            0, 1, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 10, 12, 11, 15, 14, 16, 23, 30, 22, 19, 21,
-            28, 27, 29, 18, 25,
-        ]),
-    )?;
-    let sorted = some(&[
-        0, 1, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 10, 11, 12, 14, 15, 16, 18, 19, 21, 22, 23, 25,
-        27, 28, 29, 30,
-    ]);
-    assert_top_n(
-        input,
-        false,
-        &[29],
-        &[
-            1200, 2000, 200, 400, 900, 1700, 2700, 700, 2300, 1400, 2500, 1600, 2200, 500, 2900,
-            1100, 1900, 100, 2800, 1500, 800, 2400, 1000, 3000, 2100, 1300, 300, 2600, 1800, 600,
-        ],
-        &sorted,
-    )?;
-    assert_top_n(
-        input,
-        false,
-        &[30, 31, usize::MAX],
-        &[
-            1200, 2000, 900, 200, 400, 1700, 2700, 700, 2300, 1400, 2500, 500, 1600, 2200, 2900,
-            1100, 1900, 100, 2800, 1500, 800, 2400, 1000, 3000, 2100, 1300, 300, 2600, 1800, 600,
-        ],
-        &sorted,
-    )?;
-    Ok(())
-}
-
-fn top_n_descending_leaves_the_rest_selected(input: &[Option<i64>]) -> TestResult {
-    assert_top_n(
-        input,
-        true,
-        &[3],
-        &[
-            600, 1800, 2600, 300, 1300, 3000, 1000, 2100, 2400, 800, 1500, 1200, 500, 1400, 200,
-            1600, 1700, 700, 1900, 2000, 100, 2200, 2300, 900, 2500, 400, 2700, 2800, 2900, 1100,
-        ],
-        &some(&[
-            30, 29, 28, 27, 25, 22, 21, 23, 19, 18, 16, 0, 9, 7, 2, 9, 3, 5, 12, 1, 14, 9, 6, 2, 8,
-            2, 4, 15, 10, 11,
-        ]),
-    )?;
-    assert_top_n(
-        input,
-        true,
-        &[30, 31, usize::MAX],
-        &[
-            600, 1800, 2600, 300, 1300, 2100, 3000, 1000, 2400, 800, 1500, 2800, 100, 1900, 1100,
-            2900, 500, 1600, 2200, 2500, 1400, 2300, 700, 2700, 1700, 400, 900, 200, 2000, 1200,
-        ],
-        &some(&[
-            30, 29, 28, 27, 25, 23, 22, 21, 19, 18, 16, 15, 14, 12, 11, 10, 9, 9, 9, 8, 7, 6, 5, 4,
-            3, 2, 2, 2, 1, 0,
-        ]),
-    )?;
-    Ok(())
+    let ns = [0, 1, 3, 4, 10, 15, 29, 30, 31];
+    assert_top_n(&input, false, &ns)?;
+    assert_top_n(&input, true, &ns)
 }
 
 #[test]
@@ -569,46 +423,105 @@ fn unhex(s: &str) -> TestResult<Vec<u8>> {
         .collect()
 }
 
+/// A golden case's rows as values.
+fn golden_rows(c: &SortCase) -> TestResult<Vec<Vec<Val>>> {
+    c.rows
+        .iter()
+        .flatten()
+        .map(|r| {
+            r.iter()
+                .map(|v| -> TestResult<Val> {
+                    let tid = TypeId::new(v.tid);
+                    Ok(if v.nil {
+                        Val::nil(tid)
+                    } else if tid == TypeId::UID {
+                        let b = unhex(&v.bin)?;
+                        Val::new(
+                            tid,
+                            Value::Uid(u64::from_le_bytes(
+                                *b.first_chunk().context("the 8 bytes of a uid")?,
+                            )),
+                        )
+                    } else {
+                        convert(&Val::bytes(TypeId::BINARY, unhex(&v.bin)?), tid)?
+                    })
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// A row's keys as a sort reads them: a nil key is nil whatever its type, and an int and a float of one number
+/// are one key.
+fn row_keys(row: &[Val]) -> String {
+    let keys: Vec<Option<String>> = row
+        .iter()
+        .map(|v| {
+            v.value().map(|x| match x {
+                Value::Int(i) => format!("{}", *i as f64),
+                Value::Float(f) => format!("{f}"),
+                Value::Bytes(_)
+                | Value::Str(_)
+                | Value::Bool(_)
+                | Value::DateTime(_)
+                | Value::Geo(_)
+                | Value::Uid(_)
+                | Value::Decimal(_)
+                | Value::VFloat(_) => format!("{:?}", (v.tid(), x)),
+            })
+        })
+        .collect();
+    format!("{keys:?}")
+}
+
+/// Go's sort of each golden case and this crate's agree on the rows sorted that hold a first key, compared by
+/// their keys in the order of Go's uids. Go orders equal rows and the rows past a count as its own sort leaves
+/// them, and two rows without a first key by the direction alone; rows of several keys whose first mixes types
+/// are left to this crate's own tests.
 #[test]
 fn test_golden_sort_orders() -> TestResult {
     let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/types_sort.json");
     let golden = ultragraphdb_tool_bdd::load_golden::<SortCase>(&path)?;
     for c in golden.cases() {
-        let mut rows: Vec<Vec<Val>> = c
-            .rows
-            .iter()
-            .flatten()
-            .map(|r| {
-                r.iter()
-                    .map(|v| -> TestResult<Val> {
-                        let tid = TypeId::new(v.tid);
-                        Ok(if v.nil {
-                            Val::nil(tid)
-                        } else if tid == TypeId::UID {
-                            let b = unhex(&v.bin)?;
-                            Val::new(
-                                tid,
-                                Value::Uid(u64::from_le_bytes(
-                                    *b.first_chunk().context("the 8 bytes of a uid")?,
-                                )),
-                            )
-                        } else {
-                            convert(&Val::bytes(TypeId::BINARY, unhex(&v.bin)?), tid)?
-                        })
-                    })
-                    .collect()
-            })
-            .collect::<TestResult<_>>()?;
+        let mut rows = golden_rows(c)?;
         let mut uids = get_uid_list(rows.len());
         let res = if c.top_n > 0 {
             sort_top_n(&mut rows, &mut uids, &c.desc, "", c.top_n, &TextCollator)
         } else {
             sort(&mut rows, &mut uids, &c.desc, "", &TextCollator)
         };
-        match res {
-            Err(e) => assert_eq!(e.to_string(), c.err, "{}", c.name),
-            Ok(()) => assert_eq!(uids, c.uids.clone().unwrap_or_default(), "{}", c.name),
+        if let Err(e) = res {
+            assert_eq!(e.to_string(), c.err, "{}", c.name);
+            continue;
         }
+        // Go takes an int and a float of one number for different keys and never reads the key after them.
+        let first_types: std::collections::HashSet<TypeId> = rows
+            .iter()
+            .filter_map(|row| row.first().filter(|v| v.value().is_some()).map(Val::tid))
+            .collect();
+        if c.desc.len() > 1 && first_types.len() > 1 {
+            continue;
+        }
+        let keyed = rows
+            .iter()
+            .filter(|row| row.first().is_some_and(|v| v.value().is_some()))
+            .count();
+        let sorted = if c.top_n > 0 { c.top_n } else { rows.len() }.min(keyed);
+        let by_uid: std::collections::HashMap<u64, &Vec<Val>> =
+            uids.iter().copied().zip(&rows).collect();
+        let want: Vec<Option<String>> = c
+            .uids
+            .iter()
+            .flatten()
+            .take(sorted)
+            .map(|uid| by_uid.get(uid).map(|row| row_keys(row)))
+            .collect();
+        let got: Vec<Option<String>> = rows
+            .iter()
+            .take(sorted)
+            .map(|row| Some(row_keys(row)))
+            .collect();
+        assert_eq!(got, want, "{}", c.name);
     }
     Ok(())
 }
@@ -680,12 +593,11 @@ fn test_sort_of_mismatched_shapes_is_refused() -> TestResult {
         top_n_err.to_string(),
         "Sort has 2 rows of values but 3 uids"
     );
-    // Empty rows are allowed beside full ones, as Dgraph's Less returns false for them: an empty row is never
-    // less nor greater, so Go's insertion sort of three rows leaves them where they are.
+    // Empty rows are allowed beside full ones: an empty row holds no key, and goes after every row that does.
     let mut with_empty = vec![vec![int(2)], vec![], vec![int(1)]];
     let mut uids = [1, 2, 3];
     sort(&mut with_empty, &mut uids, &[false], "", &TextCollator)?;
-    assert_eq!(uids, [1, 2, 3]);
+    assert_eq!(uids, [3, 1, 2]);
     Ok(())
 }
 
@@ -737,5 +649,71 @@ fn test_sort_nil_values_last_and_ties_by_next_value() -> TestResult {
         sort(&mut values, &mut uids, &desc, "", &TextCollator)?;
         assert_eq!(uids, want, "desc {desc:?}");
     }
+    Ok(())
+}
+
+/// The uids a sort of one-key rows leaves, the rows numbered from 1.
+fn sorted_uids(values: Vec<Val>, desc: bool) -> TestResult<Vec<u64>> {
+    let mut rows: Vec<Vec<Val>> = values.into_iter().map(|v| vec![v]).collect();
+    let mut uids: Vec<u64> = (1..).take(rows.len()).collect();
+    sort(&mut rows, &mut uids, &[desc], "", &TextCollator)?;
+    Ok(uids)
+}
+
+/// An int and a float order by their exact numbers, past the ints a float holds exactly, and a NaN goes past
+/// the infinity of its sign, so every float has a place.
+#[test]
+fn test_ints_and_floats_order_by_their_exact_numbers() -> TestResult {
+    let int = |i: i64| Val::new(TypeId::INT, Value::Int(i));
+    let float = |f: f64| Val::new(TypeId::FLOAT, Value::Float(f));
+    // Two to the 53rd as a float lies between the ints beside it, which round to it.
+    let big = 9_007_199_254_740_992_i64;
+    assert_eq!(
+        sorted_uids(vec![int(big + 1), float(big as f64), int(big - 1)], false)?,
+        [3, 2, 1]
+    );
+    // Two to the 63rd is past every int.
+    assert_eq!(
+        sorted_uids(
+            vec![float(9_223_372_036_854_775_808.0), int(i64::MAX)],
+            false
+        )?,
+        [2, 1]
+    );
+    assert_eq!(
+        sorted_uids(
+            vec![
+                float(f64::NAN),
+                int(0),
+                float(f64::INFINITY),
+                float(-f64::NAN),
+                float(f64::NEG_INFINITY),
+            ],
+            false
+        )?,
+        [4, 5, 2, 3, 1]
+    );
+    Ok(())
+}
+
+/// Rows that compare equal keep the order they came in, in either direction, and rows without a first key go
+/// last, ordered by the next key.
+#[test]
+fn test_equal_rows_keep_their_order_and_keyless_rows_go_last() -> TestResult {
+    let int = |i: i64| Val::new(TypeId::INT, Value::Int(i));
+    for desc in [false, true] {
+        assert_eq!(sorted_uids(vec![int(7), int(7), int(7)], desc)?, [1, 2, 3]);
+    }
+    let nil = || Val::nil(TypeId::INT);
+    let mut rows = vec![
+        vec![nil(), int(2)],
+        vec![int(5), int(1)],
+        vec![nil(), int(1)],
+        vec![nil(), nil()],
+        vec![int(5), nil()],
+    ];
+    let mut uids = [1, 2, 3, 4, 5];
+    sort(&mut rows, &mut uids, &[true, false], "", &TextCollator)?;
+    assert_eq!(uids, [2, 5, 3, 1, 4]);
     Ok(())
 }

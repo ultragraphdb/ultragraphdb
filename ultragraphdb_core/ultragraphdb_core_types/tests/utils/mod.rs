@@ -8,8 +8,6 @@ mod compare_tests;
 #[cfg(test)]
 mod conversion_tests;
 #[cfg(test)]
-mod go_sort_tests;
-#[cfg(test)]
 mod json_float_tests;
 #[cfg(test)]
 mod password_tests;

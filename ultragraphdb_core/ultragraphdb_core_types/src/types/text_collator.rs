@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, types/sort.go (the collator SortTopN and SortWithFacet build). Changed for
- * ultragraphdb: translated to Rust, over ultragraphdb_core_text's port of golang.org/x/text.
+ * ultragraphdb: translated to Rust, over ultragraphdb_core_text's ICU4X collation.
  * Copyright (c) 2026. Marvin Hansen.
  */
 

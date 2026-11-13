@@ -373,7 +373,7 @@ fn parse_one(w: &mut Steps, s: String) -> TestResult {
 #[then(expr = "parsing fails with {string}")]
 fn parsing_fails(w: &mut Steps, msg: &[String]) {
     // Dgraph's ParseTime returns Go's time.ParseError for the RFC 3339 layout.
-    assert_eq!(w.error, format!("parsing time {:?}: {}", w.text, msg[0]));
+    assert_eq!(w.error, format!("datetime {:?}: {}", w.text, msg[0]));
 }
 
 // ---------- Inference ----------
@@ -459,7 +459,7 @@ fn hash_checked(w: &mut Steps) {
     assert!(w.hash_ok);
     assert_eq!(
         w.other_fails,
-        "crypto/bcrypt: hashedPassword is not the hash of the given password"
+        "bcrypt: the password does not match its hash"
     );
 }
 

@@ -270,3 +270,30 @@ fn test_a_misaligned_vector_is_logged_as_dgraph_logs_it() {
         "{events:?}"
     );
 }
+
+/// Level `i` of `max_levels` is taken by a draw below a fifth to the power `max_levels - 1 - i`: a fifth of the
+/// nodes reach each level above the one below, and a draw no threshold passes takes level 0.
+#[test]
+fn test_the_insert_layer_follows_the_powers_of_a_fifth() {
+    assert_eq!(ultragraphdb_store_hnsw::insert_layer(1, 0.999), 0);
+    for max_levels in [3_usize, 5, 16] {
+        for level in 1..max_levels {
+            let exponent = i32::try_from(max_levels - 1 - level).unwrap_or(i32::MAX);
+            // The threshold of this level, and of the level above it.
+            let (own, above) = (0.2_f64.powi(exponent), 0.2_f64.powi(exponent + 1));
+            let within = f64::midpoint(own, above);
+            assert_eq!(
+                ultragraphdb_store_hnsw::insert_layer(max_levels, within),
+                level,
+                "{within} of {max_levels}"
+            );
+            assert_eq!(
+                ultragraphdb_store_hnsw::insert_layer(max_levels, above),
+                level,
+                "{above} of {max_levels}"
+            );
+        }
+        assert_eq!(ultragraphdb_store_hnsw::insert_layer(max_levels, 0.0), 0);
+    }
+    assert_eq!(ultragraphdb_store_hnsw::insert_layer(4, f64::NAN), 0);
+}

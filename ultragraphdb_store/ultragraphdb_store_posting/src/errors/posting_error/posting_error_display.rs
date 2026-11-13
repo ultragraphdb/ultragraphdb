@@ -5,8 +5,6 @@
 
 use std::fmt::{Display, Formatter, Result};
 
-use ultragraphdb_error_store::go_hex_dump;
-
 use super::{PostingError, PostingErrorEnum};
 
 impl Display for PostingError {
@@ -14,7 +12,7 @@ impl Display for PostingError {
         match &self.0 {
             PostingErrorEnum::Store(error) => write!(f, "{error}"),
             PostingErrorEnum::NotAList { key } => {
-                write!(f, "Key {} is not a posting list's", go_hex_dump(key))
+                write!(f, "Key {} is not a posting list's", hex_dump(key))
             }
             PostingErrorEnum::InvalidKey => {
                 f.write_str("cannot read posting list using multi-part list key")
@@ -39,10 +37,10 @@ impl Display for PostingError {
             PostingErrorEnum::SchemaPosting { key } => write!(
                 f,
                 "Trying to read schema in ReadPostingList for key: {}",
-                go_hex_dump(key)
+                hex_dump(key)
             ),
             PostingErrorEnum::UnexpectedMeta { meta, key } => {
-                write!(f, "Unexpected meta: {meta} for key: {}", go_hex_dump(key))
+                write!(f, "Unexpected meta: {meta} for key: {}", hex_dump(key))
             }
             // Badger's ErrKeyNotFound, wrapped as readListPart wraps it.
             PostingErrorEnum::MissingPart { key } => {

@@ -1,20 +1,17 @@
 /*
  * SPDX-FileCopyrightText: © 2017-2026 Istari Digital, Inc.
- * Copyright 2009 The Go Authors. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0 AND BSD-3-Clause
+ * SPDX-License-Identifier: Apache-2.0
  *
- * Ported from Dgraph v25.5.0, tok/hnsw/heap.go (minPersistentTupleHeap, maxPersistentTupleHeap, candidateHeap,
- * buildCandidateHeap), with Go 1.27's container/heap (Init, Push, Pop, Remove, up, down) it runs on. Changed for
- * ultragraphdb: translated to Rust; one heap whose order is chosen when it is built, where Dgraph wraps two types
- * behind an interface; Go's sift-up and sift-down exactly, so that `pop_last` drops the leaf Go drops.
+ * After Dgraph v25.5.0, tok/hnsw/heap.go (candidateHeap, buildCandidateHeap). Changed for ultragraphdb: a binary
+ * heap written for it, one type whose order is chosen when it is built.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
 use crate::traits::hnsw_float::HnswFloat;
 use crate::types::persistent_heap_element::PersistentHeapElement;
 
-/// Dgraph's `candidateHeap`: the candidates a layer search has yet to expand, best first: a min-heap of distances
-/// or a max-heap of similarities.
+/// The candidates a layer search has yet to expand, best first: the least distance, or the greatest similarity. A
+/// binary heap in one vector, each candidate before both of its children.
 #[derive(Debug, Clone)]
 pub struct CandidateHeap<T> {
     items: Vec<PersistentHeapElement<T>>,
@@ -22,17 +19,17 @@ pub struct CandidateHeap<T> {
 }
 
 impl<T: HnswFloat> CandidateHeap<T> {
-    /// Dgraph's `buildCandidateHeap`: a heap of `items`, a max-heap when `is_similarity_metric`, built in place in
-    /// linear time as Go's `heap.Init`.
+    /// A heap of `items`, the greatest first when `is_similarity_metric` and the least first otherwise, ordered in
+    /// place in linear time.
     pub fn build(items: Vec<PersistentHeapElement<T>>, is_similarity_metric: bool) -> Self {
         let mut heap = Self {
             items,
             max: is_similarity_metric,
         };
-        let n = heap.items.len();
-        for i in (0..n / 2).rev() {
-            heap.down(i, n);
-        }
+        // Every item of the first half has a child; the rest are leaves.
+        (0..heap.items.len() / 2)
+            .rev()
+            .for_each(|at| heap.sift_down(at));
         heap
     }
 
@@ -46,62 +43,67 @@ impl<T: HnswFloat> CandidateHeap<T> {
         self.items.is_empty()
     }
 
-    /// Go's `heap.Push`.
+    /// Adds a candidate.
     pub fn push(&mut self, x: PersistentHeapElement<T>) {
+        let at = self.items.len();
         self.items.push(x);
-        self.up(self.items.len() - 1);
+        self.sift_up(at);
     }
 
-    /// Go's `heap.Pop`: the best candidate; `None` when there is none, where Go panics.
+    /// Takes the best candidate out; `None` when there is none.
     pub fn pop(&mut self) -> Option<PersistentHeapElement<T>> {
-        let n = self.items.len().checked_sub(1)?;
-        self.items.swap(0, n);
-        self.down(0, n);
-        self.items.pop()
+        if self.items.is_empty() {
+            return None;
+        }
+        // The last leaf takes the best's place and sinks to its own.
+        let best = self.items.swap_remove(0);
+        self.sift_down(0);
+        Some(best)
     }
 
-    /// Dgraph's `PopLast`, Go's `heap.Remove` of the last element: drops the heap array's last leaf, which is not
-    /// necessarily the worst candidate.
+    /// Drops the heap's last leaf in constant time, which bounds the heap; a leaf is no better than its ancestors,
+    /// and not necessarily the worst candidate.
     pub fn pop_last(&mut self) {
         let _last: Option<PersistentHeapElement<T>> = self.items.pop();
     }
 
-    fn less(&self, i: usize, j: usize) -> bool {
-        // The heap's moves name items it holds, so both are always there.
-        match (self.items.get(i), self.items.get(j)) {
+    /// Whether the candidate at `a` goes before the one at `b`; false when either is past the heap.
+    fn before(&self, a: usize, b: usize) -> bool {
+        match (self.items.get(a), self.items.get(b)) {
             (Some(a), Some(b)) if self.max => a.value() > b.value(),
             (Some(a), Some(b)) => a.value() < b.value(),
             _ => false,
         }
     }
 
-    fn up(&mut self, mut j: usize) {
-        // Ends: `j` at least halves each turn.
-        while j > 0 {
-            let i = (j - 1) / 2;
-            if !self.less(j, i) {
+    /// Moves the candidate at `at` towards the root while it goes before its parent.
+    fn sift_up(&mut self, mut at: usize) {
+        // Ends: `at` at least halves each turn.
+        while let Some(parent) = at.checked_sub(1).map(|below| below / 2) {
+            if !self.before(at, parent) {
                 break;
             }
-            self.items.swap(i, j);
-            j = i;
+            self.items.swap(at, parent);
+            at = parent;
         }
     }
 
-    fn down(&mut self, i0: usize, n: usize) {
-        let mut i = i0;
-        // Ends: `i` at least doubles each turn, and the turn stops once it has no child below `n`.
-        while 2 * i + 1 < n {
-            let j1 = 2 * i + 1;
-            let mut j = j1;
-            let j2 = j1 + 1;
-            if j2 < n && self.less(j2, j1) {
-                j = j2;
-            }
-            if !self.less(j, i) {
+    /// Moves the candidate at `at` towards the leaves while a child goes before it.
+    fn sift_down(&mut self, mut at: usize) {
+        // Ends: `at` at least doubles each turn, and `before` is false past the heap.
+        loop {
+            let left = at.saturating_mul(2).saturating_add(1);
+            let right = left.saturating_add(1);
+            let child = if self.before(right, left) {
+                right
+            } else {
+                left
+            };
+            if !self.before(child, at) {
                 break;
             }
-            self.items.swap(i, j);
-            i = j;
+            self.items.swap(at, child);
+            at = child;
         }
     }
 }

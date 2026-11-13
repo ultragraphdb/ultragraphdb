@@ -3,4 +3,4 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-pub mod go_hex_dump;
+pub mod hex_dump;

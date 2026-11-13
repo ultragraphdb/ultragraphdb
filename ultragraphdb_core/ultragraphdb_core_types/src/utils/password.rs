@@ -2,24 +2,26 @@
  * SPDX-FileCopyrightText: © 2017-2026 Istari Digital, Inc.
  * SPDX-License-Identifier: Apache-2.0
  *
- * Ported from Dgraph v25.5.0, types/password.go. Changed for ultragraphdb: translated to Rust over the bcrypt
- * crate, with golang.org/x/crypto/bcrypt's hash checks and error texts.
- * Contains code ported from golang.org/x/crypto v0.56.0, bcrypt/bcrypt.go (newFromHash, CompareHashAndPassword),
- * and from Go 1.27, src/encoding/base64/base64.go (Decode). Copyright 2011 The Go Authors, BSD-3-Clause.
+ * After Dgraph v25.5.0, types/password.go. Changed for ultragraphdb: written in Rust over the bcrypt crate, which
+ * hashes, reads a stored hash and compares in constant time.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
 use crate::errors::types_error::TypesError;
 
+/// The fewest bytes a password holds.
 const PWD_LEN_LIMIT: usize = 6;
+/// The most bytes bcrypt hashes; a longer password is refused, never cut.
+const PWD_LEN_MAX: usize = 72;
+/// The work factor of every hash written.
 const DEFAULT_COST: u32 = 10;
-const MIN_HASH_SIZE: usize = 59;
-const MIN_COST: i64 = 4;
-const MAX_COST: i64 = 31;
-const ENCODED_SALT_SIZE: usize = 22;
-const ENCODED_HASH_SIZE: usize = 31;
 
-/// Dgraph's `Encrypt`: a bcrypt hash at cost 10 in Go's `$2a$` form, for passwords of at least 6 bytes.
+/// Dgraph's `Encrypt`: a bcrypt hash at cost 10 in the `$2a$` form, for a password of 6 to 72 bytes.
+///
+/// # Errors
+///
+/// [`TypesError::password`] for a password of fewer than 6 bytes or more than 72, and the bcrypt crate's failure
+/// to draw a salt.
 pub fn encrypt(plain: impl AsRef<[u8]>) -> Result<String, TypesError> {
     let plain = plain.as_ref();
     if plain.len() < PWD_LEN_LIMIT {
@@ -27,158 +29,43 @@ pub fn encrypt(plain: impl AsRef<[u8]>) -> Result<String, TypesError> {
             "Password too short, i.e. should have at least 6 chars",
         ));
     }
-    if plain.len() > 72 {
+    if plain.len() > PWD_LEN_MAX {
         return Err(TypesError::password(
             "bcrypt: password length exceeds 72 bytes",
         ));
     }
     bcrypt::hash_with_result(plain, DEFAULT_COST)
         .map(|h| h.format_for_version(bcrypt::Version::TwoA))
-        .map_err(|e| TypesError::password(e.to_string()))
+        .map_err(|e| TypesError::password(format!("bcrypt: {e}")))
 }
 
-/// Dgraph's `VerifyPassword`: whether `plain` matches the bcrypt hash `encrypted`, with x/crypto's errors.
+/// Dgraph's `VerifyPassword`: whether `plain` is the password the bcrypt hash `encrypted` was made of. The hash is
+/// read by the bcrypt crate and the comparison takes the same time whatever differs.
 ///
-/// The hash is read as golang.org/x/crypto/bcrypt v0.56.0's `CompareHashAndPassword` reads it: `$`, a major version
-/// of at most `2` with an optional minor one, a two-byte cost read by `strconv.Atoi` and checked against 4..=31, a
-/// salt of 22 bytes decoded by Go's base64 decoder, and the hash bytes after it, of which the first 31 count.
+/// # Errors
 ///
-/// Deviation: a salt that decodes to other than 16 bytes, which only the line breaks Go's decoder skips can produce,
-/// is reported as a mismatch. Go hashes with the shorter salt and accepts a hash computed with it; the bcrypt crate
-/// takes a 16-byte salt only.
+/// [`TypesError::password`] for a password of fewer than 6 bytes or an empty hash, a hash that is no bcrypt
+/// hash, a password of more than 72 bytes, which no hash was made of, and a password that does not match.
 pub fn verify_password(
     plain: impl AsRef<[u8]>,
     encrypted: impl AsRef<[u8]>,
 ) -> Result<(), TypesError> {
-    let (plain, h) = (plain.as_ref(), encrypted.as_ref());
-    if plain.len() < PWD_LEN_LIMIT || h.is_empty() {
+    let (plain, hash) = (plain.as_ref(), encrypted.as_ref());
+    if plain.len() < PWD_LEN_LIMIT || hash.is_empty() {
         return Err(TypesError::password("Invalid password/crypted string"));
     }
-    let too_short =
-        || TypesError::password("crypto/bcrypt: hashedSecret too short to be a bcrypted password");
-    if h.len() < MIN_HASH_SIZE {
-        return Err(too_short());
+    let hash = std::str::from_utf8(hash)
+        .map_err(|_| TypesError::password("bcrypt: a hash that is no text"))?;
+    if plain.len() > PWD_LEN_MAX {
+        return Err(TypesError::password(
+            "bcrypt: password length exceeds 72 bytes",
+        ));
     }
-    let Some(&[h0, h1, h2]) = h.first_chunk::<3>() else {
-        return Err(too_short());
-    };
-    if h0 != b'$' {
-        return Err(TypesError::password(format!(
-            "crypto/bcrypt: bcrypt hashes must start with '$', but hashedSecret started with '{}'",
-            h0 as char
-        )));
+    match bcrypt::verify(plain, hash) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(TypesError::password(
+            "bcrypt: the password does not match its hash",
+        )),
+        Err(e) => Err(TypesError::password(format!("bcrypt: {e}"))),
     }
-    if h1 > b'2' {
-        return Err(TypesError::password(format!(
-            "crypto/bcrypt: bcrypt algorithm version '{}' requested is newer than current version '2'",
-            h1 as char
-        )));
-    }
-    // decodeVersion skips the byte after the version, and decodeCost the byte after the cost, unread. The length
-    // checked above holds every part below.
-    let n = if h2 == b'$' { 3 } else { 4 };
-    let cost_digits = h.get(n..n + 2).ok_or_else(too_short)?;
-    let cost = std::str::from_utf8(cost_digits)
-        .ok()
-        .and_then(|digits| digits.parse::<i64>().ok())
-        .ok_or_else(|| TypesError::password("crypto/bcrypt: a cost that is no number"))?;
-    if !(MIN_COST..=MAX_COST).contains(&cost) {
-        return Err(TypesError::password(format!(
-            "crypto/bcrypt: cost {cost} is outside allowed inclusive range {MIN_COST}..{MAX_COST}"
-        )));
-    }
-    let (encoded_salt, stored) = h
-        .get(n + 3..)
-        .and_then(|rest| rest.split_at_checked(ENCODED_SALT_SIZE))
-        .ok_or_else(too_short)?;
-    let mut padded = encoded_salt.to_vec();
-    padded.extend_from_slice(b"==");
-    let salt = go_base64_decode(&padded)
-        .map_err(|i| TypesError::password(format!("illegal base64 data at input byte {i}")))?;
-    let mismatch = || {
-        TypesError::password("crypto/bcrypt: hashedPassword is not the hash of the given password")
-    };
-    let Ok(salt) = <[u8; 16]>::try_from(salt) else {
-        return Err(mismatch());
-    };
-    // The range check above keeps the cost within u32 and within the crate's range.
-    let cost =
-        u32::try_from(cost).map_err(|e| TypesError::password(format!("crypto/bcrypt: {e}")))?;
-    let computed = bcrypt::hash_with_salt(plain, cost, salt)
-        .map_err(|e| TypesError::password(format!("crypto/bcrypt: {e}")))?
-        .format_for_version(bcrypt::Version::TwoA);
-    let computed = computed
-        .as_bytes()
-        .last_chunk::<ENCODED_HASH_SIZE>()
-        .ok_or_else(mismatch)?;
-    // Go copies the stored hash into a 60-byte buffer, so bytes past the 31st are dropped and missing ones are zero.
-    let stored = stored.get(..ENCODED_HASH_SIZE).unwrap_or(stored);
-    let differs = stored.len() != computed.len()
-        || stored
-            .iter()
-            .zip(computed)
-            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
-            != 0;
-    if differs { Err(mismatch()) } else { Ok(()) }
-}
-
-/// Go's `base64.Encoding.Decode` over bcrypt's alphabet with `=` padding, not strict, as x/crypto's `base64Decode`
-/// uses it: the decoded bytes, or the input index that Go's `CorruptInputError` names.
-fn go_base64_decode(src: &[u8]) -> Result<Vec<u8>, usize> {
-    const ALPHABET: &[u8; 64] = b"./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let is_newline = |c: u8| c == b'\n' || c == b'\r';
-    let mut out = Vec::with_capacity(src.len() / 4 * 3);
-    let mut si = 0;
-    while si < src.len() {
-        let (mut dbuf, mut dlen, mut j) = ([0u8; 4], 4, 0);
-        let mut trailing = None;
-        while j < 4 {
-            let Some(&c) = src.get(si) else {
-                if j == 0 {
-                    return Ok(out);
-                }
-                return Err(si - j);
-            };
-            si += 1;
-            if let Some((_, v)) = ALPHABET.iter().zip(0u8..).find(|&(&a, _)| a == c) {
-                // `j` is below 4, the loop's bound.
-                if let Some(slot) = dbuf.get_mut(j) {
-                    *slot = v;
-                }
-                j += 1;
-                continue;
-            }
-            if is_newline(c) {
-                continue;
-            }
-            if c != b'=' || j < 2 {
-                return Err(si - 1);
-            }
-            if j == 2 {
-                while src.get(si).is_some_and(|&next| is_newline(next)) {
-                    si += 1;
-                }
-                match src.get(si) {
-                    None => return Err(src.len()),
-                    Some(&pad) if pad != b'=' => return Err(si - 1),
-                    Some(_) => si += 1,
-                }
-            }
-            while src.get(si).is_some_and(|&next| is_newline(next)) {
-                si += 1;
-            }
-            if si < src.len() {
-                trailing = Some(si);
-            }
-            dlen = j;
-            break;
-        }
-        let val = dbuf.iter().fold(0u32, |acc, &d| (acc << 6) | u32::from(d));
-        // `dlen` is 2 to 4, so the range lies within the four bytes.
-        out.extend_from_slice(val.to_be_bytes().get(1..dlen).unwrap_or_default());
-        if let Some(i) = trailing {
-            return Err(i);
-        }
-    }
-    Ok(out)
 }

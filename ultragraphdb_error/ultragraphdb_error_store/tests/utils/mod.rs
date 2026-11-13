@@ -4,4 +4,4 @@
  */
 
 #[cfg(test)]
-mod go_hex_dump_tests;
+mod hex_dump_tests;

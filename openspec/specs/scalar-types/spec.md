@@ -16,7 +16,7 @@ password 8, string 9, object 10, decimal 11, float32vector 12, with schema names
 ### Requirement: Values encode byte-identically to Dgraph
 Converting a value to binary SHALL produce Dgraph's bytes: int as 8 bytes little-endian two's complement, float
 as 8 bytes little-endian IEEE-754, bool as one byte 0 or 1, string, default and password as their bytes,
-datetime in Go's `time.MarshalBinary` layout, geo as little-endian ISO WKB of a geometry in CRS84, decimal as its canonical `xsd:decimal` text, and
+datetime in the layout Go's `time.MarshalBinary` writes, geo as little-endian ISO WKB of a geometry in CRS84, decimal as its canonical `xsd:decimal` text, and
 float32vector as little-endian f32 values.
 
 #### Scenario: Every type's encoding matches its golden vector
@@ -61,8 +61,9 @@ nanoseconds, to an int by truncating toward zero, and SHALL order and compare by
 - **THEN** the first three give `1000`, `-0.5` and `1.5`, and `1e3` is refused
 
 ### Requirement: Datetime parsing accepts Dgraph's forms
-Datetime parsing SHALL accept a year, a year and month, a date, RFC 3339, RFC 3339 without a zone, and
-`2006-01-02 15:04:05 -0700 MST`, and SHALL refuse a zone offset out of range.
+Datetime parsing SHALL accept a year, a year and month, a date, RFC 3339, RFC 3339 without a zone, and a date and
+time with a numeric offset and a zone abbreviation, `2006-01-02 15:04:05 -0700 MST`, in which the numeric offset
+decides the zone. It SHALL refuse a zone offset past 23:59.
 
 #### Scenario: Partial dates parse
 - **WHEN** `2018`, `2018-10` and `2018-10-03` are parsed
@@ -70,7 +71,7 @@ Datetime parsing SHALL accept a year, a year and month, a date, RFC 3339, RFC 33
 
 #### Scenario: An out-of-range zone offset is refused
 - **WHEN** `2018-10-03T08:05:01+25:00` is parsed
-- **THEN** parsing fails with `time zone offset hour out of range`
+- **THEN** parsing fails with `zone offset out of range`
 
 ### Requirement: Value inference
 Inferring a type from an untyped value SHALL follow Dgraph's order, the first matching shape deciding: bool (`true`,
@@ -81,7 +82,7 @@ Inferring a type from an untyped value SHALL follow Dgraph's order, the first ma
 - **THEN** the types are bool, bool, default, int, datetime, default and float
 
 ### Requirement: Passwords are bcrypt hashes
-A password SHALL be stored as a bcrypt hash at cost 10, SHALL be at least 6 bytes long, and SHALL verify against
+A password SHALL be stored as a bcrypt hash at cost 10, SHALL be 6 to 72 bytes long, and SHALL verify against
 hashes Dgraph wrote.
 
 #### Scenario: A short password is refused
@@ -93,8 +94,10 @@ hashes Dgraph wrote.
 - **THEN** the check succeeds, and a different password fails it
 
 ### Requirement: Values order as Dgraph sorts them
-Sorting values SHALL compare numerically across int and float, SHALL order other mismatched types by type
-identifier, and SHALL order strings of a language by that language's collation.
+Sorting values SHALL compare an int and a float by their exact numbers, SHALL order other mismatched types by type
+identifier, and SHALL order strings of a language by that language's collation. The order SHALL be total: a NaN
+float goes past the infinity of its sign, and a row's missing or nil key after every value in either direction, the
+next key deciding between rows equal or both nil in a key. Rows that compare equal SHALL keep the order they came in.
 
 #### Scenario: Ints and floats sort together
 - **WHEN** the values `3`, `2.5` and `-1` of mixed int and float types are sorted

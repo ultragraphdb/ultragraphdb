@@ -6,7 +6,6 @@
 //! Ported from Dgraph v25.5.0: `types`: scalar type identifiers, conversions, binary encodings, ordering, passwords, geo values.
 
 mod errors;
-mod traits;
 mod types;
 mod utils;
 

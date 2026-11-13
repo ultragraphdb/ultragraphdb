@@ -3,11 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Go's `time.Time` as Dgraph's datetimes use it. The expected values are Go 1.27's: `time.Date`, `Unix`,
-//! `UnixNano`, `MarshalBinary`, `UnmarshalBinary` and `MarshalText`, printed by a Go program over the same inputs.
+//! A datetime's instants, binary form and text. The expected values are what Go 1.27's `time` gives for the same
+//! inputs, whose binary layout stored values hold; where a form refuses, the tables say so with `Err`.
 
 use ultragraphdb_core_types::{CivilTime, DateTime, Zone};
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::TestResult;
 
 const UTC: Option<i32> = None;
 
@@ -34,9 +34,10 @@ struct DateCase {
     text: Result<&'static str, &'static str>,
 }
 
-const ZONE_ERR: &str = "Time.MarshalBinary: unexpected zone offset";
-const YEAR_ERR: &str = "Time.MarshalText: year outside of range [0,9999]";
-const HOUR_ERR: &str = "Time.MarshalText: timezone hour outside of range [0,23]";
+// Why a form refuses a time; the tables name the reason, and the tests check that it refuses.
+const ZONE_ERR: &str = "a zone offset the binary form cannot hold";
+const YEAR_ERR: &str = "a year outside 0 to 9999";
+const HOUR_ERR: &str = "a zone offset past 23:59";
 
 #[rustfmt::skip]
 const DATES: [DateCase; 36] = [
@@ -133,9 +134,9 @@ fn test_dates_as_go_computes_and_encodes_them() -> TestResult {
         assert_eq!(t.offset(), c.offset.unwrap_or(0), "{at}");
         let bin = t.marshal_binary();
         assert_eq!(
-            bin.as_deref().map(hex).map_err(|e| e.to_string()),
-            c.binary.map(str::to_string).map_err(str::to_string),
-            "{at}"
+            bin.as_deref().map(hex).ok(),
+            c.binary.map(str::to_string).ok(),
+            "{at}: {bin:?}"
         );
         if let (Ok(b), Some((unix, nsec, offset, utc))) = (&bin, c.back) {
             let u = DateTime::unmarshal_binary(b)?;
@@ -146,10 +147,11 @@ fn test_dates_as_go_computes_and_encodes_them() -> TestResult {
             );
             assert!(u.equal(&t), "{at}");
         }
+        let text = t.marshal_text();
         assert_eq!(
-            t.marshal_text().map_err(|e| e.to_string()),
-            c.text.map(str::to_string).map_err(str::to_string),
-            "{at}"
+            text.as_ref().ok().cloned(),
+            c.text.map(str::to_string).ok(),
+            "{at}: {text:?}"
         );
         if c.offset.is_none() {
             assert_eq!(t, DateTime::utc(y, mo, d, h, mi, s, ns), "{at}");
@@ -169,10 +171,10 @@ fn binary(version: u8, sec: i64, nsec: u32, offset_min: i16, extra: &[u8]) -> Ve
 }
 
 #[test]
-fn test_unmarshal_binary_as_go_reads_it() -> TestResult {
+fn test_unmarshal_binary_reads_every_offset() -> TestResult {
     // The internal seconds of the Unix epoch.
     const EPOCH: i64 = 62135596800;
-    // (input, Unix seconds, nanoseconds, offset, UTC), each Go 1.27's.
+    // (input, Unix seconds, nanoseconds, offset, UTC).
     let cases = [
         (binary(1, EPOCH, 0, -1, &[]), 0, 0, 0, true),
         (
@@ -182,37 +184,12 @@ fn test_unmarshal_binary_as_go_reads_it() -> TestResult {
             3600,
             false,
         ),
-        // Go keeps the low 30 bits of the nanoseconds.
-        (binary(1, EPOCH, 1 << 30, -1, &[]), 0, 0, 0, true),
-        (binary(1, EPOCH, (1 << 30) + 5, -1, &[]), 0, 5, 0, true),
-        (
-            binary(1, EPOCH, 0x7fff_ffff, -1, &[]),
-            0,
-            (1 << 30) - 1,
-            0,
-            true,
-        ),
-        // Negative nanoseconds set Go's monotonic bit, and Go reads the seconds out of the wall clock.
-        (
-            binary(1, EPOCH, 0xffff_ffff, -1, &[]),
-            5907646591,
-            (1 << 30) - 1,
-            0,
-            true,
-        ),
-        (
-            binary(1, EPOCH, 0x8000_0000, -1, &[]),
-            5907646590,
-            0,
-            0,
-            true,
-        ),
         // Version 2's leftover seconds are a signed byte.
         (binary(2, EPOCH, 0, 0, &[0xff]), 0, 0, -1, false),
         (binary(2, EPOCH, 0, 0, &[0x80]), 0, 0, -128, false),
         (binary(2, EPOCH, 0, 0, &[0x7f]), 0, 0, 127, false),
         (binary(2, EPOCH, 0, 0, &[0xc5]), 0, 0, -59, false),
-        // 0 minutes and -60 seconds is offset -60, which Go reads as UTC.
+        // 0 minutes and -60 seconds is the offset of minus one minute, which is UTC.
         (binary(2, EPOCH, 0, 0, &[0xc4]), 0, 0, 0, true),
         (binary(2, EPOCH, 0, 1, &[0xc4]), 0, 0, 0, false),
         (binary(2, EPOCH, 0, -1, &[0x00]), 0, 0, 0, true),
@@ -246,50 +223,40 @@ fn test_unmarshal_binary_as_go_reads_it() -> TestResult {
     Ok(())
 }
 
+/// Bytes that are no datetime are refused: none, a version other than 1 and 2, a length other than the version's,
+/// and nanoseconds of a second or more.
 #[test]
-fn test_unmarshal_errors() -> TestResult {
+fn test_unmarshal_errors() {
     let cases = [
-        (vec![], "Time.UnmarshalBinary: no data"),
-        (vec![0], "Time.UnmarshalBinary: unsupported version"),
-        (vec![3], "Time.UnmarshalBinary: unsupported version"),
-        (vec![0xff; 15], "Time.UnmarshalBinary: unsupported version"),
-        (
-            binary(0, 0, 0, -1, &[]),
-            "Time.UnmarshalBinary: unsupported version",
-        ),
-        (vec![1], "Time.UnmarshalBinary: invalid length"),
-        (vec![2], "Time.UnmarshalBinary: invalid length"),
-        (vec![1, 2], "Time.UnmarshalBinary: invalid length"),
-        (
-            binary(1, 0, 0, -1, &[0]),
-            "Time.UnmarshalBinary: invalid length",
-        ),
-        (
-            binary(2, 0, 0, -1, &[]),
-            "Time.UnmarshalBinary: invalid length",
-        ),
-        (
-            binary(1, 0, 0, -1, &[])[..14].to_vec(),
-            "Time.UnmarshalBinary: invalid length",
-        ),
+        vec![],
+        vec![0],
+        vec![3],
+        vec![0xff; 15],
+        binary(0, 0, 0, -1, &[]),
+        vec![1],
+        vec![2],
+        vec![1, 2],
+        binary(1, 0, 0, -1, &[0]),
+        binary(2, 0, 0, -1, &[]),
+        binary(1, 0, 0, -1, &[])[..14].to_vec(),
+        binary(1, 0, 1_000_000_000, -1, &[]),
+        binary(1, 0, 1 << 30, -1, &[]),
+        binary(1, 0, u32::MAX, -1, &[]),
+        binary(1, i64::MIN, 0, -1, &[]),
     ];
-    for (b, want) in cases {
-        assert_eq!(
-            DateTime::unmarshal_binary(&b)
-                .err()
-                .context("expected an error")?
-                .to_string(),
-            want,
-            "{}",
+    for b in cases {
+        let refusal = DateTime::unmarshal_binary(&b).map_err(|e| e.to_string());
+        assert!(
+            refusal.as_ref().is_err_and(|e| e.starts_with("datetime: ")),
+            "{}: {refusal:?}",
             hex(&b)
         );
     }
-    Ok(())
 }
 
 #[test]
-fn test_from_unix_normalises_as_go_does() -> TestResult {
-    // Go's time.Unix(sec, nsec).UTC(), with its RFC 3339 text.
+fn test_from_unix_carries_nanoseconds_into_seconds() -> TestResult {
+    // The seconds and nanoseconds given, those kept, and the RFC 3339 text.
     let cases = [
         ((-1, 500), (-1, 500), "1969-12-31T23:59:59.0000005Z"),
         ((0, -1), (-1, 999_999_999), "1969-12-31T23:59:59.999999999Z"),
@@ -344,33 +311,24 @@ fn test_zero_before_and_equal() -> TestResult {
     Ok(())
 }
 
+/// A field past its range carries, and an instant past 64 bits of seconds is the nearest one they count.
 #[test]
-fn test_new_with_extreme_fields_wraps_as_go_does() {
-    // Go's time.Date wraps its int arithmetic; the port's overflowed. Go 1.27's Unix and Nanosecond of each.
-    let want: [[(i64, u32); 4]; 2] = [
-        [
-            (1133525477, 0),
-            (1136041445, 0),
-            (9223371965464232955, 145224192),
-            (9223372028767618011, 145224192),
-        ],
-        [
-            (1130847077, 0),
-            (1135955045, 0),
-            (9223371983879437367, 854775807),
-            (-9223372026495189533, 854775807),
-        ],
-    ];
-    for (v, want_of_v) in [i64::MIN, i64::MAX].into_iter().zip(want) {
+fn test_new_with_extreme_fields_stops_at_the_ends() {
+    for v in [i64::MIN, i64::MAX] {
         let got = [
             DateTime::new(CivilTime::new(2006, v, 2, 15, 4, 5, 0), Zone::Utc),
             DateTime::new(CivilTime::new(2006, 1, v, 15, 4, 5, 0), Zone::Utc),
             DateTime::new(CivilTime::new(v, 1, 2, v, v, v, v), Zone::Utc),
-            DateTime::utc(2006, 1, 2, 15, 4, v, v),
+            DateTime::utc(2006, 1, 2, 15, v, v, v),
         ]
-        .map(|t| (t.unix(), t.nanosecond()));
-        assert_eq!(got, want_of_v, "{v}");
+        .map(|t| t.unix());
+        assert_eq!(got, [v; 4], "{v}");
     }
+    assert_eq!(
+        DateTime::from_unix(i64::MAX, i64::MAX).unix(),
+        i64::MAX,
+        "nanoseconds carried past the last second"
+    );
     assert_eq!(
         DateTime::new(CivilTime::new(2006, 13, 2, 15, 4, 5, 0), Zone::Utc),
         DateTime::new(CivilTime::new(2007, 1, 2, 15, 4, 5, 0), Zone::Utc)
