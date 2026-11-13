@@ -1,0 +1,83 @@
+AGENTS.md
+  s_d14a54f3ee4b57::t_de9630863b66a6 22,285
+Cargo.lock
+  s_d14a54f3ee4b57::t_8e98111e6529d2 3002,3624,3811
+openspec/notes/Loom-List.md
+  s_d14a54f3ee4b57::t_01fa0d08fe3280 30-33,37,40-41,46,57
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/BUILD.bazel
+  s_d14a54f3ee4b57::t_1e9ad85093d52c 44,59-94
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/Cargo.toml
+  s_d14a54f3ee4b57::t_b73958056e48c8 32-35
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/src/lib.rs
+  s_d14a54f3ee4b57::t_36857e8881264d 44
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/src/types/leased_blocks/mod.rs
+  s_d14a54f3ee4b57::t_1edc4947694583 14-15
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/src/utils/mod.rs
+  s_d14a54f3ee4b57::t_91dc176f9ed9bd 1-6
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/src/utils/sync.rs
+  s_d14a54f3ee4b57::t_1e611eaf611881 1-13
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/tests/loom/mod.rs
+  s_d14a54f3ee4b57::t_72dd87ea39506a 1-10
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/tests/loom/types/mod.rs
+  s_d14a54f3ee4b57::t_646352340bb2ec 1-7
+ultragraphdb_protocol/ultragraphdb_protocol_transport/BUILD.bazel
+  s_d14a54f3ee4b57::t_ae6fa93ea229f7 34-37,50-82
+ultragraphdb_protocol/ultragraphdb_protocol_transport/Cargo.toml
+  s_d14a54f3ee4b57::t_0e72e310694cee 25-28
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/buffer_pool/mod.rs
+  s_d14a54f3ee4b57::t_ec3a42afaea388 7,12
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/pooled_buffer/mod.rs
+  s_d14a54f3ee4b57::t_67a412a928837e 9
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/utils/mod.rs
+  s_d14a54f3ee4b57::t_61348481e636e0 7
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/utils/sync.rs
+  s_d14a54f3ee4b57::t_65b96b4395853f 1-12
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/loom/mod.rs
+  s_d14a54f3ee4b57::t_55e35e6ed3fab7 1-10
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/loom/types/mod.rs
+  s_d14a54f3ee4b57::t_201ac5f8f4d745 1-7
+ultragraphdb_store/ultragraphdb_store_posting/BUILD.bazel
+  s_d14a54f3ee4b57::t_83dfa934bb6981 42-45,56-89
+ultragraphdb_store/ultragraphdb_store_posting/Cargo.toml
+  s_d14a54f3ee4b57::t_4b31a232e26153 33-36
+ultragraphdb_store/ultragraphdb_store_posting/src/types/cache_miss/mod.rs
+  s_d14a54f3ee4b57::t_a9710ade99611a 10
+ultragraphdb_store/ultragraphdb_store_posting/src/types/lists/mod.rs
+  s_d14a54f3ee4b57::t_9ae098eeb92f0f 23
+ultragraphdb_store/ultragraphdb_store_posting/src/utils/lock.rs
+  s_d14a54f3ee4b57::t_02c8ff1e5a9a94 6-8
+ultragraphdb_store/ultragraphdb_store_posting/src/utils/mod.rs
+  s_d14a54f3ee4b57::t_53992646667a41 11
+ultragraphdb_store/ultragraphdb_store_posting/src/utils/sync.rs
+  s_d14a54f3ee4b57::t_806ed0fd7fbff5 1-12
+ultragraphdb_store/ultragraphdb_store_posting/tests/loom/mod.rs
+  s_d14a54f3ee4b57::t_47405eaa6e4c60 1-10
+ultragraphdb_store/ultragraphdb_store_posting/tests/loom/types/lists/lists_tests.rs
+  s_d14a54f3ee4b57::t_814e7b01e7a759 1-76
+ultragraphdb_store/ultragraphdb_store_posting/tests/loom/types/lists/mod.rs
+  s_d14a54f3ee4b57::t_eb53a5d27b8d1f 1-7
+ultragraphdb_store/ultragraphdb_store_posting/tests/loom/types/mod.rs
+  s_d14a54f3ee4b57::t_e7cffd1bb3ead3 1-7
+ROADMAP.md
+  s_d14a54f3ee4b57::t_11f074a376a5c8 12
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/tests/loom/types/leased_blocks_tests.rs
+  s_d14a54f3ee4b57::t_3c2d3b9e16e79c 1-73
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/loom/types/buffer_pool_tests.rs
+  s_d14a54f3ee4b57::t_7248a11b72638a 1-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "55d6a430c759aed7a1a6712076b7cf04f56c4ceb",
+  "prompts": {},
+  "sessions": {
+    "s_d14a54f3ee4b57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "763dd999-2deb-442f-8d19-3d08b11dfa90",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
