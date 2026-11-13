@@ -12,7 +12,11 @@ impl Display for PostingError {
         match &self.0 {
             PostingErrorEnum::Store(error) => write!(f, "{error}"),
             PostingErrorEnum::NotAList { key } => {
-                write!(f, "Key {} is not a posting list's", hex_dump(key))
+                write!(
+                    f,
+                    "Key {} is not a posting list's",
+                    ultragraphdb_error_store::hex_dump(key)
+                )
             }
             PostingErrorEnum::InvalidKey => {
                 f.write_str("cannot read posting list using multi-part list key")
@@ -37,10 +41,14 @@ impl Display for PostingError {
             PostingErrorEnum::SchemaPosting { key } => write!(
                 f,
                 "Trying to read schema in ReadPostingList for key: {}",
-                hex_dump(key)
+                ultragraphdb_error_store::hex_dump(key)
             ),
             PostingErrorEnum::UnexpectedMeta { meta, key } => {
-                write!(f, "Unexpected meta: {meta} for key: {}", hex_dump(key))
+                write!(
+                    f,
+                    "Unexpected meta: {meta} for key: {}",
+                    ultragraphdb_error_store::hex_dump(key)
+                )
             }
             // Badger's ErrKeyNotFound, wrapped as readListPart wraps it.
             PostingErrorEnum::MissingPart { key } => {

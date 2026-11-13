@@ -9,7 +9,7 @@
 | 4. Data model and quad storage                                                                                       | ✅                                                          |
 | 5. Transactions, WAL and the zero-copy binary protocol                                                               | ✅                                                          |
 | 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage)                                     | ✅                                                          |
-| 5.6 Replace remaining Go ports with rust native equivalent sematic                                                                        | `progressing`                                                          |
+| 5.6 Replace remaining Go ports with rust native equivalent sematic                                                                        | ✅                                                          |
 | 5.7 Benchmark three-role cluster architecture                                                                        | ✅                                                          |
 | 5.8 Merge system and storage group into storage service                                                              | `open`: `openspec/changes/stage-5-8-system-group`          |
 | 5.9 Merge frontend and compute node into one service, named compute                                                  | `open`: `openspec/changes/stage-5-9-compute-role`          |
@@ -33,6 +33,5 @@ No stage is numbered 6. UGS was stage 6 until 2026-11-12 and is stage 6.6. The a
 
 
 Next
-- Replace remaining go semantics with Rust natives
-- Add loom tests to test identified concurrency code for race conditions 
 - verify and implement stage 5.8
+- verify and implement stage 5.9
