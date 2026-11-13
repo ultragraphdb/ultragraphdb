@@ -1,0 +1,41 @@
+AGENTS.md
+  s_d14a54f3ee4b57::t_418ab8e64221b0 285
+Cargo.lock
+  s_d14a54f3ee4b57::t_1d7481e0935f85 3738
+openspec/notes/Loom-List.md
+  s_d14a54f3ee4b57::t_5f8977b8291d43 27-107,111-114,119-120,123,128,138-139
+ultragraphdb_store/ultragraphdb_store_apply/BUILD.bazel
+  s_d14a54f3ee4b57::t_c35fad60a3b703 44-82,94
+ultragraphdb_store/ultragraphdb_store_apply/Cargo.toml
+  s_d14a54f3ee4b57::t_d2d5debc68e0a3 44-47
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_core/mod.rs
+  s_d14a54f3ee4b57::t_006dea202840ef 17,42
+ultragraphdb_store/ultragraphdb_store_apply/src/utils/lock.rs
+  s_d14a54f3ee4b57::t_e97e3423d89660 6-8
+ultragraphdb_store/ultragraphdb_store_apply/src/utils/mod.rs
+  s_d14a54f3ee4b57::t_a4878e9360df39 12
+ultragraphdb_store/ultragraphdb_store_apply/src/utils/sync.rs
+  s_d14a54f3ee4b57::t_5b2e3c01dd1dc4 1-17
+ultragraphdb_store/ultragraphdb_store_apply/tests/loom/mod.rs
+  s_d14a54f3ee4b57::t_b9f055f489eda9 1-10
+ultragraphdb_store/ultragraphdb_store_apply/tests/loom/types/mod.rs
+  s_d14a54f3ee4b57::t_8ade04d97f888e 1-7
+ultragraphdb_store/ultragraphdb_store_apply/tests/loom/types/changeset_applier_tests.rs
+  s_d14a54f3ee4b57::t_7f4b928d0e364f 1-154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "61a568daae5952c44551b27bc104bc0e7e7f81b2",
+  "prompts": {},
+  "sessions": {
+    "s_d14a54f3ee4b57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "763dd999-2deb-442f-8d19-3d08b11dfa90",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
