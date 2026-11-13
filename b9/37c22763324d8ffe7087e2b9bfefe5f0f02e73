@@ -1,0 +1,69 @@
+AGENTS.md
+  s_d14a54f3ee4b57::t_ed0bf1e9f27de9 203,280
+Cargo.toml
+  s_d14a54f3ee4b57::t_2735a3b85906ea 134-135
+MODULE.bazel.lock
+  s_d14a54f3ee4b57::t_046627c62a4587 839-840,848,850,852,854,1148,1227
+openspec/protocols/pr-review-prompt.md
+  s_d14a54f3ee4b57::t_d16115c04a0189 1-27
+openspec/specs/scalar-types/spec.md
+  s_d14a54f3ee4b57::t_a97215dfff87e3 113-114
+openspec/specs/tokenizers/spec.md
+  s_d14a54f3ee4b57::t_5310cf62261c72 83-84,88,91-93,96-97
+ultragraphdb_core/ultragraphdb_core_text/Cargo.toml
+  s_d14a54f3ee4b57::t_92879b21db5ca1 12,22-24
+ultragraphdb_core/ultragraphdb_core_text/src/lib.rs
+  s_d14a54f3ee4b57::t_ee9c901f60ec91 6-7,9-13,16,18-25
+ultragraphdb_core/ultragraphdb_core_text/src/types/collator/mod.rs
+  s_d14a54f3ee4b57::t_4bcc732aeaac41 2-3,6-7,9-11,13-15,18-19,23-54
+ultragraphdb_core/ultragraphdb_core_text/src/utils/language_base.rs
+  s_d14a54f3ee4b57::t_5849b523eba061 6,8-9,15,19,21-22
+ultragraphdb_core/ultragraphdb_core_text/tests/mod.rs
+  s_d14a54f3ee4b57::t_c39de85fbfd35b 6-7
+ultragraphdb_core/ultragraphdb_core_text/tests/types/collator/collator_tests.rs
+  s_d14a54f3ee4b57::t_108809b06f1f13 2-3,8-9,11-15,17-19,21-46,50,52-54,56-65,70-91
+ultragraphdb_core/ultragraphdb_core_text/tests/utils/language_base_tests.rs
+  s_d14a54f3ee4b57::t_8251e422cdff3b 3,8,10-11,13-19,23,25-28
+ultragraphdb_core/ultragraphdb_core_tok/features/tokenizers/tokenizers.feature
+  s_d14a54f3ee4b57::t_f1ddc918ce12fe 62,65-66
+ultragraphdb_core/ultragraphdb_core_tok/src/utils/langbase.rs
+  s_d14a54f3ee4b57::t_e54b90a1ba7dfa 13-14
+ultragraphdb_core/ultragraphdb_core_tok/src/utils/tok.rs
+  s_d14a54f3ee4b57::t_f71c81643911a7 11,95-103
+ultragraphdb_core/ultragraphdb_core_tok/tests/bdd.rs
+  s_d14a54f3ee4b57::t_9293ffd9af68bd 48,51-54,208,458,465-484,488-505
+ultragraphdb_core/ultragraphdb_core_tok/tests/utils/langbase_tests.rs
+  s_d14a54f3ee4b57::t_a3d0fb8f3105ce 3,10,25-28,35,39-40,59-60
+ultragraphdb_core/ultragraphdb_core_tok/tests/utils/tok_tests.rs
+  s_d14a54f3ee4b57::t_b5ef0136740607 13-14,801-835,842-843
+ultragraphdb_core/ultragraphdb_core_types/features/scalar-types/scalar_types.feature
+  s_d14a54f3ee4b57::t_c6c7881e8bbdbb 93-94
+ultragraphdb_core/ultragraphdb_core_types/src/types/text_collator.rs
+  s_d14a54f3ee4b57::t_01923dd5528b68 23
+ultragraphdb_core/ultragraphdb_core_types/tests/bdd.rs
+  s_d14a54f3ee4b57::t_94be5aa00667eb 8,546-551,564-566
+ultragraphdb_core/ultragraphdb_core_types/tests/types/text_collator_tests.rs
+  s_d14a54f3ee4b57::t_19fabe19a1a06b 12-13,15-16,19-20,24,26-27,32,34-36,40,42-44,47
+ultragraphdb_core/ultragraphdb_core_types/tests/utils/sort_tests.rs
+  s_d14a54f3ee4b57::t_b5d965d5a2d88e 616-617,619-627,629,632-633,635-637,639-640
+Cargo.lock
+  s_d14a54f3ee4b57::t_e2b4c81189743a 1237-1261,1310-1353,3545-3546,4300-4308,4650-4655
+ROADMAP.md
+  s_d14a54f3ee4b57::t_84b2f391a77015 12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b937c22763324d8ffe7087e2b9bfefe5f0f02e73",
+  "prompts": {},
+  "sessions": {
+    "s_d14a54f3ee4b57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "763dd999-2deb-442f-8d19-3d08b11dfa90",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
