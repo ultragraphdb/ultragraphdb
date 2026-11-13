@@ -3,7 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::PoisonError;
+
+use crate::utils::sync::{Mutex, MutexGuard};
 
 /// Locks `m`, taking the data of a lock a panicking thread left poisoned: every critical section here leaves its
 /// data whole before anything in it can panic.

@@ -41,6 +41,45 @@ rust_doc_test(
     deps = all_crate_deps(normal_dev = True),
 )
 
+# The library again under `--cfg loom`, the changeset core's locks and flag built on Loom's types, for the Loom tests
+# alone.
+rust_library(
+    name = "ultragraphdb_store_apply_loom",
+    testonly = True,
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    crate_name = "ultragraphdb_store_apply",
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    rustc_flags = [
+        "--cfg",
+        "loom",
+    ],
+    deps = all_crate_deps(normal = True) + ["@crates//:loom"],
+)
+
+# The Loom tests, under `tests/loom/`, mirroring `src/`: every interleaving of each model's threads, against the
+# library built under `--cfg loom`, over the simulated store.
+rust_test(
+    name = "loom",
+    srcs = glob(["tests/loom/**/*.rs"]),
+    crate_root = "tests/loom/mod.rs",
+    rustc_flags = [
+        "--cfg",
+        "loom",
+    ],
+    tags = ["loom-test"],
+    deps = [
+        ":ultragraphdb_store_apply_loom",
+        "//ultragraphdb_core/ultragraphdb_core_mapping",
+        "//ultragraphdb_store/ultragraphdb_store_posting",
+        "//ultragraphdb_store/ultragraphdb_store_sim",
+        "//ultragraphdb_traits/ultragraphdb_traits_blocks",
+        "@crates//:loom",
+        "@crates//:oxrdf",
+    ],
+)
+
 # One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs. It
 # holds the fixed seed set of the apply workload on the simulated store, and the stage's operations on fjall under
 # TEST_TMPDIR.
@@ -52,6 +91,7 @@ rust_test(
             "tests/bdd.rs",
             "tests/catalog_change_steps.rs",
             "tests/changeset_steps.rs",
+            "tests/loom/**",
             "tests/schema_storage_steps.rs",
             "tests/transaction_steps.rs",
             "tests/utils/probe.rs",

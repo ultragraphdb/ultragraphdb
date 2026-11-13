@@ -14,8 +14,7 @@ mod changeset_core_replay;
 mod changeset_core_vectors;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use ultragraphdb_core_catalog::{Catalog, encode_declaration};
 use ultragraphdb_core_ids::SystemId;
@@ -40,6 +39,7 @@ use crate::types::reads::Reads;
 use crate::types::rebuild::Rebuild;
 use crate::types::vector_queue::VectorQueue;
 use crate::utils::lock::lock;
+use crate::utils::sync::{AtomicBool, Mutex, Ordering};
 
 /// The lists a build made, by graph, then by key: a vector index's, built in memory.
 pub(crate) type BuiltVectors = BTreeMap<Graph, BTreeMap<Vec<u8>, Vec<u8>>>;

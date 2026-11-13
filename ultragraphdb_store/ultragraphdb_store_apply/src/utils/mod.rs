@@ -9,5 +9,6 @@ pub(crate) mod lock;
 pub(crate) mod mark_keys;
 pub(crate) mod quad_prefixes;
 pub(crate) mod referrer_candidates;
+pub(crate) mod sync;
 pub(crate) mod token_values;
 pub(crate) mod vector_index;
