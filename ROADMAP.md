@@ -9,7 +9,7 @@
 | 4. Data model and quad storage                                                                                       | ✅                                                          |
 | 5. Transactions, WAL and the zero-copy binary protocol                                                               | ✅                                                          |
 | 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage)                                     | ✅                                                          |
-| 5.6 Replace remaining Go ports with rust native equivalent sematic                                                                        | `progressing`                                                          |
+| 5.6 Replace remaining Go ports with rust native equivalent sematic                                                                        | ✅                                                          |
 | 5.7 Benchmark three-role cluster architecture                                                                        | ✅                                                          |
 | 5.8 Merge system and storage group into storage service                                                              | `open`: `openspec/changes/stage-5-8-system-group`          |
 | 5.9 Merge frontend and compute node into one service, named compute                                                  | `open`: `openspec/changes/stage-5-9-compute-role`          |
