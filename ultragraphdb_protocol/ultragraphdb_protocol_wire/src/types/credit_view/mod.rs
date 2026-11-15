@@ -16,6 +16,7 @@ pub struct CreditView<'a> {
 
 impl<'a> CreditView<'a> {
     /// The frames granted.
+    #[must_use]
     pub fn frames(&self) -> u32 {
         self.frames
     }

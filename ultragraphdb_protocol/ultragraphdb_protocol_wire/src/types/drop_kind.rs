@@ -33,6 +33,7 @@ impl DropKind {
     ];
 
     /// The kind's number, 1 to 4.
+    #[must_use]
     pub fn number(self) -> u8 {
         DropKind::ALL
             .iter()
@@ -42,6 +43,7 @@ impl DropKind {
     }
 
     /// The kind numbered `number`; `None` for a number no kind has.
+    #[must_use]
     pub fn from_number(number: u8) -> Option<DropKind> {
         DropKind::ALL
             .get(usize::from(number).checked_sub(1)?)
@@ -49,6 +51,7 @@ impl DropKind {
     }
 
     /// Whether the drop names its target by an IRI in the body's term table: a predicate's or a graph's.
+    #[must_use]
     pub fn names_target(self) -> bool {
         matches!(self, DropKind::Predicate | DropKind::Graph)
     }

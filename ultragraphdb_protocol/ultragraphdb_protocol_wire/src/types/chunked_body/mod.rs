@@ -27,6 +27,11 @@ impl<'a> ChunkedBody<'a> {
     /// [`ProtocolError::chunk_table`]; then each chunk in order against its leaf, the first failing refused as
     /// [`ProtocolError::chunk`] with its index and byte range. A body of one chunk has no table, and its chunk is
     /// checked against `checksum_body` directly.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::body_length`], [`ProtocolError::chunk_table`] or [`ProtocolError::chunk`], the first of the
+    /// checks above that fails.
     pub fn verify(body: &'a [u8], checksum_body: u64) -> Result<Self, ProtocolError> {
         let layout = ChunkLayout::of_body(body.len())?;
         let (data, table) = body.split_at(layout.data_len());
@@ -71,11 +76,13 @@ impl<'a> ChunkedBody<'a> {
     }
 
     /// The bytes the chunks cover, the body without its table.
+    #[must_use]
     pub fn data(&self) -> &'a [u8] {
         self.data
     }
 
     /// How the body is cut into chunks.
+    #[must_use]
     pub fn layout(&self) -> ChunkLayout {
         self.layout
     }

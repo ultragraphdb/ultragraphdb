@@ -26,6 +26,7 @@ const _: () = assert!(size_of::<ReferenceView<'static>>() <= 64);
 
 impl<'a> ReferenceView<'a> {
     /// The tenant of the batch's entities.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }

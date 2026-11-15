@@ -265,16 +265,19 @@ impl<'a> TermTableView<'a> {
     }
 
     /// The number of terms.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.records.len() / TERM_RECORD_SIZE
     }
 
     /// Whether the table holds no term.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
     }
 
     /// Term `index`, `None` past the last.
+    #[must_use]
     pub fn get(&self, index: u32) -> Option<RequestTermView<'a>> {
         let at = (index as usize).checked_mul(TERM_RECORD_SIZE)?;
         let record = self.records.get(at..at.checked_add(TERM_RECORD_SIZE)?)?;
@@ -308,6 +311,7 @@ impl<'a> TermTableView<'a> {
     }
 
     /// The owned table.
+    #[must_use]
     pub fn to_table(&self) -> TermTable {
         let mut table = TermTable::new();
         // Indexed as u32s: a frame holds far fewer terms than `u32::MAX`.

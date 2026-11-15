@@ -159,6 +159,7 @@ impl Command {
     ];
 
     /// The command's number in the header.
+    #[must_use]
     pub fn number(self) -> u16 {
         match self {
             Command::Hello => 1,
@@ -209,8 +210,12 @@ impl Command {
         }
     }
 
-    /// The command numbered `number`, refused as [`ProtocolError::unknown_command`] when no command of this protocol
-    /// has it: never assigned, retired, or reserved for the replica commands.
+    /// The command numbered `number`.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::unknown_command`] when no command of this protocol has it: never assigned, retired, or
+    /// reserved for the replica commands.
     pub fn from_number(number: u16) -> Result<Command, ProtocolError> {
         match number {
             1 => Ok(Command::Hello),

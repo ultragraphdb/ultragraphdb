@@ -151,6 +151,7 @@ impl ErrorCode {
     ];
 
     /// The code's number on the wire.
+    #[must_use]
     pub fn number(self) -> u16 {
         // The numbers of the table: ALL lists the codes in their order, from 1.
         ErrorCode::ALL
@@ -161,6 +162,7 @@ impl ErrorCode {
     }
 
     /// The code numbered `number`; `None` for a number no code has.
+    #[must_use]
     pub fn from_number(number: u16) -> Option<ErrorCode> {
         ErrorCode::ALL
             .get(usize::from(number).checked_sub(1)?)
@@ -171,6 +173,7 @@ impl ErrorCode {
     /// session after a delay; a request not committed by running its transaction again; a read timed out; a wrong
     /// partition after the placement map is refreshed. Code 17 depends on its request, so what runs again is
     /// [`ErrorCode::runs_again`]'s to say.
+    #[must_use]
     pub fn retryable(self) -> bool {
         matches!(
             self,

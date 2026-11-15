@@ -38,6 +38,7 @@ pub struct ResultTerm {
 impl ResultTerm {
     /// The literal or vector `term`, in the store's encoding, with no text and no annotation. An IRI or a blank node
     /// is built by [`ResultTerm::iri`] or [`ResultTerm::blank_node`], so its system ID never reaches a result.
+    #[must_use]
     pub fn new(term: EncodedTerm) -> Self {
         Self {
             payload: Payload::Literal(term),
@@ -112,12 +113,14 @@ impl ResultTerm {
     }
 
     /// Whether the term is a blank node.
+    #[must_use]
     pub fn is_blank_node(&self) -> bool {
         matches!(self.payload, Payload::BlankNode(_))
     }
 
     /// The term's bytes in a result: a tag and the hash for an IRI (`0x01`) or a blank node (`0x02`), else the
     /// store's encoding.
+    #[must_use]
     pub fn encoding(&self) -> Vec<u8> {
         match &self.payload {
             Payload::Literal(term) => term.as_bytes().to_vec(),
@@ -127,11 +130,13 @@ impl ResultTerm {
     }
 
     /// The text the encoding names but does not hold, if any.
+    #[must_use]
     pub fn text(&self) -> Option<&str> {
         self.text.as_deref()
     }
 
     /// The annotation: a language tag held by hash or a datatype's IRI, if any.
+    #[must_use]
     pub fn annotation(&self) -> Option<&str> {
         self.annotation.as_deref()
     }

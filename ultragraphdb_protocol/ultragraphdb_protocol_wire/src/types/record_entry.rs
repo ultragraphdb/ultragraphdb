@@ -15,16 +15,19 @@ const _: () = assert!(size_of::<RecordEntry<'static>>() <= 64);
 
 impl<'a> RecordEntry<'a> {
     /// The entry of `key` and `value`, `None` for a removal.
+    #[must_use]
     pub fn new(key: &'a [u8], value: Option<&'a [u8]>) -> Self {
         Self { key, value }
     }
 
     /// The key.
+    #[must_use]
     pub fn key(&self) -> &'a [u8] {
         self.key
     }
 
     /// The value, `None` when the entry removes its key.
+    #[must_use]
     pub fn value(&self) -> Option<&'a [u8]> {
         self.value
     }

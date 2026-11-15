@@ -30,7 +30,7 @@ setting, a constructor or a public item another group's crates still name (desig
 
 ## 1. The wire → `ultragraphdb_protocol_wire`
 
-- [ ] 1.1 Ultra Style lift of `protocol_wire`, in its own commit
+- [x] 1.1 Ultra Style lift of `protocol_wire`, in its own commit
 - [ ] 1.2 Scenarios: wire-protocol ("The system group's commands are bodies of the protocol"; the modified "Roles exchange role commands" and "Data requests, prepared statements and describe"), as Gherkin
 - [ ] 1.3 Phases 1 to 3: builders and views for Session (534), Check (535), Ended (536), Declare (538) and Defaults (539); the command table's rows, 540 kept and refused; Subscribe's and CloseRequest's stage 5.8 fields, each through a constructor of its own beside the ones in use, which keep their signatures so no caller changes in this group; golden frames `session.frame`, `check.frame`, `check_reply.frame`, `ended.frame`, `declare.frame`, `declare_drop.frame`, `declare_reply.frame`, `defaults.frame`, `defaults_reply.frame`, `challenge.frame`, `challenge_reply.frame`, `verify.frame` and `verify_reply.frame` from their generator, committed with its source
 - [ ] 1.4 Phase 4: every body's checks in its "Order" line's order; a builder refusing what its decoder refuses

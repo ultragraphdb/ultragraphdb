@@ -24,31 +24,37 @@ const _: () = assert!(size_of::<AuthenticateView<'static>>() <= 64);
 
 impl<'a> AuthenticateView<'a> {
     /// The message's place in its exchange, from 0: the client's even, the server's odd.
+    #[must_use]
     pub fn step(&self) -> u32 {
         self.step
     }
 
     /// Whether this is the server's last message of the exchange.
+    #[must_use]
     pub fn is_final(&self) -> bool {
         self.last
     }
 
     /// The principal acted for; 0 without authentication.
+    #[must_use]
     pub fn principal(&self) -> u64 {
         self.principal
     }
 
     /// When the credential expires, in microseconds of Unix time; 0 for never.
+    #[must_use]
     pub fn expires(&self) -> u64 {
         self.expires
     }
 
     /// The SASL mechanism's name, in the client's first message; empty in every other.
+    #[must_use]
     pub fn mechanism(&self) -> &'a str {
         self.mechanism
     }
 
     /// The mechanism's message, its own bytes.
+    #[must_use]
     pub fn message(&self) -> &'a [u8] {
         self.message
     }

@@ -48,23 +48,27 @@ impl ErrorReply {
     }
 
     /// The error's code.
+    #[must_use]
     pub fn code(&self) -> ErrorCode {
         self.code
     }
 
     /// The detail the code defines, as the reply was given it: its frame adds [`DETAIL_VALUE_CUT`] when it cuts the
     /// value.
+    #[must_use]
     pub fn detail(&self) -> u64 {
         self.detail
     }
 
     /// The message, whole: its frame carries it cut to fit when it passes what the frame leaves it.
+    #[must_use]
     pub fn message(&self) -> &str {
         &self.message
     }
 
     /// The value a failed compare-and-set found; `None` when the predicate held none, or when a frame that cut it left it
     /// out. Whole as the reply was given it: its frame carries it cut to fit when it passes what the frame leaves it.
+    #[must_use]
     pub fn value(&self) -> Option<&RequestTerm> {
         self.value.as_ref()
     }
@@ -83,6 +87,7 @@ impl ErrorReply {
     }
 
     /// The reply to `error`: [`ErrorCode::Protocol`] with the error's text.
+    #[must_use]
     pub fn protocol(error: &ProtocolError) -> Self {
         Self::new(ErrorCode::Protocol, error.to_string())
     }
@@ -94,6 +99,7 @@ impl ErrorReply {
     }
 
     /// The reply with the `detail` its code defines.
+    #[must_use]
     pub fn with_detail(mut self, detail: u64) -> Self {
         self.detail = detail;
         self
@@ -102,12 +108,14 @@ impl ErrorReply {
     /// The reply carrying the `value` a failed compare-and-set found: a term one entry of a term table holds, so not a
     /// triple term, and neither a literal stating `xsd:string` nor one with an empty language tag, which a table
     /// refuses. Its frame cuts it to fit, as [`ErrorReply::value_cut`] says.
+    #[must_use]
     pub fn with_value(mut self, value: RequestTerm) -> Self {
         self.value = Some(value);
         self
     }
 
     /// Whether the client retries: [`ErrorCode::retryable`].
+    #[must_use]
     pub fn retryable(&self) -> bool {
         self.code.retryable()
     }

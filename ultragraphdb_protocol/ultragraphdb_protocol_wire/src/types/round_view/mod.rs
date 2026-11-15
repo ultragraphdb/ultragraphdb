@@ -27,16 +27,19 @@ pub struct RoundView<'a> {
 
 impl<'a> RoundView<'a> {
     /// The round's header.
+    #[must_use]
     pub fn header(&self) -> &RoundHeader {
         &self.header
     }
 
     /// Each entry's decision, in round order.
+    #[must_use]
     pub fn decisions(&self) -> &[Decision] {
         &self.decisions
     }
 
     /// The committed entries' records, in order.
+    #[must_use]
     pub fn records(&self) -> &[WriteSetRecordView<'a>] {
         &self.records
     }
@@ -48,6 +51,7 @@ impl<'a> RoundView<'a> {
     }
 
     /// The commit version of committed entry `record`: `first_version + 2 × record`; `None` past the last.
+    #[must_use]
     pub fn commit_version(&self, record: usize) -> Option<u64> {
         if record >= self.records.len() {
             return None;
@@ -60,6 +64,7 @@ impl<'a> RoundView<'a> {
     /// The entries, by their place in the round, whose write-set records overlap `range` of `body`, a Round body's
     /// bytes before its chunk table, which need not pass its checks: how a damaged chunk is named by the entries it
     /// holds. Empty when the body's table or decisions cannot be read.
+    #[must_use]
     pub fn transactions_overlapping(body: &[u8], range: Range<usize>) -> Vec<u32> {
         let Ok(sections) = read_sections::<4>(Command::Round.number(), body, 0) else {
             return Vec::new();

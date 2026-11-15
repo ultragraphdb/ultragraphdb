@@ -31,16 +31,19 @@ pub struct DescribeView<'a> {
 
 impl<'a> DescribeView<'a> {
     /// The tenant described.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
 
     /// The snapshot the answer was read at; zero in a request.
+    #[must_use]
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
     /// The strings the body's indices name.
+    #[must_use]
     pub fn strings(&self) -> &StringList<'a> {
         &self.strings
     }
@@ -67,6 +70,7 @@ impl<'a> DescribeView<'a> {
     }
 
     /// The number of declarations.
+    #[must_use]
     pub fn declarations(&self) -> usize {
         self.records.len() / CHANGE_RECORD_SIZE
     }

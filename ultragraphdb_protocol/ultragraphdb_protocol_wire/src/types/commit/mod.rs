@@ -79,11 +79,13 @@ impl Commit {
     }
 
     /// The request's number within its session.
+    #[must_use]
     pub fn request(&self) -> u64 {
         self.request
     }
 
     /// The commit version; zero in a request.
+    #[must_use]
     pub fn commit_version(&self) -> u64 {
         self.commit_version
     }
@@ -95,6 +97,7 @@ impl Commit {
     }
 
     /// The commit-time operations' results, in the order asked.
+    #[must_use]
     pub fn results(&self) -> &[OperationResult] {
         &self.results
     }

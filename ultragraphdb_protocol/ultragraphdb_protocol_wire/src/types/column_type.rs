@@ -55,6 +55,7 @@ impl ColumnType {
     ];
 
     /// The type's number on the wire.
+    #[must_use]
     pub fn number(self) -> u8 {
         ColumnType::ALL
             .iter()
@@ -65,6 +66,7 @@ impl ColumnType {
     }
 
     /// The type numbered `number`; `None` for a number no type has.
+    #[must_use]
     pub fn from_number(number: u8) -> Option<ColumnType> {
         ColumnType::ALL
             .get(usize::from(number).checked_sub(1)?)

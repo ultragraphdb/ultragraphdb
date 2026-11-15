@@ -24,16 +24,19 @@ pub struct DropCommandView<'a> {
 
 impl<'a> DropCommandView<'a> {
     /// What the drop removes.
+    #[must_use]
     pub fn kind(&self) -> DropKind {
         self.kind
     }
 
     /// The tenant the drop applies to.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
 
     /// The IRI of the predicate or graph dropped; `None` for the other kinds.
+    #[must_use]
     pub fn target(&self) -> Option<&'a str> {
         self.target
     }
@@ -51,11 +54,13 @@ impl<'a> DropCommandView<'a> {
     }
 
     /// The request's number within its session.
+    #[must_use]
     pub fn request(&self) -> u64 {
         self.request
     }
 
     /// The commit version; zero in a request.
+    #[must_use]
     pub fn commit_version(&self) -> u64 {
         self.commit_version
     }

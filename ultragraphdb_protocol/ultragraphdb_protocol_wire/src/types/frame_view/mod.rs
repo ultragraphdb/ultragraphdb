@@ -25,6 +25,11 @@ impl<'a> FrameView<'a> {
     /// [`ProtocolError::length_mismatch`]; then the body's chunk table and chunks ([`ChunkedBody::verify`]). For a frame
     /// a server or the log sent. The connection's sequence and protocol are its receiver's to check, and the body's
     /// structure its command's view's.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of the first check that fails: [`HeaderView::new`]'s, [`HeaderView::verify`]'s,
+    /// [`ProtocolError::length_mismatch`] or [`ChunkedBody::verify`]'s.
     pub fn validate(
         bytes: &'a [u8],
         cluster: u64,
@@ -36,6 +41,10 @@ impl<'a> FrameView<'a> {
     }
 
     /// [`FrameView::validate`] for a frame a client sent ([`HeaderView::verify_client`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`FrameView::validate`], the header's refusal being [`HeaderView::verify_client`]'s.
     pub fn validate_client(
         bytes: &'a [u8],
         cluster: u64,
@@ -67,21 +76,25 @@ impl<'a> FrameView<'a> {
     }
 
     /// The frame's header.
+    #[must_use]
     pub fn header(&self) -> &HeaderView<'a> {
         &self.header
     }
 
     /// The frame's command.
+    #[must_use]
     pub fn command(&self) -> Command {
         self.command
     }
 
     /// The body's bytes before its chunk table.
+    #[must_use]
     pub fn body(&self) -> &'a [u8] {
         self.body.data()
     }
 
     /// The body with its chunk table.
+    #[must_use]
     pub fn chunked_body(&self) -> &ChunkedBody<'a> {
         &self.body
     }

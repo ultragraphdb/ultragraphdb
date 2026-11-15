@@ -73,6 +73,7 @@ impl<'a> PlacementView<'a> {
     }
 
     /// Run `index`; `None` past the last.
+    #[must_use]
     pub fn run(&self, index: usize) -> Option<TenantRun> {
         let bytes = record_at::<{ TenantRun::SIZE }>(self.runs, index)?;
         TenantRun::decode(0, 0, bytes).ok()

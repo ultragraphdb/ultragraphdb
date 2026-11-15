@@ -20,26 +20,31 @@ pub struct ReadView<'a> {
 
 impl<'a> ReadView<'a> {
     /// The stream number of the transaction's Begin.
+    #[must_use]
     pub fn transaction(&self) -> u64 {
         self.transaction
     }
 
     /// The most rows returned; 0 for no limit.
+    #[must_use]
     pub fn limit(&self) -> u32 {
         self.limit
     }
 
     /// The request's term table.
+    #[must_use]
     pub fn terms(&self) -> &TermTableView<'a> {
         &self.terms
     }
 
     /// The quad pattern.
+    #[must_use]
     pub fn pattern(&self) -> &QuadPattern {
         &self.pattern
     }
 
     /// The resume key: where a previous result of the same request ended; empty to start.
+    #[must_use]
     pub fn resume(&self) -> &'a [u8] {
         self.resume
     }

@@ -14,6 +14,7 @@ pub struct Link {
 
 impl Link {
     /// The edge `node predicate other`.
+    #[must_use]
     pub fn from_node(predicate: u32, other: u32) -> Self {
         Self {
             predicate,
@@ -23,6 +24,7 @@ impl Link {
     }
 
     /// The edge `other predicate node`.
+    #[must_use]
     pub fn to_node(predicate: u32, other: u32) -> Self {
         Self {
             predicate,
@@ -32,16 +34,19 @@ impl Link {
     }
 
     /// The edge's predicate, a term index.
+    #[must_use]
     pub fn predicate(&self) -> u32 {
         self.predicate
     }
 
     /// The other node's term index.
+    #[must_use]
     pub fn other(&self) -> u32 {
         self.other
     }
 
     /// Whether the node is the edge's subject; else its object.
+    #[must_use]
     pub fn node_is_subject(&self) -> bool {
         self.node_is_subject
     }

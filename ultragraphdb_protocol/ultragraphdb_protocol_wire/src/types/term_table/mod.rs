@@ -59,15 +59,19 @@ pub struct TermTable {
 
 impl TermTable {
     /// An empty table.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// The index of `term`, appended the first time only. Refused, as a table outside any frame names command 0, with
-    /// [`ProtocolError::index_out_of_range`] for a triple term naming an index not in the table,
-    /// [`ProtocolError::term_too_deep`] for one nested past [`crate::MAX_TERM_DEPTH`], and [`ProtocolError::bad_term`] for
-    /// a literal stating `xsd:string` or an empty datatype, which is written as `xsd:string`'s, or an empty language
-    /// tag.
+    /// The index of `term`, appended the first time only.
+    ///
+    /// # Errors
+    ///
+    /// Each names command 0, as a table outside any frame does: [`ProtocolError::index_out_of_range`] for a triple
+    /// term naming an index not in the table, [`ProtocolError::term_too_deep`] for one nested past
+    /// [`crate::MAX_TERM_DEPTH`], and [`ProtocolError::bad_term`] for a literal stating `xsd:string` or an empty
+    /// datatype, which is written as `xsd:string`'s, or an empty language tag.
     pub fn intern(&mut self, term: RequestTerm) -> Result<u32, ProtocolError> {
         if let Some(index) = self.index.get(&term) {
             return Ok(*index);
@@ -128,21 +132,25 @@ impl TermTable {
     }
 
     /// The number of terms.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.terms.len()
     }
 
     /// Whether the table holds no term.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.terms.is_empty()
     }
 
     /// Term `index`, `None` past the last.
+    #[must_use]
     pub fn get(&self, index: u32) -> Option<&RequestTerm> {
         self.terms.get(index as usize)
     }
 
     /// The terms, in order.
+    #[must_use]
     pub fn terms(&self) -> &[RequestTerm] {
         &self.terms
     }

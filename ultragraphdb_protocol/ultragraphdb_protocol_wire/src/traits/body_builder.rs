@@ -28,8 +28,11 @@ pub trait BodyBuilder {
     /// The body before its chunk table: the section table and the sections.
     fn body(&self) -> Vec<u8>;
 
-    /// The frame of this body under `header`, whose command and command header are replaced by the body's; refused as
-    /// [`ProtocolError::frame_too_large`] past 1 MiB.
+    /// The frame of this body under `header`, whose command and command header are replaced by the body's.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::frame_too_large`] for a frame past 1 MiB.
     fn frame(&self, header: Header) -> Result<Vec<u8>, ProtocolError> {
         header
             .with_command(Self::COMMAND)

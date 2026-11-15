@@ -18,11 +18,13 @@ impl TenantRun {
     pub const SIZE: usize = 16;
 
     /// `tenant`'s buckets in `run`, `run × 65,536` to `run × 65,536 + 65,535`.
+    #[must_use]
     pub fn new(tenant: u64, run: u8) -> Self {
         Self { tenant, run }
     }
 
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
@@ -34,6 +36,7 @@ impl TenantRun {
     }
 
     /// The run's 16 bytes.
+    #[must_use]
     pub fn encode(&self) -> [u8; TenantRun::SIZE] {
         let mut out = [0u8; TenantRun::SIZE];
         out.iter_mut()

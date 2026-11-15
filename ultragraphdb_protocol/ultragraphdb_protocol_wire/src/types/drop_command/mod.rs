@@ -63,11 +63,13 @@ impl DropCommand {
     }
 
     /// A drop of `tenant`'s data, keeping its catalog.
+    #[must_use]
     pub fn tenant_data(tenant: u64) -> Self {
         Self::new(DropKind::TenantData, tenant, None)
     }
 
     /// A drop of `tenant`, its catalog with it.
+    #[must_use]
     pub fn whole_tenant(tenant: u64) -> Self {
         Self::new(DropKind::Tenant, tenant, None)
     }
@@ -82,22 +84,26 @@ impl DropCommand {
     }
 
     /// The reply: the drop's commit version.
+    #[must_use]
     pub fn with_commit_version(mut self, commit_version: u64) -> Self {
         self.commit_version = commit_version;
         self
     }
 
     /// What the drop removes.
+    #[must_use]
     pub fn kind(&self) -> DropKind {
         self.kind
     }
 
     /// The tenant the drop applies to.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
 
     /// The IRI of the predicate or graph dropped; `None` for the other kinds.
+    #[must_use]
     pub fn target(&self) -> Option<&str> {
         self.target.as_deref()
     }
@@ -122,11 +128,13 @@ impl DropCommand {
     }
 
     /// The request's number within its session.
+    #[must_use]
     pub fn request(&self) -> u64 {
         self.request
     }
 
     /// The commit version; zero in a request.
+    #[must_use]
     pub fn commit_version(&self) -> u64 {
         self.commit_version
     }

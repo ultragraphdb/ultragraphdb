@@ -25,16 +25,19 @@ pub struct BeginView<'a> {
 
 impl<'a> BeginView<'a> {
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
 
     /// The version the transaction's reads take; 0 where each partition gives it.
+    #[must_use]
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
     /// Whether the transaction is read-only.
+    #[must_use]
     pub fn read_only(&self) -> bool {
         self.read_only
     }

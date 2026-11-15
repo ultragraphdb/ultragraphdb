@@ -50,6 +50,7 @@ impl<'a> ResultTermView<'a> {
     }
 
     /// The term's bytes as the result holds them.
+    #[must_use]
     pub fn encoding(&self) -> &'a [u8] {
         self.encoding
     }
@@ -57,6 +58,7 @@ impl<'a> ResultTermView<'a> {
     /// The literal or vector in a Result's encoding, the store's but for a datatype no code names, which it names by
     /// the hash of its IRI (`PROTOCOL.md` §10.1); read from its encoding, which the batch's check proved whole. A client
     /// reads it through [`EncodedTerm::result_view`]. `None` for an IRI or a blank node, named by its hash.
+    #[must_use]
     pub fn term(&self) -> Option<EncodedTerm> {
         match self.hash() {
             Some(_) => None,
@@ -72,16 +74,19 @@ impl<'a> ResultTermView<'a> {
     }
 
     /// Whether the term is a blank node, tag `0x02`, named by its skolem IRI in [`ResultTermView::text`].
+    #[must_use]
     pub fn is_blank_node(&self) -> bool {
         self.encoding.first() == Some(&BLANK_NODE_TAG)
     }
 
     /// The text the encoding names but does not hold, if any.
+    #[must_use]
     pub fn text(&self) -> Option<&'a str> {
         self.text
     }
 
     /// The annotation: a language tag held by hash or a datatype's IRI, if any.
+    #[must_use]
     pub fn annotation(&self) -> Option<&'a str> {
         self.annotation
     }

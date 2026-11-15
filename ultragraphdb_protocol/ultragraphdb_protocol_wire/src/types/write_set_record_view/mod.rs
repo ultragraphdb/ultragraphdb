@@ -238,6 +238,7 @@ impl<'a> WriteSetRecordView<'a> {
     }
 
     /// The record's bytes.
+    #[must_use]
     pub fn bytes(&self) -> &'a [u8] {
         self.bytes
     }
@@ -249,6 +250,7 @@ impl<'a> WriteSetRecordView<'a> {
     }
 
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
@@ -260,6 +262,7 @@ impl<'a> WriteSetRecordView<'a> {
     }
 
     /// The version the transaction read at; 0 for a Drop, a registration and a build.
+    #[must_use]
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
@@ -271,11 +274,13 @@ impl<'a> WriteSetRecordView<'a> {
     }
 
     /// The session's request number; 0 for none.
+    #[must_use]
     pub fn request(&self) -> u64 {
         self.request
     }
 
     /// The principal the transaction acted for.
+    #[must_use]
     pub fn principal(&self) -> u64 {
         self.principal
     }
@@ -323,31 +328,37 @@ impl<'a> WriteSetRecordView<'a> {
     }
 
     /// The commit record the client attached.
+    #[must_use]
     pub fn commit_record(&self) -> &'a [u8] {
         self.commit_record
     }
 
     /// The conflict points: entries whose value is empty.
+    #[must_use]
     pub fn conflict_points(&self) -> KeyValues<'a> {
         self.tables[3]
     }
 
     /// The conflict statements: a list key and the object it changed.
+    #[must_use]
     pub fn conflict_statements(&self) -> KeyValues<'a> {
         self.tables[4]
     }
 
     /// The conflict ranges: the first key and the key past the last.
+    #[must_use]
     pub fn conflict_ranges(&self) -> KeyValues<'a> {
         self.tables[5]
     }
 
     /// The number of commit-time operations' results.
+    #[must_use]
     pub fn result_count(&self) -> usize {
         self.results.len() / OPERATION_RESULT_SIZE
     }
 
     /// Result `index`, in the order the transaction asked its operations; `None` past the last.
+    #[must_use]
     pub fn result(&self, index: usize) -> Option<OperationResult> {
         result_at(self.results, index)
     }

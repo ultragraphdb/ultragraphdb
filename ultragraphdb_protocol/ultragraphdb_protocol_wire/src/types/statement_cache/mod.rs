@@ -40,6 +40,7 @@ impl StatementCache {
     pub const DEFAULT_CAPACITY: usize = 256;
 
     /// A cache of at most `capacity` statements, at least one.
+    #[must_use]
     pub fn new(capacity: usize) -> Self {
         Self {
             statements: BTreeMap::new(),
@@ -48,10 +49,14 @@ impl StatementCache {
         }
     }
 
-    /// Prepares `request` against the tenant's current `schema` id: each declared parameter type fits its slot
-    /// (a node where a node is expected, refused as [`StatementError::parameter_type`]); answered with the statement's
-    /// id, the schema id, the parameter types and a result column type per unbound slot. A query text is refused as
-    /// [`StatementError::not_a_pattern`].
+    /// Prepares `request` against the tenant's current `schema` id: each declared parameter type fits its slot, a node
+    /// where a node is expected; answered with the statement's id, the schema id, the parameter types and a result
+    /// column type per unbound slot.
+    ///
+    /// # Errors
+    ///
+    /// [`StatementError::not_a_pattern`] for a query text, and [`StatementError::parameter_type`] for a declared
+    /// parameter type that does not fit its slot.
     pub fn prepare(
         &mut self,
         request: &PrepareView<'_>,
@@ -118,10 +123,13 @@ impl StatementCache {
 
     /// The pattern of `request`'s statement with its parameters bound, and the term table its indices name: the
     /// statement's terms, then the parameters' from the execution's table, each once. Given when `schema` is the
-    /// tenant's current schema id; refused, in this order: [`StatementError::unknown`]; [`StatementError::stale`]
-    /// when the statement was prepared against another schema id; [`StatementError::parameters`] when the parameters
-    /// are not one per parameter slot; [`StatementError::not_a_node`] when a literal or a triple term is bound at a slot
-    /// taking a node.
+    /// tenant's current schema id.
+    ///
+    /// # Errors
+    ///
+    /// In this order: [`StatementError::unknown`]; [`StatementError::stale`] when the statement was prepared against
+    /// another schema id; [`StatementError::parameters`] when the parameters are not one per parameter slot;
+    /// [`StatementError::not_a_node`] when a literal or a triple term is bound at a slot taking a node.
     pub fn execute(
         &self,
         request: &ExecuteView<'_>,
@@ -191,16 +199,19 @@ impl StatementCache {
     }
 
     /// The tenant statement `statement` reads, `None` when the cache does not hold it.
+    #[must_use]
     pub fn tenant(&self, statement: u64) -> Option<u64> {
         self.statements.get(&statement).map(|p| p.tenant)
     }
 
     /// The number of statements the cache holds.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.statements.len()
     }
 
     /// Whether the cache holds no statement.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.statements.is_empty()
     }

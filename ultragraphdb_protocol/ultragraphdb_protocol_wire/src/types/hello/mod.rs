@@ -46,26 +46,31 @@ impl Hello {
     }
 
     /// The lowest protocol version the client speaks.
+    #[must_use]
     pub fn protocol_min(&self) -> u16 {
         self.protocol_min
     }
 
     /// The highest protocol version the client speaks.
+    #[must_use]
     pub fn protocol_max(&self) -> u16 {
         self.protocol_max
     }
 
     /// The client's release.
+    #[must_use]
     pub fn release(&self) -> u32 {
         self.release
     }
 
     /// The largest frame the client takes: no server frame is larger.
+    #[must_use]
     pub fn max_frame(&self) -> u32 {
         self.max_frame
     }
 
     /// The client's name.
+    #[must_use]
     pub fn client(&self) -> &str {
         &self.client
     }

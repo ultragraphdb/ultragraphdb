@@ -47,6 +47,7 @@ pub struct Header {
 impl Header {
     /// A header of `command` for `cluster`, at [`crate::PROTOCOL_VERSION`], with every other field zero: sequence,
     /// view, release, stream, replica, flags and the command header.
+    #[must_use]
     pub fn new(cluster: u64, command: Command) -> Self {
         Self {
             sequence: 0,
@@ -63,6 +64,7 @@ impl Header {
     }
 
     /// The header of `command`.
+    #[must_use]
     pub fn with_command(mut self, command: Command) -> Self {
         self.command = command;
         self
@@ -70,99 +72,117 @@ impl Header {
 
     /// The header with its `sequence`: its sender's count of the frames it sent on the connection, this one
     /// included; a log frame's round position.
+    #[must_use]
     pub fn with_sequence(mut self, sequence: u128) -> Self {
         self.sequence = sequence;
         self
     }
 
     /// The header with its VSR `view`; zero on one node and in client frames.
+    #[must_use]
     pub fn with_view(mut self, view: u32) -> Self {
         self.view = view;
         self
     }
 
     /// The header with the sender's `release`.
+    #[must_use]
     pub fn with_release(mut self, release: u32) -> Self {
         self.release = release;
         self
     }
 
     /// The header with the frame format's version `protocol`.
+    #[must_use]
     pub fn with_protocol(mut self, protocol: u16) -> Self {
         self.protocol = protocol;
         self
     }
 
     /// The header on `stream`, the request the frame belongs to; zero for connection-level frames.
+    #[must_use]
     pub fn with_stream(mut self, stream: u64) -> Self {
         self.stream = stream;
         self
     }
 
     /// The header from `replica`, the sending replica; zero from clients.
+    #[must_use]
     pub fn with_replica(mut self, replica: u8) -> Self {
         self.replica = replica;
         self
     }
 
     /// The header with `flags`.
+    #[must_use]
     pub fn with_flags(mut self, flags: u8) -> Self {
         self.flags = flags;
         self
     }
 
     /// The header with the command's own 128-byte header.
+    #[must_use]
     pub fn with_command_header(mut self, command_header: [u8; COMMAND_HEADER_SIZE]) -> Self {
         self.command_header = command_header;
         self
     }
 
     /// The frame's place among its sender's frames on the connection, from 1.
+    #[must_use]
     pub fn sequence(&self) -> u128 {
         self.sequence
     }
 
     /// The cluster the frame belongs to.
+    #[must_use]
     pub fn cluster(&self) -> u64 {
         self.cluster
     }
 
     /// The VSR view; 0 from a client.
+    #[must_use]
     pub fn view(&self) -> u32 {
         self.view
     }
 
     /// The sender's release.
+    #[must_use]
     pub fn release(&self) -> u32 {
         self.release
     }
 
     /// The protocol version.
+    #[must_use]
     pub fn protocol(&self) -> u16 {
         self.protocol
     }
 
     /// The frame's command.
+    #[must_use]
     pub fn command(&self) -> Command {
         self.command
     }
 
     /// The stream the frame belongs to; 0 for the connection.
+    #[must_use]
     pub fn stream(&self) -> u64 {
         self.stream
     }
 
     /// The sending replica; 0 from a client.
+    #[must_use]
     pub fn replica(&self) -> u8 {
         self.replica
     }
 
     /// The header's flags: bit 0 marks the stream's last frame.
+    #[must_use]
     pub fn flags(&self) -> u8 {
         self.flags
     }
 
     /// The command header's 128 bytes.
+    #[must_use]
     pub fn command_header(&self) -> &[u8; COMMAND_HEADER_SIZE] {
         &self.command_header
     }

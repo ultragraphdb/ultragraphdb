@@ -17,6 +17,11 @@
 //! owned type, a [`BodyBuilder`], whose [`BodyBuilder::frame`] gives the frame. Terms a client sends are RDF terms by
 //! their text, in a request's term table (`PROTOCOL.md` §4.4); terms a server returns are `ultragraphdb_core_terms`'
 //! encodings, in a result batch's term table.
+//!
+//! The crate is data plane (Ultra rule 3): every frame of a connection and of the log passes through it. A view
+//! borrows the receive buffer and copies no value out of it. What it allocates is bounded by its frame, at most
+//! [`MAX_FRAME_SIZE`]: the index a view builds while it checks a term table, a body's args or its change records, and
+//! the frame a builder returns.
 
 // Arithmetic on decoded wire input is checked: an overflow here would be a malformed input
 // accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the

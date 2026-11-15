@@ -18,12 +18,22 @@ impl HeaderView<'_> {
     /// announced, itself at most 1 MiB. The first rule broken is the error; a header that keeps them all is returned
     /// as the [`Header`] of its fields. For a frame a server or the log sent; [`HeaderView::verify_client`] checks a
     /// client's.
+    ///
+    /// # Errors
+    ///
+    /// The first rule broken, in the order above: [`ProtocolError::header_checksum`],
+    /// [`ProtocolError::unknown_command`], [`ProtocolError::reserved_not_zero`], [`ProtocolError::wrong_cluster`],
+    /// [`ProtocolError::field_value`], [`ProtocolError::size_below_header`] or [`ProtocolError::frame_too_large`].
     pub fn verify(&self, cluster: u64, max_frame: usize) -> Result<Header, ProtocolError> {
         self.check(cluster, max_frame, false)
     }
 
     /// [`HeaderView::verify`] for a frame a client sent, whose `view` and `replica` are 0 besides, checked after the
     /// flags.
+    ///
+    /// # Errors
+    ///
+    /// As [`HeaderView::verify`], with [`ProtocolError::field_value`] for a nonzero `view` or `replica`.
     pub fn verify_client(&self, cluster: u64, max_frame: usize) -> Result<Header, ProtocolError> {
         self.check(cluster, max_frame, true)
     }

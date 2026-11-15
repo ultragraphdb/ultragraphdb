@@ -36,6 +36,7 @@ pub struct Catalog {
 
 impl Catalog {
     /// A request for `tenant`'s catalog `version`, 0 for its current one.
+    #[must_use]
     pub fn request(tenant: u64, version: u64) -> Self {
         Self {
             tenant,
@@ -48,6 +49,7 @@ impl Catalog {
 
     /// A reply: `tenant`'s catalog `version`, applying from `epoch` (0 while pending), read at `position`, holding
     /// `bytes`.
+    #[must_use]
     pub fn reply(tenant: u64, version: u64, epoch: u64, position: u64, bytes: Vec<u8>) -> Self {
         Self {
             tenant,
@@ -59,6 +61,7 @@ impl Catalog {
     }
 
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }

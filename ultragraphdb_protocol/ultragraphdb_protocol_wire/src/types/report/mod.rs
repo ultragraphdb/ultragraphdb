@@ -38,6 +38,7 @@ pub struct Report {
 
 impl Report {
     /// `partition`'s report that catalog `version` of `tenant`'s type change passed its check.
+    #[must_use]
     pub fn passed(partition: u32, tenant: u64, version: u64) -> Self {
         Self {
             partition,
@@ -73,6 +74,7 @@ impl Report {
     }
 
     /// `partition`'s report that `version`'s index build of `predicate` failed.
+    #[must_use]
     pub fn build_failed(partition: u32, tenant: u64, version: u64, predicate: &str) -> Self {
         let mut report = Self::passed(partition, tenant, version);
         report.kind = ReportKind::BuildFailed;
@@ -93,6 +95,7 @@ impl Report {
     }
 
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }

@@ -103,6 +103,7 @@ impl Placement {
     }
 
     /// The tenant runs.
+    #[must_use]
     pub fn runs(&self) -> &[TenantRun] {
         &self.runs
     }

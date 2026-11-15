@@ -82,6 +82,7 @@ pub struct ResultBatch {
 
 impl ResultBatch {
     /// An empty batch of `columns` columns, for a pattern the last the reifier column.
+    #[must_use]
     pub fn new(columns: u32) -> Self {
         Self {
             columns,
@@ -100,10 +101,13 @@ impl ResultBatch {
     }
 
     /// Appends a row, a term or `None` (unbound) per column, the last its statement's reifier; a term already in the
-    /// table is not added again. Refused as [`ProtocolError::count_mismatch`] (`"row"`) when the row's length is not
-    /// the batch's column count, and as [`ProtocolError::field_value`] (`"reifier"`) when its reifier is a literal: the
-    /// reifier column holds a blank node, by its skolem IRI, or an IRI, a declared relation's handle IRI (`PROTOCOL.md`
-    /// §9.1, §10.2).
+    /// table is not added again.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::count_mismatch`] (`"row"`) when the row's length is not the batch's column count, and
+    /// [`ProtocolError::field_value`] (`"reifier"`) when its reifier is a literal: the reifier column holds a blank
+    /// node, by its skolem IRI, or an IRI, a declared relation's handle IRI (`PROTOCOL.md` §9.1, §10.2).
     pub fn push_row(&mut self, row: &[Option<&ResultTerm>]) -> Result<(), ProtocolError> {
         // A row of the wrong width is refused by its width first, as `push_cells` checks it.
         if row.len() == self.columns as usize // lossless: a `usize` is at least 32 bits
@@ -209,28 +213,33 @@ impl ResultBatch {
     }
 
     /// The batch with the resume key a limited read continues from.
+    #[must_use]
     pub fn with_resume(mut self, resume: Vec<u8>) -> Self {
         self.resume = resume;
         self
     }
 
     /// The number of columns.
+    #[must_use]
     pub fn columns(&self) -> u32 {
         self.columns
     }
 
     /// The number of rows.
+    #[must_use]
     pub fn rows(&self) -> u32 {
         self.rows
     }
 
     /// The term table, in order of first appearance.
+    #[must_use]
     pub fn terms(&self) -> &[ResultTerm] {
         &self.terms
     }
 
     /// The cell of `column` and `row`: an index into the term table, [`crate::ABSENT`] for unbound; `None` outside
     /// the batch.
+    #[must_use]
     pub fn cell(&self, column: u32, row: u32) -> Option<u32> {
         if column >= self.columns || row >= self.rows {
             return None;
@@ -243,6 +252,7 @@ impl ResultBatch {
     }
 
     /// The resume key a limited read continues from; empty for none.
+    #[must_use]
     pub fn resume(&self) -> &[u8] {
         &self.resume
     }
@@ -285,6 +295,7 @@ impl ResultBatch {
     }
 
     /// The bytes the batch's body takes, before its chunk table, so a sender cuts batches below the maximum frame.
+    #[must_use]
     pub fn encoded_len(&self) -> usize {
         self.body().len()
     }

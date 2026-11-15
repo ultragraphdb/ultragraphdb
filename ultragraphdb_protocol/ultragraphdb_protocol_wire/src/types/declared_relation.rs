@@ -20,11 +20,13 @@ impl DeclaredRelation {
     }
 
     /// The relation's IRI.
+    #[must_use]
     pub fn iri(&self) -> &str {
         &self.iri
     }
 
     /// The relation's roles.
+    #[must_use]
     pub fn roles(&self) -> &[String] {
         &self.roles
     }

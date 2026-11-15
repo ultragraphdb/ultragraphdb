@@ -41,6 +41,7 @@ impl ConflictKind {
     ];
 
     /// The kind's number, 1 to 6.
+    #[must_use]
     pub fn number(self) -> u64 {
         ConflictKind::ALL
             .iter()
@@ -50,6 +51,7 @@ impl ConflictKind {
     }
 
     /// The kind numbered `number`; `None` for a number no kind has.
+    #[must_use]
     pub fn from_number(number: u64) -> Option<ConflictKind> {
         ConflictKind::ALL
             .get(usize::try_from(number).ok()?.checked_sub(1)?)

@@ -65,6 +65,7 @@ impl<'a> ComputeReadView<'a> {
     }
 
     /// The transaction's tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }

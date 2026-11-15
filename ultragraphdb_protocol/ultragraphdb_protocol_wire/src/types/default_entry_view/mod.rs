@@ -22,6 +22,7 @@ const _: () = assert!(size_of::<DefaultEntryView<'static>>() <= 64);
 
 impl<'a> DefaultEntryView<'a> {
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }

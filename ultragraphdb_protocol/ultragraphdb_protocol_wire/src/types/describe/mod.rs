@@ -54,6 +54,7 @@ pub struct Describe {
 
 impl Describe {
     /// An answer for `tenant` read at `read_version`, empty until its parts are set.
+    #[must_use]
     pub fn new(tenant: u64, read_version: u64) -> Self {
         Self {
             tenant,
@@ -69,82 +70,97 @@ impl Describe {
     }
 
     /// The tenant described.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
 
     /// The snapshot the answer was read at; zero in a request.
+    #[must_use]
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
     /// The labels.
+    #[must_use]
     pub fn labels(&self) -> &[String] {
         &self.labels
     }
 
     /// The relationship types.
+    #[must_use]
     pub fn relationship_types(&self) -> &[String] {
         &self.relationship_types
     }
 
     /// The property keys.
+    #[must_use]
     pub fn property_keys(&self) -> &[String] {
         &self.property_keys
     }
 
     /// The declared predicates.
+    #[must_use]
     pub fn predicates(&self) -> &[DeclaredPredicate] {
         &self.predicates
     }
 
     /// The declared entity types, each with its preorder number.
+    #[must_use]
     pub fn entity_types(&self) -> &[(DeclaredEntityType, u32)] {
         &self.entity_types
     }
 
     /// The declared relations.
+    #[must_use]
     pub fn relations(&self) -> &[DeclaredRelation] {
         &self.relations
     }
 
     /// The answer with its labels.
+    #[must_use]
     pub fn with_labels(mut self, labels: Vec<String>) -> Self {
         self.labels = labels;
         self
     }
 
     /// The answer with its relationship types.
+    #[must_use]
     pub fn with_relationship_types(mut self, relationship_types: Vec<String>) -> Self {
         self.relationship_types = relationship_types;
         self
     }
 
     /// The answer with its property keys.
+    #[must_use]
     pub fn with_property_keys(mut self, property_keys: Vec<String>) -> Self {
         self.property_keys = property_keys;
         self
     }
 
     /// The answer with its declared predicates.
+    #[must_use]
     pub fn with_predicates(mut self, predicates: Vec<DeclaredPredicate>) -> Self {
         self.predicates = predicates;
         self
     }
 
     /// The entity types, each with its preorder number.
+    #[must_use]
     pub fn with_entity_types(mut self, entity_types: Vec<(DeclaredEntityType, u32)>) -> Self {
         self.entity_types = entity_types;
         self
     }
 
     /// The answer with its declared relations.
+    #[must_use]
     pub fn with_relations(mut self, relations: Vec<DeclaredRelation>) -> Self {
         self.relations = relations;
         self
     }
 
     /// A request for `tenant`'s description.
+    #[must_use]
     pub fn request(tenant: u64) -> Self {
         Self::new(tenant, 0)
     }
@@ -152,6 +168,7 @@ impl Describe {
     /// The schema id of the declarations and entries (`PROTOCOL.md` §11.7): XXH3-64 of the body of this answer with
     /// its labels, relationship types and property keys left out, so it changes with the catalog and not with the
     /// data. A prepared statement's schema id.
+    #[must_use]
     pub fn schema_id(&self) -> u64 {
         let declarations = Describe::new(0, 0)
             .with_predicates(self.predicates.clone())

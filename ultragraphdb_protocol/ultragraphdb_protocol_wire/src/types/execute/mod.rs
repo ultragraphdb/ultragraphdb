@@ -38,6 +38,7 @@ pub struct Execute {
 
 impl Execute {
     /// An execution of `statement` in `transaction`, binding `parameters` from `terms`, at most `limit` rows from `resume`.
+    #[must_use]
     pub fn new(
         statement: u64,
         transaction: u64,
@@ -57,31 +58,37 @@ impl Execute {
     }
 
     /// The stream number of the Begin of the transaction the execution runs in.
+    #[must_use]
     pub fn transaction(&self) -> u64 {
         self.transaction
     }
 
     /// The prepared statement's id.
+    #[must_use]
     pub fn statement(&self) -> u64 {
         self.statement
     }
 
     /// The most rows returned; 0 for no limit.
+    #[must_use]
     pub fn limit(&self) -> u32 {
         self.limit
     }
 
     /// The request's term table.
+    #[must_use]
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }
 
     /// The parameters, term indices in order.
+    #[must_use]
     pub fn parameters(&self) -> &[u32] {
         &self.parameters
     }
 
     /// The resume key: where a previous result of the same request ended; empty to start.
+    #[must_use]
     pub fn resume(&self) -> &[u8] {
         &self.resume
     }

@@ -23,6 +23,7 @@ pub struct ChunkLayout {
 
 impl ChunkLayout {
     /// The layout of a body whose chunks hold `data_len` bytes, as a sender writes it.
+    #[must_use]
     pub fn of_data(data_len: usize) -> Self {
         let chunks = match data_len.checked_sub(FIRST_CHUNK_SIZE) {
             None | Some(0) => 1,
@@ -33,7 +34,11 @@ impl ChunkLayout {
     }
 
     /// The layout of a received body of `body_len` bytes, table included: the one split whose chunk count and table
-    /// add up to `body_len`, refused as [`ProtocolError::body_length`] when there is none.
+    /// add up to `body_len`.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::body_length`] when no split adds up to `body_len`.
     pub fn of_body(body_len: usize) -> Result<Self, ProtocolError> {
         if body_len <= FIRST_CHUNK_SIZE {
             return Ok(Self::of_data(body_len));
@@ -61,16 +66,19 @@ impl ChunkLayout {
     }
 
     /// The number of chunks, at least one: an empty body is one empty chunk.
+    #[must_use]
     pub fn chunks(&self) -> usize {
         self.chunks
     }
 
     /// The bytes the chunks cover, the body before its table.
+    #[must_use]
     pub fn data_len(&self) -> usize {
         self.data_len
     }
 
     /// The table's length: 8 bytes a chunk, or none for a body of one chunk.
+    #[must_use]
     pub fn table_len(&self) -> usize {
         if self.chunks > 1 {
             self.chunks.saturating_mul(LEAF_SIZE)
@@ -80,11 +88,13 @@ impl ChunkLayout {
     }
 
     /// The body's length, chunks and table.
+    #[must_use]
     pub fn body_len(&self) -> usize {
         self.data_len.saturating_add(self.table_len())
     }
 
     /// The body's bytes chunk `index` covers, `None` past the last chunk.
+    #[must_use]
     pub fn chunk_range(&self, index: usize) -> Option<Range<usize>> {
         if index >= self.chunks {
             return None;

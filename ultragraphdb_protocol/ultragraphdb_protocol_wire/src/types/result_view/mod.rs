@@ -34,17 +34,20 @@ pub struct ResultView<'a> {
 
 impl<'a> ResultView<'a> {
     /// The number of columns.
+    #[must_use]
     pub fn columns(&self) -> u32 {
         self.columns
     }
 
     /// The number of rows.
+    #[must_use]
     pub fn rows(&self) -> u32 {
         self.rows
     }
 
     /// The cell of `column` and `row`: an index into the term table, [`crate::ABSENT`] for unbound; `None` outside
     /// the batch.
+    #[must_use]
     pub fn cell(&self, column: u32, row: u32) -> Option<u32> {
         if column >= self.columns || row >= self.rows {
             return None;
@@ -57,11 +60,13 @@ impl<'a> ResultView<'a> {
     }
 
     /// The number of terms in the table.
+    #[must_use]
     pub fn term_count(&self) -> usize {
         self.offsets.len()
     }
 
     /// Term `index` of the table, `None` past the last.
+    #[must_use]
     pub fn term(&self, index: u32) -> Option<ResultTermView<'a>> {
         let index = index as usize;
         let start = *self.offsets.get(index)? as usize;
@@ -92,6 +97,7 @@ impl<'a> ResultView<'a> {
     }
 
     /// The resume key a limited read continues from; empty for none, and on every batch but the stream's last.
+    #[must_use]
     pub fn resume(&self) -> &'a [u8] {
         self.resume
     }

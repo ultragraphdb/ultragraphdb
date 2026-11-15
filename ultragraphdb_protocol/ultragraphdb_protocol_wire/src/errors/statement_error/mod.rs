@@ -118,6 +118,7 @@ impl StatementError {
 
     /// The Error frame's code: [`ErrorCode::UnknownStatement`], [`ErrorCode::StaleStatement`],
     /// [`ErrorCode::Parameters`] or [`ErrorCode::Refused`].
+    #[must_use]
     pub fn code(&self) -> ErrorCode {
         match self.0 {
             StatementErrorEnum::Unknown { .. } => ErrorCode::UnknownStatement,
@@ -131,6 +132,7 @@ impl StatementError {
 
     /// The error reply: the code, the statement as its detail (zero for a parameter type and a text), and the error's
     /// text.
+    #[must_use]
     pub fn reply(&self) -> ErrorReply {
         let statement = match self.0 {
             StatementErrorEnum::Unknown { statement }

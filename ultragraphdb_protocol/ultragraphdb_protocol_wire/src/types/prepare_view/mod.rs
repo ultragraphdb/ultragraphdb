@@ -34,16 +34,19 @@ pub struct PrepareView<'a> {
 
 impl<'a> PrepareView<'a> {
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
 
     /// The statement's id; zero in a request.
+    #[must_use]
     pub fn statement(&self) -> u64 {
         self.statement
     }
 
     /// The schema id of the tenant's catalog; zero in a request.
+    #[must_use]
     pub fn schema(&self) -> u64 {
         self.schema
     }
@@ -55,6 +58,7 @@ impl<'a> PrepareView<'a> {
     }
 
     /// The request's term table.
+    #[must_use]
     pub fn terms(&self) -> &TermTableView<'a> {
         &self.terms
     }
@@ -72,12 +76,14 @@ impl<'a> PrepareView<'a> {
     }
 
     /// The parameters' column types, in order.
+    #[must_use]
     pub fn parameter_types(&self) -> &[ColumnType] {
         &self.parameter_types
     }
 
     /// The result columns' types: one per unbound slot and then the reifier column's, or one per projection; none in a
     /// request.
+    #[must_use]
     pub fn result_types(&self) -> &[ColumnType] {
         &self.result_types
     }
@@ -88,8 +94,11 @@ impl<'a> PrepareView<'a> {
         self.names
     }
 
-    /// The rule a server holds a received Prepare to, a request: no result types, refused as
-    /// [`ProtocolError::count_mismatch`] (`"result types"`), and no warning (`"warnings"`).
+    /// The rule a server holds a received Prepare to, a request: no result types and no warning.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::count_mismatch`], naming `"result types"` or `"warnings"`.
     pub fn check_request(&self) -> Result<(), ProtocolError> {
         self.result_types_count(0)?;
         if self.warnings.holds_sections() {
@@ -104,8 +113,12 @@ impl<'a> PrepareView<'a> {
     }
 
     /// The rule a client holds a received Prepare to, an answer: one result type per unbound slot and one for the
-    /// reifier column (`PROTOCOL.md` §8.1), refused as [`ProtocolError::count_mismatch`] (`"result types"`). A text's, whose
-    /// statement may project nothing, its view's names already count.
+    /// reifier column (`PROTOCOL.md` §8.1). A text's, whose statement may project nothing, its view's names already
+    /// count.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::count_mismatch`], naming `"result types"`.
     pub fn check_reply(&self) -> Result<(), ProtocolError> {
         let expected = match &self.pattern {
             Some(pattern) => {

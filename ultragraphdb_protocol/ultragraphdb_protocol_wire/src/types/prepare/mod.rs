@@ -61,6 +61,7 @@ pub struct Prepare {
 
 impl Prepare {
     /// A Prepare of `pattern` in `tenant`, naming `terms`, with its statement, schema and column types.
+    #[must_use]
     pub fn new(
         tenant: u64,
         statement: u64,
@@ -127,16 +128,19 @@ impl Prepare {
     }
 
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
 
     /// The statement's id; zero in a request.
+    #[must_use]
     pub fn statement(&self) -> u64 {
         self.statement
     }
 
     /// The schema id of the tenant's catalog; zero in a request.
+    #[must_use]
     pub fn schema(&self) -> u64 {
         self.schema
     }
@@ -148,6 +152,7 @@ impl Prepare {
     }
 
     /// The request's term table.
+    #[must_use]
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }
@@ -171,12 +176,14 @@ impl Prepare {
     }
 
     /// The parameters' column types, in order.
+    #[must_use]
     pub fn parameter_types(&self) -> &[ColumnType] {
         &self.parameter_types
     }
 
     /// The result columns' types: one per unbound slot and the reifier column's last, or one per projection; none in a
     /// request.
+    #[must_use]
     pub fn result_types(&self) -> &[ColumnType] {
         &self.result_types
     }

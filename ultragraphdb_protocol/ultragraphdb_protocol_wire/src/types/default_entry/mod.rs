@@ -43,6 +43,7 @@ impl DefaultEntry {
     }
 
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }

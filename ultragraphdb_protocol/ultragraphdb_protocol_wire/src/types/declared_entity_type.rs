@@ -22,16 +22,19 @@ impl DeclaredEntityType {
     }
 
     /// The entity type's IRI.
+    #[must_use]
     pub fn iri(&self) -> &str {
         &self.iri
     }
 
     /// The parent type's IRI, if it has one.
+    #[must_use]
     pub fn parent(&self) -> Option<&str> {
         self.parent.as_deref()
     }
 
     /// Whether the entity type is abstract.
+    #[must_use]
     pub fn is_abstract(&self) -> bool {
         self.is_abstract
     }

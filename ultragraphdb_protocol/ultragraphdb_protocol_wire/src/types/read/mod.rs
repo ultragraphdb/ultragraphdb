@@ -38,6 +38,7 @@ pub struct Read {
 
 impl Read {
     /// A read of `pattern` in `transaction`, naming `terms`, at most `limit` rows from `resume`.
+    #[must_use]
     pub fn new(
         transaction: u64,
         limit: u32,
@@ -55,26 +56,31 @@ impl Read {
     }
 
     /// The stream number of the Begin of the transaction the read runs in.
+    #[must_use]
     pub fn transaction(&self) -> u64 {
         self.transaction
     }
 
     /// The most rows returned; 0 for no limit.
+    #[must_use]
     pub fn limit(&self) -> u32 {
         self.limit
     }
 
     /// The request's term table.
+    #[must_use]
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }
 
     /// The quad pattern.
+    #[must_use]
     pub fn pattern(&self) -> &QuadPattern {
         &self.pattern
     }
 
     /// The resume key: where a previous result of the same request ended; empty to start.
+    #[must_use]
     pub fn resume(&self) -> &[u8] {
         &self.resume
     }

@@ -82,6 +82,7 @@ pub struct WriteSetRecord {
 
 impl WriteSetRecord {
     /// An empty record of a transaction or a Drop (kind 1) in `tenant`, every other field zero.
+    #[must_use]
     pub fn transaction(tenant: u64) -> Self {
         Self::empty(RecordKind::Transaction, tenant)
     }
@@ -111,6 +112,7 @@ impl WriteSetRecord {
     }
 
     /// The record of `registration`, which the partition accepted as its entity's home (kind 2), in `tenant`.
+    #[must_use]
     pub fn registration(tenant: u64, registration: RecordRegistration) -> Self {
         let mut record = Self::empty(RecordKind::Registration, tenant);
         record.registrations.push(registration);
@@ -119,12 +121,14 @@ impl WriteSetRecord {
 
     /// The record of an entity the partition got or created as its home for a registration naming no bucket group (kind
     /// 2 with no registration), in `tenant`: its dictionary entries ride in the round's dictionary section.
+    #[must_use]
     pub fn entity(tenant: u64) -> Self {
         Self::empty(RecordKind::Registration, tenant)
     }
 
     /// The record of an index build's start or completion (kind 3), `operation`, in `tenant`; its catalog set by
     /// [`WriteSetRecord::set_catalog`].
+    #[must_use]
     pub fn build(tenant: u64, operation: RecordOperation) -> Self {
         let mut record = Self::empty(RecordKind::Build, tenant);
         record.operations.push(operation);
@@ -219,6 +223,7 @@ impl WriteSetRecord {
     }
 
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
@@ -230,6 +235,7 @@ impl WriteSetRecord {
     }
 
     /// The version the transaction read at; 0 for a Drop, a registration and a build.
+    #[must_use]
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
@@ -241,11 +247,13 @@ impl WriteSetRecord {
     }
 
     /// The session's request number; 0 for none.
+    #[must_use]
     pub fn request(&self) -> u64 {
         self.request
     }
 
     /// The principal the transaction acted for.
+    #[must_use]
     pub fn principal(&self) -> u64 {
         self.principal
     }
@@ -281,26 +289,31 @@ impl WriteSetRecord {
     }
 
     /// The commit record the client attached.
+    #[must_use]
     pub fn commit_record(&self) -> &[u8] {
         &self.commit_record
     }
 
     /// The conflict points: each a key written.
+    #[must_use]
     pub fn conflict_points(&self) -> &[Vec<u8>] {
         &self.conflict_points
     }
 
     /// The conflict statements: a list key and the object it changed.
+    #[must_use]
     pub fn conflict_statements(&self) -> &[(Vec<u8>, Vec<u8>)] {
         &self.conflict_statements
     }
 
     /// The conflict ranges: the first key and the key past the last.
+    #[must_use]
     pub fn conflict_ranges(&self) -> &[(Vec<u8>, Vec<u8>)] {
         &self.conflict_ranges
     }
 
     /// The commit-time operations' results, in the order the transaction asked them.
+    #[must_use]
     pub fn results(&self) -> &[OperationResult] {
         &self.results
     }
@@ -312,6 +325,7 @@ impl WriteSetRecord {
     }
 
     /// The record's bytes.
+    #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         self.encode_into(&mut out);

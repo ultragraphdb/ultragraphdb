@@ -19,6 +19,7 @@ const COMMAND_HEADER_OFFSET: usize = 128;
 
 impl Header {
     /// The header's 256 bytes with `size` and `checksum_body` as given, and `checksum` computed over bytes 8 to 256.
+    #[must_use]
     pub fn encode(&self, size: u32, checksum_body: u64) -> [u8; HEADER_SIZE] {
         // Bytes 8 to 256 in field order, then the checksum over them in front: no index into the result.
         let tail: Vec<u8> = [
@@ -46,8 +47,11 @@ impl Header {
     }
 
     /// Writes `sequence` into the header of `frame`, a whole frame, and recomputes its `checksum`: a sender numbers a
-    /// frame as it leaves, after the frame was built. Refused as [`ProtocolError::short_header`] for fewer than 256
-    /// bytes.
+    /// frame as it leaves, after the frame was built.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::short_header`] for fewer than 256 bytes.
     pub fn stamp_sequence(frame: &mut [u8], sequence: u128) -> Result<(), ProtocolError> {
         let len = frame.len();
         let header = frame
@@ -107,7 +111,10 @@ impl Header {
     }
 
     /// The frame of this header and `body`: the header, the body, and the body's chunk table when it has more than
-    /// one chunk, with `size`, `checksum_body` and `checksum` filled in. Refused as
+    /// one chunk, with `size`, `checksum_body` and `checksum` filled in.
+    ///
+    /// # Errors
+    ///
     /// [`ProtocolError::frame_too_large`] when the frame would exceed [`crate::MAX_FRAME_SIZE`].
     pub fn encode_frame(&self, body: &[u8]) -> Result<Vec<u8>, ProtocolError> {
         let body_len = ChunkLayout::of_data(body.len()).body_len();

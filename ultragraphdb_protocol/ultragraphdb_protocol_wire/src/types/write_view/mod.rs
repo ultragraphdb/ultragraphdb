@@ -22,26 +22,31 @@ pub struct WriteView<'a> {
 
 impl<'a> WriteView<'a> {
     /// The Write's term table.
+    #[must_use]
     pub fn terms(&self) -> &TermTableView<'a> {
         &self.terms
     }
 
     /// The names the declarations index.
+    #[must_use]
     pub fn names(&self) -> &StringList<'a> {
         &self.names
     }
 
     /// The number of changes.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.records.len() / CHANGE_RECORD_SIZE
     }
 
     /// Whether the Write holds no change.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
     }
 
     /// Change `index`, `None` past the last.
+    #[must_use]
     pub fn change(&self, index: usize) -> Option<WriteChange> {
         decode_change(self.records, index, &self.args, &self.names)
     }

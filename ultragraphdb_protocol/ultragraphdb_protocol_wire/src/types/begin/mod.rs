@@ -36,6 +36,7 @@ pub struct Begin {
 impl Begin {
     /// A transaction in `tenant` reading at `read_version`, read-only or read-write, at level snapshot, with the
     /// Welcome's deadline and no token.
+    #[must_use]
     pub fn new(tenant: u64, read_version: u64, read_only: bool) -> Self {
         Self {
             tenant,
@@ -69,16 +70,19 @@ impl Begin {
     }
 
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
 
     /// The version the transaction's reads take; 0 where each partition gives it.
+    #[must_use]
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
     /// Whether the transaction is read-only.
+    #[must_use]
     pub fn read_only(&self) -> bool {
         self.read_only
     }

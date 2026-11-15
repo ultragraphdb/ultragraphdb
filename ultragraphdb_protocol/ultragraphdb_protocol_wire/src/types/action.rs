@@ -45,6 +45,7 @@ impl Action {
     ];
 
     /// The action's number, 1 to 7.
+    #[must_use]
     pub fn number(self) -> u64 {
         Action::ALL
             .iter()
@@ -54,6 +55,7 @@ impl Action {
     }
 
     /// The action numbered `number`; `None` for a number no action has.
+    #[must_use]
     pub fn from_number(number: u64) -> Option<Action> {
         Action::ALL
             .get(usize::try_from(number).ok()?.checked_sub(1)?)

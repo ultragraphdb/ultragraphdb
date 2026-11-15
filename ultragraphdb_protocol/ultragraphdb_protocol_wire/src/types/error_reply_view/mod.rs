@@ -20,22 +20,26 @@ pub struct ErrorReplyView<'a> {
 
 impl<'a> ErrorReplyView<'a> {
     /// The error's code.
+    #[must_use]
     pub fn code(&self) -> ErrorCode {
         self.code
     }
 
     /// The detail the code defines.
+    #[must_use]
     pub fn detail(&self) -> u64 {
         self.detail
     }
 
     /// The message.
+    #[must_use]
     pub fn message(&self) -> &'a str {
         self.message
     }
 
     /// The value a failed compare-and-set found, from the frame's one-entry term table; `None` when it holds none. Cut, or
     /// left out, when [`ErrorReplyView::value_cut`] says so.
+    #[must_use]
     pub fn value(&self) -> Option<RequestTermView<'a>> {
         self.value
     }

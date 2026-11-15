@@ -24,6 +24,7 @@ pub struct QuadPattern {
 
 impl QuadPattern {
     /// The pattern of the `graph`, `subject`, `predicate` and `object` slots.
+    #[must_use]
     pub fn new(
         graph: PatternSlot,
         subject: PatternSlot,
@@ -39,31 +40,37 @@ impl QuadPattern {
     }
 
     /// The graph's slot.
+    #[must_use]
     pub fn graph(&self) -> PatternSlot {
         self.graph
     }
 
     /// The subject's slot.
+    #[must_use]
     pub fn subject(&self) -> PatternSlot {
         self.subject
     }
 
     /// The predicate's slot.
+    #[must_use]
     pub fn predicate(&self) -> PatternSlot {
         self.predicate
     }
 
     /// The object's slot.
+    #[must_use]
     pub fn object(&self) -> PatternSlot {
         self.object
     }
 
     /// The slots in order: graph, subject, predicate, object.
+    #[must_use]
     pub fn slots(&self) -> [PatternSlot; 4] {
         [self.graph, self.subject, self.predicate, self.object]
     }
 
     /// The number of parameter slots.
+    #[must_use]
     pub fn parameters(&self) -> usize {
         self.slots()
             .iter()
@@ -72,6 +79,7 @@ impl QuadPattern {
     }
 
     /// The type of each slot's value: a node at the graph, subject and predicate, a term at the object.
+    #[must_use]
     pub fn slot_types() -> [ColumnType; 4] {
         [
             ColumnType::Node,

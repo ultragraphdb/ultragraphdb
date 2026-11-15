@@ -16,11 +16,13 @@ impl CatalogAnnouncement {
     pub const SIZE: usize = 16;
 
     /// The announcement of `tenant`'s catalog `version`.
+    #[must_use]
     pub fn new(tenant: u64, version: u64) -> Self {
         Self { tenant, version }
     }
 
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }

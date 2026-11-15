@@ -31,16 +31,19 @@ impl DeclaredPredicate {
     }
 
     /// The declaration with its `kind`.
+    #[must_use]
     pub fn with_kind(self, kind: DeclaredKind) -> Self {
         Self { kind, ..self }
     }
 
     /// The declaration, single-valued or not.
+    #[must_use]
     pub fn with_single(self, single: bool) -> Self {
         Self { single, ..self }
     }
 
     /// The declaration, unique or not.
+    #[must_use]
     pub fn with_unique(self, unique: bool) -> Self {
         Self { unique, ..self }
     }
@@ -54,11 +57,13 @@ impl DeclaredPredicate {
     }
 
     /// The declaration with its tokenizers.
+    #[must_use]
     pub fn with_tokenizers(self, tokenizers: Vec<String>) -> Self {
         Self { tokenizers, ..self }
     }
 
     /// The declaration with a count index or without.
+    #[must_use]
     pub fn with_count_index(self, count_index: bool) -> Self {
         Self {
             count_index,
@@ -67,6 +72,7 @@ impl DeclaredPredicate {
     }
 
     /// The declaration with its domains.
+    #[must_use]
     pub fn with_domains(self, domains: Vec<String>) -> Self {
         Self { domains, ..self }
     }
@@ -84,46 +90,55 @@ impl DeclaredPredicate {
     }
 
     /// The predicate's IRI.
+    #[must_use]
     pub fn predicate(&self) -> &str {
         &self.predicate
     }
 
     /// What the predicate's objects may be.
+    #[must_use]
     pub fn kind(&self) -> DeclaredKind {
         self.kind
     }
 
     /// Whether the predicate is single-valued.
+    #[must_use]
     pub fn single(&self) -> bool {
         self.single
     }
 
     /// Whether the predicate is unique.
+    #[must_use]
     pub fn unique(&self) -> bool {
         self.unique
     }
 
     /// The datatype's IRI, if one is declared.
+    #[must_use]
     pub fn datatype(&self) -> Option<&str> {
         self.datatype.as_deref()
     }
 
     /// The tokenizers.
+    #[must_use]
     pub fn tokenizers(&self) -> &[String] {
         &self.tokenizers
     }
 
     /// Whether the predicate has a count index.
+    #[must_use]
     pub fn count_index(&self) -> bool {
         self.count_index
     }
 
     /// The domains.
+    #[must_use]
     pub fn domains(&self) -> &[String] {
         &self.domains
     }
 
     /// The vector index's factory and options.
+    #[must_use]
     pub fn vector_index(&self) -> Option<&(String, Vec<(String, String)>)> {
         self.vector_index.as_ref()
     }

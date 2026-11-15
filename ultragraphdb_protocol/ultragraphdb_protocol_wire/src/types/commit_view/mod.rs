@@ -32,11 +32,13 @@ impl<'a> CommitView<'a> {
     }
 
     /// The request's number within its session.
+    #[must_use]
     pub fn request(&self) -> u64 {
         self.request
     }
 
     /// The commit version; zero in a request.
+    #[must_use]
     pub fn commit_version(&self) -> u64 {
         self.commit_version
     }
@@ -48,11 +50,13 @@ impl<'a> CommitView<'a> {
     }
 
     /// The number of results.
+    #[must_use]
     pub fn result_count(&self) -> usize {
         self.results.len() / OPERATION_RESULT_SIZE
     }
 
     /// Result `index`, `None` past the last.
+    #[must_use]
     pub fn result(&self, index: usize) -> Option<OperationResult> {
         result_at(self.results, index)
     }

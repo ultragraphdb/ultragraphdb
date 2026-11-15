@@ -30,6 +30,7 @@ impl OperationResult {
     }
 
     /// The result of a counter add whose counter now holds `value`.
+    #[must_use]
     pub fn counter(value: i64) -> Self {
         Self {
             value,
@@ -57,6 +58,7 @@ impl OperationResult {
     }
 
     /// Whether the operation created the node; false for compare-and-set and counter add.
+    #[must_use]
     pub fn created(&self) -> bool {
         self.created
     }

@@ -73,11 +73,13 @@ impl<'a> KeyValues<'a> {
     }
 
     /// The number of entries.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// Whether the section holds no entry.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }

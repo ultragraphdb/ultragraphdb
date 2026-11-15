@@ -106,6 +106,7 @@ impl Reference {
     }
 
     /// The tenant of the batch's entities.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }

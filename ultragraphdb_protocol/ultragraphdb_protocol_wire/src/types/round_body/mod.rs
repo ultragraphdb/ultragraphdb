@@ -85,6 +85,7 @@ impl RoundBody {
     }
 
     /// The command header: the round's fields and its decision count.
+    #[must_use]
     pub fn header(&self) -> RoundHeader {
         RoundHeader::new(
             self.position,
@@ -97,11 +98,13 @@ impl RoundBody {
     }
 
     /// Each entry's decision, in order.
+    #[must_use]
     pub fn decisions(&self) -> &[Decision] {
         &self.decisions
     }
 
     /// The encoded write-set records of the committed entries, in order.
+    #[must_use]
     pub fn records(&self) -> &[Vec<u8>] {
         &self.records
     }

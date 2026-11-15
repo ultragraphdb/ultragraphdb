@@ -68,30 +68,35 @@ impl Welcome {
     }
 
     /// The answer with the largest frame the server takes.
+    #[must_use]
     pub fn with_max_frame(mut self, max_frame: u32) -> Self {
         self.max_frame = max_frame;
         self
     }
 
     /// The answer with the streams a connection may hold in flight.
+    #[must_use]
     pub fn with_max_streams(mut self, max_streams: u32) -> Self {
         self.max_streams = max_streams;
         self
     }
 
     /// The answer with the credit each read's stream starts with.
+    #[must_use]
     pub fn with_initial_credit(mut self, initial_credit: u32) -> Self {
         self.initial_credit = initial_credit;
         self
     }
 
     /// The answer with the largest write set a transaction commits.
+    #[must_use]
     pub fn with_max_write_set(mut self, max_write_set: u32) -> Self {
         self.max_write_set = max_write_set;
         self
     }
 
     /// The answer with a read-write transaction's longest life, in milliseconds.
+    #[must_use]
     pub fn with_transaction_ms(mut self, transaction_ms: u32) -> Self {
         self.transaction_ms = transaction_ms;
         self
@@ -108,58 +113,72 @@ impl Welcome {
     }
 
     /// The protocol version chosen.
+    #[must_use]
     pub fn protocol(&self) -> u16 {
         self.protocol
     }
 
     /// The server's release.
+    #[must_use]
     pub fn release(&self) -> u32 {
         self.release
     }
 
     /// Whether the connection authenticates before its first request: the server lists a mechanism.
+    #[must_use]
     pub fn authenticates(&self) -> bool {
         !self.mechanisms.is_empty()
     }
 
     /// The SASL mechanisms the server offers; none when it runs without authentication.
+    #[must_use]
     pub fn mechanisms(&self) -> &[String] {
         &self.mechanisms
     }
 
     /// The largest frame the sender takes, in bytes.
+    #[must_use]
     pub fn max_frame(&self) -> u32 {
         self.max_frame
     }
 
     /// The streams a connection may hold in flight.
+    #[must_use]
     pub fn max_streams(&self) -> u32 {
         self.max_streams
     }
 
     /// The credit each read's stream starts with.
+    #[must_use]
     pub fn initial_credit(&self) -> u32 {
         self.initial_credit
     }
 
     /// The largest write set a transaction commits, in bytes.
+    #[must_use]
     pub fn max_write_set(&self) -> u32 {
         self.max_write_set
     }
 
     /// A read-write transaction's longest life, in milliseconds.
+    #[must_use]
     pub fn transaction_ms(&self) -> u32 {
         self.transaction_ms
     }
 
     /// The server's name.
+    #[must_use]
     pub fn server(&self) -> &str {
         &self.server
     }
 
     /// The answer of a server whose highest protocol is this Welcome's to `hello`: this Welcome at the highest protocol
-    /// both speak, or, when the client's range lies above it, an Error of [`crate::ErrorCode::ProtocolVersion`]
-    /// naming the server's highest protocol. Every server speaks every protocol from 1 to its highest.
+    /// both speak. Every server speaks every protocol from 1 to its highest.
+    ///
+    /// # Errors
+    ///
+    /// The Error to answer with when the client's range lies above the server's highest protocol: one of
+    /// [`crate::ErrorCode::ProtocolVersion`], naming that protocol.
     pub fn answer(&self, hello: &HelloView<'_>) -> Result<Welcome, ErrorReply> {
         if hello.protocol_min() > self.protocol {
             let message = format!(

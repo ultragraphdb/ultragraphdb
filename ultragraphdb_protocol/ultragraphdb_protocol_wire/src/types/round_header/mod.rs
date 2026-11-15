@@ -44,6 +44,7 @@ impl RoundHeader {
     /// The header of the round at `position` after the round of checksum `parent`, of the log's `incarnation`, its
     /// first committed entry at `first_version`, holding `transactions` decisions, its quads turned into keys by
     /// `derivation`.
+    #[must_use]
     pub fn new(
         position: u64,
         parent: u64,
@@ -95,6 +96,7 @@ impl RoundHeader {
     }
 
     /// The command header's 128 bytes, the unused ones zero.
+    #[must_use]
     pub fn encode(&self) -> [u8; COMMAND_HEADER_SIZE] {
         let fields = self
             .position
@@ -114,26 +116,31 @@ impl RoundHeader {
     }
 
     /// The round's place in the log, gapless from 1.
+    #[must_use]
     pub fn position(&self) -> u64 {
         self.position
     }
 
     /// The previous round's frame checksum.
+    #[must_use]
     pub fn parent(&self) -> u64 {
         self.parent
     }
 
     /// The log's incarnation, raised each time a log is created afresh.
+    #[must_use]
     pub fn incarnation(&self) -> u64 {
         self.incarnation
     }
 
     /// The commit version of the round's first committed entry.
+    #[must_use]
     pub fn first_version(&self) -> u64 {
         self.first_version
     }
 
     /// The round's decision count, one per entry.
+    #[must_use]
     pub fn transactions(&self) -> u32 {
         self.transactions
     }

@@ -24,51 +24,61 @@ pub struct WelcomeView<'a> {
 
 impl<'a> WelcomeView<'a> {
     /// The protocol version chosen.
+    #[must_use]
     pub fn protocol(&self) -> u16 {
         self.protocol
     }
 
     /// Whether the connection authenticates before its first request, the header's `auth`.
+    #[must_use]
     pub fn authenticates(&self) -> bool {
         self.authenticates
     }
 
     /// The server's release.
+    #[must_use]
     pub fn release(&self) -> u32 {
         self.release
     }
 
     /// The largest frame the sender takes, in bytes.
+    #[must_use]
     pub fn max_frame(&self) -> u32 {
         self.max_frame
     }
 
     /// The streams a connection may hold in flight.
+    #[must_use]
     pub fn max_streams(&self) -> u32 {
         self.max_streams
     }
 
     /// The credit each read's stream starts with.
+    #[must_use]
     pub fn initial_credit(&self) -> u32 {
         self.initial_credit
     }
 
     /// The largest write set a transaction commits, in bytes.
+    #[must_use]
     pub fn max_write_set(&self) -> u32 {
         self.max_write_set
     }
 
     /// A read-write transaction's longest life, in milliseconds.
+    #[must_use]
     pub fn transaction_ms(&self) -> u32 {
         self.transaction_ms
     }
 
     /// The server's name.
+    #[must_use]
     pub fn server(&self) -> &'a str {
         self.server
     }
 
     /// The SASL mechanisms the server accepts, in its order; empty without authentication.
+    #[must_use]
     pub fn mechanisms(&self) -> &StringList<'a> {
         &self.mechanisms
     }

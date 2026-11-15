@@ -32,8 +32,11 @@ pub struct HeaderView<'a> {
 }
 
 impl<'a> HeaderView<'a> {
-    /// The header at the start of `bytes`, refused as [`ProtocolError::short_header`] when `bytes` holds fewer than
-    /// 256 bytes. Bytes past the header are not read.
+    /// The header at the start of `bytes`. Bytes past the header are not read.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::short_header`] when `bytes` holds fewer than 256 bytes.
     pub fn new(bytes: &'a [u8]) -> Result<Self, ProtocolError> {
         let short = || ProtocolError::short_header(bytes.len());
         Ok(Self {
@@ -59,71 +62,85 @@ impl<'a> HeaderView<'a> {
     }
 
     /// The header's checksum: XXH3-64 of its bytes 8 to 256.
+    #[must_use]
     pub fn checksum(&self) -> u64 {
         self.checksum
     }
 
     /// The checksum of the body's chunk table.
+    #[must_use]
     pub fn checksum_body(&self) -> u64 {
         self.checksum_body
     }
 
     /// The frame's place among its sender's frames on the connection, from 1.
+    #[must_use]
     pub fn sequence(&self) -> u128 {
         self.sequence
     }
 
     /// The cluster the frame belongs to.
+    #[must_use]
     pub fn cluster(&self) -> u64 {
         self.cluster
     }
 
     /// The frame's size in bytes, header and body.
+    #[must_use]
     pub fn size(&self) -> u32 {
         self.size
     }
 
     /// The VSR view; 0 from a client.
+    #[must_use]
     pub fn view(&self) -> u32 {
         self.view
     }
 
     /// The sender's release.
+    #[must_use]
     pub fn release(&self) -> u32 {
         self.release
     }
 
     /// The protocol version.
+    #[must_use]
     pub fn protocol(&self) -> u16 {
         self.protocol
     }
 
     /// The `command` field as a number; [`HeaderView::verify`] maps it to a [`crate::Command`].
+    #[must_use]
     pub fn command(&self) -> u16 {
         self.command
     }
 
     /// The stream the frame belongs to; 0 for the connection.
+    #[must_use]
     pub fn stream(&self) -> u64 {
         self.stream
     }
 
     /// The sending replica; 0 from a client.
+    #[must_use]
     pub fn replica(&self) -> u8 {
         self.replica
     }
 
     /// The header's flags: bit 0 marks the stream's last frame.
+    #[must_use]
     pub fn flags(&self) -> u8 {
         self.flags
     }
 
     /// The 62 reserved bytes at 66.
+    #[must_use]
     pub fn reserved(&self) -> &'a [u8] {
         self.reserved
     }
 
     /// The command header's 128 bytes.
+    #[must_use]
     pub fn command_header(&self) -> &'a [u8; COMMAND_HEADER_SIZE] {
         self.command_header
     }

@@ -40,6 +40,7 @@ pub struct DirectWrite {
 
 impl DirectWrite {
     /// A DirectWrite of `changes` naming `terms` in `tenant`, through no session, holding no token.
+    #[must_use]
     pub fn new(tenant: u64, terms: TermTable, changes: Vec<WriteChange>) -> Self {
         Self::from_parts(WriteHeader::new(tenant), terms, changes)
     }
@@ -86,6 +87,7 @@ impl DirectWrite {
     }
 
     /// The tenant it acts in.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.header.tenant
     }

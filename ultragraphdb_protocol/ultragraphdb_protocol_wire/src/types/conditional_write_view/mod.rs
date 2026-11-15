@@ -44,6 +44,7 @@ impl<'a> ConditionalWriteView<'a> {
     }
 
     /// The tenant it acts in.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.header.tenant
     }
