@@ -1,0 +1,193 @@
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/lib.rs
+  s_21eff977e05256::t_7673451154100d 20-24
+openspec/changes/stage-5-8-system-group/notes/group-1.md
+  s_21eff977e05256::t_671287e866aecd 1-239
+openspec/changes/stage-5-8-system-group/tasks.md
+  s_21eff977e05256::t_7fba1869394f9a 33
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/errors/statement_error/mod.rs
+  s_21eff977e05256::t_57fc7462b7ccca 121,135
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/traits/body_builder.rs
+  s_21eff977e05256::t_b4dd0cc1335059 31-35
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/traits/body_view.rs
+  s_21eff977e05256::t_6f39fa4b9057b8 23-28,31-36
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/action.rs
+  s_21eff977e05256::t_db9b66c31dbead 48,58
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/authenticate/mod.rs
+  s_21eff977e05256::t_26137e922c7d37 49,58,64,70,76,82,88
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/authenticate_view/mod.rs
+  s_21eff977e05256::t_a8fb452f321c28 27,33,39,45,51,57
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/begin/mod.rs
+  s_21eff977e05256::t_bb627ee82f175e 39,73,79,85
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/begin_view/mod.rs
+  s_21eff977e05256::t_7ed3cbc69ae94f 28,34,40
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/bind/mod.rs
+  s_21eff977e05256::t_1858cd5edfd00a 83
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/bind_view/mod.rs
+  s_21eff977e05256::t_069cf32da88314 42
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/catalog/mod.rs
+  s_21eff977e05256::t_60ed304617272b 39,52,64
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/catalog_announcement.rs
+  s_21eff977e05256::t_71e85c44821e27 19,25
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/catalog_view/mod.rs
+  s_21eff977e05256::t_a7232e81fde4ff 39
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/chunk_layout/mod.rs
+  s_21eff977e05256::t_ed048069679c63 26,37-41,69,75,81,91,97
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/chunked_body/mod.rs
+  s_21eff977e05256::t_f2c6a256ec99c9 30-34,79,85
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/column_type.rs
+  s_21eff977e05256::t_8c8664a29ce63d 58,69
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/command/mod.rs
+  s_21eff977e05256::t_e1ae7ce5ef931a 162,213-218
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/commit/mod.rs
+  s_21eff977e05256::t_b0740134767d3c 82,88,100
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/commit_view/mod.rs
+  s_21eff977e05256::t_d3f10a17ae8983 35,41,53,59
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/compute_read/mod.rs
+  s_21eff977e05256::t_d91d76118a347b 181
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/compute_read_view/mod.rs
+  s_21eff977e05256::t_071660ef55d9d9 68
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/conditional_write/mod.rs
+  s_21eff977e05256::t_3795be9ad11e8d 92
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/conditional_write_view/mod.rs
+  s_21eff977e05256::t_a9b7565542c8d3 47
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/conflict_kind.rs
+  s_21eff977e05256::t_13149ed7cf0ba9 44,54
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/credit/mod.rs
+  s_21eff977e05256::t_0a496e2772b24b 22,28
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/credit_view/mod.rs
+  s_21eff977e05256::t_4c582df4050d8a 19
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/declared_entity_type.rs
+  s_21eff977e05256::t_0ac137feb556ce 25,31,37
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/declared_predicate.rs
+  s_21eff977e05256::t_7ec724b8027618 34,40,46,60,66,75,93,99,105,111,117,123,129,135,141
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/declared_relation.rs
+  s_21eff977e05256::t_30d3a973439a1a 23,29
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/default_entry/mod.rs
+  s_21eff977e05256::t_158e931a5eecf4 46
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/default_entry_view/mod.rs
+  s_21eff977e05256::t_a1f15e7bcc654a 25
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/describe/mod.rs
+  s_21eff977e05256::t_5d1cb9cbaebd75 57,73,79,85,91,97,103,109,115,121,128,135,142,149,156,163,171
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/describe_view/mod.rs
+  s_21eff977e05256::t_2e7bd589ef0fd7 34,40,46,73
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/direct_write/mod.rs
+  s_21eff977e05256::t_39010417ae2996 43,90
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/direct_write_view/mod.rs
+  s_21eff977e05256::t_e3e775e9144a22 42
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/drop_command/mod.rs
+  s_21eff977e05256::t_9a2996b7f7f554 66,72,87,94,100,106,131,137
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/drop_command_view/mod.rs
+  s_21eff977e05256::t_f78f02792b5e99 27,33,39,57,63
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/drop_kind.rs
+  s_21eff977e05256::t_49dd20353160e4 36,46,54
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/error_code/mod.rs
+  s_21eff977e05256::t_02cb4b7ee056f2 154,165,176
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/error_reply/mod.rs
+  s_21eff977e05256::t_ddbd8ba85dfa3b 51,58,64,71,90,102,111,118
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/error_reply_view/mod.rs
+  s_21eff977e05256::t_e504a5c1a44e34 23,29,35,42
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/execute/mod.rs
+  s_21eff977e05256::t_979aed00024c37 41,61,67,73,79,85,91
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/execute_view/mod.rs
+  s_21eff977e05256::t_465c0256fa16de 23,29,35,41,47,53
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/frame_view/mod.rs
+  s_21eff977e05256::t_ca4e116e2753e6 28-32,44-47,79,85,91,97
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/header/header_encode.rs
+  s_21eff977e05256::t_ccb08c12394b8b 22,50-54,114-117
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/header/mod.rs
+  s_21eff977e05256::t_e4db725383809f 50,67,75,82,89,96,103,110,117,124,131,137,143,149,155,161,167,173,179,185
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/header_view/header_view_verify.rs
+  s_21eff977e05256::t_4b10ea51329edc 21-26,33-36
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/header_view/mod.rs
+  s_21eff977e05256::t_1938be70d84628 35-39,65,71,77,83,89,95,101,107,113,119,125,131,137,143
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/hello/mod.rs
+  s_21eff977e05256::t_fa14881c9530d7 49,55,61,67,73
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/hello_view/mod.rs
+  s_21eff977e05256::t_aed6ee1b9ae287 23,29,35,41,47
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/key_values/mod.rs
+  s_21eff977e05256::t_eaea2f6b79124c 76,82
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/link.rs
+  s_21eff977e05256::t_ef6c232f16076d 17,27,37,43,49
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/operation/mod.rs
+  s_21eff977e05256::t_cb3e30c2568f23 33,39,45
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/operation_result.rs
+  s_21eff977e05256::t_f763f3b2b4af18 33,61
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/operation_view/mod.rs
+  s_21eff977e05256::t_06e786f777dac0 23,29,35,41,47,53
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/placement/mod.rs
+  s_21eff977e05256::t_dcf52d3aab3d46 106
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/placement_view/mod.rs
+  s_21eff977e05256::t_a20931b976f270 76
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/prepare/mod.rs
+  s_21eff977e05256::t_f430de39942223 64,131,137,143,155,179,186
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/prepare_view/mod.rs
+  s_21eff977e05256::t_b41b56c1534786 37,43,49,61,79,86,97-101,116-121
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/quad_pattern/mod.rs
+  s_21eff977e05256::t_6faa7d255dcf42 27,43,49,55,61,67,73,82
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/read/mod.rs
+  s_21eff977e05256::t_b4c1d0102ceebe 41,59,65,71,77,83
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/read_view/mod.rs
+  s_21eff977e05256::t_c01cb9f2de0be7 23,29,35,41,47
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/record_entry.rs
+  s_21eff977e05256::t_a0ddd6faa41731 18,24,30
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/reference/mod.rs
+  s_21eff977e05256::t_d8ab8ad88423df 109
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/reference_view/mod.rs
+  s_21eff977e05256::t_420a35dd174f1a 29
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/report/mod.rs
+  s_21eff977e05256::t_1c90bc0f7cc8f0 41,77,98
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/report_view/mod.rs
+  s_21eff977e05256::t_7658da973e8bc4 39
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/result_batch/mod.rs
+  s_21eff977e05256::t_e694fe586824c1 85,104-110,216,223,229,235,242,255,298
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/result_term.rs
+  s_21eff977e05256::t_0e4725eab554a1 41,116,123,133,139
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/result_term_view.rs
+  s_21eff977e05256::t_e72c4009f592fb 53,61,77,83,89
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/result_view/mod.rs
+  s_21eff977e05256::t_32e59b2ddde5ba 37,43,50,63,69,100
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/round_body/mod.rs
+  s_21eff977e05256::t_084b02b946b22e 88,101,107
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/round_header/mod.rs
+  s_21eff977e05256::t_701f4a5cf446b2 47,99,119,125,131,137,143
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/round_view/mod.rs
+  s_21eff977e05256::t_f912d4e7032ea3 30,36,42,54,67
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/statement_cache/mod.rs
+  s_21eff977e05256::t_270c651c196975 43,52-59,126-132,202,208,214
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/tenant_run.rs
+  s_21eff977e05256::t_bbde431f408e52 21,27,39
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/term_table/mod.rs
+  s_21eff977e05256::t_0b81e9186504a4 62,67-74,135,141,147,153
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/term_table_view/mod.rs
+  s_21eff977e05256::t_9f94f4e2d2ffb7 268,274,280,314
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/welcome/mod.rs
+  s_21eff977e05256::t_be61083e2a2a49 71,78,85,92,99,116,122,128,134,140,146,152,158,164,170,176-181
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/welcome_view/mod.rs
+  s_21eff977e05256::t_11c0f3502bb1cf 27,33,39,45,51,57,63,69,75,81
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/write/mod.rs
+  s_21eff977e05256::t_efdb6e4e5e5aa7 36,42,48
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/write_set_record/mod.rs
+  s_21eff977e05256::t_73612f48a65eef 85,115,124,131,226,238,250,256,292,298,304,310,316,328
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/write_set_record_view/mod.rs
+  s_21eff977e05256::t_ae8d7cfad2fa49 241,253,265,277,283,331,337,343,349,355,361
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/write_view/mod.rs
+  s_21eff977e05256::t_85e6e457077d6e 25,31,37,43,49
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/utils/checksum.rs
+  s_21eff977e05256::t_0aa1c00b1bb6a6 8,14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5e7157ec790a6b97cc529d4609f40e630158c941",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
