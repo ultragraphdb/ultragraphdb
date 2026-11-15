@@ -19,7 +19,7 @@ use crate::utils::continuation::{Cut, continuation_frames};
 /// |---|---|---|
 /// | 0 | `tenant` | u64 |
 /// | 8 | `version` | u64: the catalog version, 0 in a request for the current one; at least 1 in a reply |
-/// | 16 | `epoch` | epoch: the epoch from which the version applies, 0 while it is pending; 0 in a request |
+/// | 16 | `epoch` | epoch: in a request of `version` 0, the closed epoch asked at, or 0; in a reply, the epoch from which the version applies, 0 while it is pending |
 /// | 24 | `position` | u64: the metadata group's log position the version was read at, from 1; 0 in a request |
 ///
 /// | Section | Contents |
@@ -42,6 +42,19 @@ impl Catalog {
             tenant,
             version,
             epoch: 0,
+            position: 0,
+            bytes: Vec::new(),
+        }
+    }
+
+    /// A request for the version of `tenant`'s catalog a client may read at the closed `epoch`: `version` 0 naming
+    /// the epoch.
+    #[must_use]
+    pub fn request_at(tenant: u64, epoch: u64) -> Self {
+        Self {
+            tenant,
+            version: 0,
+            epoch,
             position: 0,
             bytes: Vec::new(),
         }
@@ -72,7 +85,8 @@ impl Catalog {
         self.version
     }
 
-    /// The epoch from which the version applies; 0 while pending, and in a request.
+    /// In a reply, the epoch from which the version applies, 0 while pending; in a request of `version` 0, the closed
+    /// epoch asked at, or 0.
     #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch

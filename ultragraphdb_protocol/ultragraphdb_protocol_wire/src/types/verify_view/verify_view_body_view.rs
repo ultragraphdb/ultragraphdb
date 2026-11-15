@@ -11,7 +11,7 @@ use crate::types::frame_view::FrameView;
 use crate::types::verify::Verify;
 use crate::types::verify_view::VerifyView;
 use crate::utils::body::{read_sections, text};
-use crate::utils::command_header::expect_command;
+use crate::utils::command_header::{CommandHeader, expect_command};
 use crate::utils::fields::boolean;
 
 /// The size of a ClientProof and of a ServerSignature: an HMAC-SHA-256.
@@ -29,21 +29,20 @@ fn proof<'a>(
     })
 }
 
-impl<'a> BodyView<'a> for VerifyView<'a> {
-    const COMMAND: Command = Command::Verify;
-
-    type Body = Verify;
-
-    fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
-        let command = Self::COMMAND.number();
-        let header = expect_command(frame, Self::COMMAND)?;
+impl<'a> VerifyView<'a> {
+    /// The body of `header` and `body`, checked in `PROTOCOL.md` §13.9's order: unused bytes 1–7 and 16–127 zero;
+    /// `verified`; `principal`, at least 1 in a verified reply and 0 otherwise; the sections; sections 0 and 1 UTF-8;
+    /// section 2 of 32 bytes; section 3 of 32 bytes in a verified reply, else empty.
+    pub(crate) fn read(header: CommandHeader<'a>, body: &'a [u8]) -> Result<Self, ProtocolError> {
+        let command = Command::Verify.number();
         header.unused_zero(&[(0, 1), (8, 16)])?;
         let verified = boolean(command, "verified", header.u8_at(0))?;
         let principal = header.u64_at(8);
-        if !verified && principal != 0 {
+        // A verified reply names its principal, at least 1, and no other body names one.
+        if verified == (principal == 0) {
             return Err(ProtocolError::field_value(command, "principal", principal));
         }
-        let sections = read_sections::<4>(command, frame.body(), 0)?;
+        let sections = read_sections::<4>(command, body, 0)?;
         let name = text(command, 0, sections.get(0))?;
         let auth_message = text(command, 1, sections.get(1))?;
         let client_proof = proof(command, "proof", sections.get(2))?;
@@ -68,6 +67,16 @@ impl<'a> BodyView<'a> for VerifyView<'a> {
             principal,
             signature,
         })
+    }
+}
+
+impl<'a> BodyView<'a> for VerifyView<'a> {
+    const COMMAND: Command = Command::Verify;
+
+    type Body = Verify;
+
+    fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
+        Self::read(expect_command(frame, Self::COMMAND)?, frame.body())
     }
 
     fn to_body(&self) -> Result<Verify, ProtocolError> {

@@ -15,7 +15,7 @@ use crate::types::subscribe::Subscribe;
 use crate::types::subscribe_view::SubscribeView;
 use crate::utils::body::read_sections;
 use crate::utils::command_header::expect_command;
-use crate::utils::fields::epoch;
+use crate::utils::fields::{boolean, epoch};
 
 impl<'a> BodyView<'a> for SubscribeView<'a> {
     const COMMAND: Command = Command::Subscribe;
@@ -25,16 +25,25 @@ impl<'a> BodyView<'a> for SubscribeView<'a> {
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
-        header.unused_zero(&[(0, 8)])?;
+        header.unused_zero(&[(0, 9)])?;
         let from = epoch(command, "from", header.u64_at(0), true)?;
+        let latest = boolean(command, "latest", header.u8_at(8))?;
+        if latest && from != 0 {
+            return Err(ProtocolError::field_value(command, "latest", 1));
+        }
         let _sections: Sections<'_, 0> = read_sections(command, frame.body(), 0)?;
         Ok(Self {
             frame: PhantomData,
             from,
+            latest,
         })
     }
 
     fn to_body(&self) -> Result<Subscribe, ProtocolError> {
-        Ok(Subscribe::new(self.from))
+        Ok(if self.latest {
+            Subscribe::at_latest()
+        } else {
+            Subscribe::new(self.from)
+        })
     }
 }

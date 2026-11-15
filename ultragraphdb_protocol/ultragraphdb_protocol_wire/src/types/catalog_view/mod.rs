@@ -47,7 +47,8 @@ impl<'a> CatalogView<'a> {
         self.version
     }
 
-    /// The epoch from which the version applies; 0 while pending, and in a request.
+    /// In a reply, the epoch from which the version applies, 0 while pending; in a request of `version` 0, the closed
+    /// epoch asked at, or 0.
     #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch

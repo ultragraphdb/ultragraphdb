@@ -3717,6 +3717,7 @@ version = "0.1.0"
 dependencies = [
  "cucumber",
  "futures",
+ "hegeltest",
  "oxrdf",
  "ultragraphdb_core_body",
  "ultragraphdb_core_catalog",

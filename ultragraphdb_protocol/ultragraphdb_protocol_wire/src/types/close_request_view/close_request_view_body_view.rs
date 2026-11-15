@@ -15,7 +15,7 @@ use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
 use crate::utils::body::read_sections;
 use crate::utils::command_header::expect_command;
-use crate::utils::fields::{at_least_one, epoch};
+use crate::utils::fields::epoch;
 
 impl<'a> BodyView<'a> for CloseRequestView<'a> {
     const COMMAND: Command = Command::CloseRequest;
@@ -27,7 +27,6 @@ impl<'a> BodyView<'a> for CloseRequestView<'a> {
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 4), (8, 16)])?;
         let partition = header.u32_at(0);
-        let _partition: u64 = at_least_one(command, "partition", partition.into())?;
         let open = epoch(command, "epoch", header.u64_at(8), false)?;
         let _sections: Sections<'_, 0> = read_sections(command, frame.body(), 0)?;
         Ok(Self {

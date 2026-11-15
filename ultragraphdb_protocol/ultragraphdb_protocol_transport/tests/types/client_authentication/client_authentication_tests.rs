@@ -262,3 +262,36 @@ fn test_a_server_message_breaking_its_bodys_rules_is_a_protocol_error() -> TestR
     );
     Ok(())
 }
+
+/// The system group's commands of stage 5.8 (`PROTOCOL.md` §3) are no part of the exchange: each on stream 0 is refused
+/// naming its number, as any command but Authenticate and Error is.
+#[test]
+fn test_a_system_group_command_on_stream_zero_is_unexpected() -> TestResult {
+    use ultragraphdb_protocol_wire::{
+        Check, CheckKind, Declare, Defaults, DropKind, Ended, Session, SessionCheck,
+    };
+    let session = [1u8; 16];
+    let frames = [
+        (534, frame(&Session::new(session, 9))?),
+        (
+            535,
+            frame(&Check::new(vec![SessionCheck::new(
+                session,
+                9,
+                CheckKind::Asks,
+            )]))?,
+        ),
+        (536, frame(&Ended::new(vec![session]))?),
+        (538, frame(&Declare::drop(0, 9, DropKind::Tenant, None))?),
+        (539, frame(&Defaults::request(0))?),
+    ];
+    for (number, bytes) in frames {
+        let mut auth = started()?;
+        assert_eq!(
+            receive(&mut auth, &bytes)?,
+            Err(TransportError::unexpected_command(18, number)),
+            "{number}"
+        );
+    }
+    Ok(())
+}

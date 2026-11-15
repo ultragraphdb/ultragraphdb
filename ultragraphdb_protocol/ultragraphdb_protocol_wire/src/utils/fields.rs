@@ -78,3 +78,9 @@ pub(crate) fn session_request(
 pub(crate) fn identity(header: &[u8], at: usize) -> [u8; 16] {
     bytes_at(header, at).unwrap_or([0; 16])
 }
+
+/// Whether `session` is the next of a body's ascending sessions (`PROTOCOL.md` §13.24, §13.25): not all zero, and above
+/// `before`, the one before it, compared byte by byte.
+pub(crate) fn ascends(session: &[u8; 16], before: Option<&[u8; 16]>) -> bool {
+    *session != [0; 16] && before.is_none_or(|before| session > before)
+}

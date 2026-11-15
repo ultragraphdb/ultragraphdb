@@ -15,7 +15,10 @@ impl BodyBuilder for Subscribe {
     const COMMAND: Command = Command::Subscribe;
 
     fn command_header(&self) -> [u8; COMMAND_HEADER_SIZE] {
-        command_header(&[(0, &self.from.to_le_bytes())])
+        command_header(&[
+            (0, &self.from().to_le_bytes()),
+            (8, &[u8::from(self.latest())]),
+        ])
     }
 
     fn body(&self) -> Vec<u8> {

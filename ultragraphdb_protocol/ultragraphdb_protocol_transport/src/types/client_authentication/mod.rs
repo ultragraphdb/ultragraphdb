@@ -111,7 +111,12 @@ impl<M: ClientMechanism> ClientAuthentication<M> {
             | Command::Closed
             | Command::DefaultEntry
             | Command::Report
-            | Command::Held) => Err(TransportError::unexpected_command(
+            | Command::Held
+            | Command::Session
+            | Command::Check
+            | Command::Ended
+            | Command::Declare
+            | Command::Defaults) => Err(TransportError::unexpected_command(
                 Command::Authenticate.number(),
                 other.number(),
             )),

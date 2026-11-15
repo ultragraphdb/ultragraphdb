@@ -61,3 +61,36 @@ fn test_a_body_past_the_largest_frame_is_refused() -> TestResult {
     );
     Ok(())
 }
+
+/// The golden frames of stage 5.8's bodies validate, and carry the header fields, the size and the checksums
+/// `generate_roles.py` built and printed them with.
+#[test]
+fn test_the_stage_5_8_golden_frames_carry_their_generators_values() -> TestResult {
+    let names = [
+        "session",
+        "check",
+        "check_reply",
+        "ended",
+        "declare",
+        "declare_reply",
+        "declare_drop",
+        "defaults",
+        "defaults_reply",
+    ];
+    for name in names {
+        let golden = crate::utils::golden_roles::golden_role(name)?;
+        let bytes = crate::utils::golden_roles::role_bytes(&golden)?;
+        let frame = FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE)?;
+        assert_eq!(frame.command().number(), golden.command, "{name}");
+        let header = ultragraphdb_protocol_wire::HeaderView::new(&bytes).context("a header")?;
+        assert_eq!(header.checksum(), golden.checksum, "{name}");
+        assert_eq!(header.checksum_body(), golden.checksum_body, "{name}");
+        assert_eq!(header.size(), golden.size, "{name}");
+        assert_eq!(bytes.len(), golden.size as usize, "{name}");
+        assert_eq!(header.stream(), golden.stream, "{name}");
+        assert_eq!(header.flags(), golden.flags, "{name}");
+        assert_eq!(header.sequence(), golden.sequence, "{name}");
+        assert_eq!(header.release(), 0x0005_0000, "{name}");
+    }
+    Ok(())
+}

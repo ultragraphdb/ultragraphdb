@@ -3,8 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{BodyBuilder, Verify};
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::golden_roles::{golden_role, role_bytes};
 
@@ -44,5 +45,30 @@ fn test_a_verify_builds_the_golden_request_and_reply() -> TestResult {
     );
     let golden_2 = golden_role("verify_reply")?;
     assert_eq!(reply.frame(golden_2.header())?, role_bytes(&golden_2)?);
+    Ok(())
+}
+
+/// C1.89 at the builder: a verified reply of principal 0 is refused as its view refuses it, and no frame is built; a
+/// verified reply of any other principal is built.
+#[test]
+fn test_the_builder_refuses_a_verified_reply_of_principal_zero() -> TestResult {
+    let golden = golden_role("verify_reply")?;
+    let refusal = Verify::request("user", AUTH_MESSAGE, PROOF)
+        .with_verified(0, SIGNATURE)
+        .frame(golden.header())
+        .err()
+        .context("a refusal")?;
+    assert_eq!(
+        refusal.0,
+        ProtocolErrorEnum::FieldValue {
+            command: 520,
+            field: "principal",
+            value: 0
+        }
+    );
+    for principal in [1, u64::MAX] {
+        let reply = Verify::request("", "", PROOF).with_verified(principal, SIGNATURE);
+        assert!(reply.frame(golden.header()).is_ok(), "{principal}");
+    }
     Ok(())
 }

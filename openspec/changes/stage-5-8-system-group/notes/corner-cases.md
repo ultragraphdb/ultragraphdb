@@ -15,7 +15,7 @@ sections 4.8, 11.1, 11.5, 11.12 and 11.13 (T 0.2).
 
 | Group | Cases |
 |---|---|
-| 1, the wire | 100 |
+| 1, the wire | 101 |
 | 1b, the exchange in two halves | 14 |
 | 2, the new settings | 11 |
 | 3, the system group | 74 |
@@ -134,7 +134,7 @@ above the one before by its text's bytes, across frames too.
 | C1.65 | a reply holding one IRI twice in one frame | `DuplicateTerm`: the term table is checked first (P §4.4, step 9) | |
 | C1.66 | a second frame whose first entry equals the first frame's last | `FieldValue` | `"default order"`, the index running on |
 | C1.67 | a second frame whose first entry is below the first frame's last | `FieldValue` | `"default order"`, the index running on |
-| C1.68 | a second frame with another `tenant`; with another `position` | `FieldValue` | `"defaults"` |
+| C1.68 | a second frame with another `tenant`; with another `position`; a frame after the one flagged `LAST`; a second frame of `position` 0 holding an entry, which breaks its own rule and the first's header | `FieldValue` `"defaults"`, the frames taken before it, for the first three; `CountMismatch` `"defaults"` for the last: a frame's own rules come first (P §13.28) | |
 | C1.69 | an answer whose bytes pass `catalog_bytes_max` | read no further; the refusal's name is not stated (*Found wanting*, 1) | |
 | C1.70 | a reply with no entry, `position` 1 | read: a tenant holding no record | |
 | C1.71 | a reply with one entry | read | |
@@ -188,6 +188,7 @@ bytes; section 3 of 32 bytes in a verified reply, else empty.
 | C1.98 | Subscribe | `latest` 1 with `from` 0; `latest` 0 with `from` 0, 7 and 2⁴² − 1; the constructor in use builds `latest` 0 | read | |
 | C1.99 | CloseRequest, P §13.16 | byte 4 nonzero; `partition` 0 with `epoch` 5; `partition` 0 with `epoch` 0; `partition` 3 with `epoch` 0 | `ReservedNotZero` at 132; read, by the stage 5.8 constructor; `FieldValue` `"epoch"`; `FieldValue` `"epoch"` | |
 | C1.100 | Catalog request, P §13.7 | `version` 0 with `epoch` 0; `version` 0 with `epoch` 9; `version` 3 with `epoch` 0; `version` 3 with `epoch` 9; `version` 0, `epoch` 9 and a byte in section 0 | read; read; read; `FieldValue` `"catalog"`; `CountMismatch` `"catalog"` | |
+| C1.101 | Catalog request, P §13.7, §1 | `version` 0 with `epoch` 2⁴² − 1; `version` 0 with `epoch` 2⁴² and with 2⁶⁴ − 1; `version` 3 with `epoch` 2⁴² | read; `FieldValue` `"epoch"` for the next two; `FieldValue` `"catalog"`, the earlier rule | |
 
 The command table: 534, 535, 536, 538 and 539 are commands; 540 is refused as `UnknownCommand` (P §3; wire-protocol, "Command
 540 is not served"). Number 537, Roster, is first assigned at stage 5.9 and is refused as `UnknownCommand` before it

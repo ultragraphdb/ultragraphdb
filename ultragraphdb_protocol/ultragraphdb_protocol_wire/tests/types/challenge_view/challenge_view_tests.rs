@@ -133,3 +133,78 @@ fn test_the_name_is_utf8_and_checked_before_the_salt() -> TestResult {
     );
     Ok(())
 }
+
+/// C1.79, C1.83: a reply reads at both ends of the count's range, with a salt of 1 byte, of 16 and of 64.
+#[test]
+fn test_a_reply_reads_at_the_ends_of_its_ranges() -> TestResult {
+    for iterations in [4_096u32, 10_000_000] {
+        for len in [1usize, 16, 64] {
+            let salt = vec![0xA5; len];
+            let reply = with_section(
+                &with_command_header(&bytes("challenge_reply")?, |h| {
+                    put(h, 0, iterations.into(), 4)
+                }),
+                2,
+                1,
+                |s| *s = salt.clone(),
+            );
+            let view = ChallengeView::from_frame(&frame_of(&reply)?)?;
+            assert_eq!(
+                (view.name(), view.iterations(), view.salt()),
+                ("user", iterations, salt.as_slice())
+            );
+            assert_eq!(view_any(&reply)?, Ok(()));
+        }
+    }
+    Ok(())
+}
+
+/// C1.80: a name ending inside a character is not UTF-8, refused at the character's first byte.
+#[test]
+fn test_a_name_ending_inside_a_character_is_refused() -> TestResult {
+    // `é` is 0xC3 0xA9: the name `us` and the first byte of `é`.
+    let cut = with_section(&bytes("challenge")?, 2, 0, |name| {
+        *name = vec![b'u', b's', 0xC3];
+    });
+    assert_eq!(
+        refused(&cut)?,
+        ProtocolErrorEnum::NotUtf8 {
+            command: 519,
+            section: 0,
+            offset: 2
+        }
+    );
+    Ok(())
+}
+
+/// C1.81: a request holding a salt of one byte is refused, its length against 0.
+#[test]
+fn test_a_request_with_a_salt_of_one_byte_is_refused() -> TestResult {
+    let salted = with_section(&bytes("challenge")?, 2, 1, |salt| salt.push(7));
+    assert_eq!(
+        refused(&salted)?,
+        ProtocolErrorEnum::CountMismatch {
+            command: 519,
+            field: "salt",
+            count: 1,
+            expected: 0
+        }
+    );
+    Ok(())
+}
+
+/// C1.84: the decoder checks section 0 as UTF-8 alone: a name of no byte, and one not prepared with SASLprep (a
+/// soft hyphen, U+00AD, which SASLprep maps to nothing), read.
+#[test]
+fn test_any_utf8_name_reads() -> TestResult {
+    for name in ["", "us\u{ad}er", "I\u{2168}"] {
+        let request = with_section(&bytes("challenge")?, 2, 0, |section| {
+            *section = name.as_bytes().to_vec();
+        });
+        let view = ChallengeView::from_frame(&frame_of(&request)?)?;
+        assert_eq!(view.name(), name);
+        assert_eq!(view.to_body()?, Challenge::request(name));
+        assert_eq!(view_any(&request)?, Ok(()));
+    }
+    Ok(())
+}

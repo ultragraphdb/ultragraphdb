@@ -21,6 +21,8 @@ pub mod utils {
     pub mod golden_bodies;
     #[path = "golden_roles.rs"]
     pub mod golden_roles;
+    #[path = "system_frames.rs"]
+    pub mod system_frames;
     #[path = "term_records.rs"]
     pub mod term_records;
     #[path = "ugs_frames.rs"]
@@ -29,6 +31,7 @@ pub mod utils {
 
 mod bodies_steps;
 mod frames_steps;
+mod system_steps;
 mod ugs_steps;
 
 use crate::utils::golden::{CLUSTER, CREDIT, GOLDEN, HELLO, READ, put, reseal};
@@ -50,6 +53,7 @@ pub struct Steps {
     truncations: usize,
     terms: Vec<(Vec<u8>, Option<String>)>,
     ugs: ugs_steps::UgsSteps,
+    system: system_steps::SystemSteps,
 }
 
 // One header for every frame.
@@ -286,8 +290,14 @@ fn retired_number(w: &mut Steps) -> TestResult {
     let numbers: Vec<u16> = RETIRED_COMMANDS
         .iter()
         .copied()
-        .chain((0..=u16::MAX).filter(|n| !(1..=25).contains(n) && !(512..=531).contains(n)))
+        .chain((0..=u16::MAX).filter(|n| {
+            !(1..=25).contains(n)
+                && !(512..=531).contains(n)
+                && !(534..=536).contains(n)
+                && !(538..=539).contains(n)
+        }))
         .collect();
+    assert_eq!(numbers.len(), 65_536 - Command::ALL.len());
     let golden = CREDIT.bytes()?;
     w.refusals = numbers
         .iter()
@@ -334,7 +344,8 @@ fn replica_refused(w: &mut Steps) -> TestResult {
 
 #[then("it is refused as an unknown command")]
 fn refused_unknown(w: &mut Steps) -> TestResult {
-    assert_eq!(w.refusals.len(), 65_536 - Command::ALL.len());
+    assert!(!w.refusals.is_empty());
+    assert_eq!(w.refusals.len(), w.checksums.len());
     for (refusal, (number, _)) in w.refusals.iter().zip(&w.checksums) {
         assert_eq!(
             refusal.0,

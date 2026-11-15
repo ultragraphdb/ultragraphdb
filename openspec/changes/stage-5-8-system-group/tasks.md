@@ -15,7 +15,9 @@ A group that moves code moves its suite with it first: the moved suite is green 
 behaviour changes, in a commit of its own (design, *Risks*).
 
 Waves: 0; then 1, 1b and 2 in parallel; 3; then 4, 5 and 6 in parallel; 7; 8; 9. A wave's agents work on disjoint
-crates, and the whole repository is gated when a wave returns, by the gate of its groups. No group before 7 removes a
+crates, and the whole repository is gated when a wave returns, by the gate of its groups. Group 1 reaches two crates
+beside its own: the exhaustive matches over `Command` in `ultragraphdb_protocol_transport` and
+`ultragraphdb_client_core` take the new numbers with it, since a new variant stops them compiling. No group before 7 removes a
 setting, a constructor or a public item another group's crates still name (design D2), so the tree builds after each. A scenario over the built binaries that a group of 4 to 6 writes is bound and compiled there, and first passes at group 7's gate.
 
 ## 0. Specifications and the baseline first
@@ -28,14 +30,14 @@ setting, a constructor or a public item another group's crates still name (desig
 - [x] 0.6 The laws of every group enumerated in `notes/laws.md` before its phase 2, each with the property that states it, and the groups that hold none named: groups 6, 8 and 9 hold none of their own, since 6 wires a binary, and 8 and 9 run the cluster and the benchmark and add no public surface
 - [x] 0.7 The corner cases of every group enumerated in `notes/corner-cases.md` before its phase 2: per decoder its refusals in its body's order, per state its boundary conditions (a full registry, a mark across a closed connection, a check during a sync, a view behind a close)
 
-## 1. The wire → `ultragraphdb_protocol_wire`
+## 1. The wire → `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_transport`, `ultragraphdb_client_core`
 
 - [x] 1.1 Ultra Style lift of `protocol_wire`, in its own commit
-- [ ] 1.2 Scenarios: wire-protocol ("The system group's commands are bodies of the protocol"; the modified "Roles exchange role commands" and "Data requests, prepared statements and describe"), as Gherkin
-- [ ] 1.3 Phases 1 to 3: builders and views for Session (534), Check (535), Ended (536), Declare (538) and Defaults (539); the command table's rows, 540 kept and refused; Subscribe's and CloseRequest's stage 5.8 fields, each through a constructor of its own beside the ones in use, which keep their signatures so no caller changes in this group; golden frames `session.frame`, `check.frame`, `check_reply.frame`, `ended.frame`, `declare.frame`, `declare_drop.frame`, `declare_reply.frame`, `defaults.frame`, `defaults_reply.frame`, `challenge.frame`, `challenge_reply.frame`, `verify.frame` and `verify_reply.frame` from their generator, committed with its source
-- [ ] 1.4 Phase 4: every body's checks in its "Order" line's order; a builder refusing what its decoder refuses
-- [ ] 1.5 Phase 5: fuzz targets and seeds for the five new decoders; `scripts/mutants.sh ultragraphdb_protocol_wire --diff <base>`
-- [ ] 1.6 Property tests, written in phase 2: each of Session, Check, Ended, Declare, Defaults, Challenge and Verify built from drawn fields decodes to those fields and builds again to the same bytes; a body with one drawn rule broken (an unsorted or repeated session, a nonzero padding byte, an outcome outside its set, a section of a broken length) is refused with that rule's refusal and its index; a Defaults answer cut at any drawn frame size reads back as the same predicates in order
+- [x] 1.2 Scenarios: wire-protocol ("The system group's commands are bodies of the protocol"; the modified "Roles exchange role commands" and "Data requests, prepared statements and describe"), as Gherkin
+- [x] 1.3 Phases 1 to 3: builders and views for Session (534), Check (535), Ended (536), Declare (538) and Defaults (539); the command table's rows, 540 kept and refused; Subscribe's and CloseRequest's stage 5.8 fields, each through a constructor of its own beside the ones in use: the existing constructors and accessors keep their signatures, and the exhaustive matches over `Command` in `ultragraphdb_protocol_transport` and `ultragraphdb_client_core` take the new numbers in this group; golden frames `session.frame`, `check.frame`, `check_reply.frame`, `ended.frame`, `declare.frame`, `declare_drop.frame`, `declare_reply.frame`, `defaults.frame`, `defaults_reply.frame`, `challenge.frame`, `challenge_reply.frame`, `verify.frame` and `verify_reply.frame` from their generator, committed with its source
+- [x] 1.4 Phase 4: every body's checks in its "Order" line's order; a builder refusing what its decoder refuses
+- [x] 1.5 Phase 5: fuzz targets and seeds for the five new decoders; `scripts/mutants.sh ultragraphdb_protocol_wire --diff <base>`
+- [x] 1.6 Property tests, written in phase 2: each of Session, Check, Ended, Declare, Defaults, Challenge and Verify built from drawn fields decodes to those fields and builds again to the same bytes; a body with one drawn rule broken (an unsorted or repeated session, a nonzero padding byte, an outcome outside its set, a section of a broken length) is refused with that rule's refusal and its index; a Defaults answer cut at any drawn frame size reads back as the same predicates in order
 
 ## 1b. The exchange in two halves → `ultragraphdb_protocol_scram`
 

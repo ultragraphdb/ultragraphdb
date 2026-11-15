@@ -110,7 +110,9 @@ choice where an operator reads it, and stage 8 turns "one instance" into "these 
 `[metadata]` and `[sequencer]` until group 5 changes it, and storage and compute read `cluster.frontend_address`
 until groups 4 and 6 do. Group 2 therefore adds: the `[system]` table, `cluster.system_address`, the two moved tables
 accepted on a storage instance and `common_role::system_address`, each beside the setting in use, so every binary
-builds while groups 3 to 6 change them one at a time. Group 7 makes the switch in one commit, once no binary reads an
+builds while groups 3 to 6 change them one at a time. The wire arrives the same way in group 1: its existing
+constructors and accessors keep their signatures, and the exhaustive matches over `Command` in
+`ultragraphdb_protocol_transport` and `ultragraphdb_client_core` take the new numbers in that group. Group 7 makes the switch in one commit, once no binary reads an
 old setting: the checks of the config service above, the old settings and `common_role::frontend_address` removed, and
 the profiles, the supervisor and every harness that writes settings rewritten. The config service's rules are
 therefore the old ones until the switch, and the specification's from it.

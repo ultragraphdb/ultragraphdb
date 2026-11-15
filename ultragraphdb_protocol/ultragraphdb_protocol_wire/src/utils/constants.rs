@@ -61,8 +61,8 @@ pub const PROTOCOL_VERSION: u16 = 1;
 pub const REPLICA_COMMANDS: RangeInclusive<u16> = 256..=511;
 
 /// The command numbers of the role commands (`PROTOCOL.md` §3, §13): roles exchange them on role connections, and a
-/// client endpoint refuses every one as a command it does not serve. 512 to 531 are assigned; the rest are reserved
-/// and refused as unknown commands.
+/// client endpoint refuses every one as a command it does not serve. 512 to 531, 534 to 536, 538 and 539 are assigned;
+/// the rest are reserved and refused as unknown commands.
 pub const ROLE_COMMANDS: RangeInclusive<u16> = 512..=767;
 
 /// The largest epoch number, 2⁴² − 1: an epoch field holds 1 to this, or 0 where the field allows none.

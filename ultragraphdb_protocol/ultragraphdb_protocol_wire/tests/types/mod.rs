@@ -42,6 +42,14 @@ mod challenge;
 #[cfg(test)]
 mod challenge_view;
 #[cfg(test)]
+mod check;
+#[cfg(test)]
+mod check_kind;
+#[cfg(test)]
+mod check_outcome;
+#[cfg(test)]
+mod check_view;
+#[cfg(test)]
 mod chunk_layout;
 #[cfg(test)]
 mod chunked_body;
@@ -82,6 +90,10 @@ mod credit_view;
 #[cfg(test)]
 mod decision;
 #[cfg(test)]
+mod declare;
+#[cfg(test)]
+mod declare_view;
+#[cfg(test)]
 mod declared_entity_type;
 #[cfg(test)]
 mod declared_predicate;
@@ -91,6 +103,12 @@ mod declared_relation;
 mod default_entry;
 #[cfg(test)]
 mod default_entry_view;
+#[cfg(test)]
+mod defaults;
+#[cfg(test)]
+mod defaults_frames;
+#[cfg(test)]
+mod defaults_view;
 #[cfg(test)]
 pub mod describe;
 #[cfg(test)]
@@ -111,6 +129,10 @@ pub mod drop_command;
 mod drop_command_view;
 #[cfg(test)]
 mod drop_kind;
+#[cfg(test)]
+mod ended;
+#[cfg(test)]
+mod ended_view;
 #[cfg(test)]
 pub mod entries;
 #[cfg(test)]
@@ -291,6 +313,12 @@ mod scan_at;
 mod scan_range;
 #[cfg(test)]
 mod scan_view;
+#[cfg(test)]
+mod session;
+#[cfg(test)]
+mod session_check;
+#[cfg(test)]
+mod session_view;
 #[cfg(test)]
 mod statement_cache;
 #[cfg(test)]

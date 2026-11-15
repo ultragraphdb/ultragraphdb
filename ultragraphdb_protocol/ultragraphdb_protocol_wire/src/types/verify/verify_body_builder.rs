@@ -4,10 +4,14 @@
  */
 
 use ultragraphdb_core_body::write_sections;
+use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_builder::BodyBuilder;
 use crate::types::command::Command;
+use crate::types::header::Header;
 use crate::types::verify::Verify;
+use crate::types::verify_view::VerifyView;
+use crate::utils::checked_frame::checked_frame;
 use crate::utils::command_header::command_header;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
 
@@ -31,6 +35,17 @@ impl BodyBuilder for Verify {
                 self.proof(),
                 signature,
             ],
+        )
+    }
+
+    /// The frame of the body under `header`; a body [`crate::VerifyView`] refuses is refused the same way.
+    fn frame(&self, header: Header) -> Result<Vec<u8>, ProtocolError> {
+        checked_frame(
+            Self::COMMAND,
+            &header,
+            &self.command_header(),
+            &self.body(),
+            VerifyView::read,
         )
     }
 }

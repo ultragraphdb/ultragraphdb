@@ -195,3 +195,49 @@ fn test_a_read_of_a_transaction_not_open_is_refused_on_its_stream() -> TestResul
     assert_eq!(h.server.open_transactions(), 0);
     Ok(())
 }
+
+/// A role command of stage 5.8, a Session, a Check, an Ended, a Declare or a Defaults, never reaches the test server's
+/// requests: its client endpoint refuses it as a command not served and closes the connection (`PROTOCOL.md` §3).
+#[test]
+fn test_a_system_group_command_is_refused_at_the_client_endpoint() -> TestResult {
+    use ultragraphdb_protocol_wire::{
+        BodyBuilder, Check, CheckKind, Declare, Defaults, DropKind, Ended, Header, Session,
+        SessionCheck,
+    };
+
+    use crate::utils::harness::{Harness, RELEASE, welcome};
+
+    let session = [1u8; 16];
+    let header = |command: Command| {
+        Header::new(CLUSTER, command)
+            .with_release(RELEASE)
+            .with_protocol(welcome().protocol())
+            .with_stream(9)
+    };
+    let frames = [
+        Session::new(session, 9).frame(header(Command::Session))?,
+        Check::new(vec![SessionCheck::new(session, 9, CheckKind::Asks)])
+            .frame(header(Command::Check))?,
+        Ended::new(vec![session]).frame(header(Command::Ended))?,
+        Declare::drop(0, 9, DropKind::Tenant, None).frame(header(Command::Declare))?,
+        Defaults::request(0).frame(header(Command::Defaults))?,
+    ];
+    for mut frame in frames {
+        let number = HeaderView::new(&frame).context("a header")?.command();
+        let mut h = Harness::ready(server())?;
+        let sequence = h.server.received().len() as u128 + 1;
+        Header::stamp_sequence(&mut frame, sequence)?;
+        h.server.receive(&frame, h.now);
+        let error = h.server.transmit().context("the refusal")?;
+        let (stream, code, message) = refusal(&error)?;
+        assert_eq!((stream, code), (0, ErrorCode::Protocol), "{number}");
+        assert_eq!(
+            message,
+            ProtocolError::command_not_served(number).to_string(),
+            "{number}"
+        );
+        assert!(h.server.is_closing(), "{number}");
+        assert_eq!(h.server.open_transactions(), 0);
+    }
+    Ok(())
+}

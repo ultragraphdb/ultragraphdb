@@ -106,11 +106,21 @@ pub enum Command {
     Report,
     /// Role command 531: a partition holds a Write or an Operation sent on a Bind stream.
     Held,
+    /// Role command 534: the frontend registers a session for a principal, answered with the same bytes.
+    Session,
+    /// Role command 535: the owner checks of one turn of an endpoint core, answered whole with every outcome filled.
+    Check,
+    /// Role command 536: the sessions whose requests in flight have ended; answered by nothing.
+    Ended,
+    /// Role command 538: the frontend asks for the catalog version a transaction's declarations or a Drop call for.
+    Declare,
+    /// Role command 539: a tenant's default-entry predicates, continued across frames as a Catalog is.
+    Defaults,
 }
 
 impl Command {
     /// Every command, in the order of its number.
-    pub const ALL: [Command; 45] = [
+    pub const ALL: [Command; 50] = [
         Command::Hello,
         Command::Welcome,
         Command::Register,
@@ -156,6 +166,11 @@ impl Command {
         Command::DefaultEntry,
         Command::Report,
         Command::Held,
+        Command::Session,
+        Command::Check,
+        Command::Ended,
+        Command::Declare,
+        Command::Defaults,
     ];
 
     /// The command's number in the header.
@@ -207,6 +222,11 @@ impl Command {
             Command::DefaultEntry => 529,
             Command::Report => 530,
             Command::Held => 531,
+            Command::Session => 534,
+            Command::Check => 535,
+            Command::Ended => 536,
+            Command::Declare => 538,
+            Command::Defaults => 539,
         }
     }
 
@@ -215,7 +235,8 @@ impl Command {
     /// # Errors
     ///
     /// [`ProtocolError::unknown_command`] when no command of this protocol has it: never assigned, retired, or
-    /// reserved for the replica commands.
+    /// reserved for the replica commands, or first assigned at a later stage: 537 at stage 5.9 and 540 at stage 6.6
+    /// (`PROTOCOL.md` §3).
     pub fn from_number(number: u16) -> Result<Command, ProtocolError> {
         match number {
             1 => Ok(Command::Hello),
@@ -263,6 +284,11 @@ impl Command {
             529 => Ok(Command::DefaultEntry),
             530 => Ok(Command::Report),
             531 => Ok(Command::Held),
+            534 => Ok(Command::Session),
+            535 => Ok(Command::Check),
+            536 => Ok(Command::Ended),
+            538 => Ok(Command::Declare),
+            539 => Ok(Command::Defaults),
             _ => Err(ProtocolError::unknown_command(number)),
         }
     }
@@ -325,7 +351,11 @@ impl Command {
             | Command::Reference
             | Command::Closed
             | Command::DefaultEntry
-            | Command::Report => answer == self,
+            | Command::Report
+            | Command::Session
+            | Command::Check
+            | Command::Declare
+            | Command::Defaults => answer == self,
             Command::Welcome
             | Command::Abort
             | Command::Result
@@ -336,7 +366,8 @@ impl Command {
             | Command::EpochClose
             | Command::Entries
             | Command::CloseRequest
-            | Command::Held => false,
+            | Command::Held
+            | Command::Ended => false,
         }
     }
 
@@ -354,13 +385,17 @@ impl Command {
     }
 
     /// Whether a frame of this command spends its stream's credit (`PROTOCOL.md` §11.3): a Result, an Entries, and the
-    /// frames of a Describe's or a Catalog's answer. A receiver, the side that dialled, refuses one past its stream's
+    /// frames of a Describe's, a Catalog's or a Defaults' answer. A receiver, the side that dialled, refuses one past its stream's
     /// credit as [`ProtocolError::past_credit`].
     #[must_use]
     pub fn spends_credit(self) -> bool {
         matches!(
             self,
-            Command::Result | Command::Entries | Command::Describe | Command::Catalog
+            Command::Result
+                | Command::Entries
+                | Command::Describe
+                | Command::Catalog
+                | Command::Defaults
         )
     }
 }

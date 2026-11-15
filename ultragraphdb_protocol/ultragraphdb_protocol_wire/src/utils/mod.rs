@@ -5,6 +5,7 @@
 
 pub mod body;
 pub mod changes;
+pub mod checked_frame;
 pub mod checksum;
 pub mod command_header;
 pub mod commit_operation_layout;

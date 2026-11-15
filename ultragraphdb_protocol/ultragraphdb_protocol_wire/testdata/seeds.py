@@ -364,3 +364,19 @@ for name, data in STREAMS.items():
     (HERE / "continuation" / f"{name}.bin").write_bytes(data)
 for name, data in {**FRAMES, **STREAMS}.items():
     print(f"{name:34} {len(data):6} bytes")
+
+# The seeds of the bodies stage 5.8 adds (PROTOCOL.md sections 13.23 to 13.28): the golden frames
+# golden/roles/generate_roles.py wrote, whole for the `body` target, and from byte 128 on, the command header and the
+# body, for each body's own target, which seals its input into a frame. Each golden body is one chunk, so the frame
+# holds no chunk table after it.
+ROLES = Path(__file__).resolve().parent / "golden" / "roles"
+SYSTEM = {"session": ["session"], "check": ["check", "check_reply"], "ended": ["ended"],
+          "declare": ["declare", "declare_reply", "declare_drop"], "defaults": ["defaults", "defaults_reply"]}
+for target, names in SYSTEM.items():
+    (HERE / target).mkdir(exist_ok=True)
+    for name in names:
+        data = (ROLES / f"{name}.frame").read_bytes()
+        assert len(data) - 256 <= 3840
+        (HERE / "body" / f"role_{name}.frame").write_bytes(data)
+        (HERE / target / f"{name}.bin").write_bytes(data[128:])
+        print(f"{name:34} {len(data):6} bytes")

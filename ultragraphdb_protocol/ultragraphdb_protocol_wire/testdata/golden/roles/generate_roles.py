@@ -445,6 +445,72 @@ golden("held", 531, command_header([]), sections([]), stream=25)
 
 # --- end 525 to 530 ---
 
+# --- 534 to 539 ---
+
+# 534 Session (section 13.23): session SESSION registered for principal 9; the reply is the same bytes.
+golden("session", 534, command_header([(0, SESSION), (16, le(9, 8))]), sections([]), stream=51)
+
+
+# 535 Check (section 13.24): the command header all zero; checks of 32 bytes (session 16 bytes, principal u64, kind u8,
+# outcome u8, 6 zero bytes), ascending by their sessions' bytes. Three checks: SESSION for principal 9 of kind 2, a second
+# session for principal 9 of kind 1, TRANSACTION's bytes as a third session for principal 11 of kind 2. The request
+# holds every outcome 0; the reply 1 (passed), 12 (not held) and 21 (another principal's).
+def check(session, principal, kind, outcome):
+    return session + le(principal, 8) + bytes([kind, outcome]) + bytes(6)
+
+
+SESSION_B = bytes(range(0x31, 0x41))
+CHECKS = [(SESSION, 9, 2), (SESSION_B, 9, 1), (TRANSACTION, 11, 2)]
+golden("check", 535, command_header([]), sections([b"".join(check(s, p, k, 0) for s, p, k in CHECKS)]), stream=53)
+golden("check_reply", 535, command_header([]),
+       sections([b"".join(check(s, p, k, o) for (s, p, k), o in zip(CHECKS, (1, 12, 21)))]), stream=53)
+# 536 Ended (section 13.25): the command header all zero; the sessions SESSION and TRANSACTION's bytes, ascending. No
+# frame answers, so the frame ends its stream.
+golden("ended", 536, command_header([]), sections([SESSION + TRANSACTION]), stream=55, flags=1)
+
+
+# 538 Declare (section 13.27): kind u8 at 0, drop u8 at 1, tenant at 8, built_on at 16, principal at 24, version at 32,
+# commit_version at 40; the sections a Write's (section 7.2): change records of 16 bytes (kind u8, flags u8, 2 zero
+# bytes, args_start u32, args_len u32, extra u32 0), the args, the term table, the names.
+def change_records(records):
+    out, args = b"", []
+    for kind, flags, record_args in records:
+        out += bytes([kind, flags, 0, 0]) + le(len(args), 4) + le(len(record_args), 4) + le(0, 4)
+        args += record_args
+    return [out, u32s(args)]
+
+
+# Of kind 1, in tenant 3, built on version 11, for principal 9: the predicate <name>, a single-valued property (flags
+# 1 | 4) of datatype xsd:string with the tokenizer "term" and no domain; the entity type <Person> with no parent; the
+# relation <knows> with the roles <from> and <to>. Names interned in order of first use. The reply names version 12
+# and the first version of epoch 45.
+names = Strings()
+predicate_args = [names.intern(f"{EX}name"), names.intern(f"{XSD}string"), 1, names.intern("term"), 0]
+entity_args = [names.intern(f"{EX}Person"), ABSENT]
+relation_args = [names.intern(f"{EX}knows"), names.intern(f"{EX}from"), names.intern(f"{EX}to")]
+declarations = change_records([(8, 1 | 4, predicate_args), (9, 0, entity_args), (10, 0, relation_args)])
+for name, version, commit_version in [("declare", 0, 0), ("declare_reply", 12, 45 << 22)]:
+    golden(name, 538, command_header([(0, bytes([1, 0])), (8, le(3, 8)), (16, le(11, 8)), (24, le(9, 8)),
+                                      (32, le(version, 8)), (40, le(commit_version, 8))]),
+           sections(declarations + [b"", b""] + names.sections()), stream=57)
+# Of kind 2: principal 9's Drop of kind 1, the predicate <age>, in tenant 3; no record, the term table the IRI alone.
+terms = Terms()
+terms.add(iri(f"{EX}age"))
+golden("declare_drop", 538, command_header([(0, bytes([2, 1])), (8, le(3, 8)), (24, le(9, 8))]),
+       sections([b"", b""] + terms.sections() + [b"", b""]), stream=59)
+
+# 539 Defaults (section 13.28): tenant at 0, position at 8; the term table of the predicates holding a record. The
+# request for tenant 3; the reply read at position 1,250: <Zeta>, <age> and <name>, in the order of their texts' UTF-8
+# bytes, which puts an upper-case letter before every lower-case one. The answer fits one frame, flagged LAST.
+golden("defaults", 539, command_header([(0, le(3, 8))]), sections([b"", b""]), stream=61)
+terms = Terms()
+for predicate in ("Zeta", "age", "name"):
+    terms.add(iri(f"{EX}{predicate}"))
+golden("defaults_reply", 539, command_header([(0, le(3, 8)), (8, le(1_250, 8))]), sections(terms.sections()),
+       stream=61, flags=1)
+
+# --- end 534 to 539 ---
+
 out = Path(sys.argv[1])
 for name, (data, size, checksum, checksum_body) in GOLDEN.items():
     (out / f"{name}.frame").write_bytes(data)

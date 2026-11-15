@@ -17,6 +17,7 @@ use ultragraphdb_protocol_wire::{
     CatalogView, Command, EpochCloseView, FrameView, JoinView, LeaseView, MembersView,
     PlacementView, SubscribeView,
 };
+use ultragraphdb_protocol_wire::{CheckView, DeclareView, DefaultsView, EndedView, SessionView};
 use ultragraphdb_protocol_wire::{
     CloseRequestView, ClosedView, DefaultEntryView, EntriesView, HeldView, ReferenceView,
     ReportView,
@@ -74,6 +75,16 @@ pub const ROLES: &[GoldenBody] = &[
     GoldenBody { name: "report_passed", command: 530, stream: 35, flags: 0, sequence: 1, size: 272, checksum: 0xfe00_fc84_1083_e032, checksum_body: 0x9a5b_b525_c909_6796 },
     GoldenBody { name: "report_build_failed", command: 530, stream: 37, flags: 0, sequence: 1, size: 319, checksum: 0x7e06_2788_7a08_38b0, checksum_body: 0xa43f_5368_aadf_6488 },
     GoldenBody { name: "held", command: 531, stream: 25, flags: 0, sequence: 1, size: 256, checksum: 0x2a17_377c_2b5b_4291, checksum_body: 0x2d06_8005_38d3_94c2 },
+    // 534–539
+    GoldenBody { name: "session", command: 534, stream: 51, flags: 0, sequence: 1, size: 256, checksum: 0x1ccf_f248_9630_7cd4, checksum_body: 0x2d06_8005_38d3_94c2 },
+    GoldenBody { name: "check", command: 535, stream: 53, flags: 0, sequence: 1, size: 360, checksum: 0xc474_59b8_5c14_93b6, checksum_body: 0xa7aa_80f6_18c9_d8d9 },
+    GoldenBody { name: "check_reply", command: 535, stream: 53, flags: 0, sequence: 1, size: 360, checksum: 0xeeb0_4a08_60ab_126f, checksum_body: 0xf33a_b15d_fe5a_aa1e },
+    GoldenBody { name: "ended", command: 536, stream: 55, flags: 1, sequence: 1, size: 296, checksum: 0x9194_ddf7_2987_6d05, checksum_body: 0x815f_434b_9ba4_afa8 },
+    GoldenBody { name: "declare", command: 538, stream: 57, flags: 0, sequence: 1, size: 558, checksum: 0xac7c_f6fa_082c_6511, checksum_body: 0x2369_14d5_4505_f93c },
+    GoldenBody { name: "declare_reply", command: 538, stream: 57, flags: 0, sequence: 1, size: 558, checksum: 0xb67b_6870_a6ed_755d, checksum_body: 0x2369_14d5_4505_f93c },
+    GoldenBody { name: "declare_drop", command: 538, stream: 59, flags: 0, sequence: 1, size: 352, checksum: 0xc3ec_e79f_0fbe_654a, checksum_body: 0x133e_01cf_068c_ea4b },
+    GoldenBody { name: "defaults", command: 539, stream: 61, flags: 0, sequence: 1, size: 272, checksum: 0xd314_5f49_6c61_aea0, checksum_body: 0x9a5b_b525_c909_6796 },
+    GoldenBody { name: "defaults_reply", command: 539, stream: 61, flags: 1, sequence: 1, size: 397, checksum: 0x1cdb_6982_67b1_5e94, checksum_body: 0xca15_36d6_2246_fdf2 },
 ];
 
 /// The golden role frame named `name`.
@@ -131,6 +142,11 @@ pub fn rebuild_role(frame: &FrameView<'_>) -> Result<Vec<u8>, ProtocolError> {
         Command::DefaultEntry => crate::utils::golden_bodies::through::<DefaultEntryView>(frame),
         Command::Report => crate::utils::golden_bodies::through::<ReportView>(frame),
         Command::Held => crate::utils::golden_bodies::through::<HeldView>(frame),
+        Command::Session => through::<SessionView>(frame),
+        Command::Check => through::<CheckView>(frame),
+        Command::Ended => through::<EndedView>(frame),
+        Command::Declare => through::<DeclareView>(frame),
+        Command::Defaults => through::<DefaultsView>(frame),
         Command::Hello
         | Command::Welcome
         | Command::Register

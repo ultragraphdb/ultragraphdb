@@ -3476,7 +3476,8 @@ closes. EpochClose frames spend no credit.
 | 8 | 1 | `latest` | u8 | boolean: 1 begins the stream with the latest durable close; the frontend alone sends 1, and only with `from` 0 (`FieldValue` `"latest"`) |
 
 No sections. Order: unused bytes 9–127 zero; `from` at most 2⁴² − 1 (`FieldValue` `"from"`); `latest` 0 or 1, and
-1 only on a frontend's connection and with `from` 0 (`FieldValue` `"latest"`); sections. A `from` above
+1 only on a frontend's connection and with `from` 0 (`FieldValue` `"latest"`); sections. The connection's role is the
+system group's session's to check, which knows it; a body's decoder checks the rest. A `from` above
 the latest epoch the sequencer closed is refused with Error 1 (Protocol), the message naming both epochs. A subscription
 whose next close the sequencer no longer holds, at its Subscribe or at a later close, is ended with Error 1 on its stream,
 the message naming the close it asked for: no frame can carry what is gone, and a storage process told so stops, as it
@@ -3637,7 +3638,8 @@ replay (section 11.12).
 
 A body with `position` 0 is a request.
 
-Order: unused bytes 32–127 zero; in a request naming a `version`, `epoch` 0 (`FieldValue` `"catalog"`, the epoch);
+Order: unused bytes 32–127 zero; in a request naming a `version`, `epoch` 0 (`FieldValue` `"catalog"`, the epoch),
+and in a request of `version` 0, `epoch` at most 2⁴² − 1 (`FieldValue` `"epoch"`, as section 1 has every epoch field);
 in a reply, `version` at
 least 1 (`FieldValue` `"version"`) and `epoch` at most 2⁴² − 1 (`FieldValue` `"epoch"`); sections; in a request, section
 0 empty (`CountMismatch` `"catalog"`, its bytes, 0). A version the tenant never held is refused with code 7 (Refused), `detail` the version.
@@ -4168,7 +4170,9 @@ connection whose role is `storage`, one of `partition` 1 or above arriving on a 
 | 0 | 4 | `partition` | u32 | the asking partition, at least 1; 0 from the frontend, which no other sender may use (`FieldValue` `"partition"`) |
 | 8 | 8 | `epoch` | epoch (section 1) | the requester's open epoch, one above the latest close delivered to it, at least 1 (`FieldValue` `"epoch"`) |
 
-No sections. Order: unused bytes 4–7 and 16–127 zero; `partition`; `epoch`; sections.
+No sections. Order: unused bytes 4–7 and 16–127 zero; `partition`; `epoch`; sections. The body holds any `partition`,
+0 included: which sender may name which is a rule of the connection's role, so the system group's session, which knows
+the role, checks it, and a body's decoder reads either.
 
 ### 13.17 Closed (528)
 
@@ -4551,8 +4555,11 @@ for a tenant (section 11.13, *Default entries*), which a Describe names as recor
 term table, in the order of their texts' UTF-8 bytes. An answer that does not fit one frame within the requester's
 `max_frame` continues in further Defaults frames on the stream, each with the first's command header, the last alone
 flagged `LAST`. Each frame holds a whole term table, checked by itself; the entries' order and an entry's index run on
-across the frames. The requester refuses a frame breaking the first's command header with `FieldValue` (`"defaults"`),
-and reads no further once the answer's bytes pass `catalog_bytes_max`. A Defaults stream starts with the Welcome's
+across the frames. The requester refuses a frame breaking the first's command header, and a frame after the one flagged
+`LAST`, with `FieldValue` (`"defaults"`, the frames taken before it), as a Catalog's requester does (section 13.7),
+and reads no further once the answer's bytes pass `catalog_bytes_max`. A continued frame is checked by its own rules
+first, in the order below, then against the first frame's command header, then its first entry against the last entry of
+the frames before it. A Defaults stream starts with the Welcome's
 `initial_credit`, as a Catalog's does. The frames spend credit as Result frames do (section
 11.3).
 

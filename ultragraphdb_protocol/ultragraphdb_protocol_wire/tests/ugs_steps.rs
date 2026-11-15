@@ -180,14 +180,21 @@ fn drop_predicate_with_catalog(w: &mut Steps) -> TestResult {
 
 #[then("it is refused with `FieldValue` naming `catalog`")]
 fn catalog_refused(w: &mut Steps) -> TestResult {
-    assert_eq!(
-        w.ugs.refusals,
+    // Stage 6.6's Drop of kind 1 carrying `catalog` 7, or stage 5.8's Catalog request naming `version` 3 and `epoch`
+    // 9, whichever scenario recorded a refusal.
+    let naming_catalog = |command: u16, value: u64| {
         vec![ProtocolErrorEnum::FieldValue {
-            command: 19,
+            command,
             field: "catalog",
-            value: 7
+            value,
         }]
-    );
+    };
+    if w.system.refusals().is_empty() {
+        assert_eq!(w.ugs.refusals, naming_catalog(19, 7));
+    } else {
+        assert!(w.ugs.refusals.is_empty());
+        assert_eq!(w.system.refusals(), naming_catalog(518, 9));
+    }
     Ok(())
 }
 
@@ -325,7 +332,12 @@ fn rebuilt_equals(bytes: &[u8]) -> TestResult<bool> {
         | Command::Closed
         | Command::DefaultEntry
         | Command::Report
-        | Command::Held => {
+        | Command::Held
+        | Command::Session
+        | Command::Check
+        | Command::Ended
+        | Command::Declare
+        | Command::Defaults => {
             return Err(ultragraphdb_tool_bdd::TestError::new(format!(
                 "a golden frame of {:?}",
                 view.command()

@@ -5,7 +5,7 @@
 
 //! Any bytes as a frame, read through its command's body view, the role commands' (512–767) among them: validation never panics; a body its view accepts reads
 //! back to an owned body that builds the same frame, byte for byte, or, for the bodies whose strings and terms a
-//! builder lays out canonically (Write, Describe, Result, and the warnings' messages of Prepare and Install, interned by
+//! builder lays out canonically (Write, Describe, Result, Declare, and the warnings' messages of Prepare and Install, interned by
 //! the sender's convention alone, `PROTOCOL.md` §4.7), a frame that builds itself again. An accepted frame holds what
 //! its view promises: a commit's request fits its session; a Scan naming a transaction is at 1, waits for no epoch, names
 //! no deadline and holds at most as many terms as ranges, and any other names one; a frame whose value continues has end 0
@@ -29,6 +29,7 @@ use ultragraphdb_protocol_wire::{
     RecallView, ReferenceView, RegisterView, ReportView, ResultView, RoundView, ScanAt, ScanRange,
     ScanView, SubscribeView, VerifyView, WelcomeView, WriteView,
 };
+use ultragraphdb_protocol_wire::{CheckView, DeclareView, DefaultsView, EndedView, SessionView};
 
 /// The golden frames' cluster, so seeds from `testdata/fuzz_seeds/body/` pass the cluster rule.
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
@@ -95,6 +96,11 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
         Command::DefaultEntry => through::<DefaultEntryView>(&frame),
         Command::Report => through::<ReportView>(&frame),
         Command::Held => through::<HeldView>(&frame),
+        Command::Session => through::<SessionView>(&frame),
+        Command::Check => through::<CheckView>(&frame),
+        Command::Ended => through::<EndedView>(&frame),
+        Command::Declare => through::<DeclareView>(&frame),
+        Command::Defaults => through::<DefaultsView>(&frame),
     }?;
     match frame.command() {
         Command::Prepare => {
@@ -202,7 +208,12 @@ fuzz_target!(|data: &[u8]| {
     holds_its_rules(&frame);
     if matches!(
         command,
-        Command::Write | Command::Describe | Command::Result | Command::Prepare | Command::Install
+        Command::Write
+            | Command::Describe
+            | Command::Result
+            | Command::Prepare
+            | Command::Install
+            | Command::Declare
     ) {
         let (_, again) = rebuild(&rebuilt).expect("a rebuilt body reads");
         assert_eq!(again, rebuilt, "{command:?} rebuilds to itself");

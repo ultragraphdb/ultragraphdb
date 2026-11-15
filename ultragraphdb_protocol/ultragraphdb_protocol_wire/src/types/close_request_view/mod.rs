@@ -16,7 +16,9 @@ pub struct CloseRequestView<'a> {
 }
 
 impl CloseRequestView<'_> {
-    /// The asking partition.
+    /// The asking partition; 0 for the frontend. Which sender may name which is a rule of the connection's role:
+    /// only a frontend's connection may send 0, and only a storage process's a partition. The receiving session, which
+    /// knows the role, enforces it (`PROTOCOL.md` §13.16); the view reads either.
     #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition

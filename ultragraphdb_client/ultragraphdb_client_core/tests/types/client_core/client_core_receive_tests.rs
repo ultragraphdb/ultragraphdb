@@ -71,7 +71,10 @@ fn test_a_command_other_than_the_connections_own_on_stream_zero_closes_the_conne
     // The writes in one frame and every role command are among those tried.
     assert!(others().any(|c| c == Command::DirectWrite));
     assert!(others().any(|c| c == Command::ConditionalWrite));
-    assert_eq!(others().filter(|c| c.is_role()).count(), 20);
+    assert_eq!(others().filter(|c| c.is_role()).count(), 25);
+    // The system group's commands of stage 5.8 among them.
+    assert!(others().any(|c| c == Command::Session));
+    assert!(others().any(|c| c == Command::Defaults));
     Ok(())
 }
 

@@ -1549,7 +1549,20 @@ fn test_every_role_command_is_refused_as_not_served_and_closes_the_connection() 
         .into_iter()
         .filter(|command| (512..=767).contains(&command.number()))
         .collect();
-    assert_eq!(roles.len(), 20, "Join (512) to Held (531)");
+    assert_eq!(
+        roles.len(),
+        25,
+        "Join (512) to Held (531), and Session, Check, Ended, Declare and Defaults (534 to 539)"
+    );
+    for system in [
+        Command::Session,
+        Command::Check,
+        Command::Ended,
+        Command::Declare,
+        Command::Defaults,
+    ] {
+        assert!(roles.contains(&system), "{system:?}");
+    }
     for role in roles {
         let mut peer = Peer::default();
         let mut connection = serving(&mut peer, now)?;

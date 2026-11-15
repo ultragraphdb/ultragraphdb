@@ -45,18 +45,36 @@ fn test_unused_header_bytes_are_refused() -> TestResult {
     Ok(())
 }
 
+/// C1.99: `partition` 0, the frontend's, reads with an epoch, as the stage 5.8 constructor builds it, and so does
+/// any partition; which sender may name which is the receiving session's rule (`PROTOCOL.md` §13.16).
 #[test]
-fn test_partition_zero_is_refused_before_the_epoch() -> TestResult {
+fn test_a_request_of_partition_zero_reads() -> TestResult {
     let bytes = with_command_header(&golden()?, |h| {
         put(h, 0, 0, 4);
-        put(h, 8, 0, 8);
+        put(h, 8, 5, 8);
     });
-    assert_eq!(refusal::<CloseRequestView>(&bytes)?, field("partition", 0));
+    let view = CloseRequestView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!((view.partition(), view.epoch()), (0, 5));
+    assert_eq!(view.to_body()?, CloseRequest::frontend(5));
+    assert_eq!(view_any(&bytes)?, Ok(()));
     let most = with_command_header(&golden()?, |h| put(h, 0, u32::MAX.into(), 4));
     assert_eq!(
         CloseRequestView::from_frame(&frame_of(&most)?)?.partition(),
         u32::MAX
     );
+    Ok(())
+}
+
+/// C1.99: an epoch of 0 is refused whatever the partition, 0 or 3.
+#[test]
+fn test_an_epoch_of_none_is_refused_whatever_the_partition() -> TestResult {
+    for partition in [0u64, 3] {
+        let bytes = with_command_header(&golden()?, |h| {
+            put(h, 0, partition, 4);
+            put(h, 8, 0, 8);
+        });
+        assert_eq!(refusal::<CloseRequestView>(&bytes)?, field("epoch", 0));
+    }
     Ok(())
 }
 

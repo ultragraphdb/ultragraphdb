@@ -66,7 +66,12 @@ impl RequestKind {
             | Command::Closed
             | Command::DefaultEntry
             | Command::Report
-            | Command::Held => Self::Open,
+            | Command::Held
+            | Command::Session
+            | Command::Check
+            | Command::Ended
+            | Command::Declare
+            | Command::Defaults => Self::Open,
             Command::Hello
             | Command::Welcome
             | Command::Result

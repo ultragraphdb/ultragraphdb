@@ -66,8 +66,12 @@ fn test_a_request_names_tenant_and_version_alone() -> TestResult {
             ProtocolError::reserved_not_zero(128 + at)
         );
     }
+    // A request naming a version names no epoch.
     assert_eq!(
-        header_refusal("catalog", |h| put(h, 16, 5, 8))?,
+        header_refusal("catalog", |h| {
+            put(h, 8, 12, 8);
+            put(h, 16, 5, 8);
+        })?,
         ProtocolError::field_value(518, "catalog", 5)
     );
     let with_bytes = with_section(&bytes("catalog")?, 1, 0, |s| s.push(9));
@@ -106,5 +110,64 @@ fn test_a_reply_names_a_version_and_an_epoch() -> TestResult {
     );
     let view = CatalogView::from_frame(&frame_of(&pending)?)?;
     assert_eq!(view.to_body()?, Catalog::reply(3, 12, 0, 1_240, Vec::new()));
+    Ok(())
+}
+
+/// C1.100: a request of `version` 0 may name the closed epoch it asks at; one naming a `version` names none.
+#[test]
+fn test_a_request_names_an_epoch_only_without_a_version() -> TestResult {
+    for (version, epoch) in [(0u64, 0u64), (0, 9), (3, 0)] {
+        let frame = with_command_header(&bytes("catalog")?, |h| {
+            put(h, 8, version, 8);
+            put(h, 16, epoch, 8);
+        });
+        let view = CatalogView::from_frame(&frame_of(&frame)?)?;
+        assert_eq!((view.version(), view.epoch()), (version, epoch));
+        assert!(view.is_request());
+        assert_eq!(view_any(&frame)?, Ok(()));
+    }
+    let at_an_epoch = with_command_header(&bytes("catalog")?, |h| put(h, 16, 9, 8));
+    assert_eq!(
+        CatalogView::from_frame(&frame_of(&at_an_epoch)?)?.to_body()?,
+        Catalog::request_at(3, 9)
+    );
+    assert_eq!(
+        header_refusal("catalog", |h| {
+            put(h, 8, 3, 8);
+            put(h, 16, 9, 8);
+        })?,
+        ProtocolError::field_value(518, "catalog", 9)
+    );
+    // The header's rules come before the sections: a request of `version` 0 at epoch 9 holding a byte.
+    let with_bytes = with_section(&at_an_epoch, 1, 0, |s| s.push(9));
+    assert_eq!(
+        refusal(&with_bytes)?,
+        ProtocolError::count_mismatch(518, "catalog", 1, 0)
+    );
+    Ok(())
+}
+
+/// C1.101: a request's `epoch` is an epoch field (`PROTOCOL.md` §1, §13.7): at most 2⁴² − 1, checked after the rule of
+/// a request naming a `version`.
+#[test]
+fn test_a_requests_epoch_is_within_42_bits() -> TestResult {
+    let most = with_command_header(&bytes("catalog")?, |h| put(h, 16, MAX_EPOCH, 8));
+    assert_eq!(
+        CatalogView::from_frame(&frame_of(&most)?)?.epoch(),
+        MAX_EPOCH
+    );
+    for epoch in [MAX_EPOCH + 1, u64::MAX] {
+        assert_eq!(
+            header_refusal("catalog", |h| put(h, 16, epoch, 8))?,
+            ProtocolError::field_value(518, "epoch", epoch)
+        );
+    }
+    assert_eq!(
+        header_refusal("catalog", |h| {
+            put(h, 8, 3, 8);
+            put(h, 16, MAX_EPOCH + 1, 8);
+        })?,
+        ProtocolError::field_value(518, "catalog", MAX_EPOCH + 1)
+    );
     Ok(())
 }

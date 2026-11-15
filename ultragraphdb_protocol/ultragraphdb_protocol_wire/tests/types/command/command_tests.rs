@@ -5,11 +5,12 @@
 
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_wire::{Command, REPLICA_COMMANDS, ROLE_COMMANDS};
+use ultragraphdb_tool_bdd::TestResult;
 
 /// The registry as assigned on 2026-10-27, in the order of the design note's body table, with Authenticate and Drop
 /// added on 2026-10-30, the role commands 512 to 530 of `PROTOCOL.md` §3 on 2026-11-03, DirectWrite and
 /// ConditionalWrite on 2026-11-05, and Query, Install and Held later that day. These numbers are never reused; a change here is a protocol break.
-const REGISTRY: [(Command, u16); 45] = [
+const REGISTRY: [(Command, u16); 50] = [
     (Command::Hello, 1),
     (Command::Welcome, 2),
     (Command::Register, 3),
@@ -56,6 +57,13 @@ const REGISTRY: [(Command, u16); 45] = [
     (Command::DefaultEntry, 529),
     (Command::Report, 530),
     (Command::Held, 531),
+    // PROTOCOL.md §3: stage 5.8's Session, Check, Ended, Declare and Defaults. 532 and 533 are stage 6.5's, 537 is
+    // first assigned at stage 5.9 and 540 at stage 6.6.
+    (Command::Session, 534),
+    (Command::Check, 535),
+    (Command::Ended, 536),
+    (Command::Declare, 538),
+    (Command::Defaults, 539),
 ];
 
 #[test]
@@ -79,7 +87,11 @@ fn test_exactly_the_registry_is_known() {
     let known: Vec<u16> = (0..=u16::MAX)
         .filter(|n| Command::from_number(*n).is_ok())
         .collect();
-    let assigned: Vec<u16> = (1..=25).chain(512..=531).collect();
+    let assigned: Vec<u16> = (1..=25)
+        .chain(512..=531)
+        .chain(534..=536)
+        .chain(538..=539)
+        .collect();
     assert_eq!(known, assigned);
     for number in (0..=u16::MAX).filter(|n| !assigned.contains(n)) {
         assert_eq!(
@@ -91,7 +103,7 @@ fn test_exactly_the_registry_is_known() {
 
 #[test]
 fn test_unassigned_numbers_are_unknown_commands() {
-    for number in [0, 26, 255, 532, 767, 1_000, u16::MAX] {
+    for number in [0, 26, 255, 532, 533, 537, 540, 541, 767, 1_000, u16::MAX] {
         assert_eq!(
             Command::from_number(number),
             Err(ProtocolError(ProtocolErrorEnum::UnknownCommand {
@@ -146,7 +158,7 @@ fn test_a_client_connection_refuses_every_role_command_by_number() {
 }
 
 /// Section 3's "Answered by", each request with the commands that answer it.
-const ANSWERS: [(Command, &[Command]); 34] = [
+const ANSWERS: [(Command, &[Command]); 38] = [
     (Command::Hello, &[Command::Welcome]),
     (Command::Register, &[Command::Register]),
     (Command::Begin, &[Command::Begin]),
@@ -181,6 +193,10 @@ const ANSWERS: [(Command, &[Command]); 34] = [
     (Command::Closed, &[Command::Closed]),
     (Command::DefaultEntry, &[Command::DefaultEntry]),
     (Command::Report, &[Command::Report]),
+    (Command::Session, &[Command::Session]),
+    (Command::Check, &[Command::Check]),
+    (Command::Declare, &[Command::Declare]),
+    (Command::Defaults, &[Command::Defaults]),
 ];
 
 #[test]
@@ -212,15 +228,16 @@ fn test_an_error_answers_any_request_and_another_command_is_not_served() {
     );
 }
 
-/// PROTOCOL.md §11.3: Result and Entries frames, and the frames of a Describe's or a Catalog's answer, spend credit;
-/// every other frame leaves it.
+/// PROTOCOL.md §11.3, §13.28: Result and Entries frames, and the frames of a Describe's, a Catalog's or a Defaults'
+/// answer, spend credit; every other frame leaves it.
 #[test]
-fn test_result_entries_describe_and_catalog_frames_spend_credit() {
+fn test_result_entries_describe_catalog_and_defaults_frames_spend_credit() {
     let spending = [
         Command::Result,
         Command::Entries,
         Command::Describe,
         Command::Catalog,
+        Command::Defaults,
     ];
     for (command, _) in REGISTRY {
         assert_eq!(
@@ -239,4 +256,56 @@ fn test_purge_and_migrate_answer_themselves() {
         assert!(!command.answered_by(Command::Result), "{command:?}");
         assert!(!command.is_role(), "{command:?}");
     }
+}
+
+/// PROTOCOL.md §3, wire-protocol "Command 540 is not served": the system group's commands 534, 535, 536, 538 and 539
+/// are role commands; 537 is refused as an unknown command before stage 5.9, and 540 before stage 6.6.
+#[test]
+fn test_the_system_groups_commands_are_role_commands_and_537_and_540_are_unknown() -> TestResult {
+    let table = [
+        (534u16, Command::Session),
+        (535, Command::Check),
+        (536, Command::Ended),
+        (538, Command::Declare),
+        (539, Command::Defaults),
+    ];
+    for (number, command) in table {
+        assert_eq!(Command::from_number(number)?, command);
+        assert_eq!(command.number(), number);
+        assert!(command.is_role(), "{command:?}");
+        assert_eq!(
+            command.on_client_connection().map_err(|e| e.0),
+            Err(ProtocolErrorEnum::CommandNotServed { command: number })
+        );
+    }
+    for number in [537u16, 540] {
+        assert_eq!(
+            Command::from_number(number).map_err(|e| e.0),
+            Err(ProtocolErrorEnum::UnknownCommand { command: number })
+        );
+    }
+    Ok(())
+}
+
+/// PROTOCOL.md §3's "Answered by": Session, Check, Declare and Defaults are answered by themselves, and an Ended by
+/// nothing but an Error, its stream ending with it.
+#[test]
+fn test_an_ended_is_answered_by_nothing() -> TestResult {
+    for answer in Command::ALL {
+        assert!(!Command::Ended.answered_by(answer), "{answer:?}");
+    }
+    assert_eq!(
+        Command::Ended.answering(Command::Ended).map_err(|e| e.0),
+        Err(ProtocolErrorEnum::CommandNotServed { command: 536 })
+    );
+    assert_eq!(Command::Check.answering(Command::Check)?, Command::Check);
+    assert_eq!(
+        Command::Defaults.answering(Command::Defaults)?,
+        Command::Defaults
+    );
+    assert_eq!(
+        Command::Session.answering(Command::Check).map_err(|e| e.0),
+        Err(ProtocolErrorEnum::CommandNotServed { command: 534 })
+    );
+    Ok(())
 }

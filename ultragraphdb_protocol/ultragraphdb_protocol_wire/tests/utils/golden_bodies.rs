@@ -236,7 +236,7 @@ pub fn section(data: &[u8], fixed: usize, index: usize) -> (usize, usize) {
 }
 
 /// `bytes` validated and read through its command's view, and the view read back to its owned body, which builds the
-/// same frame again under the frame's own header: byte for byte, or, for Write, Describe and Result, whose names and
+/// same frame again under the frame's own header: byte for byte, or, for Write, Describe, Result and Declare, whose names and
 /// result terms a builder interns, a frame that rebuilds to itself. The inner result is the frame's refusal; the outer
 /// fails the test when a rebuilt frame does not read.
 ///
@@ -250,7 +250,7 @@ pub fn view_any(bytes: &[u8]) -> TestResult<Result<(), ProtocolError>> {
     };
     if matches!(
         command,
-        Command::Write | Command::Describe | Command::Result
+        Command::Write | Command::Describe | Command::Result | Command::Declare
     ) {
         let (_, again) = rebuild(&rebuilt).context("a rebuilt frame reads")?;
         assert_eq!(again, rebuilt, "{command:?} is not stable");
@@ -327,7 +327,12 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
         | Command::Closed
         | Command::DefaultEntry
         | Command::Report
-        | Command::Held => crate::utils::golden_roles::rebuild_role(&frame),
+        | Command::Held
+        | Command::Session
+        | Command::Check
+        | Command::Ended
+        | Command::Declare
+        | Command::Defaults => crate::utils::golden_roles::rebuild_role(&frame),
     }?;
     Ok((frame.command(), rebuilt))
 }

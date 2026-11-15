@@ -3,10 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_protocol_wire::{BodyBuilder, CloseRequest};
+use ultragraphdb_protocol_wire::{BodyBuilder, CloseRequest, Command, Header};
 use ultragraphdb_tool_bdd::TestResult;
 
+use crate::utils::golden_bodies::CLUSTER;
 use crate::utils::golden_roles::{golden_role, role_bytes};
+use crate::utils::ugs_frames::frame;
 
 #[test]
 fn test_the_golden_close_request_is_built_byte_for_byte() -> TestResult {
@@ -26,4 +28,22 @@ fn test_the_fields_sit_at_their_offsets() {
     assert_eq!(&header[8..16], &0x0000_0302_0100_0908u64.to_le_bytes());
     assert!(header[16..].iter().all(|b| *b == 0));
     assert!(CloseRequest::new(1, 1).body().is_empty());
+}
+
+/// C1.99 at the builder: the frontend's request names `partition` 0, the frame laid out by hand.
+#[test]
+fn test_the_frontends_request_names_partition_zero() -> TestResult {
+    let request = CloseRequest::frontend(5);
+    assert_eq!((request.partition(), request.epoch()), (0, 5));
+    let built = request.frame(Header::new(CLUSTER, Command::CloseRequest).with_stream(3))?;
+    assert_eq!(
+        built,
+        frame(
+            Command::CloseRequest,
+            &[(8, &5u64.to_le_bytes())],
+            &[],
+            false
+        )?
+    );
+    Ok(())
 }

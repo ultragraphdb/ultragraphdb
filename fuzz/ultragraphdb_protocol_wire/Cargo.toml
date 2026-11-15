@@ -125,3 +125,43 @@ path = "fuzz_targets/continuation.rs"
 test = false
 doc = false
 bench = false
+
+# A Session's command header and body, sealed into a frame: its view, and the body it reads back to.
+[[bin]]
+name = "session"
+path = "fuzz_targets/session.rs"
+test = false
+doc = false
+bench = false
+
+# A Check's command header and body, sealed into a frame: its view, the receiver's and the requester's checks.
+[[bin]]
+name = "check"
+path = "fuzz_targets/check.rs"
+test = false
+doc = false
+bench = false
+
+# An Ended's command header and body, sealed into a frame: its view, and the body it reads back to.
+[[bin]]
+name = "ended"
+path = "fuzz_targets/ended.rs"
+test = false
+doc = false
+bench = false
+
+# A Declare's command header and body, sealed into a frame: its view of both kinds, and the body it reads back to.
+[[bin]]
+name = "declare"
+path = "fuzz_targets/declare.rs"
+test = false
+doc = false
+bench = false
+
+# A Defaults' command header and body, sealed into a frame: its view, its assembler, and the answer cut again.
+[[bin]]
+name = "defaults"
+path = "fuzz_targets/defaults.rs"
+test = false
+doc = false
+bench = false

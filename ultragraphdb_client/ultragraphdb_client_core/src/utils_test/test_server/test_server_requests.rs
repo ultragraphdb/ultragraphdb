@@ -122,7 +122,12 @@ impl TestServer {
             | Command::Closed
             | Command::DefaultEntry
             | Command::Report
-            | Command::Held => {}
+            | Command::Held
+            | Command::Session
+            | Command::Check
+            | Command::Ended
+            | Command::Declare
+            | Command::Defaults => {}
         }
     }
 

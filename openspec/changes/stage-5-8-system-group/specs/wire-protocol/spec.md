@@ -8,7 +8,7 @@ principal, answered with the same bytes; Check (535), one section of 32-byte che
 answered by nothing, its stream ending with it; Declare (538), a `kind` of 1 or 2 with the tenant, the version built on and the principal, and
 the sections of a Write; and Defaults (539), a tenant's default-entry predicates as a term table, continued across
 frames as Catalog is. Every decoder SHALL enforce its body's order of checks, and a builder SHALL refuse to build what
-its decoder refuses. The command table SHALL keep number 540 for stage 6.6 and refuse it as an unknown command.
+its decoder refuses: building the frame of a body its decoder refuses SHALL give the decoder's refusal and no frame. The command table SHALL keep number 540 for stage 6.6 and refuse it as an unknown command.
 
 #### Scenario: A Check's sessions ascend
 - **WHEN** a Check holds two checks whose sessions are equal, or the second below the first

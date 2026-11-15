@@ -16,6 +16,8 @@ pub mod golden_bodies;
 #[cfg(test)]
 pub mod golden_roles;
 #[cfg(test)]
+pub mod system_frames;
+#[cfg(test)]
 pub mod term_records;
 #[cfg(test)]
 pub mod ugs_frames;
