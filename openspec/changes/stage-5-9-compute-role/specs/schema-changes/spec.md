@@ -1,17 +1,15 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: A partition checks the catalog version a Drop names
 A partition SHALL refuse a Drop of kind 3 or 4 whose `catalog` is not the catalog version in effect at its round's
-epoch, with code 2, kind 5, as it refuses an Ingest share, since with several compute nodes a node one close behind
-would pass a Drop aimed at an earlier schema. The check compute makes before it sends the Drop stays, as an early
-refusal.
+epoch, with code 2, kind 5, decided at the round as it refuses an Ingest share, since each endpoint core holds a view
+of its own and a core one close behind would pass a Drop aimed at an earlier schema. The check compute makes before it
+sends the Drop stays, as an early refusal.
 
 #### Scenario: A Drop aimed at an earlier schema is refused by the partition
-- **WHEN** version 4 of a tenant takes effect, a compute node whose view still holds version 3 sends a Drop of kind 4
+- **WHEN** version 4 of a tenant takes effect, an endpoint core whose view still holds version 3 sends a Drop of kind 4
   naming `catalog` 3, and the partition decides it in a round of the epoch at which version 4 is in effect
 - **THEN** the partition refuses the Drop with code 2, kind 5, and removes nothing
-
-## MODIFIED Requirements
 
 ### Requirement: Drops
 Dropping a predicate SHALL remove, in every graph of its tenant and in every partition holding the tenant, its forward,

@@ -46,8 +46,6 @@ for a node that drains (`specification/binary_protocol/PROTOCOL.md` sections 5.4
   reads it with Roster and sends it to each authenticated client as a Nodes frame.
 - **The Rust clients.** Seeds, the list of the highest version swapped whole, a tag per client, no new work on a
   draining node, backoff to a node that cannot be reached, and a return to the seeds when none can.
-- **A partition checks a Drop's catalog version,** since a node one close behind may pass what one frontend used to
-  refuse for the whole cluster.
 - **Deployment.** The supervisor starts the config service, storage and compute. The Helm chart runs each compute
   instance as a StatefulSet of one replica without a volume, its pod advertising its stable name, behind a client
   Service for seeds.
@@ -78,7 +76,7 @@ before this change's first group starts.
 - `system-group`: the endpoint's table for two roles; the node list served; a silent subscriber's connection closed.
 - `metadata-group`: the node list among its state; the role's name.
 - `sequencer`: a close names a change of the node list; the role's name.
-- `schema-changes`: the partition's check of a Drop's catalog version; the role's name.
+- `schema-changes`: the role's name.
 - `config-service`: the roles, the compute table's address and tags, the retired settings refused.
 - `kubernetes-deployment`: compute as a StatefulSet without volumes behind a client Service; no frontend objects.
 - `transactions`, `partitions`, `commit-rounds`, `schema-storage`, `term-dictionary`: the role's name in the
@@ -86,16 +84,16 @@ before this change's first group starts.
 
 ## Impact
 
-- **Renamed:** `ultragraphdb_common_frontend` to `ultragraphdb_common_endpoint`, by `git mv`.
-- **Rewritten or shrunk:** `ultragraphdb_common_endpoint` (reads executed, the relay gone), `ultragraphdb_common_compute`
-  (the executor called in process, its role session and listener gone), `ultragraphdb_compute`,
+- **Merged:** the code of `ultragraphdb_common_frontend` into `ultragraphdb_common_compute`, by `git mv` of its files.
+- **Rewritten or shrunk:** `ultragraphdb_common_compute` (the endpoint beside the executor, reads executed in process,
+  the relay, the executor's role session and its listener gone), `ultragraphdb_compute`,
   `ultragraphdb_compute_tests`, `ultragraphdb_common_system` and `ultragraphdb_cluster_metadata` (the node list),
-  `ultragraphdb_cluster_sequencer` (the close's flag), `ultragraphdb_cluster_partition` (the Drop's check),
+  `ultragraphdb_cluster_sequencer` (the close's flag),
   `ultragraphdb_protocol_wire`, the three client crates, `ultragraphdb_common_role`,
   `ultragraphdb_common_service_config`, `ultragraphdb_common_config_check`, `ultragraphdb_supervisor`,
   `ultragraphdb_tests`, `ultragraphdb_tool_bench`.
-- **Deleted, each after approval:** `ultragraphdb_frontend`, `ultragraphdb_frontend_tests`, their images and chart
-  entries.
+- **Deleted, each after approval:** `ultragraphdb_common_frontend`, once its code lives in `common_compute`;
+  `ultragraphdb_frontend`, `ultragraphdb_frontend_tests`, their images and chart entries.
 - **Specifications:** `PROTOCOL.md` sections 1 to 13 brought to "compute", ComputeRead's section and the relay's rules
   removed; golden frames and fuzz targets for Nodes, Roster, Join and EpochClose.
 - **Documents:** `AGENTS.md`, `ROADMAP.md`, `SECURITY.md`'s tiers, the backlog, the benchmark record.

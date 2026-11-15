@@ -90,7 +90,7 @@ clean shutdown.
 ### Requirement: Each role runs one runtime per core
 Each role SHALL run one compio runtime per core it uses, a storage partition on its own, sharing no mutable state with
 another; what crosses between them SHALL go by message. `[runtime] pin_cores` SHALL ask each runtime to bind to one CPU,
-chosen from those the process is permitted, as a container's cpuset restricts them. Pinning SHALL be a performance choice
+chosen from those the process is permitted, as a container's cpuset restricts them. `[runtime] pin_skip` SHALL leave that many of the permitted CPUs free, from the lowest, for the CPUs a host gives its interrupts, none by default, and a role running more runtimes than the CPUs left SHALL bind them in turn. The role SHALL read its permitted CPUs once, before it binds any thread, and SHALL bind the thread that starts its runtimes to all the CPUs they take and to no single one, since a thread bound to one CPU leaves every thread it starts that CPU alone to ask for. Pinning SHALL be a performance choice
 and never a condition of correctness: where the platform cannot bind a thread, as macOS cannot, offering only a
 cache-locality hint, the role SHALL run unpinned and say so. The frontend SHALL accept and serve clients on each of its runtimes,
 one per CPU it may use, on one client address bound once: its role address, its connections back and its readiness on the first,
@@ -103,6 +103,12 @@ it can be.
 #### Scenario: A pinned role reports what it holds
 - **WHEN** a role starts with `pin_cores = true` on a platform that allows binding
 - **THEN** it logs each runtime's CPU, read back from the operating system, each within the permitted set
+
+#### Scenario: Every runtime of a pinned role holds a CPU of its own
+- **WHEN** a storage process of five partitions starts with `pin_cores = true` and `pin_skip = 1` where it is permitted
+  six CPUs
+- **THEN** each partition's runtime logs a CPU of its own among the five highest, read back from the operating system,
+  and no runtime of the role runs on the lowest
 
 #### Scenario: A platform refusing to pin still serves
 - **WHEN** a role starts with `pin_cores = true` where binding is unavailable

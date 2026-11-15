@@ -12,7 +12,7 @@ the books in the *system group*, a replica group that storage hosts under the da
 change is the first of three steps towards it, and the order is strict (`ROADMAP.md`): stage 5.8 moves the books,
 stage 5.9 merges the frontend and compute, which are then two processes holding nothing durable, and stage 6.5 builds
 the tile store under roles that no longer change. The protocol for both role stages is specified already
-(`specification/binary_protocol/PROTOCOL.md` sections 11.12a and 13.23 to 13.28; the record is
+(`specification/binary_protocol/PROTOCOL.md` sections 11.5, 11.12, 11.13 and 13.23 to 13.28; the record is
 `openspec/notes/UltraGraphDB Specification Update.md`, checked by the review of
 `openspec/notes/UltraGraphDB Spec Consistency Review 2026-11-12.md`).
 
@@ -31,7 +31,7 @@ ask the system group by role command afterwards, so every client-facing suite co
 4. **Storage starts first and depends on no other process.** The hosting storage process reaches `/ready` with no
    frontend running, and a frontend or compute process that loses the system group retries until its deadline.
 5. **The round trip is measured.** Reads are recorded on the stage 5.7 cluster before the move, since the benchmark
-   record of 2026-11-09 holds writes alone, and the whole benchmark is rerun after it, so what a commit's Check costs
+   record of 2026-11-09 holds writes alone (recorded with writes as `openspec/benches/benches-2026-11-15.md`), and the whole benchmark is rerun after it, so what a commit's Check costs
    is known before stage 5.9 removes a read's hop. It is acceptable when throughput at saturation stays within the
    baseline's spread and a commit's median latency rises by at most one hop between the frontend and the system group as
    measured in the same run, the hop being the median round trip of a Check frame as the endpoint cores time it; a
@@ -94,8 +94,9 @@ to another process's directory, and there are no outside users. A development cl
 - `transactions`: the owner check and the mark of a commit in flight asked of the system group.
 - `quad-reads`: a snapshot read's early close asked by CloseRequest.
 - `schema-changes`: a Drop's catalog version and a tightening's check held by the system group, whichever frontend
-  stops.
-- `wire-protocol`: the role commands the system group serves, and Describe answered from Catalog and Defaults.
+  stops; a partition's check of the catalog version a Drop names.
+- `wire-protocol`: the role commands the system group serves, and Describe answered from Catalog and Defaults, across
+  frames.
 - `config-service`: the `[system]` table, the one hosting instance, `cluster.system_address` and the tables that move.
 - `kubernetes-deployment`: the frontend without a volume, the hosting storage pod, the secrets' mounts and the address
   every role dials.
@@ -108,9 +109,10 @@ to another process's directory, and there are no outside users. A development cl
   `ultragraphdb_common_compute`, `ultragraphdb_compute`, `ultragraphdb_common_role`, `ultragraphdb_protocol_wire` (five
   new bodies, Challenge and Verify served), `ultragraphdb_protocol_scram` (the two halves of a server's exchange),
   `ultragraphdb_core_catalog` (`describe_of`, with `ultragraphdb_protocol_wire` as a dependency),
+  `ultragraphdb_client_core` (a Describe read across frames), `ultragraphdb_cluster_partition` (the Drop's check),
   `ultragraphdb_common_service_config`, `ultragraphdb_common_config_check`,
   `ultragraphdb_supervisor`, the role test crates and `ultragraphdb_tests`, `ultragraphdb_tool_bench`'s profiles.
-- **Specifications:** `PROTOCOL.md` sections 11.12, 11.13 and 13 brought to the text of section 11.12a for this stage;
+- **Specifications:** `PROTOCOL.md` sections 3, 4.8, 6.5, 11.1, 11.5, 11.11, 11.12, 11.13 and 13 state this stage in place, section 11.12a keeping stage 5.9's text;
   golden frames and fuzz targets for Session, Check, Ended, Declare, Defaults, Challenge and Verify.
 - **Deployment:** `deploy/helm/ultragraphdb`, the development image and its profile, `scripts/cluster_local.sh`.
 - **Documents:** `AGENTS.md`'s crate table and role descriptions, `ROADMAP.md`'s row, the benchmark record under

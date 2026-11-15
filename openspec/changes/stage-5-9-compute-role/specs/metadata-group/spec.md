@@ -28,9 +28,9 @@ refused, naming both. Beside the opaque versions, the group SHALL hold default-e
 predicate), each the default entry a predicate's first write asks for (schema-storage, "Writes to an unknown predicate
 create its schema"): recording one SHALL find a record that exists, SHALL create no catalog version, which the
 predecessor check therefore ignores, and SHALL stale no prepared statement and abort no transaction. A default-entry
-record SHALL outlive a drop, and Describe names it as recorded. A catalog version SHALL hold at most 523,000 bytes, what
-one Catalog frame holds at the floor of `max_frame`: the system group SHALL refuse a Declare that would build a larger
-one with code 7, `detail` 523,000, the message naming its size, the catalog unchanged, which compute passes to the
+record SHALL outlive a drop, and Describe names it as recorded. A catalog version SHALL hold at most `catalog_bytes_max`, 16,777,216 bytes, carried in as many Catalog frames as it
+takes within the requester's `max_frame` (`PROTOCOL.md` sections 11.9 and 13.7): the system group SHALL refuse a Declare
+that would build a larger one with code 7, `detail` 16,777,216, the message naming its size, the catalog unchanged, which compute passes to the
 client at its Commit; an Install compiling to one is refused the same way from stage 6.6; and the group SHALL refuse to
 hold one.
 
@@ -51,14 +51,20 @@ hold one.
 - **THEN** the offer is refused with an error naming versions 2 and 3, and version 3 stays current
 
 #### Scenario: A catalog version past its cap is refused at its Commit
-- **WHEN** a transaction's declarations build a catalog version of 523,001 bytes, and the client commits it
-- **THEN** the Commit is refused with code 7, `detail` 523,000, the message naming the size, and the current version
+- **WHEN** a transaction's declarations build a catalog version of 16,777,217 bytes, and the client commits it
+- **THEN** the Commit is refused with code 7, `detail` 16,777,216, the message naming the size, and the current version
   stays
 
-#### Scenario: A catalog version at its cap travels in one Catalog frame
-- **WHEN** a catalog version of 523,000 bytes is committed, and a storage process at the floor of `max_frame` reads it
+#### Scenario: A catalog version past one frame travels in several
+- **WHEN** a catalog version of 523,001 bytes is committed, and a storage process at the floor of `max_frame` reads it
   with Catalog
-- **THEN** one Catalog frame holds its whole bytes
+- **THEN** two Catalog frames hold its bytes, the second alone flagged `LAST`, and the bytes read equal the bytes
+  committed
+
+#### Scenario: A catalog version at its cap is held and read
+- **WHEN** a catalog version of 16,777,216 bytes is committed, the system group's host restarts, and a storage process
+  reads the version with Catalog
+- **THEN** the group holds the version after recovery, and the bytes read equal the bytes committed
 
 ### Requirement: Principals live in the metadata group
 The metadata group SHALL hold the cluster's principals: each a name and its SCRAM-SHA-256 credential (salt, iteration
@@ -70,9 +76,10 @@ every process holding a client endpoint answers one name with one salt. A princi
 never leave the group's host: a client's proof SHALL be checked there, asked by Challenge and Verify (system-group, "A
 client's proof is checked in the system group"). Creating a principal whose name exists SHALL be refused, naming it;
 removing the last principal with the administrator role SHALL be refused. Removing a principal SHALL evict every session
-registered for it in the same command, oldest first, carried to the partitions as every eviction is, so no session
-outlives its principal; a removal whose evictions would pass the pending evictions' bound SHALL be refused, the
-principal and its sessions kept.
+registered for it, marked by a commit in flight or not, in the same command, oldest first, carried to the partitions as
+every eviction is, so no session outlives its principal; a commit in flight that passed its check SHALL be decided by
+its partition, and its resend SHALL be answered code 12, as any evicted session's is. A removal whose evictions would
+pass the pending evictions' bound SHALL be refused, the principal and its sessions kept.
 
 #### Scenario: The bootstrap principal authenticates
 - **WHEN** a cluster starts for the first time with a bootstrap credential file and a client authenticates with it

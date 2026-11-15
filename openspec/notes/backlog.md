@@ -243,12 +243,30 @@ Does `[runtime] pin_cores` hold on physical Linux, and what does it buy? macOS o
 pin binds a virtual CPU at most, so stage 5.5 verifies reporting and unpinned service only. Can the measurements of 12.5 and
 12.5b repeat pinned and unpinned once remote access to a physical machine exists? The protocol note's X5 runs on that machine.
 
+Measured 2026-11-15 in virtual machines whose network interrupts all land on CPU 0: pinned, with `pin_skip = 1`, 256 clients
+read 21,000 times a second against 15,600 unpinned, and the tenth of reads that took 71 ms takes 14 ms
+(`openspec/benches/benches-2026-11-15.md`). Does a physical machine with a multi-queue network card show the same starved
+thread, and how many CPUs does `pin_skip` leave there?
+
 ### 15. A read-write request in one statement (stage 7)
 
 Stage 5.5 declares four request types, read-only, DirectWrite, ConditionalWrite and read-write (PROTOCOL 11.2a). A single statement such as
 `MATCH … INSERT` reads and writes with no client between its stages, so its conflict window is shorter than an interactive
 transaction's. Should the query languages send such a statement as one request, and may the partition then retry its conflicts as it
 does a DirectWrite's? A read-only request still takes Begin and Read: does it need a one-frame form too?
+
+Measured 2026-11-15 (`openspec/benches/benches-2026-11-15.md`): a read costs two awaited round trips from the client and about
+thirteen packets on the client endpoint's network card, and that machine's interrupt CPU is what stops read throughput. A
+one-frame read would take one of the two round trips away.
+
+### 18. One Scan for a read (stage 5.9, whose group 5 rewrites the read's path)
+
+A read of one subject's statements sends its partition three Scans one after another: the dictionary's gate, the list and
+the terms' resolution (`ultragraphdb_common_compute`, `run_read.rs` and `partition_rows_terms.rs`). Measured 2026-11-15
+(`openspec/benches/benches-2026-11-15.md`): a partition answers a Scan in 38 µs while its round trip takes 2.6 ms, and a
+monotonic-fast read, which sends two, reads 15% more a second. Can the partition take the three as one request, resolving
+the terms and scanning at one version, and what do sections 11.12 and 13.13 of `PROTOCOL.md` then say about a snapshot
+read's version? Do role connections coalesce the frames queued for one peer into one write?
 
 ### 17. The API node (stage 11)
 

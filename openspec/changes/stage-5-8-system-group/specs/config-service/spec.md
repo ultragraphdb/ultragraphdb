@@ -20,7 +20,7 @@ first. It SHALL check:
 | System address | an instance's `cluster.system_address` differs from the hosting instance's `system.role_address` in its scheme, its port or a Unix path; a host may differ, since a Service's name reaches a pod that binds its own |
 | Partitions | the storage instances' partitions do not cover 1 to `partition_count` once each |
 | Addresses | two listeners hold one address, a partition's derived address included: a named host or a Unix path across the target, a wildcard host within one instance, since each pod holds its own; a role address naming a wildcard host, since others dial it |
-| Data | two instances whose addresses name one host, or Unix paths, hold one `data_dir`; a `system.data_dir` is equal to, inside or containing a `data_dir` of an instance on its host |
+| Data | two instances whose addresses name one host, or Unix paths, hold one `data_dir`; a `system.data_dir` is equal to, inside or containing a `data_dir` of an instance on its host; two directories are compared component by component as written, a trailing separator ignored |
 | Security | an endpoint names neither TLS nor `plaintext = true`, both, or half a certificate pair |
 | Secrets | a path the settings name for a secret is not absolute, or `admin.key_sha256` is not 64 hexadecimal digits |
 | Fixed | against the active revision: `cluster.id`, `cluster.partition_count`, an instance's partitions or `data_dir`, or the instance holding `[system]` and its `system.data_dir` differ, while the placement is fixed; or a `[tiles]` setting differs, before stage 9.5 |

@@ -49,8 +49,8 @@ even map over `[cluster] partition_count`.
 ### Requirement: The system group serves the books' role commands at its role address
 The system group SHALL accept role connections at `system.role_address`, authenticated with the cluster's role secret
 as every role connection is (role-binaries, "Roles authenticate each other with the cluster's role secret"), and SHALL
-serve there, besides Hello, Authenticate, Credit and Cancel, the commands `PROTOCOL.md` section 11.12a lists for stage
-5.8:
+serve there, besides Hello, Authenticate, Credit and Cancel, the commands the endpoint table of `PROTOCOL.md` section 11.12
+lists:
 
 | Command | Requested by |
 |---|---|
@@ -60,7 +60,10 @@ serve there, besides Hello, Authenticate, Credit and Cancel, the commands `PROTO
 | Lease, DefaultEntry, Report | storage |
 | Challenge, Verify, Session, Check, Ended, Declare, Defaults | the frontend |
 
-It SHALL refuse every other command as `CommandNotServed`, naming the command. Every process SHALL reach the group at
+It SHALL refuse every other command as `CommandNotServed`, naming the command, and SHALL refuse the same way a command
+the table does not have the connection's role request, the role being the connection's SCRAM username; a Subscribe's
+`latest` and a CloseRequest's `partition` SHALL keep their own `FieldValue` rules (`PROTOCOL.md` sections 13.3 and
+13.16). Every process SHALL reach the group at
 `cluster.system_address`, the partitions of the hosting process included: they dial the address as the partitions of
 any other process do, so one path carries a partition's asks wherever it runs.
 
@@ -77,12 +80,17 @@ any other process do, so one path carries a partition's asks wherever it runs.
 - **WHEN** a role connection to the system group sends a Bind
 - **THEN** it is refused as `CommandNotServed` naming Bind
 
+#### Scenario: A command another role requests is refused
+- **WHEN** a connection whose role is `storage` sends a Verify
+- **THEN** it is refused as `CommandNotServed` naming Verify
+
 ### Requirement: The registry is asked by Session, Check and Ended
-The system group SHALL register a session when a Session command names it with its principal, durable before the answer; a session the registry already holds, for any principal, SHALL be refused with Error 1, naming the session, a principal the metadata state machine does not hold with code 7, and a full registry holding no session it may evict SHALL refuse with code 14, registering nothing. It SHALL decide the checks of a Check frame in
+The system group SHALL register a session when a Session command names it with its principal, durable before the answer. A Session's refusals SHALL be decided in this order: Error 1, naming the session, when the registry already holds the session, for any principal; code 7 when the metadata state machine does not hold the principal; code 14 when the registry is full and holds no session it may evict. A Session that is refused SHALL register nothing, and nothing SHALL be evicted for it. It SHALL decide the checks of a Check frame in
 their order and answer the frame whole, each check with its outcome, decided in this order: 12 when the registry does not hold the session, 21 when the session belongs to another principal, 14 when the session has a request in flight, whatever the check's kind, and 1 otherwise. A check SHALL read the registry as every registration decided before it left it, durable or not. A check of kind 2 that passes SHALL mark the session in
 flight; a check of kind 1 SHALL mark nothing. An Ended SHALL take away the mark of each session it names and SHALL be
-answered by nothing; a session it names without a mark SHALL be passed over. The registry SHALL evict only a session
-with no mark (metadata-group, "The metadata group registers sessions").
+answered by nothing; a session it names without a mark SHALL be passed over. A full registry SHALL evict only a session
+with no mark (metadata-group, "The metadata group registers sessions"); a principal's removal SHALL evict each of its
+sessions, marked or not (metadata-group, "Principals live in the metadata group").
 
 #### Scenario: A held identity is refused whoever holds it
 - **WHEN** a Session registers a session for `alice`, and the same Session is sent again
@@ -123,7 +131,10 @@ The system group SHALL hold each mark against the role connection whose Check be
 begun on its own connection, or one whose connection has closed, and SHALL pass over any other. When a connection closes, the group SHALL keep its marks for twice `transaction_ms` and end them then, since a checked request may wait one limit in the endpoint's queue before it leaves and one more parked at its partition, so a session whose request is still on its way is neither evicted nor told
 "not committed". For twice `transaction_ms` after the group begins to listen, when it holds no mark of the requests then on
 their way, it SHALL evict no session, refusing a Session that would need an eviction with code 14, and SHALL answer
-every check of kind 1 with 14.
+with 14 every check of kind 1 that would otherwise pass. The order 12, 21, 14 SHALL apply then as always: a check of
+kind 1 naming a session the registry does not hold SHALL answer 12, and one naming another principal's 21. That time
+SHALL be the half-open interval from the instant the group begins to listen: a check at exactly twice `transaction_ms`
+after it is outside.
 
 #### Scenario: A closed connection's marks hold for the limit
 - **WHEN** a connection marks a session and closes, and a check of kind 1 names the session on another connection
@@ -139,8 +150,8 @@ every check of kind 1 with 14.
 - **THEN** the session stays marked
 
 #### Scenario: A restarted group answers no resend at once
-- **WHEN** the system group's host restarts, and a check of kind 1 arrives before twice `transaction_ms` has passed since
-  it began to listen
+- **WHEN** the system group's host restarts, and a check of kind 1 naming a registered session of its principal arrives
+  before twice `transaction_ms` has passed since it began to listen
 - **THEN** the check's outcome is 14, a check of kind 2 naming an unmarked session passes, and a Session that would
   evict is refused with code 14
 

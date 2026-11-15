@@ -6,7 +6,7 @@ its own to the system group at `cluster.system_address` and SHALL ask on it: Ses
 identity it drew, answering the client's Register once the Session is answered; Check before it routes a Commit, a
 Drop, a DirectWrite, a ConditionalWrite or an Ingest through a session, kind 2, and before it asks a partition a
 Recall, kind 1, routing the request only once its check passed and answering the client with the code a failed check
-gave; and Ended when a checked request ended before reaching a partition, its partition answered it, for an Ingest its last share's, or the role connection carrying it closed. When every partition has answered a Recall with 18, the core SHALL send a second Check of kind 1 and answer 12 on outcome 12, else 18. A core SHALL gather the Endeds of one turn into one frame and then the Checks of that turn into one frame, one check per session, a further request through a session waiting for the next frame, so an eviction takes effect for the next commit on any core and a commit's check costs one round trip per turn. A turn SHALL be one run of the task that sends on the core's connection to the system group: it takes every Ended and every Check the core's requests have queued since its last run, a request queued while it sends waits for its next run, and it waits for no reply (`PROTOCOL.md` section 11.12a). A core whose connection to the system group closed SHALL refuse what needs a check with code 17 until it has dialled again (system-group, "A lost system group is waited for until the deadline"), and SHALL send the Ended of a request that ends meanwhile on its next connection.
+gave; and Ended when a checked request ended before reaching a partition, its partition answered it, for an Ingest its last share's, or the role connection carrying it closed. When every partition has answered a Recall with 18, the core SHALL send a second Check of kind 1 and answer 12 on outcome 12, 21 on outcome 21, 14 on outcome 14, and 18 on outcome 1. A core SHALL gather the Endeds of one turn into one frame and then the Checks of that turn into one frame, one check per session, a further request through a session waiting for the next frame, each frame holding as many checks, or sessions, as the role connection's `max_frame` takes, in ascending order of their sessions, those past that waiting for the next turn, so an eviction takes effect for the next commit on any core and a commit's check costs one round trip per turn. A turn SHALL be one run of the task that sends on the core's connection to the system group: it takes every Ended and every Check the core's requests have queued since its last run, a request queued while it sends waits for its next run, and it waits for no reply (`PROTOCOL.md` section 11.5). A core whose connection to the system group closed SHALL refuse what needs a check with code 17 until it has dialled again (system-group, "A lost system group is waited for until the deadline"), and SHALL send the Ended of a request that ends meanwhile on its next connection.
 
 #### Scenario: An eviction reaches every core at once
 - **WHEN** a session is evicted while a connection on another core holds it, and that connection commits next
@@ -47,7 +47,7 @@ gave; and Ended when a checked request ended before reaching a partition, its pa
 Each endpoint core SHALL subscribe to the sequencer's closes on its connection to the system group, with `latest` set since it holds no close of its own, opening a subscription the sequencer ended as no longer held the same way, and SHALL keep a view: the latest closed and the open epoch, the placement in effect with the tenants its runs list, read again with
 Placement when a close assigns a placement version, each tenant's latest catalog version as the closes and its own
 Declare replies name it, the versions it read with Catalog, and each version's schema id, which it computes from the
-version's bytes. A Begin and the gate's question whether a tenant exists SHALL be answered from the view, asking no other process, so one connection's snapshots never go back, while two connections may answer at an epoch and then the one before and only a token carries the floor from one to the other (decided 2026-11-12). A token whose epoch is above the core's open epoch SHALL not be refused: a Begin naming it SHALL be held until the core's stream delivers the close before the token's epoch and refused with code 24 at its deadline, and a one-frame write naming it SHALL go to its partition. A Describe SHALL ask the system group which version to report, by a Catalog request of `version` 0 naming the latest closed epoch. Nothing SHALL be decided from the view alone: a declaring Commit built on a version the
+version's bytes. A subscription opened again with `latest` skips closes and with them their announcements: after its first close arrives the core SHALL read Placement again, and SHALL read again with Catalog the current version of each tenant its view holds, before it answers from the view. A Begin and the gate's question whether a tenant exists SHALL be answered from the view, asking no other process, so one connection's snapshots never go back, while two connections may answer at an epoch and then the one before and only a token carries the floor from one to the other (decided 2026-11-12). A token whose epoch is above the core's open epoch SHALL not be refused: a Begin naming it SHALL be held until the core's stream delivers the close before the token's epoch, a close that has arrived when the deadline is reached SHALL be taken first and the Begin answered, the Begin SHALL be refused with code 24 only when its deadline is reached with that close not arrived, and a one-frame write naming it SHALL go to its partition. A Describe SHALL ask the system group which version to report, by a Catalog request of `version` 0 naming the latest closed epoch. Nothing SHALL be decided from the view alone, apart from the early refusals of `PROTOCOL.md` sections 6.5 and 6.8: a declaring Commit built on a version the
 view holds is refused by the system group when that version is no longer current (schema-changes), and the frontend
 SHALL pass the refusal on.
 
@@ -71,7 +71,7 @@ SHALL pass the refusal on.
 - **WHEN** a client's commit returned a token of epoch 9 while the core's stream has delivered the close of epoch 7, and
   the client sends a Begin naming the token on that core
 - **THEN** the Begin is answered once the close of epoch 8 arrives, and is refused with code 24 only if its deadline
-  passes first
+  is reached with that close not arrived
 
 #### Scenario: A token carries the floor to another connection
 - **WHEN** a client reads at epoch 9 on one connection, commits there, and begins a transaction naming the commit's
@@ -82,6 +82,13 @@ SHALL pass the refusal on.
 - **WHEN** a tightening of `nick` is being checked, and a client describes the tenant on a core that did not send the
   Declare
 - **THEN** the Describe reports the version before it
+
+#### Scenario: A subscription opened again reads what its skipped closes announced
+- **WHEN** a core's view holds the close of epoch 7 and version 3 of `t1`, its subscription is opened again with
+  `latest`, and the first close on the new stream is that of epoch 12, version 4 of `t1` and a placement version having
+  been announced by the closes of epochs 8 to 11
+- **THEN** the core reads Placement and, with Catalog, the current version of `t1` before it answers its next Begin,
+  and its view then holds epoch 12, version 4 of `t1` and the placement in effect
 
 ### Requirement: The frontend finds the roles in Members
 The frontend SHALL accept no role connection and SHALL send no Join. It SHALL read Members from the system group at

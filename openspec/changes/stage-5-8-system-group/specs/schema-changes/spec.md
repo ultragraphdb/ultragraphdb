@@ -13,6 +13,17 @@ once the check ended.
 - **THEN** the version stands, Describe reports `nick` single-valued, and the client's Commit, whose reply was lost, is
   shown committed by Describe
 
+### Requirement: A partition checks the catalog version a Drop names
+A partition SHALL refuse a Drop of kind 3 or 4 whose `catalog` is not the catalog version in effect at its round's
+epoch, with code 2, kind 5, decided at the round as it refuses an Ingest share, since each endpoint core holds a view
+of its own and a core one close behind would pass a Drop aimed at an earlier schema. The check the frontend makes
+before it sends the Drop stays, as an early refusal.
+
+#### Scenario: A Drop aimed at an earlier schema is refused by the partition
+- **WHEN** version 4 of a tenant takes effect, an endpoint core whose view still holds version 3 sends a Drop of kind 4
+  naming `catalog` 3, and the partition decides it in a round of the epoch at which version 4 is in effect
+- **THEN** the partition refuses the Drop with code 2, kind 5, and removes nothing
+
 ## MODIFIED Requirements
 
 ### Requirement: Drops

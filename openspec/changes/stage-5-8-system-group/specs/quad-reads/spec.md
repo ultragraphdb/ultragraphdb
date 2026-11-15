@@ -5,7 +5,7 @@ A transaction SHALL name on Begin the level, the session token, if any, and the 
 transaction SHALL read its partition's latest state whatever the level, and a token SHALL make its commit carry an epoch
 at or above the token's (transactions, "Commits answer a session token"). A read-only transaction SHALL read at its
 level: the latest state of one partition, binding to the partition of its first read, a later read reaching another
-partition refused; a snapshot at a closed epoch (the default), the latest epoch the sequencer had closed when the
+partition refused; a snapshot at a closed epoch (the default), the latest closed epoch the endpoint core's view held when the
 transaction began or its session token's epoch if that is higher, one snapshot for all its reads, each waiting until
 every partition it asks has closed that epoch (sequencer, "Partitions learn each closed epoch and stamp the open one");
 or monotonic-fast, which quad-pattern reads may take since they are monotonic, each read answering at one epoch: the

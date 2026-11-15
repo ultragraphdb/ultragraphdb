@@ -1,7 +1,7 @@
 ## Context
 
 The target is `openspec/designs/UltraGraphDB Distribution Architecture.md` (*The system group*; *The path*, item 1).
-The wire is `specification/binary_protocol/PROTOCOL.md`: section 11.12a states what this stage changes, sections 13.8,
+The wire is `specification/binary_protocol/PROTOCOL.md`: sections 11.1, 11.5, 11.11, 11.12 and 11.13 state this stage in place since task 0.2, sections 13.8,
 13.9 and 13.23 to 13.28 the bodies it adds or first serves. The decisions behind that text are S1 to S24 of
 `openspec/notes/UltraGraphDB Specification Update.md`, checked by
 `openspec/notes/UltraGraphDB Spec Consistency Review 2026-11-12.md`. Where this file and those disagree, those win and
@@ -30,7 +30,7 @@ change's link to the system group; stages 6.5 and 6.6, rebased on both; stage 8,
 
 **Goals:**
 
-- The system group hosted by a storage process, serving every command section 11.12a's stage 5.8 table lists.
+- The system group hosted by a storage process, serving every command the endpoint table of section 11.12 lists.
 - A frontend that holds nothing durable, accepts no role connection and can be killed and restarted with no recovery.
 - Every client-facing scenario unchanged and green; the scenarios naming where the books live rewritten.
 - The round trip a commit's Check adds, measured against a baseline taken before the move.
@@ -43,7 +43,9 @@ change's link to the system group; stages 6.5 and 6.6, rebased on both; stage 8,
 - The offer of a compiled catalog version at command 540 and the fence carried in `EpochClose` (stage 6.6).
 - A session check that needs no round trip (item 13 of `openspec/notes/backlog.md`) and load control.
 - Changing a state machine. `ultragraphdb_cluster_metadata` and `ultragraphdb_cluster_sequencer` keep their commands,
-  logs and snapshots; only their host changes. The Lean models are untouched.
+  logs and snapshots; only their host changes, and one bound: a catalog version's cap is the protocol's
+  `catalog_bytes_max`, 16,777,216 bytes across Catalog frames, where the metadata group held 523,000, one frame
+  (decided 2026-11-15; D13). The Lean models are untouched.
 
 ## Decisions
 
@@ -126,7 +128,7 @@ these logs with the group's replicated log and decides the flush then.
 connections to `cluster.system_address`, as partitions of another process do: one path, tested once, and the
 development container exercises what a cluster runs. No partition asks the group anything per commit (Lease runs
 ahead of need, DefaultEntry at a predicate's first write, Report once per catalog version, closes arrive pushed), so
-the socket costs no commit a round trip. `PROTOCOL.md` section 11.12a is brought to this.
+the socket costs no commit a round trip. `PROTOCOL.md` section 11.12, *The system group*, states this.
 
 **D5. Each endpoint core holds its own connection to the group.** A core dials the system group as it dials each
 partition, subscribes on that connection, and sends its Checks and Endeds there. Nothing crosses cores on the commit
@@ -146,7 +148,7 @@ or withdrawn (K17), and reads the default-entry records with Defaults. One conne
 connections only a token carries the floor, which is the user's to confirm (review U2).
 
 **D7. Sessions, the owner check and the mark travel as Session, Check and Ended.** A core sends the Endeds of one turn
-in one frame and then its Checks in one frame, one check per session (section 11.12a). The frontend has no turn today:
+in one frame and then its Checks in one frame, one check per session (section 11.5, *Turns*). The frontend has no turn today:
 each connection is a task of its own, and only the owner took its asks in turns. A turn is one run of the task that
 sends on the core's `SystemLink`: it takes what the core's requests queued since its last run, and waits for no
 reply. Its tests order a turn exactly through a driver, as `owner_run` orders the owner's, so no scenario depends on
@@ -214,14 +216,36 @@ written before this change is read after it.
 - **Failures.** The group's host killed with commits in flight; the frontend killed during a tightening's check; the
   frontend's connection to the group closed and dialled again with requests at partitions; a frontend started before
   storage.
-- **The benchmark.** Group 0 records reads on the stage 5.7 cluster. The last group reruns
-  `openspec/benches/benches-2026-11-09.md` and the read baseline, and records both in a dated file with the
+- **The benchmark.** Group 0 records reads and writes on the stage 5.7 cluster as
+  `openspec/benches/benches-2026-11-15.md`. The last group reruns that record, and records both in a dated file with the
   difference a commit's Check makes. The hop is measured where it is paid: a core's `SystemLink` times each Check
   frame from its send to its reply into the role's telemetry, and the run records that time's median and its 99th
   percentile beside the commit latencies it compares.
 - **Two gates.** The cluster's processes change one group at a time and run together again only after group 7's
   switch (D2). Groups 0 to 6 are gated by `make build` and every test but those tagged `integration_test`, the tag
   every suite over the built binaries carries; groups 7 to 9 by `make test` (decided 2026-11-12).
+
+**D13. A catalog version takes the protocol's cap.** `PROTOCOL.md` sections 11.9 and 13.7 give a version
+`catalog_bytes_max`, 16,777,216 bytes, in as many Catalog frames as it takes, and `ultragraphdb_protocol_wire` holds
+`CatalogFrames` for it; `MetadataCommand::CATALOG_BYTES_MAX` is 523,000, one frame at the floor, and no reader takes
+a second frame. This stage closes the difference, since every Catalog reader is rewritten in it anyway (decided
+2026-11-15). `ultragraphdb_cluster_metadata` takes the wire's constant, its log writing a version in chunks as it
+does today; `SystemSession` answers a Catalog request across frames within the requester's `max_frame`; and the
+partitions, compute and the frontend's view read a version through `CatalogFrames`. A Declare stays one frame, so one
+transaction adds at most a frame of declarations to the version it builds on.
+
+A Describe's answer takes the same cap and continues the same way (`PROTOCOL.md` section 8.3, *Continuation*; decided
+2026-11-15). The frontend answers a Describe across frames within the client's `max_frame` through the wire's
+`DescribeFrames`, under the client's credit, refusing with code 6 only an answer past `catalog_bytes_max`, and
+`ultragraphdb_client_core` reads a continued Describe through it. Only `ultragraphdb_protocol_wire` handles continued
+Describe frames today.
+
+**D14. A partition checks a Drop's catalog version** (decided 2026-11-15). A partition refuses a Drop of kind 3 or 4
+whose `catalog` is not the version in effect at its round's epoch with code 2, kind 5, decided at the round as an
+Ingest share's is (`PROTOCOL.md` section 6.5). This stage gives each endpoint core a view of its own (D6), and a core
+one close behind holds an earlier version as current. A Drop is destructive, so one aimed at an earlier schema must
+not remove the data of a later one. Only the partition decides that exactly, at the round's epoch; a check at the
+frontend can be overtaken by a version taking effect before the round. The frontend's check stays as an early refusal.
 
 ## Risks / Trade-offs
 
@@ -251,7 +275,8 @@ groups 0 to 6, and `make test` passes after each from group 7 (D12). Rolling bac
 Decided on 2026-11-12 (`openspec/notes/Stage 5.8 and 5.9 Open Questions.md`):
 
 - A storage instance hosts the system group only beside at least one partition; the config service refuses any other
-  until stage 8 (B2). `system.data_dir` shares no path with a partition's `data_dir` (B3).
+  until stage 8 (B2). `system.data_dir` shares no path with a `data_dir` of an
+  instance on its host (B3).
 - One connection's snapshots never go back; across connections only a token carries the floor (A1).
 - A mark outlives its connection by twice `transaction_ms`, and the group is quiet for as long after it begins to
   listen (A3, A4).
@@ -261,7 +286,7 @@ Decided on 2026-11-12 (`openspec/notes/Stage 5.8 and 5.9 Open Questions.md`):
   and a commit's median latency rises by at most one hop between the frontend and the system group, as measured in
   the same run (B10); the hop is the median round trip of a Check frame (D12).
 - A property test asserts and returns nothing, since `#[hegel::test]` refuses a return type (B1).
-- The rewritten sections of `PROTOCOL.md` are reviewed against section 11.12a before group 1 starts (B13).
+- The rewritten sections of `PROTOCOL.md` are reviewed against section 11.12a as it stood before task 0.2 (commit `d7a67122`) before group 1 starts (B13).
 
 Decided on 2026-11-12 and written in on 2026-11-15, after the change was checked against the code:
 
@@ -270,5 +295,5 @@ Decided on 2026-11-12 and written in on 2026-11-15, after the change was checked
 - The system group keeps a crate of its own, and the owner is cut from the throttle and the links before it moves
   (D1). Merging it into `common_compute` was weighed and left, for what the storage binary would link.
 - The old settings leave in group 7's switch (D2); the exchange's two halves are a group of their own, 1b (D8); an
-  endpoint core's turn is defined in `PROTOCOL.md` section 11.12a (D7); the hop is the Check frame's round trip as
+  endpoint core's turn is defined in `PROTOCOL.md` section 11.5 (D7); the hop is the Check frame's round trip as
   the core times it (D12).

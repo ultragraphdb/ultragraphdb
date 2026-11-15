@@ -3,7 +3,8 @@
 ### Requirement: An early close is asked by CloseRequest from either role
 The sequencer SHALL close its open epoch early when a CloseRequest names it, from a partition whose epoch is full, as
 before, or from the frontend with `partition` 0, for a snapshot read waiting on the open epoch (quad-reads, "A read's
-transaction names its level"). A CloseRequest naming an epoch already closed SHALL be answered and SHALL close nothing.
+transaction names its level"). A CloseRequest naming an epoch already closed SHALL close nothing and SHALL be answered by no frame
+(`PROTOCOL.md` section 13.16).
 
 #### Scenario: The frontend's request closes the open epoch
 - **WHEN** epoch 12 is the latest close, and the frontend sends CloseRequest naming epoch 13 with `partition` 0
@@ -12,7 +13,7 @@ transaction names its level"). A CloseRequest naming an epoch already closed SHA
 
 #### Scenario: A request for a closed epoch closes nothing
 - **WHEN** epoch 13 is closed and a CloseRequest names epoch 13
-- **THEN** it is answered, and epoch 14 closes at its own time
+- **THEN** no frame answers it, and epoch 14 closes at its own time
 
 ### Requirement: A subscriber holding no close begins at the latest
 The sequencer SHALL begin a subscription whose Subscribe sets `latest`, which the role holding the client endpoint

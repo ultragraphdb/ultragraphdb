@@ -58,8 +58,13 @@ partition, as far as the connection's principal may read it, so it names what is
 data holds: `read_version` the version bound of the latest epoch the sequencer closed, or of epoch 0 before the first
 close; the entity types declared in effect at that epoch; the predicates of kind edge or either that it declares or
 holds a default entry for as relationship types, those of kind property or either as property keys; and the catalog's
-declarations. An answer not fitting one frame within the client's `max_frame` SHALL be refused with code 6 (TooLarge),
-`detail` that `max_frame`.
+declarations. An answer that does not fit one frame within the client's `max_frame` SHALL continue in further Describe
+frames on the stream, each with the first's command header, the last alone flagged `LAST`; a frame SHALL split a section
+of records or u32s only between whole ones and a text only on a character boundary, and the client SHALL read the frames
+as one body, each of its nine sections the concatenation, in frame order, of that section's bytes in every frame.
+Describe frames SHALL spend credit as Result frames do, the stream starting with the Welcome's `initial_credit`. An
+answer whose sections hold more than `catalog_bytes_max` bytes together SHALL be refused with code 6 (TooLarge),
+`detail` that bound.
 
 #### Scenario: A stale statement is refused
 - **WHEN** a statement is prepared, the catalog of its tenant changes, and the statement is executed
@@ -81,9 +86,14 @@ declarations. An answer not fitting one frame within the client's `max_frame` SH
   commits
 - **THEN** the Commit reply names `http://ex.org/x` by its text, and holds no system ID
 
-#### Scenario: A Describe past the client's frame is refused
-- **WHEN** a tenant's Describe answer does not fit one frame within the client's `max_frame`
-- **THEN** it is refused with code 6, `detail` that `max_frame`
+#### Scenario: A Describe continues across frames
+- **WHEN** a tenant's Describe answer takes two frames within the client's `max_frame`
+- **THEN** compute sends two Describe frames with one command header under the client's credit, the first without
+  `LAST` and the second with it, and the client reads the declarations one frame would hold
+
+#### Scenario: A Describe past the catalog's bound is refused
+- **WHEN** a tenant's Describe answer's sections hold more than `catalog_bytes_max` bytes together
+- **THEN** it is refused with code 6, `detail` `catalog_bytes_max`
 
 #### Scenario: A statement prepared in another tenant is refused
 - **WHEN** a connection prepares a statement in tenant 1 and executes it in a transaction of tenant 0

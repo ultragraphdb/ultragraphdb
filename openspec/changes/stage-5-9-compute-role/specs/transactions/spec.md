@@ -47,8 +47,8 @@ full registry SHALL evict its oldest session with no Commit, Drop or one-frame w
 check until the request ends before reaching a partition, its partition answers it, its role connection closes, or, the
 connection that asked the check having closed, twice `transaction_ms` has passed (system-group, "A mark outlives its
 connection by twice the transaction limit"), whether or not its client stays connected, so a session that passed the
-owner check is never evicted before its request reaches its partition; a Recall holds no session from eviction. A
-Register finding no session the full registry may evict SHALL be refused with code 14, evicting nothing.
+owner check is never evicted before its request reaches its partition, except by its principal's removal
+(metadata-group, "Principals live in the metadata group"); a Recall holds no session from eviction. A Register finding no session the full registry may evict SHALL be refused with code 14, evicting nothing.
 
 #### Scenario: A retried commit commits once
 - **WHEN** a client commits request 7 of its session, loses the reply, and sends request 7 again

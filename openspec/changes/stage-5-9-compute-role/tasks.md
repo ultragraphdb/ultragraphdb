@@ -16,7 +16,7 @@ them. A weakness found in a specification is fixed in that specification first.
 A group that moves code moves its suite with it first: the moved suite is green with the same test count before any
 behaviour changes, in a commit of its own.
 
-Waves: 0; then 1 and 2 in parallel; 3 and 4 in parallel; 5; 6; 7; 8; 9. A wave's agents work on disjoint crates, and
+Waves: 0; then 1 and 2 in parallel; 3; 5; 6; 7; 8; 9. A wave's agents work on disjoint crates, and
 the whole repository is gated by `make build` and `make test` when a wave returns.
 
 ## 0. Specifications first
@@ -53,17 +53,14 @@ the whole repository is gated by `make build` and `make test` when a wave return
 - [ ] 3.5 Phase 4: the above
 - [ ] 3.6 Phase 5: fuzz seeds for the frames a `SystemSession` reads; `scripts/mutants.sh` over each changed crate
 
-## 4. A partition's check of a Drop → `ultragraphdb_cluster_partition`, `ultragraphdb_common_storage`
+## 4. A partition's check of a Drop
 
-- [ ] 4.1 Scenarios: schema-changes ("A partition checks the catalog version a Drop names"), as Gherkin
-- [ ] 4.2 Phases 1 to 4: a Drop of kind 3 or 4 whose `catalog` is not the version in effect at its round's epoch refused with code 2, kind 5, decided at the round as an Ingest share's is
-- [ ] 4.3 Property test, written in phase 2: over drawn catalog histories and a Drop decided at a drawn epoch, the Drop commits exactly when its `catalog` is the version in effect at that epoch
-- [ ] 4.4 Phase 5: `scripts/mutants.sh` over each changed crate
+The check is built in stage 5.8, by its group 4; task 8.2 runs it across two compute nodes.
 
-## 5. The endpoint executes reads → `ultragraphdb_common_endpoint` (renamed), `ultragraphdb_common_compute`
+## 5. The endpoint executes reads → `ultragraphdb_common_compute`, `ultragraphdb_common_frontend` (emptied)
 
-- [ ] 5.1 Ultra Style lift of `common_compute`, in its own commit
-- [ ] 5.2 The rename, in its own commit: `ultragraphdb_common_frontend` to `ultragraphdb_common_endpoint` by `git mv`, every dependant updated, its suite green with the same count
+- [ ] 5.1 Ultra Style lift of `common_compute` and of `common_frontend`, each in its own commit
+- [ ] 5.2 The merge, in its own commit (design D1): the sources, tests, features, test data and test doubles of `ultragraphdb_common_frontend` moved into `ultragraphdb_common_compute` by `git mv`, its dependencies and Bazel targets joined to that crate's, a module or item name both crates hold settled there, every dependant naming `common_compute`; the merged suite green with the sum of the two counts; `common_frontend` left an empty crate until task 6.4
 - [ ] 5.3 Scenarios: quad-reads ("Compute runs each read on one core", "A read's step is bounded by one frame", "A read's batches fit the client's frame", the modified transaction and level requirements); client-endpoint ("Requests are routed to the partitions that serve them", "Errors reach the client through the error table", "Compute finds the partitions in Members", the renamed requirements), as Gherkin
 - [ ] 5.4 Phases 1 to 3: the executor taking a read as a message from `ClientSession` and answering by messages; a core's `RoleLink` to a partition carrying Scans, Frontier requests and Closed beside Bind streams; the client's `max_frame` and credit applied directly; Credit and Cancel acting in the turn they are read; the step bound of design D3
 - [ ] 5.5 Property tests, written in phase 2: the merge returns the rows of any drawn partitions' sorted entries in key order, each once, whatever the drawn boundaries of the Entries frames and of the client's frames; a read resumed from the key of any drawn row returns exactly the rows after it; under any drawn interleaving of a read's steps and commits' relays on one core, no commit waits for more than one step
@@ -76,13 +73,13 @@ the whole repository is gated by `make build` and `make test` when a wave return
 - [ ] 6.1 The scenarios of `ultragraphdb_frontend_tests` moved into `ultragraphdb_compute_tests`, in their own commit, green with the same count against the frontend binary
 - [ ] 6.2 Scenarios: role-binaries (all modified requirements); kubernetes-deployment (the modified requirements), as Gherkin
 - [ ] 6.3 Phases 1 to 4: `ultragraphdb_compute` running the endpoint and the executor, joining as a compute node, with no role listener; readiness, draining on SIGTERM and the exit for a lost system group; the supervisor's order config service, storage, compute; the development image with two role binaries; the node's check at start that its certificate names the host it advertises; the drain bounded by `transaction_ms`; the chart's StatefulSet of one replica per compute instance without a volume, its headless Service and the client Service; the profiles; `scripts/cluster_local.sh`
-- [ ] 6.4 After the user's approval: `ultragraphdb_frontend`, `ultragraphdb_frontend_tests`, the frontend's image, chart entries, `FrontendTable` and profiles removed; `AGENTS.md`'s crate table and the workspace's members follow
+- [ ] 6.4 After the user's approval: `ultragraphdb_common_frontend`, `ultragraphdb_frontend`, `ultragraphdb_frontend_tests`, the frontend's image, chart entries, `FrontendTable` and profiles removed; `AGENTS.md`'s crate table and the workspace's members follow
 - [ ] 6.5 Phase 5: `scripts/mutants.sh` over each changed crate; this group's binaries and deployment hold no law of their own
 
-## 7. Several compute nodes and the clients → `ultragraphdb_client_core`, `ultragraphdb_client_compio`, `ultragraphdb_client_tokio`, `ultragraphdb_common_endpoint`
+## 7. Several compute nodes and the clients → `ultragraphdb_client_core`, `ultragraphdb_client_compio`, `ultragraphdb_client_tokio`, `ultragraphdb_common_compute`
 
 - [ ] 7.1 Ultra Style lift of the three client crates, each in its own commit
-- [ ] 7.2 Scenarios: node-discovery ("A client receives the list once it has authenticated", "A client holds the list of the highest version", "A client is started with seeds and picks nodes by tag", "A draining node is announced before it stops"), as Gherkin: the server's in `common_endpoint`, the client's in `client_core`
+- [ ] 7.2 Scenarios: node-discovery ("A client receives the list once it has authenticated", "A client holds the list of the highest version", "A client is started with seeds and picks nodes by tag", "A draining node is announced before it stops"), as Gherkin: the server's in `common_compute`, the client's in `client_core`
 - [ ] 7.3 Phases 1 to 3: the endpoint sending Nodes after authentication and on a higher version, with `self`; a draining node's Join and its last Nodes; the client core's seeds, list, tag, choice of a node, backoff and return to the seeds, over `TestServer` extended to several servers; the shells dialling listed addresses
 - [ ] 7.4 Property tests, written in phase 2, as a Hegel state machine in `client_core` against a model: drawn sequences of Nodes frames of any versions from any connection, connections refused and restored, and requests begun, with the invariants that the list held is the highest version received and never goes back, no transaction begins on a node the list names draining or names no longer, every node chosen carries the client's tag, a client with any reachable serving node of its tag is never refused, and the seeds are dialled only while no listed node can be reached
 - [ ] 7.5 Phase 4: the above

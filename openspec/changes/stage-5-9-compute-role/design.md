@@ -15,7 +15,7 @@ ComputeRead as a task on the core it arrived on, merging the partitions' Entries
 client's `max_frame` and credit, which the frontend passes along. Both processes are stateless.
 
 Stakeholders: the user, who commits after each group and approves each deletion; stages 6.5 and 6.6, rebased on this
-change; stage 7, whose query core plugs into the executor this change puts beside the endpoint.
+change; stage 7, whose query core plugs into the executor this change puts beside the endpoint, in one crate.
 
 ## Goals / Non-Goals
 
@@ -37,13 +37,17 @@ change; stage 7, whose query core plugs into the executor this change puts besid
 
 ## Decisions
 
-**D1. Two crates under the merged role.** `ultragraphdb_common_frontend` becomes `ultragraphdb_common_endpoint` by
-`git mv`: the connection's session, the gate, the view, the link to the system group and the links to partitions.
-`ultragraphdb_common_compute` keeps the executor: the routing of a read by its bound positions, the Scans and Frontier
-requests, the merge, resume keys. The endpoint depends on the executor and calls it in process; the binary
-`ultragraphdb_compute` wires both. *Alternative:* one crate. The executor is what stage 7's query core extends and
-what an algorithm's worker would host later, and the endpoint is the protocol's session; keeping them apart keeps
-each crate's reason to change single.
+**D1. One crate under the merged role** (decided 2026-11-15). The code of `ultragraphdb_common_frontend` moves into
+`ultragraphdb_common_compute` by `git mv` of its files, with its tests, features and test doubles: the connection's
+session, the gate, the view, the link to the system group and the links to partitions, beside the executor the crate
+holds: the routing of a read by its bound positions, the Scans and Frontier requests, the merge, resume keys. The
+session calls the executor inside the crate, by the messages of D3, and the binary `ultragraphdb_compute` links the
+one crate. `ultragraphdb_common_frontend` is then empty and is removed with the frontend binary, after approval. One
+role has one crate, as storage has `ultragraphdb_common_storage`, and no dependency between an endpoint crate and an
+executor crate is left to keep acyclic. *Alternative:* two crates, the frontend's renamed
+`ultragraphdb_common_endpoint` beside the executor's. It keeps each crate's reason to change single, and D3's
+messages keep that seam inside one crate, where stage 7's query core or an algorithm's worker can still be split
+off when one of them needs a crate of its own.
 
 **D2. One connection per core and partition carries writes and reads.** A core's `RoleLink` to a partition, which
 carried Bind streams and one-frame writes, also carries the Scans, Frontier requests and Closed of the reads that
@@ -90,8 +94,8 @@ which gains several servers.
 instances, and the acceptance battery runs two on one host. The node list is built by groups 1 and 3 and used by
 group 7, so the three stand together; nothing of them waits for stage 8.
 
-**D9. A partition checks a Drop's catalog version** (K26), as it checks an Ingest share's, and compute's check stays
-as the early refusal.
+**D9. A partition's check of a Drop's catalog version is stage 5.8's** (K26; its design D14). Compute's check stays
+as the early refusal, and group 8 sends a Drop through a node one close behind.
 
 **D10. Names and removals.** The role, its settings table, its SCRAM username and its instances are `compute`. The
 frontend's binary, image, test crate, chart entries, `FrontendTable` and profiles are removed once their contents
