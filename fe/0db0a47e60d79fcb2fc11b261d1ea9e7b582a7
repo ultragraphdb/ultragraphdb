@@ -1,0 +1,74 @@
+openspec/benches/benches-2026-11-15.md
+  s_21eff977e05256::t_20afa29cad8881 1-129
+openspec/changes/stage-5-8-system-group/notes/corner-cases.md
+  s_21eff977e05256::t_e98eb6d7c9d716 1-541
+openspec/changes/stage-5-8-system-group/notes/laws.md
+  s_21eff977e05256::t_3154c3f6e1a7e0 137
+  s_21eff977e05256::t_5b7963409dd391 1-136,138-272
+openspec/changes/stage-5-8-system-group/design.md
+  s_21eff977e05256::t_3cdabd2b0b879e 4,33,46-48,131,151,219-220,228-249,278-279,289,298
+openspec/changes/stage-5-8-system-group/proposal.md
+  s_21eff977e05256::t_8a71d2cea00413 15,34,97-99,112,115
+openspec/changes/stage-5-8-system-group/specs/client-endpoint/spec.md
+  s_21eff977e05256::t_82157e65b32213 9,50,74,86-92
+openspec/changes/stage-5-8-system-group/specs/config-service/spec.md
+  s_21eff977e05256::t_cefe6b5ea73eb6 23
+openspec/changes/stage-5-8-system-group/specs/metadata-group/spec.md
+  s_21eff977e05256::t_76513643878c67 31-33,54-55,58-59,61-67,79-82,110
+openspec/changes/stage-5-8-system-group/specs/quad-reads/spec.md
+  s_21eff977e05256::t_2bf8d3f4a52c8f 8
+openspec/changes/stage-5-8-system-group/specs/role-binaries/spec.md
+  s_21eff977e05256::t_708ea275216095 99,111-116
+openspec/changes/stage-5-8-system-group/specs/schema-changes/spec.md
+  s_21eff977e05256::t_a0f3bfc7abf68d 16-26
+openspec/changes/stage-5-8-system-group/specs/sequencer/spec.md
+  s_21eff977e05256::t_fce5ec6f8e2dee 6-7,16
+openspec/changes/stage-5-8-system-group/specs/system-group/spec.md
+  s_21eff977e05256::t_9a9da7e12b4434 52-53,63-66,83-86,88,91-93,134-137,153-154
+openspec/changes/stage-5-8-system-group/specs/transactions/spec.md
+  s_21eff977e05256::t_f118e5e666510c 25-26,35-36,115-119
+openspec/changes/stage-5-8-system-group/specs/wire-protocol/spec.md
+  s_21eff977e05256::t_97623538cd9591 42-45,79-80,82-88,110-117
+openspec/changes/stage-5-8-system-group/tasks.md
+  s_21eff977e05256::t_7747318c4a634c 24-29,57,64-65,68,71-72,75,77,79-80,82,90,97,107,112-113
+openspec/changes/stage-5-9-compute-role/design.md
+  s_21eff977e05256::t_abac38440198d6 18,40-50,97-98
+openspec/changes/stage-5-9-compute-role/proposal.md
+  s_21eff977e05256::t_f8b992bd6f0801 79,87-89,91,95-96
+openspec/changes/stage-5-9-compute-role/specs/metadata-group/spec.md
+  s_21eff977e05256::t_2012a48a82544a 31-33,54-55,58-59,61-67,79-82
+openspec/changes/stage-5-9-compute-role/specs/role-binaries/spec.md
+  s_21eff977e05256::t_bd630599a41746 99,111-116
+openspec/changes/stage-5-9-compute-role/specs/schema-changes/spec.md
+  s_21eff977e05256::t_5b4155d4f3bf3b 1,5-7,10
+openspec/changes/stage-5-9-compute-role/specs/transactions/spec.md
+  s_21eff977e05256::t_99eb1de41f3936 50-51
+openspec/changes/stage-5-9-compute-role/specs/wire-protocol/spec.md
+  s_21eff977e05256::t_1f201379037694 61-67,89-96
+openspec/changes/stage-5-9-compute-role/tasks.md
+  s_21eff977e05256::t_703986c322b324 19,56,58,60,62-63,76,79,82
+openspec/changes/stage-6-5-tile-store/specs/role-binaries/spec.md
+  s_21eff977e05256::t_7e52426c3f84a6 48,62-67
+openspec/notes/SECURITY.md
+  s_21eff977e05256::t_c4ebc0e23b71c4 27,31-44,58-59,68-70,85-89,153-156,192,194-195,328-331,401-402,404,421,423
+openspec/notes/backlog.md
+  s_21eff977e05256::t_f4322f50426d7c 246-250,258-270
+openspec/specs/role-binaries/spec.md
+  s_21eff977e05256::t_a4ced36a6aa0de 93,107-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fe0db0a47e60d79fcb2fc11b261d1ea9e7b582a7",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
