@@ -33,8 +33,9 @@ ask the system group by role command afterwards, so every client-facing suite co
 5. **The round trip is measured.** Reads are recorded on the stage 5.7 cluster before the move, since the benchmark
    record of 2026-11-09 holds writes alone, and the whole benchmark is rerun after it, so what a commit's Check costs
    is known before stage 5.9 removes a read's hop. It is acceptable when throughput at saturation stays within the
-   baseline's spread and a commit's latency rises by at most one hop between the frontend and the system group as
-   measured in the same run; a larger gap is a defect and is root-caused.
+   baseline's spread and a commit's median latency rises by at most one hop between the frontend and the system group as
+   measured in the same run, the hop being the median round trip of a Check frame as the endpoint cores time it; a
+   larger gap is a defect and is root-caused.
 
 ## What Changes
 
@@ -57,6 +58,7 @@ ask the system group by role command afterwards, so every client-facing suite co
 - **BREAKING: settings.** `[system]` with `role_address` and `data_dir` on exactly one storage instance, which also
   takes the `[metadata]` and `[sequencer]` tables; `cluster.system_address` on every instance in place of
   `cluster.frontend_address`; `frontend.role_address` and `frontend.data_dir` removed. The config service checks them.
+  The new settings arrive beside the old, and the old leave in one switch once no binary reads them.
 - **The start order reverses.** The supervisor starts the config service, storage, compute and then the frontend.
   Storage's readiness no longer waits on a frontend, the frontend's waits on the system group and its partitions, and
   the exit after a lost dependency moves from "the frontend" to "the system group", which the hosting storage process
@@ -104,7 +106,9 @@ to another process's directory, and there are no outside users. A development cl
 - **Rewritten or shrunk:** `ultragraphdb_common_frontend` (the owner and its ask interface leave; a link to the system
   group and a local view arrive), `ultragraphdb_frontend`, `ultragraphdb_common_storage`, `ultragraphdb_storage`,
   `ultragraphdb_common_compute`, `ultragraphdb_compute`, `ultragraphdb_common_role`, `ultragraphdb_protocol_wire` (five
-  new bodies, Challenge and Verify served), `ultragraphdb_common_service_config`, `ultragraphdb_common_config_check`,
+  new bodies, Challenge and Verify served), `ultragraphdb_protocol_scram` (the two halves of a server's exchange),
+  `ultragraphdb_core_catalog` (`describe_of`, with `ultragraphdb_protocol_wire` as a dependency),
+  `ultragraphdb_common_service_config`, `ultragraphdb_common_config_check`,
   `ultragraphdb_supervisor`, the role test crates and `ultragraphdb_tests`, `ultragraphdb_tool_bench`'s profiles.
 - **Specifications:** `PROTOCOL.md` sections 11.12, 11.13 and 13 brought to the text of section 11.12a for this stage;
   golden frames and fuzz targets for Session, Check, Ended, Declare, Defaults, Challenge and Verify.

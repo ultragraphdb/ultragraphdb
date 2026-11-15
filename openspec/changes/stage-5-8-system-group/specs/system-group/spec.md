@@ -54,7 +54,8 @@ serve there, besides Hello, Authenticate, Credit and Cancel, the commands `PROTO
 
 | Command | Requested by |
 |---|---|
-| Join, Members, Placement, Catalog | the frontend, compute and storage |
+| Join | compute and storage |
+| Members, Placement, Catalog | the frontend, compute and storage |
 | Subscribe, CloseRequest | the frontend and storage |
 | Lease, DefaultEntry, Report | storage |
 | Challenge, Verify, Session, Check, Ended, Declare, Defaults | the frontend |
@@ -145,7 +146,9 @@ every check of kind 1 with 14.
 
 ### Requirement: The system group goes on answering checks while a log syncs
 While the system group waits on a sync of the metadata state machine's log or of the sequencer's, it SHALL go on
-answering Check from what is durable: the registry with every eviction appended. It SHALL answer every other command
+answering Check: whether the registry holds a session from every command appended, a registration or an eviction whose
+sync is still in flight included, and everything else from what is durable ("The registry is asked by Session, Check and
+Ended"). It SHALL answer every other command
 once the sync has ended, in the order the commands came, so a close's sync delays no commit's check.
 
 #### Scenario: A check is answered while a close syncs

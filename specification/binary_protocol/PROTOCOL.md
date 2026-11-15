@@ -2766,8 +2766,13 @@ frontend asks for each by a role command:
 
 An endpoint core sends the Endeds of one turn in one frame and then the Checks of that turn in one frame, one check per
 session: a further request through a session waits for the next frame, so the system group decides every outcome. A
+turn of an endpoint core is one run of the task that sends on its connection to the system group: the task takes every
+Ended and every Check the core's requests have queued since its last run, and a request queued while it sends waits for
+its next run. A turn waits for no reply, so a session's second check may leave before its first is answered, and the
+system group decides both in their order. A
 Check reads the registry as every registration decided before it left it, durable or not, and a mark exempts its session
-from an eviction decided after it. The round trip a
+from an eviction decided after it: whether the registry holds a session is read from every command appended, a
+registration or an eviction whose sync is still in flight included, and everything else from what is durable. The round trip a
 Check adds to a commit is the price of one authority over sessions; whether a check can be held without asking is item 13 of `../../openspec/notes/backlog.md`.
 
 **While the system group cannot be reached.** A core whose connection to the system group closed dials again. Until it

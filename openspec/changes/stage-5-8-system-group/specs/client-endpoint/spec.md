@@ -6,7 +6,7 @@ its own to the system group at `cluster.system_address` and SHALL ask on it: Ses
 identity it drew, answering the client's Register once the Session is answered; Check before it routes a Commit, a
 Drop, a DirectWrite, a ConditionalWrite or an Ingest through a session, kind 2, and before it asks a partition a
 Recall, kind 1, routing the request only once its check passed and answering the client with the code a failed check
-gave; and Ended when a checked request ended before reaching a partition, its partition answered it, for an Ingest its last share's, or the role connection carrying it closed. When every partition has answered a Recall with 18, the core SHALL send a second Check of kind 1 and answer 12 on outcome 12, else 18. A core SHALL gather the Endeds of one turn into one frame and then the Checks of that turn into one frame, one check per session, a further request through a session waiting for the next frame, so an eviction takes effect for the next commit on any core and a commit's check costs one round trip per turn. A core whose connection to the system group closed SHALL refuse what needs a check with code 17 until it has dialled again (system-group, "A lost system group is waited for until the deadline"), and SHALL send the Ended of a request that ends meanwhile on its next connection.
+gave; and Ended when a checked request ended before reaching a partition, its partition answered it, for an Ingest its last share's, or the role connection carrying it closed. When every partition has answered a Recall with 18, the core SHALL send a second Check of kind 1 and answer 12 on outcome 12, else 18. A core SHALL gather the Endeds of one turn into one frame and then the Checks of that turn into one frame, one check per session, a further request through a session waiting for the next frame, so an eviction takes effect for the next commit on any core and a commit's check costs one round trip per turn. A turn SHALL be one run of the task that sends on the core's connection to the system group: it takes every Ended and every Check the core's requests have queued since its last run, a request queued while it sends waits for its next run, and it waits for no reply (`PROTOCOL.md` section 11.12a). A core whose connection to the system group closed SHALL refuse what needs a check with code 17 until it has dialled again (system-group, "A lost system group is waited for until the deadline"), and SHALL send the Ended of a request that ends meanwhile on its next connection.
 
 #### Scenario: An eviction reaches every core at once
 - **WHEN** a session is evicted while a connection on another core holds it, and that connection commits next
@@ -17,7 +17,8 @@ gave; and Ended when a checked request ended before reaching a partition, its pa
 - **THEN** reads and writes of other connections on that core go on
 
 #### Scenario: One turn's commits share one Check frame
-- **WHEN** eight connections of one endpoint core each send a Commit through a session of their own within one turn
+- **WHEN** eight connections of one endpoint core each queue the check of a Commit through a session of their own before
+  the core's sending task runs next
 - **THEN** the core sends one Check frame holding eight checks, in ascending order of their sessions, and routes each
   Commit by its own outcome
 

@@ -16,6 +16,13 @@ there, and exit with code 69 once the frontend is gone for `join_deadline_ms`. T
 before storage. The storage binary already links `ultragraphdb_cluster_metadata` and `ultragraphdb_cluster_sequencer`
 for their types.
 
+Four facts of that code set the order of the tasks (verified 2026-11-15). `Owner` holds the `AuthThrottle`, and
+`RoleSession` hands every Join to the frontend's `RoleLinks` and `JoinFanOut` and dials the joiner back, so neither
+moves before that is cut (D1). `utils/declarations.rs` holds `describe_of`, which the endpoint goes on needing, beside
+what the group needs (D1). `ScramServer` runs a whole exchange over a verifier it holds, so an exchange across two
+processes needs two halves the crate does not have (D8). And every binary compiles against the settings this stage
+retires, so the new settings arrive first and the old leave last (D2).
+
 Stakeholders: the user, who commits after each group; stage 5.9, which merges the frontend and compute over this
 change's link to the system group; stages 6.5 and 6.6, rebased on both; stage 8, which replicates the group.
 
@@ -45,18 +52,41 @@ change's link to the system group; stages 6.5 and 6.6, rebased on both; stage 8,
 | From `common_frontend` | In `common_system` |
 |---|---|
 | `Owner`, its turn, its answers while a log syncs, its catalog and check code | `SystemGroup` |
-| `OwnerHandle`, `Asked`, `ReportAsked`, `DropStep` | `SystemHandle`, `SystemAsked`: what the group's sessions ask its core |
+| `OwnerHandle`, `Asked`, `ReportAsked`, `DropStep`, `TenantFacts` | `SystemHandle`, `SystemAsked`: what the group's sessions ask its core |
 | `start_owner`, `OwnerStart`, the owner thread, the snapshot file | `start_system`, `SystemStart` |
 | `RoleSession` | `SystemSession`: one per role connection to the group's address |
 | `Membership` | `Membership` |
-| the building of a catalog version from declarations (`utils/declarations.rs`) | the same, behind Declare |
+| `declaration_of`, `merged`, `tightens`, `restored` and `version_bytes` of `utils/declarations.rs`: the building of a catalog version from declarations | the same, behind Declare |
+
+`describe_of` goes to neither: with `preorder`, `kinds` and `declared_predicate` it moves to
+`ultragraphdb_core_catalog`, which takes `ultragraphdb_protocol_wire` as a dependency for it (decided 2026-11-12). The
+owner calls it for a schema id and a Describe until group 5, and the endpoint's view from then (D6), so it lies
+beneath both and the frontend links no `common_system` for it. The wire crate's tests already depend on
+`core_catalog`; they are targets of their own beside its library, so the new edge closes no cycle. Its price is that
+`ultragraphdb_store_apply` and `ultragraphdb_store_quads` are rebuilt when the wire changes.
+
+**The cut comes before the move.** What the table moves holds two things that stay, so two commits in
+`common_frontend` come first, each changing no behaviour:
+
+- **The throttle leaves the owner.** `AuthThrottle` and `LoginLimits` leave `Owner` and `OwnerStart` for the first
+  endpoint core, which answers `Admit` and `Outcome` by message as the owner did (D8). `LoginAsked::Verifier` stays an
+  ask of the owner and answers the verifier alone; the wait it returned beside it is asked of the throttle.
+- **A Join is told by a channel.** `RoleSession` registers a Join with its owner and sends it on a `futures` channel.
+  A task of the frontend takes it from there to `RoleLinks`, to `JoinFanOut` and to the connection back, which leave
+  `RoleShared` with the readiness they set. Group 5 drops the channel when the frontend reads Members (D9).
+
+After both, nothing the table moves names a type that stays, and the move is a move: the same code under new names,
+its suite green with the same count.
 
 `common_system` depends on `cluster_metadata`, `cluster_sequencer`, `cluster_placement`, `common_role`,
 `common_service`, `core_catalog`, `protocol_wire`, `protocol_scram`, `traits_log` and `transactions_log`.
 `common_frontend` loses its dependencies on `cluster_metadata`, `cluster_sequencer`, `traits_log` and
 `transactions_log`. `LoginAsked` splits: the verifier goes (D8), and `Admit` and `Outcome` stay in the frontend with
 `AuthThrottle`. *Alternative:* putting the group into `common_storage` ties the books to the partitions' crate, which
-stage 6.5 rewrites, and a crate of its own is what stage 8 gives a replica group to.
+stage 6.5 rewrites, and a crate of its own is what stage 8 gives a replica group to. *Alternative:* putting the group
+into `common_compute` beside the endpoint removes the question of what moves where, and makes the storage binary link
+the client endpoint, the read executor and from stage 6.6 the compiler of an Install, which the role-binaries and
+system-group specifications forbid it.
 
 **D2. One storage instance hosts the group, named by its settings.** A storage instance whose file holds a `[system]`
 table hosts the system group:
@@ -73,6 +103,15 @@ service refuses a target with no hosting storage instance or more than one, a `[
 an instance that does not host, and a `cluster.system_address` that differs from the host's `system.role_address` in
 scheme, port or Unix path. *Alternative:* the instance holding partition 1 hosts, with no table. A table states the
 choice where an operator reads it, and stage 8 turns "one instance" into "these three" by lifting one check.
+
+**The new settings arrive first and the old leave last.** The frontend binary reads `frontend.data_dir`,
+`[metadata]` and `[sequencer]` until group 5 changes it, and storage and compute read `cluster.frontend_address`
+until groups 4 and 6 do. Group 2 therefore adds: the `[system]` table, `cluster.system_address`, the two moved tables
+accepted on a storage instance and `common_role::system_address`, each beside the setting in use, so every binary
+builds while groups 3 to 6 change them one at a time. Group 7 makes the switch in one commit, once no binary reads an
+old setting: the checks of the config service above, the old settings and `common_role::frontend_address` removed, and
+the profiles, the supervisor and every harness that writes settings rewritten. The config service's rules are
+therefore the old ones until the switch, and the specification's from it.
 
 **D3. The group runs on a core of its own, over logs of its own.** The storage process starts one more thread and
 runtime for the group, as the frontend started its owner's, pinned after the partitions' when `pin_cores` asks. The
@@ -107,7 +146,11 @@ or withdrawn (K17), and reads the default-entry records with Defaults. One conne
 connections only a token carries the floor, which is the user's to confirm (review U2).
 
 **D7. Sessions, the owner check and the mark travel as Session, Check and Ended.** A core sends the Endeds of one turn
-in one frame and then its Checks in one frame, one check per session (section 11.12a). The group decides each check as
+in one frame and then its Checks in one frame, one check per session (section 11.12a). The frontend has no turn today:
+each connection is a task of its own, and only the owner took its asks in turns. A turn is one run of the task that
+sends on the core's `SystemLink`: it takes what the core's requests queued since its last run, and waits for no
+reply. Its tests order a turn exactly through a driver, as `owner_run` orders the owner's, so no scenario depends on
+what a runtime happens to schedule together. The group decides each check as
 the owner did, in the order 12, 21, 14, and a check of kind 1 naming a marked session answers 14, as the owner's
 `begin_recall` does today: the mark is the one place that knows a resend's original is still on its way, whichever core
 the resend arrives at. A passed check of kind 2 marks the session against the connection that sent it. The mark ends by
@@ -121,7 +164,14 @@ while its original is on its way whenever the two connections fail apart.
 
 **D8. Authentication is relayed, and the throttle stays.** For each client exchange a core sends Challenge with the
 name and Verify with the AuthMessage and the proof, and passes the group's salt, iteration count and ServerSignature
-on. The frontend holds no `ScramVerifier`; `AskedCredentials` goes. `AuthThrottle` stays in the frontend: its first
+on. The frontend holds no `ScramVerifier`; `AskedCredentials` goes. `ultragraphdb_protocol_scram` gains the two
+halves of a server's exchange, since `ScramServer` holds the verifier through both messages and derives an unknown
+name's verifier in private: `ScramRelay`, the endpoint's half, which holds no key, reads the client's two messages,
+builds the server's first from the salt and count it is handed and its final from the signature it is handed, and
+gives the AuthMessage and the proof; and on `ScramVerifier` the group's half, the ServerSignature for an AuthMessage
+whose proof holds, with the derivation of an unknown name's verifier from the secret. `ScramServer` keeps its surface
+for role connections. The two halves accept exactly what `ScramServer` accepts, byte for byte, which is a law of
+group 1b. `AuthThrottle` stays in the frontend: its first
 endpoint core holds the counts and the others ask it by message, `Admit` at an accept and `Outcome` after an
 exchange, as they asked the owner. The role secret is still verified locally by each side of a role connection, now
 because a role connection must open before the group can be asked anything.
@@ -166,7 +216,12 @@ written before this change is read after it.
   storage.
 - **The benchmark.** Group 0 records reads on the stage 5.7 cluster. The last group reruns
   `openspec/benches/benches-2026-11-09.md` and the read baseline, and records both in a dated file with the
-  difference a commit's Check makes.
+  difference a commit's Check makes. The hop is measured where it is paid: a core's `SystemLink` times each Check
+  frame from its send to its reply into the role's telemetry, and the run records that time's median and its 99th
+  percentile beside the commit latencies it compares.
+- **Two gates.** The cluster's processes change one group at a time and run together again only after group 7's
+  switch (D2). Groups 0 to 6 are gated by `make build` and every test but those tagged `integration_test`, the tag
+  every suite over the built binaries carries; groups 7 to 9 by `make test` (decided 2026-11-12).
 
 ## Risks / Trade-offs
 
@@ -188,8 +243,8 @@ written before this change is read after it.
 ## Migration Plan
 
 No data migrates: a development cluster starts fresh on the new layout, and no other cluster exists. The groups land
-in the order of `tasks.md`; the tree builds and `make test` passes after each. Rolling back is reverting the group's
-commit.
+in the order of `tasks.md`; the tree builds after each, every test but the integration suites passes after each of
+groups 0 to 6, and `make test` passes after each from group 7 (D12). Rolling back is reverting the group's commit.
 
 ## Resolved before implementation
 
@@ -203,7 +258,17 @@ Decided on 2026-11-12 (`openspec/notes/Stage 5.8 and 5.9 Open Questions.md`):
 - A Describe's two reads may be at two log positions (B5).
 - A storage process that does not host the group commits in its open epoch until that is full (B4).
 - The round trip of a commit's Check is acceptable when throughput at saturation stays within the baseline's spread
-  and a commit's latency rises by at most one hop between the frontend and the system group, as measured in the same
-  run (B10).
+  and a commit's median latency rises by at most one hop between the frontend and the system group, as measured in
+  the same run (B10); the hop is the median round trip of a Check frame (D12).
 - A property test asserts and returns nothing, since `#[hegel::test]` refuses a return type (B1).
 - The rewritten sections of `PROTOCOL.md` are reviewed against section 11.12a before group 1 starts (B13).
+
+Decided on 2026-11-12 and written in on 2026-11-15, after the change was checked against the code:
+
+- `describe_of` lives in `ultragraphdb_core_catalog` (D1).
+- Groups 0 to 6 are gated without the integration suites (D12).
+- The system group keeps a crate of its own, and the owner is cut from the throttle and the links before it moves
+  (D1). Merging it into `common_compute` was weighed and left, for what the storage binary would link.
+- The old settings leave in group 7's switch (D2); the exchange's two halves are a group of their own, 1b (D8); an
+  endpoint core's turn is defined in `PROTOCOL.md` section 11.12a (D7); the hop is the Check frame's round trip as
+  the core times it (D12).
