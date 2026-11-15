@@ -25,6 +25,23 @@ pub fn parse_cpu_list(list: &str) -> Option<BTreeSet<usize>> {
     Some(cpus)
 }
 
+/// The CPUs a role's runtimes take: `allowed` with its first `skip` left free, for the CPUs a host gives its interrupts.
+/// A `skip` that would leave no CPU leaves the last one; empty only for an empty `allowed`.
+#[must_use]
+pub fn usable_cpus(allowed: &BTreeSet<usize>, skip: usize) -> BTreeSet<usize> {
+    let skipped = skip.min(allowed.len().saturating_sub(1));
+    allowed.iter().skip(skipped).copied().collect()
+}
+
+/// The CPU the `core`th runtime of a role binds to: the [`usable_cpus`] of `allowed` and `skip` taken in turn, so more
+/// runtimes than CPUs share them evenly. `None` only for an empty `allowed`.
+#[must_use]
+pub fn cpu_for(allowed: &BTreeSet<usize>, skip: usize, core: usize) -> Option<usize> {
+    let usable = usable_cpus(allowed, skip);
+    let turn = core.checked_rem(usable.len())?;
+    usable.iter().nth(turn).copied()
+}
+
 /// The CPUs a `/proc/*/status` text allows, from its `Cpus_allowed_list` line.
 #[must_use]
 pub fn allowed_in_status(status: &str) -> Option<BTreeSet<usize>> {

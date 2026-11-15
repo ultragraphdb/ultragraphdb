@@ -95,7 +95,9 @@ pub fn run_client(args: &ClientArgs) -> Result<String, BenchError> {
     runtime.block_on(run_connections(args, &password, &tag))
 }
 
-/// Opens every connection, readies it, then times them together from one clock.
+/// Opens every connection, readies them together, then times them together from one clock. Readying is concurrent as
+/// the timed part is: one connection after another, 1,024 connections of a read run take ten minutes to write what
+/// they read.
 ///
 /// Cancellation: the run's future is driven to its end by [`run_client`]; dropped, it closes every connection.
 async fn run_connections(
@@ -107,9 +109,13 @@ async fn run_connections(
     for connection in 0..args.connections() {
         connections.push(open(args, password, tag, connection).await?);
     }
-    for connection in &mut connections {
-        connection.ready(args).await?;
-    }
+    let readied = connections
+        .iter_mut()
+        .map(|connection| connection.ready(args));
+    join_all(readied)
+        .await
+        .into_iter()
+        .collect::<Result<(), _>>()?;
     for connection in &mut connections {
         connection.until_readable(args).await?;
     }

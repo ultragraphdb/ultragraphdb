@@ -38,6 +38,7 @@ snapshot_rounds = 16
 address = "tcp://o:5"
 [runtime]
 pin_cores = true
+pin_skip = 2
 [sequencer]
 epoch_ms_min = 17
 epoch_ms_max = 18
@@ -84,6 +85,7 @@ fn test_every_setting_reaches_its_field() -> TestResult {
     assert_eq!(c.metadata().snapshot_rounds(), Some(16));
     assert_eq!(c.observability().address(), Some("tcp://o:5"));
     assert_eq!(c.runtime().pin_cores(), Some(true));
+    assert_eq!(c.runtime().pin_skip(), Some(2));
     assert_eq!(c.sequencer().epoch_ms_min(), Some(17));
     assert_eq!(c.sequencer().epoch_ms_max(), Some(18));
     assert_eq!(c.storage().partition_first(), Some(19));
@@ -293,6 +295,7 @@ fn test_the_remaining_settings_reach_their_fields() -> TestResult {
     assert_eq!(c.metadata().catalog_check_ms(), Some(28));
     assert_eq!(c.metadata().bootstrap_secret_file(), Some("/bootstrap"));
     assert_eq!(c.runtime().pin_cores(), Some(false));
+    assert_eq!(c.runtime().pin_skip(), None);
     assert_eq!(c.storage().held_bytes(), Some(29));
     Ok(())
 }

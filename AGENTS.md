@@ -149,6 +149,15 @@ history, runs its commit-time operations, appends its round to the write-ahead l
 watermark passes it; a session makes each commit exactly-once. The `transactions` and `commit-rounds` specs state the
 rules.
 
+A cluster is three role processes. The frontend serves clients: the client endpoint, the relay of a client's SCRAM
+exchange by the role commands Challenge and Verify, and the counts of failed authentications with their throttle and
+ban; it holds nothing durable, no principal's verifier and no data directory, and accepts no role connection. Compute
+executes quad-pattern reads and holds no store. Storage holds the partitions, and the one storage process whose
+settings hold a `[system]` table hosts the system group on a core and logs of its own: the metadata state machine,
+with the principals' verifiers and the session registry, and the sequencer; that host reads the bootstrap secret.
+Every process dials the system group at `cluster.system_address`. The `system-group` and `role-binaries` specs state
+the rules.
+
 ### Attribution
 
 Code written here from scratch carries this repository's header alone:

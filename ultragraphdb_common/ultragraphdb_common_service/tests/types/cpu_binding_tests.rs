@@ -21,3 +21,22 @@ fn test_a_binding_says_what_the_thread_holds() {
     assert!(CpuBinding::NotAsked.to_string().starts_with("unpinned"));
     assert!(CpuBinding::Unavailable.to_string().starts_with("unpinned"));
 }
+
+#[test]
+fn test_a_role_binding_says_whether_the_thread_holds_the_roles_cpus() {
+    let cpus = |ids: &[usize]| {
+        ids.iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<usize>>()
+    };
+    let held = CpuBinding::Role {
+        asked: cpus(&[1, 2, 3]),
+        held: cpus(&[1, 2, 3]),
+    };
+    assert!(held.to_string().starts_with("bound to the role's CPUs"));
+    let refused = CpuBinding::Role {
+        asked: cpus(&[1, 2, 3]),
+        held: cpus(&[0, 1, 2, 3]),
+    };
+    assert!(refused.to_string().starts_with("unpinned"));
+}

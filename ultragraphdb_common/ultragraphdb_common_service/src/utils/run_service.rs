@@ -9,8 +9,8 @@ use std::future::Future;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, ExitCode};
 use std::rc::Rc;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use compio::driver::DriverType;
@@ -32,7 +32,7 @@ use crate::types::role_kind::RoleKind;
 use crate::types::role_start::RoleStart;
 use crate::types::service_end::ServiceEnd;
 use crate::types::stopping::Stopping;
-use crate::utils::cpu_list::allowed_in_status;
+use crate::utils::cpu_list::{allowed_in_status, cpu_for, usable_cpus};
 use crate::utils::fetch_settings::fetch_settings;
 use crate::utils::listen::{bind_tcp, listen};
 
@@ -103,7 +103,7 @@ where
     let Some(start) = fetched else {
         return Ok(());
     };
-    let (runtime, cpu) = core_runtime(start.config(), 0)?;
+    let (runtime, cpu) = role_runtime(start.config())?;
     let ended = runtime.block_on(serve_service(kind, &start, cpu, &stop, role))?;
     drop(runtime);
     drop(telemetry);
@@ -296,9 +296,59 @@ fn watch_parent(parent: u32, stop: Arc<AtomicBool>) -> Result<(), RoleError> {
         .map_err(|error| RoleError::unavailable(format!("watching the parent process: {error}")))
 }
 
-/// A runtime for the calling thread, the role's `core`th, from 0, and what became of its binding: to the `core`th CPU it
-/// is permitted when the settings ask and the platform can say what it holds. A platform without `/proc` gets no request
-/// at all: macOS would take it as no more than a cache hint.
+/// How many of its permitted CPUs, from the lowest, the role leaves free: `[runtime] pin_skip`, none when absent.
+fn pin_skip(config: &ServiceConfig) -> usize {
+    config
+        .runtime()
+        .pin_skip()
+        .and_then(|skip| usize::try_from(skip).ok())
+        .unwrap_or(0)
+}
+
+/// A runtime for the calling thread, which starts the role and its other runtimes, and what became of its binding: to
+/// every CPU the role's runtimes take ([`usable_cpus`]) when the settings ask, and to no single one. A thread a bound
+/// thread spawns may ask only for CPUs its spawner held, so a first runtime bound to one CPU would leave every other
+/// runtime of the role on that CPU.
+///
+/// # Errors
+///
+/// [`RoleError::unavailable`] when the runtime cannot be built.
+pub fn role_runtime(config: &ServiceConfig) -> Result<(Runtime, CpuBinding), RoleError> {
+    let pin_cores = config.runtime().pin_cores();
+    let asked = (pin_cores == Some(true))
+        .then(permitted_cpus)
+        .flatten()
+        .map(|allowed| usable_cpus(allowed, pin_skip(config)));
+    let mut builder = Runtime::builder();
+    if let Some(cpus) = &asked {
+        let _builder = builder.thread_affinity(cpus.iter().copied().collect());
+    }
+    let runtime = builder
+        .build()
+        .map_err(|error| RoleError::unavailable(format!("the runtime: {error}")))?;
+    tracing::info!(
+        "the role's first runtime on the {} driver",
+        driver_name(runtime.driver_type())
+    );
+    let binding = match (pin_cores, asked, thread_allowed()) {
+        (Some(true), Some(asked), Some(held)) => CpuBinding::Role { asked, held },
+        (Some(true), _, _) => CpuBinding::Unavailable,
+        _ => CpuBinding::NotAsked,
+    };
+    Ok((runtime, binding))
+}
+
+/// The CPUs the process is permitted, read once, by the first caller, which is [`role_runtime`] before it binds the
+/// role's first thread: every later thread holds a narrower set. `None` where the operating system does not say.
+fn permitted_cpus() -> Option<&'static BTreeSet<usize>> {
+    static PERMITTED: OnceLock<Option<BTreeSet<usize>>> = OnceLock::new();
+    PERMITTED.get_or_init(thread_allowed).as_ref()
+}
+
+/// A runtime for the calling thread, the role's `core`th, from 0, and what became of its binding: to the CPU
+/// [`cpu_for`] gives it among those the process is permitted, `[runtime] pin_skip` of them left free, when the settings
+/// ask and the platform can say what it holds. A platform without `/proc` gets no request at all: macOS would take it
+/// as no more than a cache hint.
 ///
 /// # Errors
 ///
@@ -309,9 +359,9 @@ pub fn core_runtime(
 ) -> Result<(Runtime, CpuBinding), RoleError> {
     let pin_cores = config.runtime().pin_cores();
     let asked = (pin_cores == Some(true))
-        .then(thread_allowed)
+        .then(permitted_cpus)
         .flatten()
-        .and_then(|allowed| allowed.iter().nth(core).copied());
+        .and_then(|allowed| cpu_for(allowed, pin_skip(config), core));
     let mut builder = Runtime::builder();
     if let Some(cpu) = asked {
         let _builder = builder.thread_affinity(HashSet::from([cpu]));

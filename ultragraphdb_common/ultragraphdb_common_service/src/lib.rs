@@ -25,10 +25,10 @@ pub use crate::types::role_kind::RoleKind;
 pub use crate::types::role_start::RoleStart;
 pub use crate::types::service_end::ServiceEnd;
 pub use crate::types::stopping::Stopping;
-pub use crate::utils::cpu_list::{allowed_in_status, parse_cpu_list};
+pub use crate::utils::cpu_list::{allowed_in_status, cpu_for, parse_cpu_list, usable_cpus};
 pub use crate::utils::fetch_settings::fetch_settings;
 pub use crate::utils::listen::{BIND_RETRIES, bind_tcp, listen};
 pub use crate::utils::run_service::{
-    binding, core_runtime, driver_name, exit_status, role_help, run_service, serve_service,
-    stop_flag, stop_with_parent,
+    binding, core_runtime, driver_name, exit_status, role_help, role_runtime, run_service,
+    serve_service, stop_flag, stop_with_parent,
 };

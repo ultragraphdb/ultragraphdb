@@ -20,6 +20,15 @@ pub enum CpuBinding {
         /// What the thread holds.
         held: BTreeSet<usize>,
     },
+    /// The binding of a role's first runtime, read back: the CPUs its runtimes take between them. The thread that
+    /// starts the role's other runtimes is bound to all of them and to no single one, since a thread bound to one CPU
+    /// hands that one CPU to every thread it spawns as all it may ask for.
+    Role {
+        /// The CPUs asked for.
+        asked: BTreeSet<usize>,
+        /// What the thread holds.
+        held: BTreeSet<usize>,
+    },
 }
 
 impl fmt::Display for CpuBinding {
@@ -34,6 +43,15 @@ impl fmt::Display for CpuBinding {
                 write!(
                     f,
                     "unpinned: asked for CPU {asked}, the thread holds {held:?}"
+                )
+            }
+            Self::Role { asked, held } if asked == held => {
+                write!(f, "bound to the role's CPUs {held:?}")
+            }
+            Self::Role { asked, held } => {
+                write!(
+                    f,
+                    "unpinned: asked for the CPUs {asked:?}, the thread holds {held:?}"
                 )
             }
         }
