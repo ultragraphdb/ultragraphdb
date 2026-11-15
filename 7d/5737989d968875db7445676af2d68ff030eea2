@@ -1,0 +1,49 @@
+openspec/changes/stage-5-8-system-group/specs/client-endpoint/spec.md
+  s_21eff977e05256::t_71309425dcc220 9
+  s_21eff977e05256::t_f8c249053c1a59 20-21
+openspec/changes/stage-5-8-system-group/design.md
+  s_21eff977e05256::t_25cd89c4f29edc 219-224
+  s_21eff977e05256::t_4d2fe414add7d6 149-153
+  s_21eff977e05256::t_99a58b6af67c5f 246-247
+  s_21eff977e05256::t_ecf5465e9be7af 19-25
+  s_21eff977e05256::t_187e67c19b5e98 167-174
+  s_21eff977e05256::t_1babcad3ab5d39 107-115
+  s_21eff977e05256::t_abbe5d04111613 55,59-79,86-89
+  s_21eff977e05256::t_e5b7104d104cde 265-274
+  s_21eff977e05256::t_77128af435f308 261-262
+openspec/changes/stage-5-8-system-group/tasks.md
+  s_21eff977e05256::t_4ce34d5ae4a6e5 57,60-62
+  s_21eff977e05256::t_6d34609881aeb8 17-19
+  s_21eff977e05256::t_f54e345a409ef8 28
+  s_21eff977e05256::t_224235d364c578 10
+  s_21eff977e05256::t_d5ef5d6031deba 35
+  s_21eff977e05256::t_c9d7fb1aaf066b 40,42-47,49-55
+  s_21eff977e05256::t_5cc69cef4626d2 56,63-66,79,82,92,94-100,112-113
+specification/binary_protocol/PROTOCOL.md
+  s_21eff977e05256::t_208863d7e57e61 2769-2772,2774-2775
+openspec/changes/stage-5-8-system-group/specs/system-group/spec.md
+  s_21eff977e05256::t_4e497f3a4e1336 149-151
+  s_21eff977e05256::t_21552e788e4493 57-58
+openspec/changes/stage-5-8-system-group/proposal.md
+  s_21eff977e05256::t_4f8e3eb5741714 36-38,61,109-111
+Cargo.lock
+  s_21eff977e05256::t_6b210807143cf3 218,220,260,262,885,887,1153,1155,1164,1166,1182,1184,1647,1649,2083,2085,2093,2095,2357,2359
+MODULE.bazel.lock
+  s_21eff977e05256::t_6b7e07dec31e06 686,695,773,821-823,915,980,983,1030
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7d5737989d968875db7445676af2d68ff030eea2",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
