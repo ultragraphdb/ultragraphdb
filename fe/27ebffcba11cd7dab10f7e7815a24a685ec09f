@@ -1,0 +1,75 @@
+scripts/bench_cluster.sh
+  s_21eff977e05256::t_fe1513cff3731d 1-161
+AGENTS.md
+  s_21eff977e05256::t_efe41402e94191 152-160
+ultragraphdb_tool/ultragraphdb_tool_bench/src/utils/client_run.rs
+  s_21eff977e05256::t_4f04b832583f44 98-100
+  s_21eff977e05256::t_efd5911a69feb2 112-117
+  s_21eff977e05256::t_b60ebe7f38f5fa 118
+specification/binary_protocol/PROTOCOL.md
+  s_21eff977e05256::t_073054fdee1273 2137-2139
+  s_21eff977e05256::t_813e3d4e29c65e 718-719
+  s_21eff977e05256::t_ca80b08a3a403e 1307-1308
+  s_21eff977e05256::t_0af595de218637 1691
+  s_21eff977e05256::t_896b3356a454bf 4159-4160
+  s_21eff977e05256::t_f5d32e8f372dfc 817-818
+  s_21eff977e05256::t_e7408f78d8e0f0 2176-2177
+  s_21eff977e05256::t_dc5ecba307137d 273
+  s_21eff977e05256::t_47ab844e916bbe 1703
+  s_21eff977e05256::t_0b5aaf4887959c 510
+  s_21eff977e05256::t_43ab649b586f09 14-18,22
+  s_21eff977e05256::t_042e357880ce8d 2133
+  s_21eff977e05256::t_9ab92e9299b431 1696
+  s_21eff977e05256::t_e8934ea0096131 533-535
+  s_21eff977e05256::t_e14159fcad275e 32-33
+  s_21eff977e05256::t_a546adb090a706 2190
+  s_21eff977e05256::t_d9b70d79bdebbb 2561-2563
+  s_21eff977e05256::t_7de2db161b4606 2576-2578
+  s_21eff977e05256::t_ce0fb9fd927ab0 1309-1310
+  s_21eff977e05256::t_72dd1529d51f23 2530
+  s_21eff977e05256::t_51079b0347e7f8 2196-2199
+  s_21eff977e05256::t_d0e4a8e05fdfa9 2521
+  s_21eff977e05256::t_d3ceb447a070d7 1683
+  s_21eff977e05256::t_62b7671e7a6a43 2861-2862
+  s_21eff977e05256::t_9fa10352cc1691 39
+  s_21eff977e05256::t_2b6b2fc645b693 4434-4435
+  s_21eff977e05256::t_948e7730b5791f 2801-2802
+  s_21eff977e05256::t_7d733659246637 531-532,536-537
+  s_21eff977e05256::t_0ff0753fe70062 814-815
+  s_21eff977e05256::t_08525e1bbd6eea 19-20
+  s_21eff977e05256::t_1343d786764f2a 232-240,247,249-250,254-256,258-259,272,599,830-835,1630-1631,1966-1970,1977-1979,1991-1992,2072-2073,2075,2108-2111,2113-2115,2122-2128,2131-2132,2134-2136,2140-2147,2164-2166,2174-2175,2182-2187,2191-2195,2200-2204,2208,2356,2421,2425-2428,2461,2463-2466,2472-2480,2485-2487,2489-2490,2510-2514,2522-2524,2526-2528,2531-2535,2537,2546-2548,2560,2564-2567,2572-2575,2579-2582,2623-2625,2784,2799,2804-2805,2827,2855-2860,2863-2870,2891-2894,2897-2901,2906-2907,2923-2924,2947-2951,2970-2974,2976-2977,2979-2980,3028,3389-3390,3407,3460,3468-3469,3476,3478-3479,3483-3484,3487,3498-3499,3617-3618,3631,3640-3641,3645,3647-3648,3653-3654,3669-3670,3675,3677-3678,3683,3694-3696,3910-3912,4158,4161-4164,4168-4169,4201,4217,4225-4226,4423-4424,4426,4437-4439,4443,4445,4467-4469,4474,4478,4506,4535-4536,4548
+ultragraphdb_common/ultragraphdb_common_service/src/lib.rs
+  s_21eff977e05256::t_7591e59a35f0ca 28,32-33
+ultragraphdb_common/ultragraphdb_common_service/src/types/cpu_binding.rs
+  s_21eff977e05256::t_18ff776af28c9a 23-31,48-56
+ultragraphdb_common/ultragraphdb_common_service/src/utils/cpu_list.rs
+  s_21eff977e05256::t_fe6b74d5c9f99c 28-44
+ultragraphdb_common/ultragraphdb_common_service/src/utils/run_service.rs
+  s_21eff977e05256::t_1f37e9bb68d4f6 13,35,106,299-351,362,364
+ultragraphdb_common/ultragraphdb_common_service/tests/types/cpu_binding_tests.rs
+  s_21eff977e05256::t_f2396008b5c823 24-42
+ultragraphdb_common/ultragraphdb_common_service/tests/utils/cpu_list_tests.rs
+  s_21eff977e05256::t_78577d375f5b77 6-8,38-114
+ultragraphdb_common/ultragraphdb_common_service_config/src/types/runtime_table.rs
+  s_21eff977e05256::t_acf56ab60c5dd6 13,20,29-35
+ultragraphdb_common/ultragraphdb_common_service_config/tests/types/service_config/service_config_tests.rs
+  s_21eff977e05256::t_c84b733c646260 41,88,298
+ROADMAP.md
+  s_21eff977e05256::t_e4081013bc096a 3-24,27,29,33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fe27ebffcba11cd7dab10f7e7815a24a685ec09f",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
