@@ -37,6 +37,8 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
         mut inbox: UnboundedReceiver<SystemAsked>,
         clock: impl Fn() -> ClockReading,
     ) -> Result<(), RoleError> {
+        // The group begins to listen as its run begins: its quiet time is counted from here (`PROTOCOL.md` §11.5).
+        self.marks.listen(clock().monotonic_us());
         // An event loop: it ends once every handle is gone, or at a failure, which stops the owner (Ultra rule 2).
         loop {
             if self.waiting.is_empty() {
@@ -50,42 +52,47 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
                     let Some(first) = asked else {
                         return Ok(());
                     };
-                    self.take(first)?;
-                    self.take_turn(&mut inbox)?;
+                    self.take(first, clock().monotonic_us())?;
+                    self.take_turn(&mut inbox, &clock)?;
                 }
             } else {
                 // What the last sync's wait took and kept comes first, in its order, then what came after it.
                 while let Some(kept) = self.waiting.pop_front() {
-                    self.take(kept)?;
+                    self.take(kept, clock().monotonic_us())?;
                 }
-                self.take_turn(&mut inbox)?;
+                self.take_turn(&mut inbox, &clock)?;
             }
-            self.turn(clock(), &mut inbox).await?;
+            self.turn(&clock, &mut inbox).await?;
         }
     }
 
     /// Takes what waits in `inbox`, at most `ASKS_PER_TURN_MAX`, the rest waiting for the next turn (Ultra rule 2).
-    fn take_turn(&mut self, inbox: &mut UnboundedReceiver<SystemAsked>) -> Result<(), RoleError> {
+    fn take_turn(
+        &mut self,
+        inbox: &mut UnboundedReceiver<SystemAsked>,
+        clock: &impl Fn() -> ClockReading,
+    ) -> Result<(), RoleError> {
         let mut taking = InboxTurn::new(ASKS_PER_TURN_MAX);
         while let Some(next) = taking.receive(|| inbox.try_recv()) {
-            self.take(next)?;
+            self.take(next, clock().monotonic_us())?;
         }
         Ok(())
     }
 
-    /// One turn: the answers the asks of this turn wait for, then the close due at `now`, durable in the sequencer's log
-    /// before the group learns it.
+    /// One turn: the answers the asks of this turn wait for, then the close due at the time `clock` reads, durable in the
+    /// sequencer's log before the group learns it.
     /// A future dropped at a sync leaves its answers unsent and the owner fit only to be dropped, as [`SystemGroup::run`]
     /// says.
     async fn turn(
         &mut self,
-        now: ClockReading,
+        clock: &impl Fn() -> ClockReading,
         inbox: &mut UnboundedReceiver<SystemAsked>,
     ) -> Result<(), RoleError> {
-        self.answer_durable(inbox).await?;
+        self.answer_durable(inbox, clock).await?;
+        let now = clock();
         // A report just durable may end a check, whose restoring version takes the next sync.
         self.run_checks(now.monotonic_us())?;
-        self.answer_durable(inbox).await?;
+        self.answer_durable(inbox, clock).await?;
         let state = self.metadata.state();
         let versions: Vec<(Tenant, u64)> = state
             .pending_versions()
@@ -111,15 +118,21 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
         }
         let answering = SyncReads {
             reads: self.metadata.reads(),
-            in_flight: &mut self.in_flight,
+            marks: &mut self.marks,
             closed: self.closed,
         };
-        let _durable = while_syncing(self.sequencer.sync(), inbox, answering, &mut self.waiting)
-            .await
-            .map_err(|error| stopped(&error))?;
+        let _durable = while_syncing(
+            self.sequencer.sync(),
+            inbox,
+            answering,
+            &mut self.waiting,
+            clock,
+        )
+        .await
+        .map_err(|error| stopped(&error))?;
         self.closed = self.sequencer.last_closed().get();
         if self.learn_missed()? {
-            self.sync_metadata(inbox).await?;
+            self.sync_metadata(inbox, clock).await?;
         }
         self.answer_closes();
         self.answer_versions();
@@ -132,19 +145,21 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
     async fn answer_durable(
         &mut self,
         inbox: &mut UnboundedReceiver<SystemAsked>,
+        clock: &impl Fn() -> ClockReading,
     ) -> Result<(), RoleError> {
         if self.durable.is_empty() {
             return Ok(());
         }
-        self.sync_metadata(inbox).await?;
+        self.sync_metadata(inbox, clock).await?;
         for answer in self.durable.drain(..) {
             // An asker gone has no one to tell; what it asked for is durable all the same.
             match answer {
                 Durable::Lease(start, reply) => drop(reply.send(Ok(start))),
                 Durable::Registered(reply) => drop(reply.send(Ok(()))),
+                Durable::Dropped(version, reply) => drop(reply.send(Ok(version))),
                 Durable::Recorded(found, reply) => drop(reply.send(Ok(found))),
                 Durable::Restored(Some((reply, refusal))) => drop(reply.send(Err(refusal))),
-                Durable::Restored(None) => {}
+                Durable::Restored(None) | Durable::Offered => {}
             }
         }
         Ok(())
@@ -156,14 +171,15 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
     async fn sync_metadata(
         &mut self,
         inbox: &mut UnboundedReceiver<SystemAsked>,
+        clock: &impl Fn() -> ClockReading,
     ) -> Result<(), RoleError> {
         let (sync, reads) = self.metadata.syncing();
         let answering = SyncReads {
             reads,
-            in_flight: &mut self.in_flight,
+            marks: &mut self.marks,
             closed: self.closed,
         };
-        let durable = while_syncing(sync, inbox, answering, &mut self.waiting)
+        let durable = while_syncing(sync, inbox, answering, &mut self.waiting, clock)
             .await
             .map_err(|error| stopped(&error))?;
         self.metadata

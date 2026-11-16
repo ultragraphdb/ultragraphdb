@@ -6,6 +6,8 @@
 mod system_group_answer;
 pub(crate) mod system_group_catalog;
 mod system_group_check;
+mod system_group_reads;
+mod system_group_sessions;
 pub(super) mod system_group_syncing;
 mod system_group_turn;
 
@@ -25,6 +27,7 @@ use ultragraphdb_protocol_wire::ErrorReply;
 use ultragraphdb_traits_log::OrderedLog;
 
 use crate::types::membership::Membership;
+use crate::types::session_marks::SessionMarks;
 use crate::types::system_asked::SystemAsked;
 use crate::types::system_start::SystemStart;
 use crate::utils::snapshot_file;
@@ -48,14 +51,18 @@ const ASKS_PER_TURN_MAX: usize = 1_024;
 enum Durable {
     Lease(u64, Sender<Result<u64, ErrorReply>>),
     Registered(Sender<Result<(), ErrorReply>>),
+    /// The catalog version a Drop called for, 0 for none.
+    Dropped(u64, Sender<Result<u64, ErrorReply>>),
+    /// A declaring Commit's version, pending once durable, so the next close assigns its epoch; its answer waits for that.
+    Offered,
     /// A default entry's record, and whether it was held already.
     Recorded(bool, Sender<Result<bool, ErrorReply>>),
     /// A restoring version, and the refusal of the declaring Commit waiting on what it withdraws, if one still is.
     Restored(Option<(VersionSender, ErrorReply)>),
 }
 
-/// Where a declaring Commit's answer goes.
-type VersionSender = Sender<Result<u64, ErrorReply>>;
+/// Where a declaring Commit's answer goes: the version and the first version of its effective epoch.
+type VersionSender = Sender<Result<(u64, u64), ErrorReply>>;
 
 /// A declaring Commit waiting on a catalog version's effective epoch: its tenant, the version and where to answer.
 type VersionWaiter = (Tenant, u64, VersionSender);
@@ -75,9 +82,9 @@ pub struct SystemGroup<M: OrderedLog, S: OrderedLog> {
     check_refusals: BTreeMap<(Tenant, u64), (String, String)>,
     /// When each version being checked, its epoch assigned, stops waiting for its partitions.
     check_deadlines: BTreeMap<(Tenant, u64), u64>,
-    /// The sessions with a commit in flight, each with whether it may record the session in a partition's table, which keeps a
-    /// full registry from evicting it.
-    in_flight: BTreeMap<u128, bool>,
+    /// The sessions with a request in flight, each held against the role connection whose Check began it, and the quiet time
+    /// after the group begins to listen (`PROTOCOL.md` §11.5).
+    marks: SessionMarks,
     /// Each tenant's schema id, by the catalog version it was computed of: only a new version changes it (`PROTOCOL.md` §11.7).
     schema_ids: BTreeMap<u64, (u64, u64)>,
     closes_since_snapshot: u32,
@@ -163,7 +170,7 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
             versions_waited: Vec::new(),
             check_refusals: BTreeMap::new(),
             check_deadlines: BTreeMap::new(),
-            in_flight: BTreeMap::new(),
+            marks: SessionMarks::new(start.transaction_ms()),
             schema_ids: BTreeMap::new(),
             closes_since_snapshot: 0,
             snapshots,

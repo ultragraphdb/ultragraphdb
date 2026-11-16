@@ -205,7 +205,7 @@ pub(crate) fn command_of(frame: &[u8]) -> TestResult<Command> {
 pub(crate) fn reply_of(answer: Answer) -> TestResult<Vec<u8>> {
     match answer {
         Answer::Reply(frame) => Ok(frame),
-        Answer::Open | Answer::Done | Answer::Refuse(_) => {
+        Answer::Open | Answer::Done | Answer::Refuse(_) | Answer::Close(_) => {
             Err(TestError::new(format!("a reply, not {answer:?}")))
         }
     }
@@ -215,7 +215,7 @@ pub(crate) fn reply_of(answer: Answer) -> TestResult<Vec<u8>> {
 pub(crate) fn refusal_of(answer: Answer) -> TestResult<ErrorReply> {
     match answer {
         Answer::Refuse(refusal) => Ok(refusal),
-        Answer::Reply(_) | Answer::Open | Answer::Done => {
+        Answer::Reply(_) | Answer::Open | Answer::Done | Answer::Close(_) => {
             Err(TestError::new(format!("a refusal, not {answer:?}")))
         }
     }

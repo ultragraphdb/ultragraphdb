@@ -276,7 +276,7 @@ pub(crate) fn viewed(frame: &[u8]) -> TestResult<FrameView<'_>> {
 pub(crate) fn refusal(answer: &Answer) -> TestResult<(ErrorCode, u64, String)> {
     match answer {
         Answer::Refuse(reply) => Ok((reply.code(), reply.detail(), reply.message().to_string())),
-        Answer::Reply(_) | Answer::Open | Answer::Done => {
+        Answer::Reply(_) | Answer::Open | Answer::Done | Answer::Close(_) => {
             Err(TestError::new(format!("a refusal, not {answer:?}")))
         }
     }

@@ -3,16 +3,20 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use futures::channel::mpsc::UnboundedSender;
+mod system_session_drop;
+mod system_session_frontend;
+mod system_session_session;
+
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use ultragraphdb_cluster_sequencer::Close;
-use ultragraphdb_common_role::{Answer, Push, RoleCluster, Session};
+use ultragraphdb_common_role::{Answer, Push, RoleCluster};
 use ultragraphdb_core_ids::Tenant;
-use ultragraphdb_protocol_transport::ReceivedFrame;
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, CatalogAnnouncement, CatalogView, CloseRequestView, Command,
     DefaultEntry, DefaultEntryView, EpochClose, ErrorCode, ErrorReply, FLAG_LAST, FrameView,
-    Header, Join, JoinView, Lease, LeaseView, MembersView, PlacementView, ReportKind, ReportView,
-    RequestTermView, RoleKind, SubscribeView,
+    Header, Join, JoinView, Lease, LeaseView, MAX_FRAME_FLOOR, MembersView, PlacementView,
+    ReportKind, ReportView, RequestTermView, RoleKind, SubscribeView,
 };
 
 use crate::types::report_asked::ReportAsked;
@@ -39,28 +43,53 @@ impl SystemShared {
     }
 }
 
-/// One role connection at the frontend's role address. Each request it answers awaits the owner alone, as
-/// [`SystemHandle`] says, and the connection awaits each answer to its end, so only the runtime's end drops one.
+/// One role connection to the system group. It serves the commands `PROTOCOL.md` §11.12's endpoint table lists for the
+/// system group's role address, each only from the role the table has send it, the role being the connection's SCRAM
+/// username; it refuses every other as `CommandNotServed`, closing the connection.
+///
+/// Each request it answers in its turn awaits the owner alone, as [`SystemHandle`] says, and the connection awaits each
+/// such answer to its end. A request whose answer waits for more than the group's next sync, a Session's registration and
+/// a Declare's version, answers [`Answer::Open`] and is pushed once the group answers, so the Checks behind it on the
+/// connection are answered meanwhile; an answer of more than one frame is pushed frame by frame after its first. Only the
+/// runtime's end drops a session; when it is dropped, the group holds the marks its checks began for twice
+/// `transaction_ms` (`PROTOCOL.md` §11.5).
 #[derive(Debug)]
 pub struct SystemSession {
     shared: SystemShared,
     subscription: Option<(u64, u64)>,
+    /// The name the connection's exchange named, read at its first message.
+    named: Option<String>,
+    /// The connection's role, once it authenticated.
+    role: Option<RoleKind>,
+    /// The group's number for this connection, asked for at its first Check or Ended.
+    connection: Option<u64>,
+    /// The largest frame the peer takes, from its Hello.
+    max_frame: usize,
+    /// Where an answer pushed later goes, and where [`ultragraphdb_common_role::Session::next_push`] takes it from.
+    /// Unbounded: each holds the frames of one request the connection opened, so the connection's open streams bound it.
+    pushes: UnboundedSender<(u64, Push)>,
+    pushed: UnboundedReceiver<(u64, Push)>,
 }
 
 impl SystemSession {
     /// A session over what the core shares.
     #[must_use]
     pub fn new(shared: SystemShared) -> Self {
+        let (pushes, pushed) = unbounded();
         Self {
             shared,
             subscription: None,
+            named: None,
+            role: None,
+            connection: None,
+            max_frame: MAX_FRAME_FLOOR,
+            pushes,
+            pushed,
         }
     }
 
     fn header(&self, stream: u64, command: Command) -> Header {
-        Header::new(self.shared.cluster.id(), command)
-            .with_stream(stream)
-            .with_flags(FLAG_LAST)
+        header_of(self.shared.cluster.id(), stream, command)
     }
 
     async fn join(&self, stream: u64, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
@@ -98,30 +127,48 @@ impl SystemSession {
         built(&reply, self.header(stream, Command::Placement))
     }
 
+    /// A Catalog request: the version it names, the current one for `version` 0, or for `version` 0 naming an `epoch` the
+    /// version a client may read there; answered across frames within the requester's `max_frame` (`PROTOCOL.md` §13.7).
     async fn catalog(&self, stream: u64, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
         let asked = CatalogView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
-        let reply = self
-            .shared
-            .owner
-            .catalog(asked.tenant(), asked.version())
-            .await?;
-        built(&reply, self.header(stream, Command::Catalog))
+        let owner = &self.shared.owner;
+        let reply = if asked.version() == 0 && asked.epoch() != 0 {
+            owner.catalog_at(asked.tenant(), asked.epoch()).await?
+        } else {
+            owner.catalog(asked.tenant(), asked.version()).await?
+        };
+        let frames = reply
+            .frames(self.header(stream, Command::Catalog), self.max_frame)
+            .map_err(|rule| ErrorReply::protocol(&rule))?;
+        Ok(self.answer_frames(stream, frames))
     }
 
+    /// A Subscribe: from the close it names, or for `latest` 1, which a frontend's connection alone may ask, from the
+    /// latest durable close (`PROTOCOL.md` §13.3).
     async fn subscribe(
         &mut self,
         stream: u64,
         frame: &FrameView<'_>,
     ) -> Result<Answer, ErrorReply> {
         let asked = SubscribeView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
+        let role = self.role.ok_or_else(unauthenticated)?;
+        asked
+            .check_sender(role)
+            .map_err(|rule| ErrorReply::protocol(&rule))?;
         if self.subscription.is_some() {
             return Err(ErrorReply::new(
                 ErrorCode::Protocol,
                 "this connection holds a subscription already",
             ));
         }
-        self.shared.owner.subscribe(asked.from()).await?;
-        self.subscription = Some((stream, asked.from()));
+        let after = if asked.latest() {
+            // The close after the cursor is the latest durable one, or the close of epoch 1 when none exists yet.
+            self.shared.owner.latest_close().await?.saturating_sub(1)
+        } else {
+            self.shared.owner.subscribe(asked.from()).await?;
+            asked.from()
+        };
+        self.subscription = Some((stream, after));
         Ok(Answer::Open)
     }
 
@@ -162,95 +209,93 @@ impl SystemSession {
         built(&body, self.header(stream, Command::Report))
     }
 
+    /// A CloseRequest, answered by no frame: of `partition` 0 from the frontend alone, and of `partition` 1 or above from
+    /// storage alone (`PROTOCOL.md` §13.16); every refusal is dropped unanswered.
     async fn close_request(&self, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
         let asked =
             CloseRequestView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
+        let role = self.role.ok_or_else(unauthenticated)?;
+        let partition = asked.partition();
+        let named = match role {
+            RoleKind::Frontend => partition == 0,
+            RoleKind::Storage => partition != 0,
+            RoleKind::Compute => false,
+        };
+        if !named {
+            let rule = ProtocolError::field_value(
+                Command::CloseRequest.number(),
+                "partition",
+                u64::from(partition),
+            );
+            return Err(ErrorReply::protocol(&rule));
+        }
         self.shared.owner.close_request(asked.epoch()).await?;
         Ok(Answer::Done)
     }
+
+    /// `frames`, an answer on `stream`: its first as the reply, the rest pushed after it in order.
+    fn answer_frames(&self, stream: u64, frames: Vec<Vec<u8>>) -> Answer {
+        let mut frames = frames.into_iter();
+        let Some(first) = frames.next() else {
+            return Answer::Done;
+        };
+        for frame in frames {
+            // A session holds the receiver as long as the sender, so the send cannot fail.
+            let _queued = self.pushes.unbounded_send((stream, Push::Frame(frame)));
+        }
+        Answer::Reply(first)
+    }
+
+    /// The group's number for this connection, asked for once.
+    async fn connection(&mut self) -> Result<u64, ErrorReply> {
+        if let Some(connection) = self.connection {
+            return Ok(connection);
+        }
+        let connection = self.shared.owner.connect().await.ok_or_else(stopped)?;
+        self.connection = Some(connection);
+        Ok(connection)
+    }
 }
 
-impl Session for SystemSession {
-    /// A dropped future leaves what [`SystemSession`] says.
-    async fn answer(&mut self, stream: u64, received: ReceivedFrame) -> Answer {
-        let view = match received.view() {
-            Ok(view) => view,
-            Err(rule) => return Answer::Refuse(ErrorReply::protocol(&rule)),
-        };
-        let frame = &view;
-        let command = frame.command();
-        let answer = if command == Command::Join {
-            self.join(stream, frame).await
-        } else if command == Command::Members {
-            self.members(stream, frame).await
-        } else if command == Command::Lease {
-            self.lease(stream, frame).await
-        } else if command == Command::Placement {
-            self.placement(stream, frame).await
-        } else if command == Command::Catalog {
-            self.catalog(stream, frame).await
-        } else if command == Command::Subscribe {
-            self.subscribe(stream, frame).await
-        } else if command == Command::CloseRequest {
-            self.close_request(frame).await
-        } else if command == Command::DefaultEntry {
-            self.default_entry(stream, frame).await
-        } else if command == Command::Report {
-            self.report(stream, frame).await
-        } else {
-            Err(ErrorReply::new(
-                ErrorCode::Unavailable,
-                format!("command {} is not hosted here yet", command.number()),
-            ))
-        };
-        answer.unwrap_or_else(Answer::Refuse)
+/// Whether the system group's endpoint table has `role` send `command` (`PROTOCOL.md` §11.12): a connection not yet
+/// authenticated sends nothing its machine hands on.
+fn served(role: Option<RoleKind>, command: Command) -> bool {
+    let Some(role) = role else {
+        return false;
+    };
+    let (frontend, storage) = (role == RoleKind::Frontend, role == RoleKind::Storage);
+    if command == Command::Join {
+        role != RoleKind::Frontend
+    } else if [Command::Members, Command::Placement, Command::Catalog].contains(&command) {
+        true
+    } else if [Command::Subscribe, Command::CloseRequest].contains(&command) {
+        frontend || storage
+    } else if [Command::Lease, Command::DefaultEntry, Command::Report].contains(&command) {
+        storage
+    } else {
+        frontend && FRONTEND_ALONE.contains(&command)
     }
+}
 
-    /// The next close of this connection's subscription. Its cursor moves only once a close came back, and a wait dropped
-    /// for a request that arrived first asks again, so a close is neither lost nor sent twice.
-    async fn next_push(&mut self) -> (u64, Push) {
-        // At most two turns: one that does not return ends the subscription, and the next waits on none (Ultra rule 2).
-        loop {
-            let Some((stream, after)) = self.subscription else {
-                return std::future::pending().await;
-            };
-            let close = match self.shared.owner.next_close(after).await {
-                Ok(close) => close,
-                Err(refusal) => {
-                    // A subscriber too far behind for the closes held has nothing left to read here, and is told so on its
-                    // stream, which this ends (`PROTOCOL.md` §13.3).
-                    tracing::warn!(after, reason = refusal.message(), "a subscription ended");
-                    self.subscription = None;
-                    let header = Header::new(self.shared.cluster.id(), Command::Error)
-                        .with_stream(stream)
-                        .with_flags(FLAG_LAST);
-                    match refusal.frame(header) {
-                        Ok(frame) => return (stream, Push::Frame(frame)),
-                        Err(error) => {
-                            tracing::error!(%error, "a subscription's end could not be framed");
-                            continue;
-                        }
-                    }
-                }
-            };
-            let cluster = self.shared.cluster.id();
-            match close_frame(cluster, stream, &close) {
-                Ok(frame) => {
-                    self.subscription = Some((stream, close.epoch().get()));
-                    return (stream, Push::Frame(frame));
-                }
-                Err(error) => {
-                    tracing::error!(%error, "a close could not be framed");
-                    self.subscription = None;
-                }
-            }
-        }
-    }
+/// The commands the frontend alone sends the system group.
+const FRONTEND_ALONE: [Command; 7] = [
+    Command::Challenge,
+    Command::Verify,
+    Command::Session,
+    Command::Check,
+    Command::Ended,
+    Command::Declare,
+    Command::Defaults,
+];
 
-    fn cancelled(&mut self, stream: u64) {
-        if self.subscription.is_some_and(|(held, _)| held == stream) {
-            self.subscription = None;
-        }
+/// The role a connection authenticated as `name` acts in: a role connection's SCRAM username is its role's name
+/// (`PROTOCOL.md` §11.12).
+fn role_named(name: &str) -> Option<RoleKind> {
+    match name {
+        "frontend" => Some(RoleKind::Frontend),
+        "compute" => Some(RoleKind::Compute),
+        "storage" => Some(RoleKind::Storage),
+        _ => None,
     }
 }
 
@@ -310,6 +355,13 @@ fn joined(join: &JoinView<'_>) -> Join {
     Join::storage(join.address(), partitions)
 }
 
+/// The header of an answer on `stream` of `cluster`, flagged as its stream's last.
+fn header_of(cluster: u64, stream: u64, command: Command) -> Header {
+    Header::new(cluster, command)
+        .with_stream(stream)
+        .with_flags(FLAG_LAST)
+}
+
 fn built<B: BodyBuilder>(body: &B, header: Header) -> Result<Answer, ErrorReply> {
     body.frame(header)
         .map(Answer::Reply)
@@ -318,4 +370,12 @@ fn built<B: BodyBuilder>(body: &B, header: Header) -> Result<Answer, ErrorReply>
 
 fn stopped() -> ErrorReply {
     ErrorReply::new(ErrorCode::Unavailable, "the frontend's owner stopped")
+}
+
+/// A request before the connection authenticated, which its machine never hands on.
+fn unauthenticated() -> ErrorReply {
+    ErrorReply::new(
+        ErrorCode::Unauthenticated,
+        "the connection has not authenticated",
+    )
 }

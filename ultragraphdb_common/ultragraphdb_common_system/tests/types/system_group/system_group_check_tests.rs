@@ -157,7 +157,9 @@ fn test_a_restoring_version_waits_for_room_among_the_pending() -> TestResult {
     let capture = LogCapture::new();
     capture.capture(|| -> TestResult {
         Runtime::new()?.block_on(async {
-            let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
+            let tenants = (1..=MetadataState::PENDING_MAX as u64).collect();
+            let start = starting(MetadataConfig::new())?.with_tenants(tenants);
+            let owner = recovered(&storage, &start, &clock).await?;
             let (handle, run) = running(owner, &clock);
             let ticker = ticking(&clock);
             let held = both_declared(&handle).await?;

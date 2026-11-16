@@ -12,6 +12,10 @@ mod system_group_catalog_tests;
 #[cfg(test)]
 mod system_group_check_tests;
 #[cfg(test)]
+mod system_group_reads_tests;
+#[cfg(test)]
+pub(crate) mod system_group_sessions_tests;
+#[cfg(test)]
 mod system_group_syncing_tests;
 #[cfg(test)]
 mod system_group_turn_tests;
@@ -90,7 +94,12 @@ pub(crate) async fn recovered(
 ) -> TestResult<SimOwner> {
     let (metadata, _) = Wal::open(storage.clone(), "/meta", WalConfig::new(CLUSTER, false)).await?;
     let (sequencer, _) = Wal::open(storage.clone(), "/seq", WalConfig::new(CLUSTER, false)).await?;
-    Ok(SystemGroup::recover(metadata, sequencer, start, None, clock.now()).await?)
+    let mut owner = SystemGroup::recover(metadata, sequencer, start, None, clock.now()).await?;
+    // The tenants beside tenant 0 a start names, as `start_system` creates them.
+    for tenant in start.tenants() {
+        owner.create_tenant_once(*tenant).await?;
+    }
+    Ok(owner)
 }
 
 /// `owner` run on this runtime: the handle to ask it and its run, which ends once every handle is gone.

@@ -11,7 +11,8 @@ use ultragraphdb_protocol_wire::{Command, ROLE_COMMANDS};
 pub enum Endpoint {
     /// The frontend's client endpoint: every client command and no role command.
     Client,
-    /// The frontend's role address.
+    /// The frontend's role address, where the system group listens in this stage: the system group's role address of
+    /// `PROTOCOL.md` §11.12, whose table names which role may send each command it serves.
     Frontend,
     /// A partition's role address.
     Partition,
@@ -36,6 +37,13 @@ impl Endpoint {
                     | Command::CloseRequest
                     | Command::DefaultEntry
                     | Command::Report
+                    | Command::Challenge
+                    | Command::Verify
+                    | Command::Session
+                    | Command::Check
+                    | Command::Ended
+                    | Command::Declare
+                    | Command::Defaults
             ),
             Self::Partition => matches!(
                 command,

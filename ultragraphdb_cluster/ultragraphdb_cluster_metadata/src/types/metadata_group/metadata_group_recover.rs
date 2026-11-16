@@ -151,7 +151,8 @@ impl<L: OrderedLog> MetadataGroup<L> {
             | MetadataCommand::OfferRestoring { .. }
             | MetadataCommand::ReportCheck { .. }
             | MetadataCommand::CreateTenant { .. }
-            | MetadataCommand::DrawSecret { .. }) => {
+            | MetadataCommand::DrawSecret { .. }
+            | MetadataCommand::RemoveDefaults { .. }) => {
                 // A run of chunks no commit followed is no command: it is discarded.
                 chunks.clear();
                 command

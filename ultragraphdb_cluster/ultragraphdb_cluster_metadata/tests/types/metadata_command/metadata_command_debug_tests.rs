@@ -76,6 +76,10 @@ fn test_a_command_prints_every_field() -> TestResult {
             MetadataCommand::ReportUntrimmed { partition, epoch },
             format!("ReportUntrimmed {{ partition: {partition:?}, epoch: {epoch:?} }}"),
         ),
+        (
+            MetadataCommand::RemoveDefaults { tenant },
+            format!("RemoveDefaults {{ tenant: {tenant:?} }}"),
+        ),
     ];
     for (command, printed) in expected {
         assert_eq!(format!("{command:?}"), printed);

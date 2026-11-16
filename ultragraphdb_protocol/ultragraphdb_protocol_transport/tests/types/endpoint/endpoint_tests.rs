@@ -38,9 +38,16 @@ fn test_each_role_endpoint_serves_its_row_of_the_table() {
             Command::Lease,
             Command::Placement,
             Command::Catalog,
+            Command::Challenge,
+            Command::Verify,
             Command::CloseRequest,
             Command::DefaultEntry,
             Command::Report,
+            Command::Session,
+            Command::Check,
+            Command::Ended,
+            Command::Declare,
+            Command::Defaults,
         ]
     );
     assert_eq!(served(Endpoint::Compute), [Command::ComputeRead]);
@@ -76,16 +83,22 @@ fn test_a_write_in_one_frame_is_served_by_the_client_endpoint_and_a_partition() 
     }
 }
 
-/// Challenge and Verify are served by no endpoint in this stage.
+/// The system group's commands, Challenge, Verify, Session, Check, Ended, Declare and Defaults, are served at the system group's
+/// role address alone, which is the frontend's role address in this stage (`PROTOCOL.md` §11.12).
 #[test]
-fn test_challenge_and_verify_are_served_nowhere() {
-    for endpoint in [
-        Endpoint::Client,
-        Endpoint::Frontend,
-        Endpoint::Partition,
-        Endpoint::Compute,
+fn test_the_system_groups_commands_are_served_at_its_role_address_alone() {
+    for command in [
+        Command::Challenge,
+        Command::Verify,
+        Command::Session,
+        Command::Check,
+        Command::Ended,
+        Command::Declare,
+        Command::Defaults,
     ] {
-        assert!(!endpoint.serves(Command::Challenge), "{endpoint:?}");
-        assert!(!endpoint.serves(Command::Verify), "{endpoint:?}");
+        assert!(Endpoint::Frontend.serves(command), "{command:?}");
+        for endpoint in [Endpoint::Client, Endpoint::Partition, Endpoint::Compute] {
+            assert!(!endpoint.serves(command), "{endpoint:?} {command:?}");
+        }
     }
 }

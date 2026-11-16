@@ -32,4 +32,17 @@ impl<'a> MetadataReads<'a> {
     pub fn holds_session(&self, session: u128) -> bool {
         self.head.session_principal(session).is_ok()
     }
+
+    /// The principal of `session` after every command appended, `None` when the registry does not hold it: a session is
+    /// never registered twice, so the principal a registration appended names is the one it holds once durable.
+    #[must_use]
+    pub fn session_principal(&self, session: u128) -> Option<u64> {
+        self.head.session_principal(session).ok()
+    }
+
+    /// The sessions the registry holds after every command appended.
+    #[must_use]
+    pub fn sessions(&self) -> usize {
+        self.head.sessions()
+    }
 }

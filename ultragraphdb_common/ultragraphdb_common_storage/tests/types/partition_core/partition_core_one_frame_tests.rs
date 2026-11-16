@@ -255,7 +255,7 @@ async fn declared_unique(
                     .pushed("a DirectWrite before the version")
                     .await?;
             }
-            other @ (Answer::Reply(_) | Answer::Done) => {
+            other @ (Answer::Reply(_) | Answer::Done | Answer::Close(_)) => {
                 return Err(TestError::new(format!("a DirectWrite answered {other:?}")));
             }
         }

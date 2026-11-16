@@ -102,12 +102,13 @@ fn test_a_version_not_on_the_latest_is_refused_naming_both() -> TestResult {
 #[test]
 fn test_a_version_past_its_bytes_limit_is_refused() -> TestResult {
     let mut state = MetadataState::new();
-    let big = vec![0; 523_001];
+    // `catalog_bytes_max`, 16,777,216 bytes (`PROTOCOL.md` §11.9), and one past it.
+    let big = vec![0; 16_777_217];
     assert_eq!(
         refused(&mut state, &offer(1, 0, &big))?,
-        ClusterError::too_many("bytes of a catalog version", 523_001, 523_000).0
+        ClusterError::too_many("bytes of a catalog version", 16_777_217, 16_777_216).0
     );
-    state.apply(&offer(1, 0, &vec![0; 523_000]))?;
+    state.apply(&offer(1, 0, &vec![0; 16_777_216]))?;
     Ok(())
 }
 
@@ -232,6 +233,29 @@ fn test_a_default_entry_is_kept_and_creates_no_version() -> TestResult {
     assert_eq!(state.default_entry(tenant(1), "scores"), None);
     assert_eq!(state.current_version(tenant(1)), 1);
     assert_eq!(state.pending_versions(), vec![(tenant(1), 1)]);
+    Ok(())
+}
+
+/// A removal of a tenant's default entries removes every record of that tenant and no other's, leaves its catalog, and of a tenant
+/// holding none changes nothing.
+#[test]
+fn test_a_removal_of_default_entries_takes_its_tenants_alone() -> TestResult {
+    let mut state = MetadataState::new();
+    state.apply(&offer(1, 0, b"a1"))?;
+    for (of, predicate) in [(1, "nick"), (1, "score"), (2, "score")] {
+        state.apply(&MetadataCommand::RecordDefault {
+            tenant: tenant(of),
+            predicate: predicate.to_string(),
+            entry: b"entry".to_vec(),
+        })?;
+    }
+    let before = state.clone();
+    state.apply(&MetadataCommand::RemoveDefaults { tenant: tenant(3) })?;
+    assert_eq!(state, before, "a tenant holding none");
+    state.apply(&MetadataCommand::RemoveDefaults { tenant: tenant(1) })?;
+    assert_eq!(state.default_entries(tenant(1)).count(), 0);
+    assert_eq!(state.default_entry(tenant(2), "score"), Some(&b"entry"[..]));
+    assert_eq!(state.current_version(tenant(1)), 1, "the catalog stays");
     Ok(())
 }
 

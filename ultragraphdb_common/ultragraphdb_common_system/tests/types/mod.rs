@@ -12,4 +12,6 @@ mod system_group;
 #[cfg(test)]
 mod system_group_tests;
 #[cfg(test)]
-mod system_session_tests;
+mod system_session;
+#[cfg(test)]
+mod system_start_tests;

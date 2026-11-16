@@ -3333,6 +3333,7 @@ dependencies = [
  "cucumber",
  "futures",
  "getrandom 0.4.3",
+ "hegeltest",
  "oxrdf",
  "tracing",
  "ultragraphdb_cluster_metadata",

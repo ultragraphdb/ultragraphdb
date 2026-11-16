@@ -392,6 +392,9 @@ where
                 let _ended = machine.outbound().cancel(stream);
             }
             Answer::Refuse(refusal) => refuse(machine, stream, command, &refusal)?,
+            Answer::Close(rule) => {
+                let _closing = machine.refuse_connection(&rule)?;
+            }
         },
         Inbound::Cancelled { stream, .. } => session.cancelled(stream),
         Inbound::Refused { .. } | Inbound::Closing { .. } => {}

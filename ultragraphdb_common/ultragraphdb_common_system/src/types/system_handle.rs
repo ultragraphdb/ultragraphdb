@@ -8,7 +8,8 @@ use ultragraphdb_cluster_placement::PlacementMap;
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_protocol_wire::{
-    Catalog, Declared, Describe, ErrorCode, ErrorReply, Join, Members, Placement,
+    Catalog, Declared, Defaults, Describe, ErrorCode, ErrorReply, Join, Members, Placement,
+    SessionCheck,
 };
 
 use crate::types::report_asked::ReportAsked;
@@ -245,7 +246,7 @@ impl SystemHandle {
     ///
     /// # Errors
     ///
-    /// Code 2 of kind Catalog for a version built on one no longer current or on one being checked; code 7, `detail` 523,000,
+    /// Code 2 of kind Catalog for a version built on one no longer current or on one being checked; code 7, `detail` 16,777,216,
     /// for one past its cap; code 7 for declarations tightening and loosening at once, and for a change the data refuses;
     /// code 24 for a partition silent past `catalog_check_ms`.
     pub async fn declare(
@@ -254,6 +255,23 @@ impl SystemHandle {
         built_on: u64,
         declared: Vec<Declared>,
     ) -> Result<u64, ErrorReply> {
+        self.declare_version(tenant, built_on, declared)
+            .await
+            .map(|(_, commit_version)| commit_version)
+    }
+
+    /// As [`SystemHandle::declare`], answering a Declare of `kind` 1 (`PROTOCOL.md` §13.27): the catalog version committed
+    /// as pending, and the first version of its effective epoch.
+    ///
+    /// # Errors
+    ///
+    /// As [`SystemHandle::declare`], and code 7, `detail` the tenant, for a tenant the group does not hold.
+    pub async fn declare_version(
+        &self,
+        tenant: u64,
+        built_on: u64,
+        declared: Vec<Declared>,
+    ) -> Result<(u64, u64), ErrorReply> {
         self.ask_or_refuse(|reply| SystemAsked::Declare {
             tenant,
             built_on,
@@ -279,6 +297,17 @@ impl SystemHandle {
     ///
     /// Code 7 naming what refused it, or unavailable when the owner stopped.
     pub async fn drop_catalog(&self, tenant: u64, step: DropStep) -> Result<(), ErrorReply> {
+        self.drop_version(tenant, step).await.map(|_| ())
+    }
+
+    /// As [`SystemHandle::drop_catalog`], answering a Declare of `kind` 2 (`PROTOCOL.md` §13.27): the catalog version
+    /// committed as pending, 0 when the Drop changes nothing in the catalog. A Drop of everything removes the tenant's
+    /// default-entry records with it, durable before the answer.
+    ///
+    /// # Errors
+    ///
+    /// As [`SystemHandle::drop_catalog`], and code 7, `detail` the tenant, for a tenant the group does not hold.
+    pub async fn drop_version(&self, tenant: u64, step: DropStep) -> Result<u64, ErrorReply> {
         self.ask_or_refuse(|reply| SystemAsked::DropCatalog {
             tenant,
             step,
@@ -314,6 +343,139 @@ impl SystemHandle {
             reply,
         })
         .await
+    }
+
+    /// A number for a new role connection, against which the marks its checks begin are held; `None` when the group
+    /// stopped.
+    pub async fn connect(&self) -> Option<u64> {
+        self.ask(|reply| SystemAsked::Connect { reply }).await
+    }
+
+    /// The role connection `connection` closed: the group holds its marks for twice `transaction_ms` from now and then
+    /// ends them (`PROTOCOL.md` §11.5). A group stopped holds no mark.
+    pub fn disconnect(&self, connection: u64) {
+        drop(
+            self.inbox
+                .unbounded_send(SystemAsked::Disconnect { connection }),
+        );
+    }
+
+    /// A Session (`PROTOCOL.md` §13.23): `session` registered for `principal`, answered once durable. A full registry evicts
+    /// its least recently registered session with no mark.
+    ///
+    /// # Errors
+    ///
+    /// Decided in this order: Error 1 naming the session when the registry holds it, for any principal; code 7 naming the
+    /// principal when the group does not hold it; code 14 when the full registry holds no session it may evict, or must
+    /// evict within twice `transaction_ms` of the group beginning to listen. Unavailable when the group stopped.
+    pub async fn session(&self, session: u128, principal: u64) -> Result<(), ErrorReply> {
+        self.ask_or_refuse(|reply| SystemAsked::Session {
+            session,
+            principal,
+            reply,
+        })
+        .await
+    }
+
+    /// A Check's `checks` sent on `connection`, decided in their order (`PROTOCOL.md` §13.24): each with its outcome, 12,
+    /// 21, 14 or 1 as section 11.5 orders them; a check of kind 2 that passes marks its session against `connection`.
+    ///
+    /// # Errors
+    ///
+    /// Unavailable when the group stopped.
+    pub async fn check(
+        &self,
+        connection: u64,
+        checks: Vec<SessionCheck>,
+    ) -> Result<Vec<SessionCheck>, ErrorReply> {
+        self.ask(|reply| SystemAsked::Check {
+            connection,
+            checks,
+            reply,
+        })
+        .await
+        .ok_or_else(stopped)
+    }
+
+    /// An Ended's `sessions` sent on `connection` (`PROTOCOL.md` §13.25): each mark begun on `connection`, or on a
+    /// connection that closed, ends; any other is passed over. Nothing answers it.
+    pub fn ended(&self, connection: u64, sessions: Vec<u128>) {
+        drop(self.inbox.unbounded_send(SystemAsked::Ended {
+            connection,
+            sessions,
+        }));
+    }
+
+    /// The predicates `tenant` holds default-entry records for, in the order of their texts' bytes, and the log position
+    /// they were read at (`PROTOCOL.md` §13.28).
+    ///
+    /// # Errors
+    ///
+    /// Code 7, `detail` the tenant, for a tenant the group does not hold; unavailable when the group stopped.
+    pub async fn defaults(&self, tenant: u64) -> Result<Defaults, ErrorReply> {
+        self.ask_or_refuse(|reply| SystemAsked::Defaults { tenant, reply })
+            .await
+    }
+
+    /// The catalog version of `tenant` a client may read at the closed epoch `epoch`: the latest in effect at it, leaving
+    /// out a version being checked and one withdrawn; `epoch` 0 asks for the current version, pending or not
+    /// (`PROTOCOL.md` §13.7).
+    ///
+    /// # Errors
+    ///
+    /// Error 1 naming both epochs for an `epoch` above the latest close; code 7, `detail` 0, when no such version is held;
+    /// unavailable when the group stopped.
+    pub async fn catalog_at(&self, tenant: u64, epoch: u64) -> Result<Catalog, ErrorReply> {
+        self.ask_or_refuse(|reply| SystemAsked::CatalogAt {
+            tenant,
+            epoch,
+            reply,
+        })
+        .await
+    }
+
+    /// The iteration count and salt a Challenge for `name` answers (`PROTOCOL.md` §13.8): the principal's, or for a name no
+    /// principal holds a salt derived from the group's secret and the count it derives a principal's verifier with.
+    ///
+    /// # Errors
+    ///
+    /// Unavailable when the group stopped.
+    pub async fn challenge(&self, name: String) -> Result<(u32, Vec<u8>), ErrorReply> {
+        self.ask_or_refuse(|reply| SystemAsked::Challenge { name, reply })
+            .await
+    }
+
+    /// What a Verify answers (`PROTOCOL.md` §13.9): the principal and the ServerSignature when `proof` holds for `name`
+    /// over `auth_message`, `None` alike for a wrong proof and a name no principal holds.
+    ///
+    /// # Errors
+    ///
+    /// Unavailable when the group stopped.
+    pub async fn verify(
+        &self,
+        name: String,
+        auth_message: String,
+        proof: [u8; 32],
+    ) -> Result<Option<(u64, [u8; 32])>, ErrorReply> {
+        self.ask_or_refuse(|reply| SystemAsked::Verify {
+            name,
+            auth_message,
+            proof,
+            reply,
+        })
+        .await
+    }
+
+    /// The latest close the sequencer holds durable, 0 for none: where a Subscribe of `latest` 1 begins (`PROTOCOL.md`
+    /// §13.3).
+    ///
+    /// # Errors
+    ///
+    /// Unavailable when the group stopped.
+    pub async fn latest_close(&self) -> Result<u64, ErrorReply> {
+        self.ask(|reply| SystemAsked::LatestClose { reply })
+            .await
+            .ok_or_else(stopped)
     }
 }
 

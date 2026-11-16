@@ -170,6 +170,20 @@ impl<L: OrderedLog> MetadataGroup<L> {
         Ok(Some(position))
     }
 
+    /// Removes every default-entry record of `tenant`, as a Drop of everything in it calls for (`PROTOCOL.md` §11.13); returns
+    /// the position it was appended at, or `None` when the tenant holds no record, and nothing is appended.
+    ///
+    /// # Errors
+    ///
+    /// [`ClusterError::log`].
+    pub fn remove_defaults(&mut self, tenant: Tenant) -> Result<Option<Position>, ClusterError> {
+        if self.head.default_entries(tenant).next().is_none() {
+            return Ok(None);
+        }
+        let position = self.append(MetadataCommand::RemoveDefaults { tenant })?;
+        Ok(Some(position))
+    }
+
     /// Learns the sequencer's durable close of `epoch`, which announced `versions` and `placement` (0 for none), each
     /// taking effect at the epoch after it, and carried `evictions`, which leave the evictions pending; returns the position it was appended at,
     /// or `None` for a close at or before the last learned, which changes nothing, so the host may hand over every

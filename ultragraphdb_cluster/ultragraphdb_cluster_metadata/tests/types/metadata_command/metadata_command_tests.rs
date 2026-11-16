@@ -7,9 +7,9 @@ use ultragraphdb_cluster_metadata::MetadataCommand;
 
 #[test]
 fn test_the_limits() {
-    // Chunks of 128 KiB fit a test log's 256 KiB segment; the map holds 2^18 ranges; the sequencer's close limits are
-    // 256 versions and 4,096 evictions.
-    assert_eq!(MetadataCommand::CATALOG_BYTES_MAX, 523_000);
+    // A catalog version holds `catalog_bytes_max`, 16,777,216 bytes (`PROTOCOL.md` §11.9); chunks of 128 KiB fit a test
+    // log's 256 KiB segment; the map holds 2^18 ranges; the sequencer's close limits are 256 versions and 4,096 evictions.
+    assert_eq!(MetadataCommand::CATALOG_BYTES_MAX, 16_777_216);
     assert_eq!(MetadataCommand::COMMAND_BYTES_MAX, 33_554_432);
     assert_eq!(MetadataCommand::CHUNK_BYTES, 131_072);
     assert_eq!(MetadataCommand::PREDICATE_BYTES_MAX, 4_096);

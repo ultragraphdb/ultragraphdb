@@ -15,14 +15,17 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_traits_log::OrderedLog;
 
 use crate::types::system_asked::SystemAsked;
-use crate::types::system_group::{Durable, SystemGroup, stopped, system_group_syncing};
+use crate::types::system_group::{
+    Durable, SystemGroup, stopped, system_group_sessions, system_group_syncing,
+};
 use crate::types::tenant_facts::TenantFacts;
 
 impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
-    /// Takes what an endpoint core asked: answered now from what is durable, or kept for the turn's sync.
+    /// Takes what an endpoint core asked at `now_us`: answered now from what is durable, or kept for the turn's sync.
     ///
     /// An asker gone has no one to tell, so every send's failure is dropped.
-    pub(super) fn take(&mut self, asked: SystemAsked) -> Result<(), RoleError> {
+    pub(super) fn take(&mut self, asked: SystemAsked, now_us: u64) -> Result<(), RoleError> {
+        self.marks.expire(now_us);
         match asked {
             SystemAsked::Join { join, reply } => drop(reply.send(self.membership.join(&join))),
             SystemAsked::Members { reply } => drop(reply.send(self.membership.members())),
@@ -60,9 +63,7 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
                 writes,
                 reply,
             } => drop(reply.send(self.begin_commit(session, principal, writes))),
-            SystemAsked::CommitEnded { session } => {
-                let _was = self.in_flight.remove(&session);
-            }
+            SystemAsked::CommitEnded { session } => self.marks.end_in_process(session),
             SystemAsked::SessionHeld { session, reply } => {
                 let held = self.metadata.state().session_principal(session).is_ok();
                 let _unheard: Result<(), bool> = reply.send(held);
@@ -92,6 +93,84 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
                 reply,
             } => self.record_default(tenant, &predicate, reply)?,
             SystemAsked::Report { report, reply } => self.report(report, reply)?,
+            other @ (SystemAsked::Connect { .. }
+            | SystemAsked::Disconnect { .. }
+            | SystemAsked::Session { .. }
+            | SystemAsked::Check { .. }
+            | SystemAsked::Ended { .. }
+            | SystemAsked::Defaults { .. }
+            | SystemAsked::CatalogAt { .. }
+            | SystemAsked::Challenge { .. }
+            | SystemAsked::Verify { .. }
+            | SystemAsked::LatestClose { .. }) => self.take_system(other, now_us)?,
+        }
+        Ok(())
+    }
+
+    /// Takes what a role connection to the group asked at `now_us` of what the frontend's endpoint asked in process before
+    /// (`PROTOCOL.md` §11.12, the system group's commands).
+    /// An asker gone has no one to tell, so every send's failure is dropped.
+    fn take_system(&mut self, asked: SystemAsked, now_us: u64) -> Result<(), RoleError> {
+        match asked {
+            SystemAsked::Connect { reply } => drop(reply.send(self.marks.open())),
+            SystemAsked::Disconnect { connection } => self.marks.close(connection, now_us),
+            SystemAsked::Session {
+                session,
+                principal,
+                reply,
+            } => self.asked_session(session, principal, now_us, reply)?,
+            SystemAsked::Check {
+                connection,
+                checks,
+                reply,
+            } => drop(reply.send(system_group_sessions::checked(
+                self.metadata.reads(),
+                &mut self.marks,
+                now_us,
+                connection,
+                checks,
+            ))),
+            SystemAsked::Ended {
+                connection,
+                sessions,
+            } => system_group_sessions::ended(&mut self.marks, connection, &sessions),
+            SystemAsked::Defaults { tenant, reply } => drop(reply.send(self.defaults(tenant))),
+            SystemAsked::CatalogAt {
+                tenant,
+                epoch,
+                reply,
+            } => drop(reply.send(self.catalog_at(tenant, epoch))),
+            SystemAsked::Challenge { name, reply } => drop(reply.send(self.challenge(&name))),
+            SystemAsked::Verify {
+                name,
+                auth_message,
+                proof,
+                reply,
+            } => drop(reply.send(self.verify(&name, &auth_message, &proof))),
+            SystemAsked::LatestClose { reply } => drop(reply.send(self.closed)),
+            // `take` hands the group's own asks here alone.
+            SystemAsked::Join { .. }
+            | SystemAsked::Members { .. }
+            | SystemAsked::Placement { .. }
+            | SystemAsked::Catalog { .. }
+            | SystemAsked::Lease { .. }
+            | SystemAsked::CloseRequest { .. }
+            | SystemAsked::Subscribe { .. }
+            | SystemAsked::NextClose { .. }
+            | SystemAsked::Verifier { .. }
+            | SystemAsked::RegisterSession { .. }
+            | SystemAsked::CheckSession { .. }
+            | SystemAsked::BeginCommit { .. }
+            | SystemAsked::CommitEnded { .. }
+            | SystemAsked::SessionHeld { .. }
+            | SystemAsked::TenantFacts { .. }
+            | SystemAsked::Map { .. }
+            | SystemAsked::SchemaId { .. }
+            | SystemAsked::Describe { .. }
+            | SystemAsked::Declare { .. }
+            | SystemAsked::DropCatalog { .. }
+            | SystemAsked::Report { .. }
+            | SystemAsked::RecordDefault { .. } => {}
         }
         Ok(())
     }
@@ -178,7 +257,7 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
     ) -> Result<(), ErrorReply> {
         system_group_syncing::begin_commit(
             self.metadata.reads(),
-            &mut self.in_flight,
+            &mut self.marks,
             (session, principal, writes),
         )
     }
@@ -206,10 +285,10 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
             .principal_by_id(principal)
             .map(|held| held.name().to_string())
             .ok_or_else(|| ClusterError::unknown_principal(&principal.to_string()))?;
-        let in_flight = &self.in_flight;
+        let marks = &self.marks;
         let _registered = self
             .metadata
-            .register_session(session, &name, |held| in_flight.get(&held) == Some(&true))?;
+            .register_session(session, &name, |held| marks.protects(held))?;
         Ok(())
     }
 
@@ -281,7 +360,7 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
         Ok(reply)
     }
 
-    fn catalog(&self, tenant: u64, version: u64) -> Result<Catalog, ErrorReply> {
+    pub(super) fn catalog(&self, tenant: u64, version: u64) -> Result<Catalog, ErrorReply> {
         let held = Tenant::new(tenant);
         let state = self.metadata.state();
         let wanted = if version == 0 {

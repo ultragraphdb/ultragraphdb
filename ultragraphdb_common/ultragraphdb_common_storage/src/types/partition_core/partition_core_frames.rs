@@ -115,6 +115,8 @@ impl<S: DurableStorage> PartitionCore<'_, S> {
             Answer::Reply(reply) => drop(pushes.unbounded_send((stream, Push::Frame(reply)))),
             Answer::Done => drop(pushes.unbounded_send((stream, Push::End))),
             Answer::Refuse(refusal) => self.push_error(stream, &refusal, pushes),
+            // No step of a partition closes its connection: a rule closing one is refused on the stream alone.
+            Answer::Close(rule) => self.push_error(stream, &ErrorReply::protocol(&rule), pushes),
             Answer::Open => {}
         }
     }
@@ -266,7 +268,9 @@ impl<S: DurableStorage> PartitionCore<'_, S> {
                 RequestStep::Answered(Answer::Reply(reply)) => {
                     self.push_answer(key.1, Answer::Reply(reply), &parked.pushes);
                 }
-                RequestStep::Answered(answer @ (Answer::Refuse(_) | Answer::Done)) => {
+                RequestStep::Answered(
+                    answer @ (Answer::Refuse(_) | Answer::Done | Answer::Close(_)),
+                ) => {
                     self.push_answer(key.1, answer, &parked.pushes);
                     return;
                 }

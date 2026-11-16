@@ -189,7 +189,8 @@ pub(crate) fn restored(
     next
 }
 
-/// The bytes of version `version` of `tenant`, holding `declarations`, refused past what one Catalog frame holds with code 7.
+/// The bytes of version `version` of `tenant`, holding `declarations`, refused past `catalog_bytes_max` with code 7, `detail` the
+/// bound (`PROTOCOL.md` §11.9, §11.13).
 pub(crate) fn version_bytes(
     tenant: u64,
     version: u64,
@@ -202,7 +203,7 @@ pub(crate) fn version_bytes(
         return Err(ErrorReply::new(
             ErrorCode::Refused,
             format!(
-                "a catalog version of {} bytes passes what one Catalog frame holds",
+                "a catalog version of {} bytes passes `catalog_bytes_max`, {CATALOG_CAP} bytes",
                 bytes.len()
             ),
         )

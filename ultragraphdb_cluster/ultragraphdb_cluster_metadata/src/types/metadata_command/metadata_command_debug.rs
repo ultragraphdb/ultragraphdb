@@ -63,6 +63,7 @@ impl fmt::Debug for MetadataCommand {
             | Self::ReportUntrimmed { .. }
             | Self::CreateTenant { .. }
             | Self::DrawSecret { .. }
+            | Self::RemoveDefaults { .. }
             | Self::Chunk { .. }
             | Self::Commit { .. } => self.fmt_rest(f),
             Self::OfferChecked { .. } | Self::OfferRestoring { .. } | Self::ReportCheck { .. } => {
@@ -118,6 +119,7 @@ impl MetadataCommand {
             Self::ReportUntrimmed { .. }
             | Self::CreateTenant { .. }
             | Self::DrawSecret { .. }
+            | Self::RemoveDefaults { .. }
             | Self::Chunk { .. }
             | Self::Commit { .. } => self.fmt_small(f),
             Self::OfferCatalog { .. }
@@ -159,6 +161,10 @@ impl MetadataCommand {
                 .field("length", length)
                 .field("checksum", checksum)
                 .finish(),
+            Self::RemoveDefaults { tenant } => f
+                .debug_struct("RemoveDefaults")
+                .field("tenant", tenant)
+                .finish(),
             Self::OfferCatalog { .. }
             | Self::RecordDefault { .. }
             | Self::LeaseBlock { .. }
@@ -171,7 +177,7 @@ impl MetadataCommand {
             | Self::LearnClose { .. }
             | Self::OfferChecked { .. }
             | Self::OfferRestoring { .. }
-            // fmt_rest passes the other five here alone.
+            // fmt_rest passes the other six here alone.
             | Self::ReportCheck { .. } => Ok(()),
         }
     }
@@ -226,6 +232,7 @@ impl MetadataCommand {
             | Self::ReportUntrimmed { .. }
             | Self::CreateTenant { .. }
             | Self::DrawSecret { .. }
+            | Self::RemoveDefaults { .. }
             | Self::Chunk { .. }
             // fmt passes the other three here alone.
             | Self::Commit { .. } => Ok(()),

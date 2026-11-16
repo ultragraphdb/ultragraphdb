@@ -3,7 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The system group's scenarios, bound to `features/`: the group on its own thread over real logs, asked from this one.
+//! The system group's scenarios, bound to `features/`: the group on its own thread over real logs, asked from this one, or
+//! run on the scenario's runtime over the simulated storage and served at a role address (`bdd_stage`).
+
+mod bdd_stage;
+mod books_steps;
+mod system_steps;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -35,6 +40,8 @@ struct Steps {
     evicted: Vec<[u8; 16]>,
     leases: Vec<u64>,
     served: bool,
+    /// The scenario's `When` ran and checked what its `Then` states.
+    ran: bool,
 }
 
 /// A refusal the scenario did not expect, as the test's error.

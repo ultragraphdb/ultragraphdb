@@ -50,6 +50,7 @@ oxrdf = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+hegeltest = { workspace = true, features = ["static-engine"] }
 ultragraphdb_common_system = { path = ".", features = ["test-utils"] }
 ultragraphdb_protocol_transport_compio = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }
@@ -61,6 +62,10 @@ cucumber = { workspace = true }
 [[test]]
 name = "unit"
 path = "tests/mod.rs"
+
+[[test]]
+name = "property"
+path = "tests/property/mod.rs"
 
 [[test]]
 name = "bdd"

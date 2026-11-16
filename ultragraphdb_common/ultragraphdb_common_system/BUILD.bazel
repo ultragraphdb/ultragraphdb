@@ -32,7 +32,13 @@ rust_test(
     name = "ultragraphdb_common_system_tests",
     srcs = glob(
         ["tests/**/*.rs"],
-        exclude = ["tests/bdd.rs"],
+        exclude = [
+            "tests/bdd.rs",
+            "tests/bdd_stage.rs",
+            "tests/books_steps.rs",
+            "tests/system_steps.rs",
+            "tests/property/**",
+        ],
     ),
     crate_root = "tests/mod.rs",
     tags = ["unit-test"],
@@ -43,12 +49,35 @@ rust_test(
     ),
 )
 
+# The property tests, Hegel's, under `tests/property/`, mirroring `src/`. Derandomized and without an example database,
+# so a run is a function of its sources and Bazel may cache it.
+rust_test(
+    name = "property",
+    srcs = glob(["tests/property/**/*.rs"]),
+    crate_root = "tests/property/mod.rs",
+    env = {
+        "HEGEL_DATABASE": "disabled",
+        "HEGEL_DERANDOMIZE": "true",
+    },
+    tags = ["property-test"],
+    deps = [":ultragraphdb_common_system"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
 # cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
 rust_test(
     name = "bdd",
-    srcs = ["tests/bdd.rs"],
+    srcs = [
+        "tests/bdd.rs",
+        "tests/bdd_stage.rs",
+        "tests/books_steps.rs",
+        "tests/system_steps.rs",
+    ],
     crate_root = "tests/bdd.rs",
-    data = glob(["features/**/*.feature"]),
+    # The manifest is read by the scenarios naming what the group's host links.
+    data = glob(["features/**/*.feature"]) + ["Cargo.toml"],
     tags = ["bdd-test"],
     use_libtest_harness = False,
     deps = [":ultragraphdb_common_system"] + all_crate_deps(

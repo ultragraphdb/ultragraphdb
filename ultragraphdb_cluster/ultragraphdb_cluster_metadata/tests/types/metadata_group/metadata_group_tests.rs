@@ -14,10 +14,10 @@ use ultragraphdb_transactions_log::FaultMode;
 use std::num::NonZeroU32;
 
 use ultragraphdb_cluster_metadata::MetadataGroup;
-use ultragraphdb_transactions_log::{SimStorage, Wal};
+use ultragraphdb_transactions_log::{SimStorage, Wal, WalConfig};
 
 use crate::utils::harness::{
-    DIR, block_on, fresh, fresh_with, open, pid, sync, tenant, verifier, wal_config,
+    DIR, Group, block_on, fresh, fresh_with, open, pid, sync, tenant, verifier, wal_config,
 };
 
 #[test]
@@ -269,4 +269,79 @@ fn test_a_sync_never_applied_leaves_its_commands_staged_for_the_next() -> TestRe
     assert_eq!(group.state().current_version(tenant()), 1);
     assert_eq!(group.applied(), position);
     Ok(())
+}
+
+/// A removal of a tenant's default entries is appended only when the tenant holds a record, durable at the next sync, and
+/// recovery replays it.
+#[test]
+fn test_a_removal_of_default_entries_is_appended_only_for_records_held() -> TestResult {
+    use ultragraphdb_traits_catalog::DefaultEntry;
+    let (storage, mut group) = fresh()?;
+    assert_eq!(
+        group.remove_defaults(tenant())?,
+        None,
+        "no record, nothing appended"
+    );
+    let entry = DefaultEntry::new(tenant().get(), "score".to_string(), vec![1]);
+    let recorded = group.record_default_entry(&entry)?.context("recorded")?;
+    let removed = group.remove_defaults(tenant())?.context("appended")?;
+    assert!(removed > recorded);
+    assert_eq!(
+        group.remove_defaults(tenant())?,
+        None,
+        "every command appended counts"
+    );
+    sync(&mut group)?;
+    assert_eq!(group.state().default_entries(tenant()).count(), 0);
+    assert_eq!(group.applied(), removed);
+    let recovered =
+        crate::utils::harness::crash_and_recover(&storage, MetadataConfig::new(), None)?;
+    assert_eq!(recovered.state(), group.state());
+    Ok(())
+}
+
+/// A catalog version of `catalog_bytes_max`, 16,777,216 bytes (`PROTOCOL.md` §11.9), is written in chunks, read back whole after
+/// recovery, and one byte more is refused, appending nothing.
+#[test]
+fn test_a_version_at_its_cap_is_held_across_recovery() -> TestResult {
+    let config = MetadataConfig::new();
+    let (storage, mut group) = fresh_large()?;
+    let past = vec![3; 16_777_217];
+    let refused = group
+        .offer_catalog(tenant(), 0, &past)
+        .err()
+        .context("a refusal")?;
+    assert_eq!(
+        refused,
+        ClusterError::too_many("bytes of a catalog version", 16_777_217, 16_777_216)
+    );
+    let at_cap = vec![7; 16_777_216];
+    let _offered = group.offer_catalog(tenant(), 0, &at_cap)?;
+    sync(&mut group)?;
+    let recovered = recover_large(&storage, config)?;
+    let versions = recovered.state().versions(tenant());
+    let held = versions.first().context("the version")?;
+    assert_eq!((held.version(), held.bytes().len()), (1, 16_777_216));
+    assert!(held.bytes() == at_cap.as_slice());
+    Ok(())
+}
+
+/// A log large enough for a catalog version at its cap, 16,777,216 bytes, in chunks: segments of 64 blocks, 256 KiB, at most 128
+/// of them, 32 MiB.
+fn wal_config_large() -> WalConfig {
+    wal_config().with_capacity(NonZeroU32::MIN.saturating_add(127))
+}
+
+/// A fresh group over an empty log of [`wal_config_large`], with the default settings.
+fn fresh_large() -> TestResult<(SimStorage, Group)> {
+    let storage = SimStorage::new(12);
+    let group = recover_large(&storage, MetadataConfig::new())?;
+    Ok((storage, group))
+}
+
+/// The group recovered from the log of [`wal_config_large`] in `storage`, the power cut first.
+fn recover_large(storage: &SimStorage, config: MetadataConfig) -> TestResult<Group> {
+    storage.power_loss();
+    let (log, _) = block_on(Wal::open(storage.clone(), DIR, wal_config_large()))??;
+    Ok(block_on(Group::recover(log, config, None))??)
 }

@@ -213,9 +213,9 @@ fn test_encoding_appends_to_the_buffer() -> TestResult {
 
 #[test]
 fn test_empty_and_unknown_kinds_are_refused() -> TestResult {
-    assert_eq!(refusal(&[])?, malformed("a kind byte, 1 to 18", 0));
-    assert_eq!(refusal(&[0])?, malformed("a kind byte, 1 to 18", 0));
-    assert_eq!(refusal(&[19])?, malformed("a kind byte, 1 to 18", 0));
+    assert_eq!(refusal(&[])?, malformed("a kind byte, 1 to 19", 0));
+    assert_eq!(refusal(&[0])?, malformed("a kind byte, 1 to 19", 0));
+    assert_eq!(refusal(&[20])?, malformed("a kind byte, 1 to 19", 0));
     Ok(())
 }
 
@@ -356,16 +356,17 @@ fn test_values_out_of_range_are_refused_naming_them() -> TestResult {
 
 #[test]
 fn test_lengths_and_counts_past_their_limits_are_refused_before_their_values() -> TestResult {
-    // A catalog version of 523,000 bytes and one, refused from its length alone.
+    // A catalog version of `catalog_bytes_max` (`PROTOCOL.md` §11.9), 16,777,216 bytes, and one, refused from its length
+    // alone.
     let mut offer = vec![1];
     offer.extend_from_slice(&[0; 16]);
-    offer.extend_from_slice(&523_001_u32.to_be_bytes());
+    offer.extend_from_slice(&16_777_217_u32.to_be_bytes());
     assert_eq!(
         refusal(&offer)?,
         ClusterErrorEnum::TooMany {
             what: "bytes of a catalog version",
-            count: 523_001,
-            max: 523_000
+            count: 16_777_217,
+            max: 16_777_216
         }
     );
     // A change of 2^18 + 1 ranges.
@@ -564,5 +565,28 @@ fn test_a_closes_placement_version_is_its_last_8_bytes() -> TestResult {
         };
         assert_eq!(read, placement);
     }
+    Ok(())
+}
+
+/// A removal of a tenant's default entries encodes as written by hand, kind 19 and the tenant as 8 bytes, reads back as written,
+/// and every prefix of it is refused.
+#[test]
+fn test_a_removal_of_default_entries_encodes_as_written_by_hand() -> TestResult {
+    let command = MetadataCommand::RemoveDefaults {
+        tenant: Tenant::new(0x0102_0304_0506_0708),
+    };
+    let bytes = vec![19, 1, 2, 3, 4, 5, 6, 7, 8];
+    assert_eq!(encoded(&command), bytes);
+    assert_eq!(MetadataCommand::decode(&bytes)?, command);
+    for cut in 0..bytes.len() {
+        let prefix = bytes.get(..cut).context("a prefix")?;
+        assert!(MetadataCommand::decode(prefix).is_err(), "cut at {cut}");
+    }
+    let mut longer = bytes.clone();
+    longer.push(0);
+    assert!(
+        MetadataCommand::decode(&longer).is_err(),
+        "a byte after the end"
+    );
     Ok(())
 }

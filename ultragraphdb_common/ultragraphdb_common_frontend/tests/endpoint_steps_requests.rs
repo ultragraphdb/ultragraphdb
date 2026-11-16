@@ -2334,7 +2334,7 @@ fn two_tenants_share_a_run_held(w: &mut Steps) {
 }
 
 #[when(
-    "a transaction's declarations build a catalog version of 523,001 bytes, and the client commits it"
+    "a transaction's declarations build a catalog version of 16,777,217 bytes, and the client commits it"
 )]
 fn a_catalog_version_past_its_cap_is_refused_at_its_commit(w: &mut Steps) -> TestResult {
     let options = Options::default();
@@ -2342,10 +2342,12 @@ fn a_catalog_version_past_its_cap_is_refused_at_its_commit(w: &mut Steps) -> Tes
         let _whole = &stage;
         let mut client = stage.ann().await?;
         let transaction = client.begin(0).await?;
-        for frame in 0..4 {
+        // 19 Writes of 64 declarations of 14,000 bytes each declare 17,024,000 bytes of IRIs, past `catalog_bytes_max`,
+        // 16,777,216 bytes (`PROTOCOL.md` §11.9), each Write within a frame.
+        for frame in 0..19 {
             let declared = (0..64)
                 .map(|at| {
-                    let long = format!("http://ex.org/{frame}/{at}/{}", "a".repeat(3_000));
+                    let long = format!("http://ex.org/{frame}/{at}/{}", "a".repeat(14_000));
                     WriteChange::Declare(Declared::Predicate(DeclaredPredicate::new(long)))
                 })
                 .collect();
@@ -2355,7 +2357,10 @@ fn a_catalog_version_past_its_cap_is_refused_at_its_commit(w: &mut Steps) -> Tes
         }
         client.commit(transaction).await?;
         let got = client.got(transaction).await?;
-        assert_eq!((got.code, got.detail), (Some(ErrorCode::Refused), 523_000));
+        assert_eq!(
+            (got.code, got.detail),
+            (Some(ErrorCode::Refused), 16_777_216)
+        );
         assert!(got.message.contains("bytes"), "{}", got.message);
         let facts = stage
             .owner
@@ -2368,7 +2373,7 @@ fn a_catalog_version_past_its_cap_is_refused_at_its_commit(w: &mut Steps) -> Tes
 }
 
 #[then(
-    "the Commit is refused with code 7, `detail` 523,000, the message naming the size, and the current version stays"
+    "the Commit is refused with code 7, `detail` 16,777,216, the message naming the size, and the current version stays"
 )]
 fn a_catalog_version_past_its_cap_is_refused_at_its_commit_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");

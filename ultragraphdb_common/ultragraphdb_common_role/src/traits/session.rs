@@ -5,6 +5,7 @@
 
 use std::future::Future;
 
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::ErrorReply;
 
@@ -21,6 +22,10 @@ pub enum Answer {
     Done,
     /// The request refused on its stream.
     Refuse(ErrorReply),
+    /// The request refused by a frame-level rule only the session can check, as the system group's endpoint table by the
+    /// connection's role (`PROTOCOL.md` §2.5, step 3; §11.12): Error 1 on stream 0, naming the rule, and the connection
+    /// closes, as for a frame-level rule the connection's machine checks (§2.6).
+    Close(ProtocolError),
 }
 
 /// What a [`Session`] sends on a stream unasked, through [`Session::next_push`].

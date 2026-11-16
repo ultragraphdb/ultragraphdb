@@ -183,12 +183,19 @@ pub enum MetadataCommand {
         /// The secret.
         secret: [u8; 32],
     },
+    /// Every default-entry record of `tenant` removed, as a Drop of everything in it calls for (`PROTOCOL.md` §11.13,
+    /// §13.27); its catalog's version is offered beside it.
+    RemoveDefaults {
+        /// The tenant dropped.
+        tenant: Tenant,
+    },
 }
 
 impl MetadataCommand {
-    /// The most bytes of a catalog version, 523,000, what one Catalog frame holds at the floor of `max_frame`
-    /// (`PROTOCOL.md` §11.13, §13.7). A version over [`MetadataCommand::CHUNK_BYTES`] is written in chunks.
-    pub const CATALOG_BYTES_MAX: usize = 523_000;
+    /// The most bytes of a catalog version, `catalog_bytes_max`, 16,777,216: the wire's
+    /// [`ultragraphdb_protocol_wire::CATALOG_BYTES_MAX`], carried in as many Catalog frames as it takes (`PROTOCOL.md`
+    /// §11.9, §13.7). A version over [`MetadataCommand::CHUNK_BYTES`] is written in chunks.
+    pub const CATALOG_BYTES_MAX: usize = ultragraphdb_protocol_wire::CATALOG_BYTES_MAX;
 
     /// The most bytes of a command's encoding, 32 MiB.
     pub const COMMAND_BYTES_MAX: usize = 1 << 25;
@@ -218,3 +225,7 @@ impl MetadataCommand {
     /// The most session evictions one close carries, the sequencer's limit, 4,096.
     pub const EVICTIONS_MAX: usize = 4_096;
 }
+
+// A version at its cap, with an offer's other fields, is one command, written in chunks.
+const _: () =
+    assert!(MetadataCommand::CATALOG_BYTES_MAX + 64 <= MetadataCommand::COMMAND_BYTES_MAX);

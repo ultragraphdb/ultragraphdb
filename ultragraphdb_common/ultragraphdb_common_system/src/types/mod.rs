@@ -5,6 +5,7 @@
 
 pub mod membership;
 pub mod report_asked;
+pub(crate) mod session_marks;
 pub mod system_asked;
 pub mod system_group;
 pub mod system_handle;

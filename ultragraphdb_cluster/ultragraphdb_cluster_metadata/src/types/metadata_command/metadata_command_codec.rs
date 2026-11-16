@@ -18,10 +18,10 @@ use crate::types::metadata_state::MetadataState;
 use crate::types::reader::Reader;
 
 /// What a command's kind byte must be.
-const KIND: &str = "a kind byte, 1 to 18";
+const KIND: &str = "a kind byte, 1 to 19";
 
 impl MetadataCommand {
-    /// Appends the command's encoding to `out`, big-endian throughout: its kind byte, 1 to 18 as [`MetadataCommand::encode`]'s match gives it, then
+    /// Appends the command's encoding to `out`, big-endian throughout: its kind byte, 1 to 19 as [`MetadataCommand::encode`]'s match gives it, then
     /// its fields in order. A tenant, an epoch, a sequence and a version number take 8 bytes, a type prefix 2, a
     /// partition, a node, a bucket and a partition count 4, a session 16, a principal's identity 8, a flag 1 (0 or 1);
     /// bytes and text take their length (4 bytes for a catalog version and an entry, 2 for a predicate, 1 for a name and
@@ -85,6 +85,7 @@ impl MetadataCommand {
             | Self::ReportUntrimmed { .. }
             | Self::CreateTenant { .. }
             | Self::DrawSecret { .. }
+            | Self::RemoveDefaults { .. }
             | Self::Chunk { .. }
             | Self::Commit { .. } => self.encode_rest(out),
             Self::OfferChecked { .. } | Self::OfferRestoring { .. } | Self::ReportCheck { .. } => {
@@ -152,6 +153,7 @@ impl MetadataCommand {
             }
             Self::CreateTenant { tenant } => put_u64(out, tenant.get()),
             Self::DrawSecret { secret } => out.extend_from_slice(secret),
+            Self::RemoveDefaults { tenant } => put_u64(out, tenant.get()),
             Self::OfferCatalog { .. }
             | Self::RecordDefault { .. }
             | Self::LeaseBlock { .. }
@@ -212,13 +214,14 @@ impl MetadataCommand {
             | Self::ReportUntrimmed { .. }
             | Self::CreateTenant { .. }
             | Self::DrawSecret { .. }
+            | Self::RemoveDefaults { .. }
             | Self::Chunk { .. }
             // encode passes the other three here alone.
             | Self::Commit { .. } => {}
         }
     }
 
-    /// The command's kind byte, 1 to 18.
+    /// The command's kind byte, 1 to 19.
     fn kind(&self) -> u8 {
         match self {
             Self::OfferCatalog { .. } => 1,
@@ -239,6 +242,7 @@ impl MetadataCommand {
             Self::OfferChecked { .. } => 16,
             Self::OfferRestoring { .. } => 17,
             Self::ReportCheck { .. } => 18,
+            Self::RemoveDefaults { .. } => 19,
         }
     }
 
@@ -314,6 +318,9 @@ impl MetadataCommand {
             16 => read_checked(&mut reader)?,
             17 => read_restoring(&mut reader)?,
             18 => read_report(&mut reader)?,
+            19 => Self::RemoveDefaults {
+                tenant: Tenant::new(reader.u64("a tenant")?),
+            },
             _unknown => return Err(ClusterError::malformed(KIND, 0)),
         };
         reader.finish("the end of the command")?;

@@ -21,7 +21,7 @@ use crate::utils::harness::{
 };
 
 /// The workload's steps, one command each.
-const STEPS: usize = 12;
+const STEPS: usize = 13;
 
 /// The states after each prefix of the commands appended, the empty state first, and how many were acknowledged.
 #[derive(Debug)]
@@ -64,6 +64,8 @@ fn settings() -> TestResult<MetadataConfig> {
 fn expected(state: &MetadataState, step: usize) -> TestResult<MetadataCommand> {
     let index = u64::try_from(step)?;
     Ok(match step % 6 {
+        // The last step removes the default entry the step before it recorded.
+        _ if step == STEPS - 1 => MetadataCommand::RemoveDefaults { tenant: tenant() },
         0 => MetadataCommand::OfferCatalog {
             tenant: tenant(),
             predecessor: state.current_version(tenant()),
@@ -161,6 +163,7 @@ fn perform(group: &mut Group, command: &MetadataCommand) -> Result<(), ClusterEr
         }
         MetadataCommand::CreateTenant { tenant } => group.create_tenant(*tenant).map(drop),
         MetadataCommand::DrawSecret { secret } => group.draw_secret(*secret).map(drop),
+        MetadataCommand::RemoveDefaults { tenant } => group.remove_defaults(*tenant).map(drop),
         MetadataCommand::ChangePlacement { .. }
         | MetadataCommand::OfferChecked { .. }
         | MetadataCommand::OfferRestoring { .. }

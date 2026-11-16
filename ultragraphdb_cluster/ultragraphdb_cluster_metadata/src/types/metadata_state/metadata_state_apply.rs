@@ -64,6 +64,7 @@ impl MetadataState {
     /// - [`MetadataCommand::CreateTenant`]: [`ClusterError::contradicts`] for a tenant the group holds;
     ///   [`ClusterError::full`] at [`MetadataState::TENANTS_MAX`].
     /// - [`MetadataCommand::DrawSecret`]: [`ClusterError::contradicts`] once a secret was drawn.
+    /// - [`MetadataCommand::RemoveDefaults`]: none; a tenant holding no record changes nothing.
     /// - [`MetadataCommand::Chunk`] and [`MetadataCommand::Commit`]: [`ClusterError::contradicts`]; they frame a large
     ///   command in the log, and the group applies the command they hold.
     pub fn apply(&mut self, command: &MetadataCommand) -> Result<(), ClusterError> {
@@ -132,6 +133,10 @@ impl MetadataState {
             }
             MetadataCommand::CreateTenant { tenant } => self.create_tenant(*tenant),
             MetadataCommand::DrawSecret { secret } => self.draw_secret(secret),
+            MetadataCommand::RemoveDefaults { tenant } => {
+                self.remove_defaults(*tenant);
+                Ok(())
+            }
             // The log's framing of a large command, which the group reassembles before it applies the command.
             MetadataCommand::Chunk { .. } | MetadataCommand::Commit { .. } => Err(
                 ClusterError::contradicts("a whole command, not a chunk of one or its commit"),
@@ -147,6 +152,11 @@ impl MetadataState {
         }
         let _new: bool = self.tenants.insert(tenant);
         Ok(())
+    }
+
+    /// Removes every default-entry record of `tenant`.
+    fn remove_defaults(&mut self, tenant: Tenant) {
+        self.defaults.retain(|(of, _), _| *of != tenant);
     }
 
     /// Holds `secret` from here on.

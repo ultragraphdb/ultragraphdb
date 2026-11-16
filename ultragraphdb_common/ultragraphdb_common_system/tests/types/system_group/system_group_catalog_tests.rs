@@ -122,10 +122,11 @@ fn test_an_offer_past_the_pending_versions_held_is_refused() -> TestResult {
     let clock = TestClock::new();
     let storage = SimStorage::new(4);
     Runtime::new()?.block_on(async {
-        let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
+        let tenants = 1..=(MetadataState::PENDING_MAX as u64 + 1);
+        let start = starting(MetadataConfig::new())?.with_tenants(tenants.clone().collect());
+        let owner = recovered(&storage, &start, &clock).await?;
         let (handle, run) = running(owner, &clock);
         let _ticking = ticking(&clock);
-        let tenants = 1..=(MetadataState::PENDING_MAX as u64 + 1);
         let answers = futures::future::join_all(
             tenants.map(|tenant| handle.declare(tenant, 0, vec![predicate(P)])),
         )
@@ -314,6 +315,330 @@ fn test_every_kind_of_declaration_reaches_describe() -> TestResult {
         );
         assert!(!describe.property_keys().iter().any(|key| key == EDGE));
         assert_eq!(describe.relations().len(), 1);
+        drop(handle);
+        ended(run).await??;
+        Ok(())
+    })
+}
+
+/// C3.56, C3.57, C3.58, L3.21: a tenant holding no version takes version 1 built on 0, answered at the first close after it is
+/// pending with that close's epoch plus one as its commit version; with version 3 current, a version built on 2, on 4 or on 0
+/// is refused as a Catalog conflict naming both versions, and version 3 stays current.
+#[test]
+fn test_a_declare_builds_on_the_current_version_alone() -> TestResult {
+    let clock = TestClock::new();
+    let storage = SimStorage::new(31);
+    Runtime::new()?.block_on(async {
+        let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
+        let (handle, run) = running(owner, &clock);
+        let before = heard(handle.latest_close().await)?;
+        let declaring = {
+            let handle = handle.clone();
+            compio::runtime::spawn(
+                async move { handle.declare_version(0, 0, vec![predicate(P)]).await },
+            )
+        };
+        loop_until_version(&handle, 1).await?;
+        let close = super::closed_after(&handle, &clock, before).await?;
+        let answered = heard(
+            declaring
+                .await
+                .map_err(|error| TestError::new(format!("{error:?}")))?,
+        )?;
+        assert_eq!(answered, (1, (close + 1) << VERSION_BITS));
+        let _ticking = ticking(&clock);
+        let (two, _) = heard(handle.declare_version(0, 1, vec![predicate(Q)]).await)?;
+        let (three, _) = heard(handle.declare_version(0, two, vec![predicate(EDGE)]).await)?;
+        assert_eq!((two, three), (2, 3), "numbered without gap");
+        for stale in [2, 4, 0] {
+            let refusal = refused(handle.declare_version(0, stale, vec![predicate(P)]).await)?;
+            assert_eq!(
+                (refusal.code(), refusal.detail()),
+                (ErrorCode::Conflict, 5),
+                "built on {stale}"
+            );
+            assert!(
+                refusal.message().contains(&stale.to_string()) && refusal.message().contains('3'),
+                "{}",
+                refusal.message()
+            );
+        }
+        assert_eq!(
+            heard(handle.catalog(0, 0).await)?.version(),
+            3,
+            "version 3 stays current"
+        );
+        drop(handle);
+        ended(run).await??;
+        Ok(())
+    })
+}
+
+/// C3.59: a version built on one still pending is committed after it, and both take their epoch at the next close.
+#[test]
+fn test_a_version_built_on_a_pending_one_takes_the_same_close() -> TestResult {
+    let clock = TestClock::new();
+    let storage = SimStorage::new(32);
+    Runtime::new()?.block_on(async {
+        let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
+        let (handle, run) = running(owner, &clock);
+        let declaring = |built_on: u64, iri: &'static str| {
+            let handle = handle.clone();
+            compio::runtime::spawn(async move {
+                handle
+                    .declare_version(0, built_on, vec![predicate(iri)])
+                    .await
+            })
+        };
+        let first = declaring(0, P);
+        loop_until_version(&handle, 1).await?;
+        let second = declaring(1, Q);
+        loop_until_version(&handle, 2).await?;
+        clock.advance(super::EPOCH_US);
+        let first = heard(
+            first
+                .await
+                .map_err(|error| TestError::new(format!("{error:?}")))?,
+        )?;
+        let second = heard(
+            second
+                .await
+                .map_err(|error| TestError::new(format!("{error:?}")))?,
+        )?;
+        assert_eq!((first.0, second.0), (1, 2));
+        assert_eq!(first.1, second.1, "one close assigned both");
+        drop(handle);
+        ended(run).await??;
+        Ok(())
+    })
+}
+
+/// Tenant 0's current version, once it is `version`, read each millisecond.
+async fn loop_until_version(handle: &SystemHandle, version: u64) -> TestResult {
+    for _ in 0..POLLS_MAX {
+        if handle
+            .catalog(0, 0)
+            .await
+            .is_ok_and(|held| held.version() == version)
+        {
+            return Ok(());
+        }
+        compio::time::sleep(Duration::from_millis(1)).await;
+    }
+    Err(TestError::new(format!(
+        "version {version} was never current"
+    )))
+}
+
+/// C3.62, C3.63, L3.25: a Declare whose asker gave up before its close takes its epoch all the same, and one of a Drop whose
+/// asker gave up is pending and durable: the group's state is what it would be had the asker stayed.
+#[test]
+fn test_a_declare_whose_asker_left_changes_nothing() -> TestResult {
+    let clock = TestClock::new();
+    let storage = SimStorage::new(33);
+    Runtime::new()?.block_on(async {
+        let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
+        let (handle, run) = running(owner, &clock);
+        let gone = handle.declare_version(0, 0, vec![predicate(P)]);
+        assert!(
+            compio::time::timeout(Duration::from_millis(5), gone)
+                .await
+                .is_err(),
+            "no close yet"
+        );
+        clock.advance(super::EPOCH_US);
+        let effective = loop_until_epoch(&handle, 1).await?;
+        assert!(effective > 0, "version 1 took its epoch");
+        // Polled once, the ask is sent and its future dropped before any answer: the asker left.
+        let dropping = handle.drop_version(0, DropStep::Predicate(P.to_string()));
+        assert!(
+            futures::future::poll_immediate(dropping).await.is_none(),
+            "the asker left at once"
+        );
+        loop_until_version(&handle, 2).await?;
+        drop(handle);
+        ended(run).await??;
+        let restarted = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
+        let (handle, run) = running(restarted, &clock);
+        assert_eq!(
+            heard(handle.catalog(0, 0).await)?.version(),
+            2,
+            "version 2 durable"
+        );
+        drop(handle);
+        ended(run).await??;
+        Ok(())
+    })
+}
+
+/// The effective epoch of tenant 0's `version`, once assigned, read each millisecond.
+async fn loop_until_epoch(handle: &SystemHandle, version: u64) -> TestResult<u64> {
+    for _ in 0..POLLS_MAX {
+        if let Ok(held) = handle.catalog(0, version).await
+            && held.epoch() != 0
+        {
+            return Ok(held.epoch());
+        }
+        compio::time::sleep(Duration::from_millis(1)).await;
+    }
+    Err(TestError::new(format!(
+        "version {version} was never assigned its epoch"
+    )))
+}
+
+/// C3.65, C3.66, L3.24: a Declare of `kind` 2 for a Drop of a predicate the catalog does not declare, of a graph or of a
+/// tenant's data answers `version` 0 at once and leaves the current version.
+#[test]
+fn test_a_drop_that_changes_nothing_builds_no_version() -> TestResult {
+    let clock = TestClock::new();
+    let storage = SimStorage::new(34);
+    Runtime::new()?.block_on(async {
+        let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
+        let (handle, run) = running(owner, &clock);
+        let _ticking = ticking(&clock);
+        let (one, _) = heard(handle.declare_version(0, 0, vec![predicate(P)]).await)?;
+        for step in [DropStep::Predicate(Q.to_string()), DropStep::Kept] {
+            assert_eq!(
+                heard(handle.drop_version(0, step.clone()).await)?,
+                0,
+                "{step:?}"
+            );
+        }
+        assert_eq!(heard(handle.catalog(0, 0).await)?.version(), one);
+        drop(handle);
+        ended(run).await??;
+        Ok(())
+    })
+}
+
+/// C3.67, L3.26: a Drop of everything removes the tenant's default-entry records, with a version of the initial catalog when the
+/// tenant held a declaration, and alone, `version` 0, when it held the initial catalog; a Drop of a predicate keeps them.
+#[test]
+fn test_a_drop_of_everything_removes_the_default_entries() -> TestResult {
+    let clock = TestClock::new();
+    let storage = SimStorage::new(35);
+    Runtime::new()?.block_on(async {
+        let start = starting(MetadataConfig::new())?.with_tenants(vec![1]);
+        let owner = recovered(&storage, &start, &clock).await?;
+        let (handle, run) = running(owner, &clock);
+        let _ticking = ticking(&clock);
+        let (one, _) = heard(
+            handle
+                .declare_version(0, 0, vec![predicate(P), predicate(Q)])
+                .await,
+        )?;
+        for tenant in [0, 1] {
+            assert!(!heard(
+                handle.record_default(tenant, EDGE.to_string()).await
+            )?);
+        }
+        assert_eq!(
+            heard(
+                handle
+                    .drop_version(0, DropStep::Predicate(P.to_string()))
+                    .await
+            )?,
+            one + 1
+        );
+        assert_eq!(
+            heard(handle.defaults(0).await)?.predicates(),
+            [EDGE.to_string()],
+            "a predicate's drop keeps them"
+        );
+        assert_eq!(
+            heard(handle.drop_version(0, DropStep::Everything).await)?,
+            one + 2
+        );
+        assert!(heard(handle.defaults(0).await)?.predicates().is_empty());
+        assert_eq!(
+            heard(handle.drop_version(1, DropStep::Everything).await)?,
+            0,
+            "the initial catalog already"
+        );
+        assert!(heard(handle.defaults(1).await)?.predicates().is_empty());
+        drop(handle);
+        ended(run).await??;
+        Ok(())
+    })
+}
+
+/// C3.69, L3.28: a Declare of either kind naming a tenant the group does not hold is refused with code 7, `detail` the tenant,
+/// and changes nothing.
+#[test]
+fn test_a_declare_of_an_unknown_tenant_is_refused() -> TestResult {
+    let clock = TestClock::new();
+    let storage = SimStorage::new(36);
+    Runtime::new()?.block_on(async {
+        let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
+        let (handle, run) = running(owner, &clock);
+        let declared = refused(handle.declare_version(9, 0, vec![predicate(P)]).await)?;
+        assert_eq!(
+            (declared.code(), declared.detail()),
+            (ErrorCode::Refused, 9)
+        );
+        let dropped = refused(handle.drop_version(9, DropStep::Everything).await)?;
+        assert_eq!((dropped.code(), dropped.detail()), (ErrorCode::Refused, 9));
+        assert_eq!(
+            heard(handle.catalog(0, 0).await)
+                .map(|held| held.version())
+                .unwrap_or(0),
+            0
+        );
+        drop(handle);
+        ended(run).await??;
+        Ok(())
+    })
+}
+
+/// C3.68: a tightening checked over two partitions waits for both: one report passed leaves it waiting, and the other silent is
+/// still waited for one tick before `catalog_check_ms` and withdraws it at `catalog_check_ms`, its Commit refused with code 24
+/// naming the partition.
+#[test]
+fn test_a_silent_partition_withdraws_a_tightening_at_the_wait() -> TestResult {
+    const CHECK_MS: u64 = 40;
+    let clock = TestClock::new();
+    let storage = SimStorage::new(37);
+    Runtime::new()?.block_on(async {
+        let metadata = MetadataConfig::new().with_catalog_check_ms(CHECK_MS)?;
+        let start = ultragraphdb_common_system::SystemStart::new(
+            metadata,
+            ultragraphdb_cluster_sequencer::SequencerConfig::new(1, 5)?,
+            2,
+        );
+        let owner = recovered(&storage, &start, &clock).await?;
+        let (handle, run) = running(owner, &clock);
+        let ticked = ticking(&clock);
+        let (one, _) = heard(handle.declare_version(0, 0, vec![predicate(P)]).await)?;
+        let single = Declared::Predicate(DeclaredPredicate::new(P).with_single(true));
+        let checked = {
+            let handle = handle.clone();
+            compio::runtime::spawn(
+                async move { handle.declare_version(0, one, vec![single]).await },
+            )
+        };
+        let _epoch = loop_until_epoch(&handle, one + 1).await?;
+        drop(ticked);
+        // A turn of the group sees the epoch assigned, and its wait begins there.
+        let _latest = heard(handle.latest_close().await)?;
+        heard(
+            handle
+                .report(ReportAsked::new(Tenant::new(0), one + 1, 1, None))
+                .await,
+        )?;
+        clock.advance(CHECK_MS * 1_000 - 1);
+        let _latest = heard(handle.latest_close().await)?;
+        compio::time::sleep(Duration::from_millis(10)).await;
+        assert!(
+            !checked.is_finished(),
+            "still waiting one tick before the wait ends"
+        );
+        clock.advance(1);
+        let _latest = heard(handle.latest_close().await)?;
+        let told = checked
+            .await
+            .map_err(|error| TestError::new(format!("{error:?}")))?;
+        let refusal = refused(told)?;
+        assert_eq!((refusal.code(), refusal.detail()), (ErrorCode::TimedOut, 2));
         drop(handle);
         ended(run).await??;
         Ok(())

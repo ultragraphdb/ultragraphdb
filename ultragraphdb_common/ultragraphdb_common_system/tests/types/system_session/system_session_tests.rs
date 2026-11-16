@@ -28,7 +28,7 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_log::{FaultMode, SimStorage};
 
-use super::system_group::{EPOCH_US, TestClock, ended, recovered, running, starting};
+use crate::types::system_group::{EPOCH_US, TestClock, ended, recovered, running, starting};
 
 const CLUSTER: u64 = 7;
 const PREDICATE: &str = "http://ex.org/p";
@@ -260,8 +260,8 @@ fn refusal_code(refused: &TransportError) -> Option<ErrorCode> {
     }
 }
 
-/// A session served where a partition's commands arrive hosts none of them: a Closed request there is refused as
-/// unavailable.
+/// A session served where a partition's commands arrive serves none of them: a Closed request there is no command the system
+/// group's endpoint table has any role send, and is refused as `CommandNotServed` naming it, closing the connection.
 async fn refused_where_partitions_arrive(
     cluster: &RoleCluster,
     handle: SystemHandle,
@@ -279,9 +279,12 @@ async fn refused_where_partitions_arrive(
         .context("a refusal")?;
     assert_eq!(
         refusal_code(&refused),
-        Some(ErrorCode::Unavailable),
+        Some(ErrorCode::Protocol),
         "{refused}"
     );
+    let rule =
+        ultragraphdb_error_protocol::ProtocolError::command_not_served(Command::Closed.number());
+    assert!(refused.to_string().contains(&rule.to_string()), "{refused}");
     Ok(())
 }
 

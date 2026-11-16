@@ -16,6 +16,7 @@ use ultragraphdb_traits_log::OrderedLog;
 
 use crate::types::system_asked::DropStep;
 use crate::types::system_group::system_group_answer::refused_or_stop;
+use crate::types::system_group::system_group_reads::unknown_tenant;
 use crate::types::system_group::{Durable, SystemGroup};
 use crate::utils::declarations::{merged, tightens, version_bytes};
 
@@ -25,7 +26,7 @@ const CONFLICT_CATALOG: u64 = 5;
 /// How many bits of a version its sequence holds: an epoch's first version is the epoch shifted by these (`PROTOCOL.md` §1).
 const SEQUENCE_BITS: u32 = 22;
 
-/// What a version's bytes may hold: more is refused at its Commit (`PROTOCOL.md` §11.13).
+/// What a version's bytes may hold, `catalog_bytes_max`: more is refused at its Commit (`PROTOCOL.md` §11.9, §11.13).
 pub(crate) const CATALOG_CAP: usize = MetadataCommand::CATALOG_BYTES_MAX;
 
 impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
@@ -86,8 +87,12 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
         tenant: u64,
         built_on: u64,
         declared: &[Declared],
-        reply: Sender<Result<u64, ErrorReply>>,
+        reply: Sender<Result<(u64, u64), ErrorReply>>,
     ) -> Result<(), RoleError> {
+        if !self.metadata.state().holds_tenant(Tenant::new(tenant)) {
+            drop(reply.send(Err(unknown_tenant(tenant))));
+            return Ok(());
+        }
         let current = self.metadata.state().current_version(Tenant::new(tenant));
         if built_on != current {
             drop(reply.send(Err(stale(built_on, current))));
@@ -111,7 +116,11 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
             self.metadata.offer_catalog(held, current, &bytes)
         };
         match offered {
-            Ok((version, _position)) => self.versions_waited.push((held, version, reply)),
+            Ok((version, _position)) => {
+                // Durable in this turn's sync, so the next close assigns its epoch (`PROTOCOL.md` §11.13, *Its epoch*).
+                self.durable.push(Durable::Offered);
+                self.versions_waited.push((held, version, reply));
+            }
             Err(refused) => drop(reply.send(Err(offer_refused(&refused, built_on)?))),
         }
         Ok(())
@@ -142,7 +151,7 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
                 match record.and_then(|r| r.effective()).filter(|_| settled) {
                     Some(epoch) => {
                         // An asker gone has no one to tell; the version stands.
-                        drop(reply.send(Ok(epoch.get() << SEQUENCE_BITS)));
+                        drop(reply.send(Ok((version, epoch.get() << SEQUENCE_BITS))));
                         None
                     }
                     None => Some((tenant, version, reply)),
@@ -151,21 +160,62 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
             .collect();
     }
 
-    /// The catalog version a Drop calls for, pending and durable; a version that would change nothing is not built.
+    /// The catalog version a Drop calls for, pending and durable, its number answered; a version that would change nothing is not
+    /// built, and 0 is answered. A Drop of everything removes the tenant's default-entry records in the same turn, durable with
+    /// the version or alone (`PROTOCOL.md` §11.13, §13.27).
     /// An asker gone has no one to tell, so each reply's failed send is dropped.
     pub(super) fn drop_catalog(
         &mut self,
         tenant: u64,
         step: &DropStep,
-        reply: Sender<Result<(), ErrorReply>>,
+        reply: Sender<Result<u64, ErrorReply>>,
     ) -> Result<(), RoleError> {
-        let current = self.metadata.state().current_version(Tenant::new(tenant));
-        let held = match self.contents(tenant, current) {
-            Ok(held) => held,
+        let held_tenant = Tenant::new(tenant);
+        if !self.metadata.state().holds_tenant(held_tenant) {
+            drop(reply.send(Err(unknown_tenant(tenant))));
+            return Ok(());
+        }
+        let built = match self.dropped_version(tenant, step)? {
+            Ok(built) => built,
             Err(refusal) => {
                 drop(reply.send(Err(refusal)));
                 return Ok(());
             }
+        };
+        let removed = if *step == DropStep::Everything {
+            match self.metadata.remove_defaults(held_tenant) {
+                Ok(removed) => removed.is_some(),
+                Err(refused) => {
+                    drop(reply.send(Err(refused_or_stop(&refused)?)));
+                    return Ok(());
+                }
+            }
+        } else {
+            false
+        };
+        match built {
+            Some(version) => self.durable.push(Durable::Dropped(version, reply)),
+            None if removed => self.durable.push(Durable::Dropped(0, reply)),
+            None => drop(reply.send(Ok(0))),
+        }
+        Ok(())
+    }
+
+    /// The version `step` builds on `tenant`'s current one, offered as pending: its number, `None` when it would change nothing,
+    /// or the refusal its asker hears.
+    ///
+    /// # Errors
+    ///
+    /// What [`refused_or_stop`] stops the group with: a failed log.
+    fn dropped_version(
+        &mut self,
+        tenant: u64,
+        step: &DropStep,
+    ) -> Result<Result<Option<u64>, ErrorReply>, RoleError> {
+        let current = self.metadata.state().current_version(Tenant::new(tenant));
+        let held = match self.contents(tenant, current) {
+            Ok(held) => held,
+            Err(refusal) => return Ok(Err(refusal)),
         };
         let next: Vec<Declaration> = match step {
             DropStep::Everything => Vec::new(),
@@ -174,26 +224,22 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
                 .filter(|declaration| !declares(declaration, predicate))
                 .cloned()
                 .collect(),
+            DropStep::Kept => return Ok(Ok(None)),
         };
         if next.len() == held.len() {
-            drop(reply.send(Ok(())));
-            return Ok(());
+            return Ok(Ok(None));
         }
         let bytes = match version_bytes(tenant, current + 1, next) {
             Ok(bytes) => bytes,
-            Err(refusal) => {
-                drop(reply.send(Err(refusal)));
-                return Ok(());
-            }
+            Err(refusal) => return Ok(Err(refusal)),
         };
         match self
             .metadata
             .offer_catalog(Tenant::new(tenant), current, &bytes)
         {
-            Ok(_) => self.durable.push(Durable::Registered(reply)),
-            Err(refused) => drop(reply.send(Err(refused_or_stop(&refused)?))),
+            Ok((version, _position)) => Ok(Ok(Some(version))),
+            Err(refused) => Ok(Err(refused_or_stop(&refused)?)),
         }
-        Ok(())
     }
 
     /// The default entry of `predicate`, durable before its answer.

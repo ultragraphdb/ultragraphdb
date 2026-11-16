@@ -8,6 +8,7 @@ mod leased_blocks;
 mod metadata_command;
 mod metadata_config;
 mod metadata_group;
+mod metadata_reads_tests;
 mod metadata_snapshot;
 mod metadata_state;
 mod principal_tests;
