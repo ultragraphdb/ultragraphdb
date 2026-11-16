@@ -180,7 +180,8 @@ impl Registry {
         Some(registry)
     }
 
-    /// The group recovered from the storage and run; it begins to listen now.
+    /// The group recovered from the storage and run; it begins to listen now. The group begins to listen as its run begins
+    /// (`notes/group-3.md`, *Found wanting* 2), so the run takes its first turn here, before the clock can move on.
     fn start(&mut self) -> Option<()> {
         let start = start_of(self.sessions_max, T_MS)?;
         let group: SimGroup =
@@ -188,6 +189,10 @@ impl Registry {
                 .block_on(recovered(&self.storage, &start, &self.clock))?;
         let (handle, run) = system_run(group, self.clock.reading());
         self.run = Some(self.runtime.spawn(run));
+        let _latest = self
+            .runtime
+            .block_on(async { handle.latest_close().await })
+            .ok()?;
         self.handle = Some(handle);
         self.model.listened_us = self.clock.now_us();
         self.model.marks.clear();

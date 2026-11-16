@@ -220,3 +220,24 @@ fn test_members_listing_compute_processes_reach_the_partition() -> TestResult {
         Ok(())
     })
 }
+
+/// C6.4: a core reads the placement map and where the partitions listen at the system group's address it was given, each
+/// once for the reads of its lifetime.
+#[test]
+fn test_the_placement_and_the_members_are_read_at_the_group() -> TestResult {
+    run(async {
+        let played = PlayedCluster::start(1, quiet_times()).await?;
+        let list = OneList::new("subject", "predicate", 2)?;
+        list.hold_in(played.partition(1)?);
+        let mut client = played.client().await?;
+        for _ in 0..2 {
+            let answer = read(&mut client, &snapshot_of(&bound_list(&list))?)
+                .await?
+                .answered()?;
+            assert_eq!(answer.column(0), list.object_iris());
+        }
+        assert_eq!(played.frontend().placement_asked(), 1);
+        assert_eq!(played.frontend().members_asked(), 1);
+        Ok(())
+    })
+}

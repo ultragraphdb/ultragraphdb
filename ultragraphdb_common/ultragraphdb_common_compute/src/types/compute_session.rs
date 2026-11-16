@@ -24,6 +24,7 @@ use crate::utils::run_read::run_read;
 /// read's stream, every Credit counted by the connection, a Cancel or the connection's end dropping the task.
 #[derive(Debug)]
 pub struct ComputeSession {
+    /// The core's, shared by an `Rc` with every session and read on this core, so their reads share its links (Ultra rule 9).
     core: Rc<ComputeCore>,
     open: OpenRequests,
     reads: HashMap<u64, OpenRead>,
@@ -96,6 +97,7 @@ impl Session for ComputeSession {
 
     /// A future dropped at its wait leaves the channel as it was, and the next call takes what came meanwhile.
     async fn next_push(&mut self) -> (u64, Push) {
+        // Each turn takes one message: a frame ends it, and a read's end, sent once per read, is taken on (Ultra rule 2).
         loop {
             match self.pushed.next().await {
                 Some(Pushed::Frame(stream, frame)) => return (stream, Push::Frame(frame)),

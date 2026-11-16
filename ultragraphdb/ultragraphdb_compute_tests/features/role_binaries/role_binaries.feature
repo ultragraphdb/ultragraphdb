@@ -2,7 +2,10 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: The compute binary as a process
-  openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md
+  openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md, and compute's parts of
+  openspec/changes/stage-5-8-system-group/specs/role-binaries/spec.md: "A lost dependency exits with its code" is that
+  change's scenario as it stands, and compute's readiness once the system group and a storage process answer is
+  "Compute is ready once a partition has joined"
 
   Scenario: A signal stops a role cleanly
     When a role is running and receives SIGTERM

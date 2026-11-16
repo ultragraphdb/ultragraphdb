@@ -26,7 +26,8 @@ pub(crate) struct ReadPins {
     /// The frames the read has taken, shared by an `Rc` with each pin's task on the read's one core, which compares it
     /// across its grants to see whether the read goes on.
     taken: Rc<Cell<u64>>,
-    /// What keeps each partition's version, named by the partition and the version.
+    /// What keeps each partition's version, named by the partition and the version: a `RefCell`, since the read's partitions
+    /// add to it through the `ReadShared` they share on the read's one core, never across an `.await` (Ultra rule 9).
     keeping: RefCell<Vec<(u32, u64, JoinHandle<()>)>>,
 }
 
@@ -96,6 +97,8 @@ impl ReadPins {
     ) {
         compio::time::sleep(wait).await;
         let mut opened = opened.unwrap_or_else(|| target.open());
+        // Each turn takes one pin's `FRAMES` grants; a pin refused, or a turn in which the read took no frame, ends it, and the
+        // read's end drops it (Ultra rule 2).
         loop {
             let Ok(mut pin) = opened else {
                 return;

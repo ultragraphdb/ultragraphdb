@@ -12,7 +12,8 @@ use crate::types::read_request::ReadRequest;
 #[derive(Debug)]
 pub(crate) struct ReadShared {
     pub(crate) read: ReadRequest,
-    /// The rows the read still wants, 0 for no limit: how far a Scan need go.
+    /// The rows the read still wants, 0 for no limit: how far a Scan need go. A `Cell`, since the merge lowers it and each
+    /// partition of the read reads it, through the `Rc` they share on the read's one core (Ultra rule 9).
     pub(crate) remaining: Cell<u32>,
     pub(crate) pins: ReadPins,
 }

@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod compute_core_catalog;
 mod compute_core_lookups;
 mod dial_under_way;
 
@@ -29,12 +30,16 @@ use crate::utils::refusals::unavailable;
 /// Who else waits on a partition's dial under way.
 type DialWaiters = Vec<oneshot::Sender<Result<Rc<Link>, ErrorReply>>>;
 
-/// One core's connections to the frontend and the partitions, and what it read of them: no state is shared between cores, and
+/// One core's connections to the system group and the partitions, and what it read of them: no state is shared between cores, and
 /// a read runs wholly on the core that holds this (`PROTOCOL.md` §11.12).
+///
+/// Shared by an `Rc` among the core's sessions and reads, so what it learns sits in `RefCell`s, each borrowed for one step
+/// and never across an `.await` (Ultra rule 9).
 #[derive(Debug)]
 pub struct ComputeCore {
     cluster: RoleCluster,
-    frontend: Address,
+    /// The system group's role address, which it reads Members, Placement and Catalog at (`PROTOCOL.md` §11.12).
+    group: Address,
     times: ReadTimes,
     name: String,
     placement: RefCell<Option<Rc<PlacementMap>>>,
@@ -44,12 +49,13 @@ pub struct ComputeCore {
 }
 
 impl ComputeCore {
-    /// The core of a process of `cluster` joined at `frontend`, dialling as the role `name`, reading by `times`.
+    /// The core of a process of `cluster` joined at the system group's role address `group`, dialling as the role `name`,
+    /// reading by `times`.
     #[must_use]
-    pub fn new(cluster: RoleCluster, frontend: Address, times: ReadTimes, name: &str) -> Rc<Self> {
+    pub fn new(cluster: RoleCluster, group: Address, times: ReadTimes, name: &str) -> Rc<Self> {
         Rc::new(Self {
             cluster,
-            frontend,
+            group,
             times,
             name: name.to_string(),
             placement: RefCell::default(),
@@ -69,11 +75,11 @@ impl ComputeCore {
         self.times
     }
 
-    /// A connection to the frontend.
+    /// A connection to the system group.
     /// A dropped future leaves no connection.
-    async fn dial_frontend(&self) -> Result<RoleClient, TransportError> {
+    async fn dial_group(&self) -> Result<RoleClient, TransportError> {
         RoleClient::dial(
-            &self.frontend,
+            &self.group,
             self.cluster.id(),
             &self.name,
             self.cluster.secret().password(),
@@ -94,7 +100,7 @@ impl ComputeCore {
         };
         let map = bounded(
             self.times.answer_wait(),
-            || "the frontend's placement map".to_string(),
+            || "the system group's placement map".to_string(),
             fetched,
         )
         .await?;
@@ -103,10 +109,10 @@ impl ComputeCore {
         Ok(map)
     }
 
-    /// The placement map the frontend answers, checked against the even map this stage holds. A dropped future drops
-    /// its connection to the frontend.
+    /// The placement map the system group answers, checked against the even map this stage holds. A dropped future drops
+    /// its connection to the group.
     async fn fetch_placement(&self) -> Result<PlacementMap, TransportError> {
-        let mut client = self.dial_frontend().await?;
+        let mut client = self.dial_group().await?;
         let reply = client.request(&Placement::request(0)).await?;
         let view = reply.view().map_err(TransportError::protocol)?;
         let placed = PlacementView::from_frame(&view).map_err(TransportError::protocol)?;
@@ -130,12 +136,12 @@ impl ComputeCore {
             Ok(map)
         } else {
             Err(TransportError::authentication(
-                "the frontend's placement is not the even map this stage holds",
+                "the system group's placement is not the even map this stage holds",
             ))
         }
     }
 
-    /// Where `partition` listens, asking the frontend's Members when it is not yet known.
+    /// Where `partition` listens, asking the system group's Members when it is not yet known.
     /// A dropped future leaves the addresses as they were.
     async fn address_of(&self, partition: u32) -> Result<Address, ErrorReply> {
         if let Some(address) = self.addresses.borrow().get(&partition) {
@@ -148,7 +154,7 @@ impl ComputeCore {
         };
         bounded(
             self.times.answer_wait(),
-            || "the frontend's members".to_string(),
+            || "the system group's members".to_string(),
             fetched,
         )
         .await?;
@@ -163,10 +169,10 @@ impl ComputeCore {
             })
     }
 
-    /// Notes where each storage partition listens, from the frontend's Members. The addresses change only once the
+    /// Notes where each storage partition listens, from the system group's Members. The addresses change only once the
     /// reply is in, so a dropped future changes none.
     async fn fetch_members(&self) -> Result<(), TransportError> {
-        let mut client = self.dial_frontend().await?;
+        let mut client = self.dial_group().await?;
         let reply = client.request(&Members::new()).await?;
         let view = reply.view().map_err(TransportError::protocol)?;
         let members = MembersView::from_frame(&view).map_err(TransportError::protocol)?;
@@ -187,6 +193,8 @@ impl ComputeCore {
     /// A future dropped while it waits on another's dial leaves that dial going on; one dropped while it dials ends the
     /// dial as [`ComputeCore::dial_for_all`] says.
     pub(crate) async fn link(&self, partition: u32) -> Result<Rc<Link>, ErrorReply> {
+        // Each turn returns a link held, dials, or waits on the dial under way, which answers within the answer bound; a
+        // waiter whose dial was dropped looks again (Ultra rule 2).
         loop {
             let held = self.links.borrow().get(&partition).cloned();
             if let Some(link) = held.filter(|link| !link.is_closed()) {

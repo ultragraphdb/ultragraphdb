@@ -8,6 +8,10 @@
 //! [`ultragraphdb_protocol_wire::EntriesSequence`] and granted credit as its frames are consumed, the rows merged in key order
 //! into Result batches naming every term by its text. One [`ComputeCore`] per core, whose connections and reads stay on it.
 //! [`ComputeCore::value_index`] and [`ComputeCore::reverse_counted`] are the lookups the query core calls.
+//!
+//! Planes (Ultra rule 3): a read's Scans, the Entries frames its links hand on and the Result batches its session pushes
+//! carry frames, the data plane; a frame sent is the `Vec` the wire's builders return, and a page of rows is filled from
+//! the frame it reads. Dialling a partition and reading where it listens and the placement map are control plane.
 
 mod types;
 mod utils;
@@ -17,5 +21,6 @@ pub use crate::types::compute_session::ComputeSession;
 pub use crate::types::frontier::Frontier;
 pub use crate::types::lookup_at::LookupAt;
 pub use crate::types::read_times::ReadTimes;
+pub use crate::utils::joining::{group_address, hold_peers, join_group};
 pub use crate::utils::keys::prefix_end;
 pub use crate::utils::read_times_of::read_times_of;

@@ -31,8 +31,11 @@ pub const CLUSTER: u64 = 7;
 /// The secret files written, so each test writes its own.
 static SECRETS: AtomicU64 = AtomicU64::new(0);
 
-/// A role secret file of the test's own.
-fn secret_file() -> TestResult<String> {
+/// The role secret the played cluster's roles hold.
+pub const SECRET: &str = "the played cluster's role secret";
+
+/// A role secret file of the test's own, holding `secret`.
+fn secret_file(secret: &str) -> TestResult<String> {
     let written = SECRETS.fetch_add(1, Ordering::Relaxed);
     let file = std::env::var_os("TEST_TMPDIR")
         .map_or_else(std::env::temp_dir, PathBuf::from)
@@ -40,8 +43,17 @@ fn secret_file() -> TestResult<String> {
             "compute-played-secret-{}-{written}",
             std::process::id()
         ));
-    std::fs::write(&file, "the played cluster's role secret")?;
+    std::fs::write(&file, secret)?;
     Ok(file.display().to_string())
+}
+
+/// The played cluster as a role holding `secret` sees it, its deadline `deadline`.
+pub fn role_cluster(secret: &str, deadline: Duration) -> TestResult<RoleCluster> {
+    Ok(RoleCluster::new(
+        CLUSTER,
+        RoleSecret::read(&secret_file(secret)?)?,
+        deadline,
+    ))
 }
 
 /// The times of a read that holds no version a test does not ask for: a stall of 2 s, so a peer is hung past 4 s, and a
@@ -83,11 +95,7 @@ impl PlayedCluster {
         partitions: u32,
         times: ReadTimes,
     ) -> TestResult<Self> {
-        let cluster = RoleCluster::new(
-            CLUSTER,
-            RoleSecret::read(&secret_file()?)?,
-            Duration::from_secs(5),
-        );
+        let cluster = role_cluster(SECRET, Duration::from_secs(5))?;
         let frontend = PlayedFrontend::start(&cluster, ranges).await?;
         let mut played = Vec::new();
         for partition in 1..=partitions {

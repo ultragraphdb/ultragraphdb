@@ -5,6 +5,7 @@
 
 pub mod bounded;
 pub mod clock;
+pub mod joining;
 pub mod keys;
 pub mod literals;
 pub mod read_times_of;

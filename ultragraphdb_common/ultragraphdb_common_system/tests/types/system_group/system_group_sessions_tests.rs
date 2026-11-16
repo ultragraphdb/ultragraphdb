@@ -715,6 +715,49 @@ fn test_a_restart_keeps_the_sessions_and_loses_the_marks() -> TestResult {
     })
 }
 
+/// The shrunk counterexample of `test_the_registry_agrees_with_its_model`: a registry of 1 holding alice's session 1
+/// restarts, twice `transaction_ms` passes before the restarted group's run takes its first turn, and alice's Session 2 is
+/// refused with code 14. The quiet time counts from the instant the run begins (`notes/group-3.md`, *Found wanting* 2), which
+/// is that Session's turn; twice `transaction_ms` after it, Session 2 evicts session 1.
+#[test]
+fn test_session_2_after_a_restart_is_quiet_from_the_runs_first_turn() -> TestResult {
+    let clock = TestClock::new();
+    let storage = SimStorage::new(124);
+    Runtime::new()?.block_on(async {
+        let owner = group_of(&storage, &clock, 1).await?;
+        let (handle, run) = running(owner, &clock);
+        let alice = principal(&handle, "alice").await?;
+        heard(handle.session(1, alice).await)?;
+        drop(handle);
+        ended(run).await??;
+        let restarted = recovered(
+            &storage,
+            &starting(MetadataConfig::new().with_sessions_max(1)?)?.with_transaction_ms(T_MS),
+            &clock,
+        )
+        .await?;
+        let (handle, run) = running(restarted, &clock);
+        clock.advance(HOLD_US);
+        assert_eq!(
+            refused(handle.session(2, alice).await)?.code(),
+            ErrorCode::SessionBusy
+        );
+        clock.advance(HOLD_US - 1);
+        assert_eq!(
+            refused(handle.session(2, alice).await)?.code(),
+            ErrorCode::SessionBusy
+        );
+        clock.advance(1);
+        heard(handle.session(2, alice).await)?;
+        let connection = connected(&handle).await?;
+        let after = outcomes(&handle, connection, &[(1, alice, ASKS), (2, alice, ASKS)]).await?;
+        assert_eq!(after, [NOT_HELD, PASSED]);
+        drop(handle);
+        ended(run).await??;
+        Ok(())
+    })
+}
+
 /// The handle of a group that stopped answers a Check as unavailable, and gives no connection.
 #[test]
 fn test_a_stopped_group_answers_no_check() -> TestResult {

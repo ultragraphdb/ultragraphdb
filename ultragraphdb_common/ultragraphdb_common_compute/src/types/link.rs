@@ -29,6 +29,9 @@ const LINK_BUFFERS: usize = 1;
 /// One core's connection to one partition, every read of the core sharing it: each stream's frames reach that stream's holder,
 /// and a frame compute refuses, or a partition silent past [`Link::answer_wait`], closes the connection, ending every stream with it
 /// (`PROTOCOL.md` §11.12, §13.14).
+///
+/// Shared by an `Rc` among the reads of its core and its reader task, so its changing state sits in cells, each borrowed for
+/// one step and never across an `.await` (Ultra rule 9).
 #[derive(Debug)]
 pub(crate) struct Link {
     partition: u32,
@@ -219,6 +222,7 @@ async fn write_frames(mut writer: RoleWriter, mut sending: UnboundedReceiver<Vec
 /// A dropped future, as at the runtime's end, drops the reader with a frame read in part.
 async fn read_frames(mut reader: RoleReader, link: Rc<Link>, mut closed: oneshot::Receiver<()>) {
     let mut pool = BufferPool::new(LINK_BUFFERS, MAX_FRAME_SIZE);
+    // An event loop: the connection's end, a frame breaking its place or the link's close ends it (Ultra rule 2).
     loop {
         if pool.available() == 0 {
             yield_once().await;

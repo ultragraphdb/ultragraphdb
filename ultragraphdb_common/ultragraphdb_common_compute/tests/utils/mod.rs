@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod joining_tests;
 mod keys_tests;
 mod literals_tests;
 pub mod played_answers;

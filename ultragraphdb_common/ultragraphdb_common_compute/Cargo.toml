@@ -20,7 +20,7 @@ workspace = true
 
 [dependencies]
 compio = { workspace = true }
-futures = { workspace = true }
+futures = { workspace = true, features = ["std"] }
 oxrdf = { workspace = true }
 tracing = { workspace = true }
 ultragraphdb_cluster_placement = { workspace = true }

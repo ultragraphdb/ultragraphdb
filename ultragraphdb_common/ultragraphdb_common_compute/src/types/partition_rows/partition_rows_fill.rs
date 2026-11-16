@@ -26,6 +26,8 @@ impl PartitionRows {
     /// A future dropped at a frame drops the Scan under way, taken out to be read, so a partition whose fill was
     /// dropped is read no further: `merge` ends the read with the error that dropped it.
     pub(crate) async fn fill(&mut self) -> Result<(), ErrorReply> {
+        // Each turn reads a frame of the Scan under way, opens the next Scan or moves to the next graph, each finite; a row
+        // or the partition's end ends it (Ultra rule 2).
         loop {
             if self.page.has_row() {
                 return self.name_ahead().await;

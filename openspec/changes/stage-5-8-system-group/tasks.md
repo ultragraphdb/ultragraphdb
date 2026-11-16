@@ -87,10 +87,10 @@ setting, a constructor or a public item another group's crates still name (desig
 
 ## 6. Compute dials the group → `ultragraphdb_common_compute`, `ultragraphdb_compute`, `ultragraphdb_compute_tests`
 
-- [ ] 6.1 Ultra Style lift of `common_compute`, in its own commit
-- [ ] 6.2 Scenarios: role-binaries (compute's parts of "Readiness, health and shutdown" and "Exit codes name the cause"); system-group ("A lost system group is waited for until the deadline", compute's part), as Gherkin
-- [ ] 6.3 Phases 1 to 4: compute joining and reading Members, Placement and Catalog, a version across frames through `CatalogFrames` (design D13), at `cluster.system_address`; its deadline and exit for a lost group
-- [ ] 6.4 Phase 5: `scripts/mutants.sh` over each changed crate
+- [x] 6.1 Ultra Style lift of `common_compute`, in its own commit
+- [x] 6.2 Scenarios: role-binaries (compute's parts of "Readiness, health and shutdown" and "Exit codes name the cause"); system-group ("A lost system group is waited for until the deadline", compute's part), as Gherkin
+- [x] 6.3 Phases 1 to 4: compute joining and reading Members, Placement and Catalog, a version across frames through `CatalogFrames` (design D13), at `cluster.system_address`; its deadline and exit for a lost group
+- [x] 6.4 Phase 5: `scripts/mutants.sh` over each changed crate (one survivor open, `notes/group-6.md`)
 
 ## 7. The switch: checks, supervisor and deployment → `ultragraphdb_common_config_check`, `ultragraphdb_common_service_config`, `ultragraphdb_common_role`, `ultragraphdb_common_config`, `ultragraphdb_config`, `ultragraphdb_config_tests`, `ultragraphdb_supervisor`, `ultragraphdb_supervisor_tests`, the harnesses of the role test crates and `ultragraphdb_tests`, `deploy/helm/ultragraphdb`, `bazel/oci_images`, `scripts/cluster_local.sh`
 
