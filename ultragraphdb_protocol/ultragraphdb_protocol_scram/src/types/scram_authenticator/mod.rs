@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod scram_authenticator_debug;
+
 use ultragraphdb_protocol_transport::Authenticator;
 
 use crate::traits::credentials::Credentials;
@@ -11,8 +13,9 @@ use crate::types::scram_server::ScramServer;
 use crate::utils::constants::{DEFAULT_ITERATIONS, MECHANISM};
 
 /// A server's authenticator of SCRAM-SHA-256 over its `credentials`: each exchange takes the next server nonce from
-/// `nonces`, the caller's source of randomness, and answers unknown names with verifiers derived from `secret`.
-#[derive(Debug, Clone)]
+/// `nonces`, the caller's source of randomness, and answers unknown names with verifiers derived from `secret`. Its
+/// `Debug` holds the credentials, the nonces and the iteration count, never the secret.
+#[derive(Clone)]
 pub struct ScramAuthenticator<C, N> {
     credentials: C,
     nonces: N,

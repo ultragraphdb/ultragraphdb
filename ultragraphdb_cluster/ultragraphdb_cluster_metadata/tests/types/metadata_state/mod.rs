@@ -8,4 +8,5 @@ mod metadata_state_apply_tests;
 mod metadata_state_catalog_source_tests;
 mod metadata_state_catalog_tests;
 mod metadata_state_credentials_tests;
+mod metadata_state_debug_tests;
 mod metadata_state_tests;

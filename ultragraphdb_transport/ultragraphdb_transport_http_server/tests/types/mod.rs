@@ -11,3 +11,5 @@ mod http_limits_tests;
 mod http_request_tests;
 #[cfg(test)]
 mod http_response_tests;
+#[cfg(test)]
+mod parsed_head_tests;

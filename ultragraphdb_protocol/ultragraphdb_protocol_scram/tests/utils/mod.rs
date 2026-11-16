@@ -8,6 +8,8 @@ mod constants_tests;
 #[cfg(test)]
 pub mod halves;
 #[cfg(test)]
+pub mod hidden;
+#[cfg(test)]
 mod nonce_tests;
 #[cfg(test)]
 pub mod rfc7677;

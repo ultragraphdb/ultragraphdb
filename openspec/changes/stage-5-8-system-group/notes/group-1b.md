@@ -282,6 +282,7 @@ None is decided here; each is routed to the user, with the reading the code hold
    unknown principal as for a known one"). Implemented: `ScramVerifier::unknown(secret, name, iterations)`, the count
    the caller's, as `ScramServer` has it. The group must pass the count it derives verifiers with; that is group 3's to
    wire. §13.8 would read truly as "a salt derived from a secret … and the count the group derives verifiers with".
+   *Decided 2026-11-16:* §13.8 and system-group, "A client's proof is checked in the system group", now say so.
 4. **C1b.2, "a name SASLprep changes … the group answers it as a name no principal holds".** The relay hands the group
    the prepared name, as `ScramServer::first` looks up the prepared name, so a name SASLprep maps onto a held one is
    answered as that principal: `us\u{00AD}er` is asked for, and answered, as `user`. `PROTOCOL.md` §13.8 and §13.9:

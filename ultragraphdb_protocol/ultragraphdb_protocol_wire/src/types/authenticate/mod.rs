@@ -4,10 +4,12 @@
  */
 
 mod authenticate_body_builder;
+mod authenticate_debug;
 
 /// One message of a SASL exchange (RFC 4422) on stream 0: the client's first names the mechanism, and each side
 /// answers the other's until the server's final message, which names the principal the connection acts for and when
-/// its credential expires, or its refusal.
+/// its credential expires, or its refusal. Its `Debug` holds every field but the mechanism's message, which may carry a
+/// proof, a signature or a token.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
@@ -20,7 +22,7 @@ mod authenticate_body_builder;
 /// |---|---|
 /// | 0 | the mechanism's name, UTF-8, in the client's message of step 0; empty in every other |
 /// | 1 | the mechanism's message, its own bytes |
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Authenticate {
     step: u32,
     last: bool,

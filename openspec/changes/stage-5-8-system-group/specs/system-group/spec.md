@@ -172,8 +172,9 @@ once the sync has ended, in the order the commands came, so a close's sync delay
 
 ### Requirement: A client's proof is checked in the system group
 The system group SHALL serve Challenge and Verify (`PROTOCOL.md` sections 13.8 and 13.9): to a Challenge it SHALL
-answer the named principal's salt and iteration count, or for a name no principal holds a salt and a count derived
-from the secret the metadata state machine holds (metadata-group, "Principals live in the metadata group"); to a
+answer the named principal's salt and iteration count, or for a name no principal holds a salt derived from the secret
+the metadata state machine holds (metadata-group, "Principals live in the metadata group") and the iteration count it
+derives a principal's verifier with, so an unknown name costs what a held one costs; to a
 Verify it SHALL check the client's proof against the principal's stored key and answer whether it holds, the
 principal, and, when it holds, the ServerSignature. An unknown name and a wrong proof SHALL be answered alike. A
 principal's stored key and server key SHALL leave the group in no frame.

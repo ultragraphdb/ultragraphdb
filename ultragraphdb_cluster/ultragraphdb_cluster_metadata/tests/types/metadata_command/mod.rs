@@ -4,4 +4,5 @@
  */
 
 mod metadata_command_codec_tests;
+mod metadata_command_debug_tests;
 mod metadata_command_tests;

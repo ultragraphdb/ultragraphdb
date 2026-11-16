@@ -4,6 +4,7 @@
  */
 
 pub(crate) mod metadata_command_codec;
+mod metadata_command_debug;
 
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId};
 use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
@@ -17,7 +18,10 @@ use ultragraphdb_protocol_scram::ScramVerifier;
 /// [`MetadataCommand::Chunk`]s, each one round holding the next piece of its encoding, and a
 /// [`MetadataCommand::Commit`] naming the whole by its length and checksum: the command takes effect at the commit,
 /// and a run with no commit after it is no command.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// Its `Debug` holds every field of every command but [`MetadataCommand::DrawSecret`]'s secret, and a verifier without
+/// its keys.
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum MetadataCommand {
     /// A new version of `tenant`'s catalog, numbered `predecessor + 1`, built on version `predecessor`, holding
     /// `bytes`; it is pending until a close announces it.

@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod scram_server_debug;
+
 use crate::errors::scram_error::ScramError;
 use crate::types::scram_relay::{ScramRelay, read_name};
 use crate::types::scram_verifier::ScramVerifier;
@@ -12,8 +14,9 @@ use crate::utils::constants::DEFAULT_ITERATIONS;
 /// the name's verifier, the check of the client's proof in constant time, and the server-final-message with its
 /// signature. A name no principal holds takes a verifier derived from the server's `secret`, the same for the same
 /// name, so its exchange runs to the proof and fails there as a wrong password's does. It runs the two halves in one
-/// process: a [`ScramRelay`] for the messages, and [`ScramVerifier::sign`] over the verifier it holds between them.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// process: a [`ScramRelay`] for the messages, and [`ScramVerifier::sign`] over the verifier it holds between them. Its
+/// `Debug` holds the iteration count, the relay and the principal held with its verifier, never the secret or a key.
+#[derive(Clone, PartialEq, Eq)]
 pub struct ScramServer {
     secret: [u8; 32],
     iterations: u32,

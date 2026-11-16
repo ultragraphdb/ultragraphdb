@@ -29,7 +29,7 @@ use ultragraphdb_protocol_wire::{
     Entries, EntriesEnd, EntriesView, ErrorCode, ErrorReply, ErrorReplyView, FLAG_LAST, Header,
     Held, Join, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE_U32, Members, Scan, ScanAt, ScanRange,
 };
-use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult, hides};
 
 pub(crate) const CLUSTER: u64 = 7;
 pub(crate) const PASSWORD: &str = "s3cret";
@@ -947,4 +947,21 @@ fn test_a_pushed_refusal_reaches_a_stream_never_opened() -> TestResult {
         );
         Ok(())
     })
+}
+
+/// A server's `Debug`, compact or pretty, holds its cluster and name and never the secret its unknown names' verifiers
+/// derive from.
+#[test]
+fn test_a_server_never_prints_its_secret() -> TestResult {
+    let secret = *b"the unknown names' secret, 32 B.";
+    let server = Server::new(CLUSTER, "test", Endpoint::Client)?.with_unknown_secret(secret);
+    let printed = format!("{server:?}");
+    for shown in [&printed, &format!("{server:#?}")] {
+        hides(shown, &secret)?;
+    }
+    assert!(
+        printed.contains(&format!("cluster: {CLUSTER}")),
+        "{printed}"
+    );
+    Ok(())
 }

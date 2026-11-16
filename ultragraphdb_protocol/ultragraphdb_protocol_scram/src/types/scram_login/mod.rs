@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod scram_login_debug;
 mod scram_login_login;
 
 use crate::errors::scram_error::ScramError;
@@ -13,8 +14,9 @@ const PROBE: &str = "probe";
 
 /// A client's login by SCRAM-SHA-256: a principal's name and password, and `nonces`, the source of each exchange's
 /// client nonce, [`crate::system_nonce`] or the caller's own. Each exchange, the first and every re-authentication,
-/// is a fresh [`crate::ScramClient`] with the next nonce.
-#[derive(Debug, Clone)]
+/// is a fresh [`crate::ScramClient`] with the next nonce. Its `Debug` holds the name and the nonces, never the
+/// password.
+#[derive(Clone)]
 pub struct ScramLogin<N> {
     name: String,
     password: String,

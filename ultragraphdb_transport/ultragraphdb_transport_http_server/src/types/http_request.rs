@@ -5,11 +5,21 @@
 
 use crate::types::parsed_head::HttpHead;
 
-/// A whole request, owning the buffer it arrived in, so its body is taken with no copy.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A whole request, owning the buffer it arrived in, so its body is taken with no copy. Its `Debug` holds the head and
+/// the body, never the buffer's head bytes, which hold the key the request presents.
+#[derive(Clone, PartialEq, Eq)]
 pub struct HttpRequest {
     head: HttpHead,
     buffer: Vec<u8>,
+}
+
+impl std::fmt::Debug for HttpRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpRequest")
+            .field("head", &self.head)
+            .field("body", &self.body())
+            .finish()
+    }
 }
 
 impl HttpRequest {

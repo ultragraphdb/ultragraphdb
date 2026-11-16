@@ -22,6 +22,8 @@ mod framer;
 #[cfg(test)]
 mod handshake_answer;
 #[cfg(test)]
+mod mechanism_step;
+#[cfg(test)]
 mod network_faults;
 #[cfg(test)]
 mod network_stats;

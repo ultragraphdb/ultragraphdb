@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::fmt;
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -21,12 +22,21 @@ use crate::types::owner_start::OwnerStart;
 /// The owner's core, where the endpoint's cores are numbered from 0.
 const OWNER_CORE: usize = 1;
 
-/// A running owner: the way to it, and what it stopped with.
-#[derive(Debug)]
+/// A running owner: the way to it, and what it stopped with. Its `Debug` holds every field but the secret.
 pub struct OwnerThread {
     handle: OwnerHandle,
     stopped: oneshot::Receiver<Result<(), RoleError>>,
     unknown_secret: [u8; 32],
+}
+
+impl fmt::Debug for OwnerThread {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OwnerThread")
+            .field("handle", &self.handle)
+            .field("stopped", &self.stopped)
+            .field("unknown_secret", &format_args!("<redacted>"))
+            .finish()
+    }
 }
 
 impl OwnerThread {

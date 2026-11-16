@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod scram_client_debug;
 mod scram_client_mechanism;
 
 use crate::errors::scram_error::ScramError;
@@ -13,8 +14,8 @@ use crate::utils::message::{attribute, decode, encode, escape, server_error, val
 /// The GS2 header of a client without channel binding.
 const GS2_HEADER: &str = "n,,";
 
-/// Where a client's exchange stands.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Where a client's exchange stands. Its `Debug` never holds the server signature it expects.
+#[derive(Clone, PartialEq, Eq)]
 enum ClientState {
     Initial,
     First { client_first_bare: String },
@@ -24,8 +25,9 @@ enum ClientState {
 
 /// The client's side of SCRAM-SHA-256 (RFC 5802 §5): the client-first-message, the client-final-message answering
 /// the server's challenge with the proof, and the check of the server's signature. The client's nonce is the caller's,
-/// printable ASCII without a comma, drawn from a source the caller trusts.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// printable ASCII without a comma, drawn from a source the caller trusts. Its `Debug` holds the name, the nonce and
+/// where the exchange stands, never the password or the server signature it expects.
+#[derive(Clone, PartialEq, Eq)]
 pub struct ScramClient {
     name: String,
     password: String,

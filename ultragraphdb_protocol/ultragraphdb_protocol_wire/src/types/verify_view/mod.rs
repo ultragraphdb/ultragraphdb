@@ -4,9 +4,11 @@
  */
 
 mod verify_view_body_view;
+mod verify_view_debug;
 
-/// The body of a received Verify frame, read in place; see [`crate::Verify`] for its layout.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The body of a received Verify frame, read in place; see [`crate::Verify`] for its layout. Its `Debug` holds the
+/// name, the AuthMessage and the principal, never the ClientProof or the ServerSignature.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct VerifyView<'a> {
     name: &'a str,
     auth_message: &'a str,

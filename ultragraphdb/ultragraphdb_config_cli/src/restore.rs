@@ -31,13 +31,24 @@ fn failure(code: u8, message: impl Into<String>) -> Failure {
     }
 }
 
-/// What a restore asks for.
-#[derive(Debug, Clone, Copy)]
+/// What a restore asks for. Its `Debug` holds every field but the token.
+#[derive(Clone, Copy)]
 pub(crate) struct Restore<'a> {
     pub(crate) url: &'a str,
     pub(crate) token: &'a str,
     pub(crate) folder: &'a Path,
     pub(crate) ca_file: Option<&'a str>,
+}
+
+impl std::fmt::Debug for Restore<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Restore")
+            .field("url", &self.url)
+            .field("token", &format_args!("<redacted>"))
+            .field("folder", &self.folder)
+            .field("ca_file", &self.ca_file)
+            .finish()
+    }
 }
 
 /// A listed target: its name, and its latest revision and what it says is active, unless it is retired.

@@ -5,6 +5,7 @@
 
 use ultragraphdb_common_frontend::AskedCredentials;
 use ultragraphdb_protocol_scram::{Credentials, ScramVerifier};
+use ultragraphdb_tool_bdd::{TestResult, hides};
 
 const NAME: &str = "ann";
 const PRINCIPAL: u64 = 3;
@@ -30,4 +31,26 @@ fn test_an_answer_holds_for_its_name_alone() {
     assert_eq!(asked.lookup("bob"), None);
     asked.answered(NAME.to_string(), None);
     assert_eq!(asked.lookup(NAME), None);
+}
+
+/// The answer held, compact or pretty, prints its name and principal and neither key of its verifier.
+#[test]
+fn test_an_answer_never_prints_its_keys() -> TestResult {
+    let stored_key = *b"the stored key, of 32 bytes, ok.";
+    let server_key = *b"the server key, of 32 bytes, ok.";
+    let asked = AskedCredentials::default();
+    asked.answered(
+        NAME.to_string(),
+        Some((
+            PRINCIPAL,
+            ScramVerifier::new(vec![1, 2, 3], 4_096, stored_key, server_key),
+        )),
+    );
+    let printed = format!("{asked:?}");
+    for shown in [&printed, &format!("{asked:#?}")] {
+        hides(shown, &stored_key)?;
+        hides(shown, &server_key)?;
+    }
+    assert!(printed.contains(NAME), "{printed}");
+    Ok(())
 }

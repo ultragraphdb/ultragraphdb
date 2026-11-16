@@ -11,7 +11,7 @@ use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{OwnerStart, OwnerThread, start_owner};
 use ultragraphdb_common_service_config::ServiceConfig;
 use ultragraphdb_error_role::{RoleError, RoleErrorEnum};
-use ultragraphdb_tool_bdd::{TestError, TestResult};
+use ultragraphdb_tool_bdd::{TestError, TestResult, hides};
 
 const CLUSTER: u64 = 7;
 const METADATA_SNAPSHOT: &str = "metadata.snapshot";
@@ -145,6 +145,21 @@ fn test_the_parts_of_a_running_owner_stop_it_apart() -> TestResult {
         stopped
             .await
             .map_err(|_| TestError::new("the owner ended without a word"))??;
+        Ok(())
+    })
+}
+
+/// A running owner's `Debug`, compact or pretty, never holds the secret an unknown name's verifier derives from.
+#[test]
+fn test_a_running_owner_never_prints_its_secret() -> TestResult {
+    let data = directory("debug")?;
+    Runtime::new()?.block_on(async {
+        let running = started(&data, starting()?).await?;
+        let secret = running.unknown_secret();
+        for shown in [format!("{running:?}"), format!("{running:#?}")] {
+            hides(&shown, &secret)?;
+        }
+        running.stopped().await?;
         Ok(())
     })
 }

@@ -4,12 +4,13 @@
  */
 
 mod authenticate_view_body_view;
+mod authenticate_view_debug;
 
 /// The body of a received Authenticate frame, read in place; see [`crate::Authenticate`] for its layout. Its check
 /// holds the message's own rules: a final message is the server's, at an odd step, and only a final message names a
 /// principal and an expiry; a mechanism is named at step 0 alone. Which step is due, and from which side, is the
-/// receiving connection's to check.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// receiving connection's to check. Its `Debug`, as the body's, never holds the mechanism's message.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct AuthenticateView<'a> {
     step: u32,
     last: bool,

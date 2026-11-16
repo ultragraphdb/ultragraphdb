@@ -8,6 +8,7 @@ mod metadata_state_apply;
 mod metadata_state_catalog;
 mod metadata_state_catalog_source;
 mod metadata_state_credentials;
+mod metadata_state_debug;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -36,7 +37,10 @@ use crate::types::principal::Principal;
 /// - **Principals.** By name, each with its identity, and the identity the next one takes.
 /// - **Sessions.** In registration order with their principals, indexed by identity, and the evictions no learned close
 ///   has carried yet.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Its `Debug` holds every table, the principals' verifiers without their keys, and whether the unknown-name secret
+/// is drawn, never the secret.
+#[derive(Clone, PartialEq, Eq)]
 pub struct MetadataState {
     pub(crate) tenants: BTreeSet<Tenant>,
     pub(crate) unknown_secret: Option<[u8; 32]>,

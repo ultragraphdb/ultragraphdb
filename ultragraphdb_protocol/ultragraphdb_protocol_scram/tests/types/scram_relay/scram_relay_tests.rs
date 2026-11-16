@@ -441,7 +441,7 @@ fn forms(key: &[u8; 32]) -> Vec<String> {
 
 /// The relay holds no key (client-endpoint, "The frontend never holds a stored key"): neither the messages it built
 /// in RFC 7677's exchange nor its `Debug` hold the stored key or the server key, in any of their forms, while the
-/// verifier's `Debug` does, which shows the check finds a key where one is.
+/// keys' own `Debug` does, which shows the check finds a key where one is.
 #[test]
 fn test_the_relay_holds_no_key() -> TestResult {
     let known = verifier()?;
@@ -449,7 +449,7 @@ fn test_the_relay_holds_no_key() -> TestResult {
     let server_first = halves.first(CLIENT_FIRST)?;
     let (server_final, _) = halves.last(CLIENT_FINAL)?;
     let relay = format!("{:?}", halves.relay());
-    let held = format!("{known:?}");
+    let held = format!("{:?} {:?}", known.stored_key(), known.server_key());
     for key in [known.stored_key(), known.server_key()] {
         assert!(server_first.windows(32).all(|run| run != key));
         assert!(server_final.windows(32).all(|run| run != key));

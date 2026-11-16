@@ -3654,8 +3654,10 @@ latest close is refused with Error 1 (Protocol), the message naming both.
 
 The first half of verifying a principal's SCRAM-SHA-256 proof: the frontend authenticating a client asks the system
 group for the principal's salt and iteration count, which its server-first-message carries. A name no principal
-holds is answered with a salt and a count derived from a secret the metadata group draws at the cluster's first start and
-holds durably, so one name takes one salt, as a held one is (`../../openspec/notes/SECURITY.md`, *Failures*).
+holds is answered with a salt derived from a secret the metadata group draws at the cluster's first start and holds
+durably, so one name takes one salt, as a held one is, and with the iteration count the system group derives a
+principal's verifier with, so an unknown name costs a prober what a held one costs (`../../openspec/notes/SECURITY.md`,
+*Failures*).
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|

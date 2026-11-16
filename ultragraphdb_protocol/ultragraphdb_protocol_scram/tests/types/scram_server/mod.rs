@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod scram_server_debug_tests;
+#[cfg(test)]
 mod scram_server_tests;

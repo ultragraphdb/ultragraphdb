@@ -3,13 +3,16 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod scram_verifier_debug;
+
 use crate::errors::scram_error::ScramError;
 use crate::utils::constants::{MAX_ITERATIONS, MIN_ITERATIONS, SALT_SIZE};
 use crate::utils::crypto::{hmac, prepare, salted, same, sha256};
 
 /// What a server stores of a password (RFC 5802 §3): the salt, the iteration count, `StoredKey`, the SHA-256 of the
-/// client key, and `ServerKey`. A password cannot be read back from it, and a stolen verifier does not log in.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// client key, and `ServerKey`. A password cannot be read back from it, and a stolen verifier does not log in. Its
+/// `Debug` holds the salt and the iteration count, never the keys.
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ScramVerifier {
     salt: Vec<u8>,
     iterations: u32,

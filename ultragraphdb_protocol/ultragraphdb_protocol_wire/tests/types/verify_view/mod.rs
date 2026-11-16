@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod verify_view_debug_tests;
+#[cfg(test)]
 mod verify_view_tests;

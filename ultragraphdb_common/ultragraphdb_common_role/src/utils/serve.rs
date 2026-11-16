@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::fmt;
 use std::future::poll_fn;
 use std::pin::pin;
 use std::task::Poll;
@@ -42,7 +43,8 @@ fn now() -> Instant {
 
 /// How one kind of connection is served: its cluster, the endpoint it arrived at, and the secret an unknown name's
 /// verifier derives from, at the iterations a known name's took, so a refused name costs what a wrong password costs.
-#[derive(Debug, Clone)]
+/// Its `Debug` holds every field but the secret.
+#[derive(Clone)]
 pub struct Server {
     cluster: u64,
     endpoint: Endpoint,
@@ -52,6 +54,21 @@ pub struct Server {
     open: OpenRequests,
     bound: Option<ConnectionBound>,
     welcome: fn(Welcome) -> Welcome,
+}
+
+impl fmt::Debug for Server {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Server")
+            .field("cluster", &self.cluster)
+            .field("endpoint", &self.endpoint)
+            .field("name", &self.name)
+            .field("unknown", &format_args!("<redacted>"))
+            .field("iterations", &self.iterations)
+            .field("open", &self.open)
+            .field("bound", &self.bound)
+            .field("welcome", &self.welcome)
+            .finish()
+    }
 }
 
 impl Server {

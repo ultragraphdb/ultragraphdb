@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod authenticate_debug_tests;
+#[cfg(test)]
 pub mod authenticate_tests;

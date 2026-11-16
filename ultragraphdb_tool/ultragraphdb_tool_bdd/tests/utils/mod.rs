@@ -10,4 +10,6 @@ mod fuzz_regressions_tests;
 #[cfg(test)]
 mod golden_io_tests;
 #[cfg(test)]
+mod hides_tests;
+#[cfg(test)]
 mod workspace_tests;
