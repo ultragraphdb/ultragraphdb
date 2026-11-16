@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::future::Future;
+
 use futures::channel::{mpsc, oneshot};
 use ultragraphdb_cluster_placement::PlacementMap;
 use ultragraphdb_cluster_sequencer::Close;
@@ -40,6 +42,23 @@ impl SystemHandle {
         let (reply, answer) = oneshot::channel();
         self.inbox.unbounded_send(build(reply)).ok()?;
         answer.await.ok()
+    }
+
+    /// As [`SystemHandle::ask_or_refuse`], the ask sent at the call, and its answer awaited by a future that holds no handle:
+    /// an ask whose requester goes stands with the owner, and its wait keeps no owner running (`PROTOCOL.md` §11.13, *A host
+    /// or a frontend that stops*).
+    fn sent_or_refuse<T, B>(
+        &self,
+        build: B,
+    ) -> impl Future<Output = Result<T, ErrorReply>> + use<T, B>
+    where
+        T: 'static,
+        B: FnOnce(oneshot::Sender<Result<T, ErrorReply>>) -> SystemAsked,
+    {
+        let (reply, answer) = oneshot::channel();
+        // An owner that stopped hands the ask back, its reply with it, and the answer reads that as stopped.
+        drop(self.inbox.unbounded_send(build(reply)));
+        async move { answer.await.unwrap_or_else(|_| Err(stopped())) }
     }
 
     /// As [`SystemHandle::ask`], an owner that stopped refused as unavailable.
@@ -263,22 +282,24 @@ impl SystemHandle {
     /// As [`SystemHandle::declare`], answering a Declare of `kind` 1 (`PROTOCOL.md` §13.27): the catalog version committed
     /// as pending, and the first version of its effective epoch.
     ///
+    /// Asked at the call: the future holds no handle, so a Declare whose connection closes stands with the owner and keeps
+    /// none running while its check lasts.
+    ///
     /// # Errors
     ///
     /// As [`SystemHandle::declare`], and code 7, `detail` the tenant, for a tenant the group does not hold.
-    pub async fn declare_version(
+    pub fn declare_version(
         &self,
         tenant: u64,
         built_on: u64,
         declared: Vec<Declared>,
-    ) -> Result<(u64, u64), ErrorReply> {
-        self.ask_or_refuse(|reply| SystemAsked::Declare {
+    ) -> impl Future<Output = Result<(u64, u64), ErrorReply>> + use<> {
+        self.sent_or_refuse(move |reply| SystemAsked::Declare {
             tenant,
             built_on,
             declared,
             reply,
         })
-        .await
     }
 
     /// A partition's report on a catalog version, once the metadata group holds it (`PROTOCOL.md` §13.19).
@@ -304,16 +325,21 @@ impl SystemHandle {
     /// committed as pending, 0 when the Drop changes nothing in the catalog. A Drop of everything removes the tenant's
     /// default-entry records with it, durable before the answer.
     ///
+    /// Asked at the call, as [`SystemHandle::declare_version`] is.
+    ///
     /// # Errors
     ///
     /// As [`SystemHandle::drop_catalog`], and code 7, `detail` the tenant, for a tenant the group does not hold.
-    pub async fn drop_version(&self, tenant: u64, step: DropStep) -> Result<u64, ErrorReply> {
-        self.ask_or_refuse(|reply| SystemAsked::DropCatalog {
+    pub fn drop_version(
+        &self,
+        tenant: u64,
+        step: DropStep,
+    ) -> impl Future<Output = Result<u64, ErrorReply>> + use<> {
+        self.sent_or_refuse(move |reply| SystemAsked::DropCatalog {
             tenant,
             step,
             reply,
         })
-        .await
     }
 
     /// The default entry of `predicate`, recorded durably: whether it was held already.
@@ -368,13 +394,18 @@ impl SystemHandle {
     /// Decided in this order: Error 1 naming the session when the registry holds it, for any principal; code 7 naming the
     /// principal when the group does not hold it; code 14 when the full registry holds no session it may evict, or must
     /// evict within twice `transaction_ms` of the group beginning to listen. Unavailable when the group stopped.
-    pub async fn session(&self, session: u128, principal: u64) -> Result<(), ErrorReply> {
-        self.ask_or_refuse(|reply| SystemAsked::Session {
+    ///
+    /// Asked at the call, as [`SystemHandle::declare_version`] is.
+    pub fn session(
+        &self,
+        session: u128,
+        principal: u64,
+    ) -> impl Future<Output = Result<(), ErrorReply>> + use<> {
+        self.sent_or_refuse(move |reply| SystemAsked::Session {
             session,
             principal,
             reply,
         })
-        .await
     }
 
     /// A Check's `checks` sent on `connection`, decided in their order (`PROTOCOL.md` §13.24): each with its outcome, 12,

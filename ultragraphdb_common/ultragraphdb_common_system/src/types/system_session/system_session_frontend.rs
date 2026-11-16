@@ -65,12 +65,13 @@ impl SystemSession {
     pub(super) fn session(&self, stream: u64, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
         let asked = SessionView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
         let reply = Session::new(asked.session(), asked.principal());
-        let owner = self.shared.owner.clone();
         let header = header_of(self.shared.cluster.id(), stream, Command::Session);
-        let session = u128::from_be_bytes(asked.session());
-        let principal = asked.principal();
+        let registered = self
+            .shared
+            .owner
+            .session(u128::from_be_bytes(asked.session()), asked.principal());
         self.pushed_later(stream, async move {
-            owner.session(session, principal).await?;
+            registered.await?;
             reply
                 .frame(header)
                 .map_err(|rule| ErrorReply::protocol(&rule))
@@ -126,24 +127,24 @@ impl SystemSession {
         let header = header_of(self.shared.cluster.id(), stream, Command::Declare);
         let command_header = *frame.header().command_header();
         let body = frame.body().to_vec();
-        let owner = self.shared.owner.clone();
+        let owner = &self.shared.owner;
         let tenant = asked.tenant();
-        let built_on = asked.built_on();
+        // Asked of the owner here, before the stream is held open: the ask stands whatever becomes of the connection, and the
+        // wait for its answer holds no handle, so a frontend that stops changes nothing about a check (`PROTOCOL.md` §11.13, *A
+        // host or a frontend that stops*).
         let answer = match asked.drop_kind() {
             None => {
                 let declared = (0..asked.len())
                     .filter_map(|index| asked.declaration(index))
                     .collect();
-                Asked::Version(built_on, declared)
+                Asked::Version(owner.declare_version(tenant, asked.built_on(), declared))
             }
-            Some(kind) => Asked::Drop(drop_step(kind, asked.target())),
+            Some(kind) => Asked::Drop(owner.drop_version(tenant, drop_step(kind, asked.target()))),
         };
         self.pushed_later(stream, async move {
             let (version, commit_version) = match answer {
-                Asked::Version(base, declared) => {
-                    owner.declare_version(tenant, base, declared).await?
-                }
-                Asked::Drop(step) => (owner.drop_version(tenant, step).await?, 0),
+                Asked::Version(answered) => answered.await?,
+                Asked::Drop(answered) => (answered.await?, 0),
             };
             let mut filled = command_header;
             put_u64(&mut filled, DECLARE_VERSION_AT, version);
@@ -186,7 +187,8 @@ impl SystemSession {
     }
 
     /// Runs `answering` in a task of its own and pushes what it comes to on `stream`: its frame, or its refusal. A connection
-    /// gone has no one to tell; what was asked of the group stands.
+    /// gone has no one to tell; what was asked of the group stands. `answering` awaits an ask already sent and holds no handle
+    /// to the owner, so a pending answer keeps no owner running.
     fn pushed_later(
         &self,
         stream: u64,
@@ -205,12 +207,12 @@ impl SystemSession {
     }
 }
 
-/// What a Declare asks the group for.
-enum Asked {
-    /// A version of these declarations built on this one.
-    Version(u64, Vec<ultragraphdb_protocol_wire::Declared>),
+/// What a Declare asked the group for, its answer awaited.
+enum Asked<V, D> {
+    /// A version of its declarations: the version and the first of its effective epoch.
+    Version(V),
     /// The version a Drop calls for.
-    Drop(DropStep),
+    Drop(D),
 }
 
 /// The catalog version a Drop of `kind` calls for: a predicate's removal, the initial catalog, or none for a graph's or a

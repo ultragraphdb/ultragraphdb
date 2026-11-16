@@ -336,6 +336,13 @@ fn restarted(w: &mut Steps) -> TestResult {
         drop(client);
         stage.stop().await?;
         let again = Stage::start(options).await?;
+        // The stop changed nothing about the check: the restarted group still holds the version as being checked, so the
+        // restoring version below is the report's, `catalog_check_ms` outlasting the wait for it.
+        assert_eq!(
+            latest(&again, NICK).await?,
+            (version, true),
+            "the version still being checked"
+        );
         let mut asking = again.ann().await?;
         assert!(!single_in_describe(&mut asking, NICK).await?);
         report(&again, &refused(1, version)?).await?;
