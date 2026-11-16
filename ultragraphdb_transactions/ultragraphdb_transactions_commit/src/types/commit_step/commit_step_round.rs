@@ -673,6 +673,17 @@ impl<P: Proposal> CommitStep<P> {
         decided
     }
 
+    /// Whether `record` is a Drop of a tenant's data or of everything in it whose `catalog` is not the version in effect at
+    /// the open epoch, the round's (`PROTOCOL.md` §6.5): the partition's check, decided at the round as an Ingest share's is.
+    fn drop_stale(&self, record: &WriteSetRecordView<'_>) -> bool {
+        match record.operation(0) {
+            Some(RecordOperation::DropTenantData | RecordOperation::DropTenant) => {
+                record.catalog() != self.catalog_version(record.tenant())
+            }
+            Some(_) | None => false,
+        }
+    }
+
     /// `tenant`'s catalog version `version` is in effect from here on, an earlier one no longer: a close and the round taking it
     /// effect each say so, in either order.
     fn catalog_takes_effect(&mut self, tenant: u64, version: u64) {
@@ -683,11 +694,16 @@ impl<P: Proposal> CommitStep<P> {
         }
     }
 
-    /// The resolver's checks of `proposal`, the catalog version's placed after the reads' and before a drop's.
+    /// The resolver's checks of `proposal`, the catalog version's placed after the reads' and before a drop's. A
+    /// transaction is checked against the version it executed against; a Drop of a tenant's data or of everything in it
+    /// against the version it names; a Drop of a predicate or a graph against none, one that found nothing, whose record
+    /// names no operation, included (`PROTOCOL.md` §6.5).
     fn validate(&self, proposal: &P, record: &WriteSetRecordView<'_>) -> Result<(), CommitError> {
-        let stale = record.kind() == RecordKind::Transaction
+        let stale = (record.kind() == RecordKind::Transaction
             && record.operation_count() == 0
-            && record.catalog() != self.catalog_version(record.tenant());
+            && !proposal.is_drop_command()
+            && record.catalog() != self.catalog_version(record.tenant()))
+            || self.drop_stale(record);
         match self.resolver.check(proposal.read_set()) {
             Err(CommitError(CommitErrorEnum::Conflict {
                 kind: ConflictKind::Drop,

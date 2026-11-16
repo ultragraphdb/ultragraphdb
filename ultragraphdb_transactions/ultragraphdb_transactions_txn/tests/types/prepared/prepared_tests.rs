@@ -198,7 +198,7 @@ fn test_a_drop_names_its_session_request_and_principal() -> TestResult {
     assert_eq!(applier.apply_round(vec![(version, executed)])?.len(), 1);
     let drop = Prepared::drop(
         &applier,
-        TENANT,
+        (TENANT, 0),
         DropRequest::Data,
         11,
         4,
@@ -217,6 +217,30 @@ fn test_a_drop_names_its_session_request_and_principal() -> TestResult {
         view.conflict_ranges().iter().count(),
         drop.executed().drop_ranges().len()
     );
+    Ok(())
+}
+
+/// A Drop's record names the catalog version the Drop names, which the commit step checks at the round for a Drop of a
+/// tenant's data or of everything in it (`PROTOCOL.md` §6.5).
+#[test]
+fn test_a_drop_names_its_catalog_version() -> TestResult {
+    use ultragraphdb_store_apply::DropRequest;
+    let applier = applier()?;
+    for (drop, catalog) in [(DropRequest::Data, 3), (DropRequest::Tenant, 7)] {
+        let prepared = Prepared::drop(
+            &applier,
+            (TENANT, catalog),
+            drop,
+            0,
+            0,
+            0,
+            TxnBuffers::new(),
+        )?;
+        assert_eq!(
+            WriteSetRecordView::new(prepared.record())?.catalog(),
+            catalog
+        );
+    }
     Ok(())
 }
 
@@ -404,7 +428,7 @@ fn test_a_drop_of_the_default_graph_is_refused_naming_no_graph() -> TestResult {
     crate::utils::fixture::store(&applier, vec![insert("a", "knows", "b")])?;
     let refused = Prepared::drop(
         &applier,
-        TENANT,
+        (TENANT, 0),
         DropRequest::Graph(oxrdf::GraphNameRef::DefaultGraph),
         1,
         1,
@@ -435,7 +459,7 @@ fn test_a_drop_of_the_default_graph_is_refused_naming_no_graph() -> TestResult {
     );
     let data = Prepared::drop(
         &applier,
-        TENANT,
+        (TENANT, 0),
         DropRequest::Data,
         1,
         2,
@@ -650,7 +674,7 @@ fn test_a_drop_is_one_frame_even_when_it_finds_nothing_to_remove() -> TestResult
     let unknown = oxrdf::NamedNode::new("http://ex.org/no-such-graph").context("the graph")?;
     let drop = Prepared::drop(
         &applier,
-        TENANT,
+        (TENANT, 0),
         ultragraphdb_store_apply::DropRequest::Graph(oxrdf::GraphNameRef::NamedNode(
             unknown.as_ref(),
         )),
@@ -666,5 +690,45 @@ fn test_a_drop_is_one_frame_even_when_it_finds_nothing_to_remove() -> TestResult
     let commit = prepared(txn.commit(1, 2, &[], 0))?;
     assert!(!commit.is_one_frame());
     assert!(commit.with_one_frame().is_one_frame());
+    Ok(())
+}
+
+/// A Drop is a Drop command whatever it finds to remove, one finding nothing included, whose record then names no
+/// operation; a transaction's Commit is none, one-frame or not.
+#[test]
+fn test_a_drop_is_a_drop_command_even_when_it_finds_nothing_to_remove() -> TestResult {
+    let applier = applier()?;
+    crate::utils::fixture::store(&applier, vec![insert("a", "knows", "b")])?;
+    let unknown = oxrdf::NamedNode::new("http://ex.org/no-such-graph").context("the graph")?;
+    let nothing = Prepared::drop(
+        &applier,
+        (TENANT, 0),
+        ultragraphdb_store_apply::DropRequest::Graph(oxrdf::GraphNameRef::NamedNode(
+            unknown.as_ref(),
+        )),
+        1,
+        1,
+        0,
+        TxnBuffers::new(),
+    )?;
+    assert!(nothing.is_drop_command());
+    assert_eq!(
+        WriteSetRecordView::new(nothing.record())?.operation_count(),
+        0
+    );
+    let data = Prepared::drop(
+        &applier,
+        (TENANT, 0),
+        ultragraphdb_store_apply::DropRequest::Data,
+        1,
+        2,
+        0,
+        TxnBuffers::new(),
+    )?;
+    assert!(data.is_drop_command() && data.is_drop());
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    txn.write(&changeset(vec![insert("a", "knows", "c")]), 0)?;
+    let commit = prepared(txn.commit(1, 3, &[], 0))?.with_one_frame();
+    assert!(!commit.is_drop_command());
     Ok(())
 }

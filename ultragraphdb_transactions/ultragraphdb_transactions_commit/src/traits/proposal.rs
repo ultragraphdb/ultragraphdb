@@ -62,6 +62,15 @@ pub trait Proposal {
         false
     }
 
+    /// Whether the proposal is a Drop command (`PROTOCOL.md` §6.5), whatever it found to remove; one that found something
+    /// is also [`Proposal::is_drop`]. A Drop executed against no catalog version, so the step checks it against none as it
+    /// checks a transaction (§11.13, *Transactions against a version*): one of a predicate or a graph is checked against
+    /// no version, even when it found nothing and its record names no operation; one of a tenant's data or of everything
+    /// in it, against the version it names. None by default.
+    fn is_drop_command(&self) -> bool {
+        false
+    }
+
     /// Whether the proposal is a frame holding what it does, a one-frame write or a Drop, so a resend of it reaches the
     /// session table as the first did and is answered with the stored reply of the session's last request
     /// ([`crate::Sessions::check_one_frame`]). By default it is not: it is a Commit on an open transaction, and a

@@ -37,4 +37,5 @@ fn test_a_proposal_is_by_default_a_commit_on_an_open_transaction_asking_nothing_
     assert!(!bare.starts_build());
     assert!(!bare.ends_build());
     assert!(!bare.is_drop());
+    assert!(!bare.is_drop_command());
 }

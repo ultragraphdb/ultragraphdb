@@ -376,6 +376,7 @@ schema-changes, "A partition checks the catalog version a Drop names"; D 14.
 | C4.13 | version 4 in effect at the round's epoch | a Drop of kind 3 naming `catalog` 5, one above; of kind 4 | code 2, kind 5; nothing removed |
 | C4.14 | version 4 taking effect at exactly the round's epoch | a Drop of kind 4 naming `catalog` 4; naming 3 | committed; code 2, kind 5 |
 | C4.15 | version 4 in effect at the round's epoch | a Drop of kind 1 with `catalog` 0; of kind 2 | not checked; committed |
+| C4.16 | version 4 in effect at the round's epoch | a Drop of kind 1 with `catalog` 0 naming a predicate the tenant does not hold; of kind 2 naming a graph it does not hold | not checked; committed, nothing removed |
 
 ## 5. The frontend without books, `ultragraphdb_common_frontend`
 

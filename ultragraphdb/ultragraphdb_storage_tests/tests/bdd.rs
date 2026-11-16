@@ -788,7 +788,7 @@ fn exits_on_the_violation(w: &mut Steps) -> TestResult {
     assert!(w.exited.is_some(), "it runs on:\n{}", w.log);
     exit_is(w.exited, &w.log, 70)?;
     let said = format!(
-        "the frontend delivered close {OUT_OF_ORDER_EPOCH} after close 0: a close follows the last by one epoch"
+        "the system group delivered close {OUT_OF_ORDER_EPOCH} after close 0: a close follows the last by one epoch"
     );
     assert!(w.log.contains(&said), "{}", w.log);
     assert!(w.log.contains("a partition stopped"), "{}", w.log);
@@ -1261,7 +1261,10 @@ fn main() -> TestResult {
                 .boxed_local()
             })
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
+            // The features tagged `@system` are `system_bdd`'s: the storage binary hosting the system group.
+            .filter_run_and_exit(ultragraphdb_tool_bdd::features_dir()?, |feature, _, _| {
+                !feature.tags.iter().any(|tag| tag == "system")
+            }),
     );
     Ok(())
 }

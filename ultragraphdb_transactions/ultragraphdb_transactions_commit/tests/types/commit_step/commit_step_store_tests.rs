@@ -273,7 +273,7 @@ fn test_a_round_closes_after_a_drop() -> TestResult {
     driver.submit(1, prepare(first)?)?;
     let drop = ultragraphdb_transactions_txn::Prepared::drop(
         &applier,
-        crate::utils::fixture::TENANT,
+        (crate::utils::fixture::TENANT, 0),
         ultragraphdb_store_apply::DropRequest::Predicate(crate::utils::fixture::ex("p").as_ref()),
         0,
         0,
@@ -307,6 +307,98 @@ fn test_a_round_closes_after_a_drop() -> TestResult {
     assert_eq!(reply(3)?, Ok(crate::utils::fixture::version(1, 4)));
     assert!(held(&applier, "a", "p")?.is_empty());
     assert_eq!(held(&applier, "z", "knows")?.len(), 1);
+    Ok(())
+}
+
+/// A Drop of a tenant's data is decided against the catalog version in effect at its round, 0 here: one naming version 1 is
+/// refused with a conflict of kind Catalog, code 2, kind 5 (`PROTOCOL.md` §6.5), and removes nothing; one naming 0 commits.
+#[test]
+fn test_a_drop_of_a_tenants_data_is_decided_against_the_version_in_effect() -> TestResult {
+    let applier = applier()?;
+    let _version: u64 = setup(&applier, vec![insert("a", "p", "b")])?;
+    let mut driver = Driver::new(&applier, unbounded());
+    for (ticket, catalog) in [(1, 1), (2, 0)] {
+        let drop = ultragraphdb_transactions_txn::Prepared::drop(
+            &applier,
+            (crate::utils::fixture::TENANT, catalog),
+            ultragraphdb_store_apply::DropRequest::Data,
+            0,
+            0,
+            0,
+            TxnBuffers::new(),
+        )
+        .context("the drop prepares")?;
+        driver.submit(ticket, drop)?;
+        driver.sync()?;
+        // Held after the refused one, gone after the other.
+        assert_eq!(
+            held(&applier, "a", "p")?.is_empty(),
+            ticket == 2,
+            "after Drop {ticket}"
+        );
+    }
+    let reply = |t: u64| {
+        driver
+            .reply(t)
+            .context("decided")
+            .map(|r| r.outcome().clone())
+    };
+    assert_eq!(reply(1)?, Err(CommitError::conflict(ConflictKind::Catalog)));
+    assert!(reply(2)?.is_ok(), "{:?}", reply(2));
+    Ok(())
+}
+
+/// C4.15 for a Drop that finds nothing to remove: with version 4 in effect, a Drop of a predicate the tenant does not hold
+/// and one of a graph it does not hold name `catalog` 0, are checked against no version and commit (`PROTOCOL.md` §6.5),
+/// removing nothing. A transaction that wrote and read nothing, whose record is the same but for its session, is still
+/// checked: executed against version 0, it conflicts naming the catalog (§11.13, *Transactions against a version*).
+#[test]
+fn test_a_drop_of_a_predicate_or_a_graph_finding_nothing_is_not_checked() -> TestResult {
+    use ultragraphdb_cluster_sequencer::CatalogVersion;
+    use ultragraphdb_core_ids::Tenant;
+    use ultragraphdb_store_apply::DropRequest;
+    use ultragraphdb_transactions_commit::CommitStep;
+    let applier = applier()?;
+    let _version: u64 = setup(&applier, vec![insert("a", "p", "b")])?;
+    let mut driver = Driver::new(&applier, unbounded());
+    driver.step =
+        CommitStep::new(unbounded(), applier.quads().lists().applied_ts()).with_catalog(&[
+            CatalogVersion::new(Tenant::new(crate::utils::fixture::TENANT), 4),
+        ]);
+    let predicate = crate::utils::fixture::ex("no-such-predicate");
+    let graph = crate::utils::fixture::ex("no-such-graph");
+    for (ticket, drop) in [
+        (1, DropRequest::Predicate(predicate.as_ref())),
+        (
+            2,
+            DropRequest::Graph(oxrdf::GraphNameRef::NamedNode(graph.as_ref())),
+        ),
+    ] {
+        let prepared = ultragraphdb_transactions_txn::Prepared::drop(
+            &applier,
+            (crate::utils::fixture::TENANT, 0),
+            drop,
+            0,
+            0,
+            0,
+            TxnBuffers::new(),
+        )
+        .context("the drop prepares")?;
+        driver.submit(ticket, prepared)?;
+        driver.sync()?;
+        let outcome = driver.reply(ticket).context("decided")?.outcome().clone();
+        assert!(outcome.is_ok(), "{drop:?}: {outcome:?}");
+    }
+    assert_eq!(held(&applier, "a", "p")?.len(), 1, "nothing removed");
+    driver.submit(3, prepare(begin(&applier)?)?)?;
+    driver.sync()?;
+    assert_eq!(
+        driver
+            .reply(3)
+            .context("decided")
+            .map(|r| r.outcome().clone())?,
+        Err(CommitError::conflict(ConflictKind::Catalog))
+    );
     Ok(())
 }
 

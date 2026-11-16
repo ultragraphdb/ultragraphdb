@@ -59,21 +59,16 @@ async fn discarded(core: &CoreUnderTest) -> TestResult<u64> {
     Err(TestError::new("no discard version within its time"))
 }
 
-/// The name a core dials its peers under, the frontend it asks and its cluster, as given.
+/// The name a core dials its peers under, the system group it asks and its cluster, as given.
 #[test]
 fn test_peers_hold_what_a_core_dials_with() -> TestResult {
     let dir = TestDir::new("peers");
     let cluster = role_cluster(dir.path())?;
-    let frontend = unreachable()?;
+    let system = unreachable()?;
     let (own, _mailbox) = unbounded();
-    let peers = Peers::new(
-        cluster.clone(),
-        frontend.clone(),
-        "storage".to_string(),
-        own,
-    );
+    let peers = Peers::new(cluster.clone(), system.clone(), "storage".to_string(), own);
     assert_eq!(peers.name(), "storage");
-    assert_eq!(peers.frontend(), &frontend);
+    assert_eq!(peers.system(), &system);
     assert_eq!(peers.cluster().id(), cluster.id());
     Ok(())
 }
@@ -290,7 +285,7 @@ fn test_a_full_epoch_asks_the_frontend_for_its_close() -> TestResult {
     use crate::types::partition_core::core_rig::{RigSetup, TENANT as RIG_TENANT, with_core};
     use crate::types::partition_core::core_writes::edges;
     use futures::StreamExt;
-    use ultragraphdb_common_storage::FrontendAsk;
+    use ultragraphdb_common_storage::SystemAsk;
     let setup = RigSetup {
         full: true,
         ..RigSetup::default()
@@ -303,7 +298,7 @@ fn test_a_full_epoch_asks_the_frontend_for_its_close() -> TestResult {
         let open = Epoch::ZERO.next()?;
         let asked = compio::time::timeout(DUE, async {
             while let Some(ask) = core.asks.next().await {
-                if let FrontendAsk::Close(epoch) = ask {
+                if let SystemAsk::Close(epoch) = ask {
                     return Some(epoch);
                 }
             }

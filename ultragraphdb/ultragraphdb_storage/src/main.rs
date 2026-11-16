@@ -4,6 +4,9 @@
  */
 
 //! The storage role: partitions.
+//!
+//! Planes (Ultra rule 3): `service` is the role's start, its stop and the tasks around each partition's core, control
+//! plane; a partition's requests are served by `ultragraphdb_common_storage`'s core, whose crate states its planes.
 
 mod service;
 

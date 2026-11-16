@@ -8,37 +8,40 @@ use std::sync::Arc;
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
-use compio::runtime::spawn;
+use compio::runtime::{JoinHandle, spawn};
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use futures::channel::oneshot;
-use ultragraphdb_cluster_metadata::LeasedBlocks;
+use ultragraphdb_cluster_metadata::{LeasedBlocks, MetadataConfig};
 use ultragraphdb_cluster_partition::{
     Partition, PartitionHost, PartitionMailbox, PartitionMessage, RemoteMessage,
 };
 use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
-use ultragraphdb_cluster_sequencer::{CatalogVersion, Close};
+use ultragraphdb_cluster_sequencer::{CatalogVersion, Close, SequencerConfig};
 use ultragraphdb_common_role::{
     PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleCredentials, Server,
-    frontend_address, listen, retry_until, serve_connection,
+    frontend_address, listen, retry_until, serve_connection, system_address,
 };
 use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
-use ultragraphdb_common_service_config::{ServiceConfig, StorageTable, partition_address};
-use ultragraphdb_common_storage::{
-    CoreChannels, CoreEnds, CoreMessage, CoreParts, FrontendAsk, HeldCatalogs, LogIo,
-    PartitionCore, Peers, RefillBlocks, Retention, RoleConnectionPhases, SCAN_STALL_MS_DEFAULT,
-    StorageHost, StoragePartition, StorageSession, TimedStorage,
+use ultragraphdb_common_service_config::{
+    ServiceConfig, StorageTable, SystemTable, partition_address,
 };
+use ultragraphdb_common_storage::{
+    CoreChannels, CoreEnds, CoreMessage, CoreParts, HeldCatalogs, LogIo, PartitionCore, Peers,
+    RefillBlocks, Retention, RoleConnectionPhases, SCAN_STALL_MS_DEFAULT, StorageHost,
+    StoragePartition, StorageSession, SystemAsk, TimedStorage,
+};
+use ultragraphdb_common_system::{SystemSession, SystemShared, SystemStart, start_system};
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
-use ultragraphdb_error_role::RoleError;
+use ultragraphdb_error_role::{RoleError, RoleErrorEnum};
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError, TransportErrorEnum};
 use ultragraphdb_protocol_transport_compio::{AcceptPace, Listener};
 use ultragraphdb_protocol_wire::{
-    BodyView, Catalog, CatalogView, CloseRequest as CloseRequestBody, Command, DefaultEntry,
-    EpochCloseView, ErrorCode, ErrorReplyView, Join, Lease, LeaseView, Placement, PlacementView,
-    Report, Subscribe,
+    BodyView, Catalog, CatalogFrames, CloseRequest as CloseRequestBody, Command, Credit,
+    DefaultEntry, EpochCloseView, ErrorCode, ErrorReplyView, FLAG_LAST, Join, Lease, LeaseView,
+    Placement, PlacementView, Report, Subscribe,
 };
 use ultragraphdb_store_apply::ChangesetApplier;
 use ultragraphdb_store_kv::{Durability, FjallStore, MokaListCache, ThreadExecutor};
@@ -63,6 +66,17 @@ const REPORT_AGAIN: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// The replica a partition's directory: one per partition until stage 8's replication.
 const REPLICA: u32 = 1;
+
+/// The frames a catalog version takes at most: its bytes, at most the wire's `CATALOG_BYTES_MAX` of 16 MiB, fill each frame
+/// to the 1 MiB `max_frame` a role's Hello announces (`PROTOCOL.md` §11.12, §13.7), so 17 hold the largest.
+const CATALOG_FRAMES_MAX: usize = 64;
+
+/// The catalog versions of one tenant a recovery reads at most, each a declaring transaction's or a Drop's: past it the
+/// read is refused, rather than looping on a group that never refuses (Ultra rule 2).
+const VERSIONS_PER_TENANT_MAX: u64 = 1 << 20;
+
+/// How many looks a stop gives the system group to end once its connections are closed, one each [`POLL`]: 5 s.
+const GROUP_STOP_LOOKS: u32 = 250;
 
 #[expect(
     clippy::disallowed_methods,
@@ -90,7 +104,7 @@ fn first_ticket() -> u64 {
 struct CoreStart {
     config: ServiceConfig,
     cluster: RoleCluster,
-    frontend: Address,
+    system: Address,
     base: String,
     first: u32,
     data_dir: PathBuf,
@@ -98,17 +112,19 @@ struct CoreStart {
     id: PartitionId,
 }
 
-/// The storage role: a thread and a runtime per partition, each recovering, listening and joining for itself; it is ready
-/// once all of them are, and at a stop each flushes what its log holds through its store.
+/// The storage role: a thread and a runtime per partition, each recovering, listening and joining for itself, and in the
+/// instance whose settings hold `[system]` the system group on a thread and runtime of its own, recovered and listening
+/// before any partition starts (design D3, D10). It is ready once its partitions are, and at a stop each partition flushes
+/// what its log holds through its store, and then the group stops.
 ///
 /// # Errors
 ///
 /// [`RoleError::configuration`] for a setting absent or out of its bounds or a refused role secret;
-/// [`RoleError::unavailable`] when a thread cannot start or the frontend does not take the role by its deadline;
-/// [`RoleError::io`] for a failed store or log.
+/// [`RoleError::unavailable`] when a thread cannot start or the system group does not take the role by its deadline, naming
+/// its address; [`RoleError::io`] for a failed store or log, the group's among them.
 ///
-/// A future dropped at any await leaves the partitions' threads running, each ending at the service's stop, which no
-/// one then waits for.
+/// A future dropped at any await leaves the partitions' threads and the group's running, each ending at the service's stop,
+/// which no one then waits for.
 pub(crate) async fn storage_role(
     start: RoleStart,
     readiness: Readiness,
@@ -131,8 +147,63 @@ pub(crate) async fn storage_role(
         .ok_or_else(|| {
             RoleError::configuration("the setting storage.partition_count is at least 1")
         })?;
-    let frontend = frontend_address(&start)?;
-    let ids = (0..count)
+    let system = dialled(&start)?;
+    let ids = partition_ids(first, count)?;
+    // The group first: a partition's recovery reads the catalog versions its log names from it (design D10).
+    let mut hosted = match config.system() {
+        Some(system_table) => Some(Hosted::start(&start, &cluster, system_table, ids.len()).await?),
+        None => None,
+    };
+    // What every core starts from; `spawn_cores` gives each its core and its partition.
+    let core_start = CoreStart {
+        config,
+        cluster,
+        system,
+        base,
+        first,
+        data_dir,
+        core: 0,
+        id: *ids
+            .first()
+            .ok_or_else(|| RoleError::software("a partition at least"))?,
+    };
+    let (mut ended, ready) = spawn_cores(&core_start, &ids, &stopping)?;
+    for is_ready in ready {
+        match wait_or_end(is_ready, &mut ended, hosted.as_mut(), &stopping).await {
+            Ok(true) => {}
+            Ok(false) => return stop_in_order(ended, hosted).await,
+            Err(failure) => return stop_the_rest(failure, ended, hosted, &stopping).await,
+        }
+    }
+    readiness.set(true);
+    tracing::info!(partitions = count, "ready");
+    // An event loop: the service's stop, a core's end or the group's end ends it (Ultra rule 2).
+    while !stopping.is_stopping() {
+        if let Err(failure) = look(&mut ended, hosted.as_mut()) {
+            return stop_the_rest(failure, ended, hosted, &stopping).await;
+        }
+        compio::time::sleep(POLL).await;
+    }
+    stop_in_order(ended, hosted).await
+}
+
+/// The system group's address the partitions dial (design D2, D4): `cluster.system_address`, which a hosting instance's
+/// partitions dial too. Until group 7's switch, settings naming `cluster.frontend_address` and neither a `[system]` table nor
+/// `cluster.system_address` dial the frontend there, which hosts the group until group 5, as they did before this stage.
+fn dialled(start: &RoleStart) -> Result<Address, RoleError> {
+    let config = start.config();
+    let cluster = config.cluster();
+    let hosted_or_named = config.system().is_some() || cluster.system_address().is_some();
+    if hosted_or_named || cluster.frontend_address().is_none() {
+        system_address(start)
+    } else {
+        frontend_address(start)
+    }
+}
+
+/// The partitions `storage.partition_first` and `storage.partition_count` name.
+fn partition_ids(first: u32, count: u32) -> Result<Vec<PartitionId>, RoleError> {
+    (0..count)
         .map(|at| {
             first
                 .checked_add(at)
@@ -143,8 +214,17 @@ pub(crate) async fn storage_role(
                     )
                 })
         })
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut mailboxes = PartitionMailbox::mesh(&ids);
+        .collect()
+}
+
+/// Starts a core per partition of `ids`, the `at`th on core `at`, each as `start` says: how each ends, and when each is
+/// ready.
+fn spawn_cores(
+    start: &CoreStart,
+    ids: &[PartitionId],
+    stopping: &Stopping,
+) -> Result<(CoreEnds, Vec<oneshot::Receiver<()>>), RoleError> {
+    let mut mailboxes = PartitionMailbox::mesh(ids);
     let mut ended = CoreEnds::default();
     let mut ready = Vec::new();
     for (core, id) in ids.iter().enumerate().rev() {
@@ -152,72 +232,260 @@ pub(crate) async fn storage_role(
             .pop()
             .ok_or_else(|| RoleError::software("a mailbox per partition"))?;
         let core_start = CoreStart {
-            config: config.clone(),
-            cluster: cluster.clone(),
-            frontend: frontend.clone(),
-            base: base.clone(),
-            first,
-            data_dir: data_dir.clone(),
             core,
             id: *id,
+            ..start.clone()
         };
         let (joined, is_ready) = oneshot::channel();
         ready.push(is_ready);
         ended.add(spawn_core(core_start, mailbox, joined, stopping.clone())?);
     }
-    for is_ready in ready {
-        match wait_or_end(is_ready, &mut ended, &stopping).await {
-            Ok(true) => {}
-            Ok(false) => return ended.finish().await,
-            Err(failure) => return stop_the_rest(failure, ended, &stopping).await,
-        }
-    }
-    readiness.set(true);
-    tracing::info!(partitions = count, "ready");
-    // An event loop: the service's stop or a core's end ends it (Ultra rule 2).
-    while !stopping.is_stopping() {
-        if let Err(failure) = ended.look() {
-            return stop_the_rest(failure, ended, &stopping).await;
-        }
-        compio::time::sleep(POLL).await;
-    }
-    ended.finish().await
+    Ok((ended, ready))
 }
 
-/// A partition failed, so the process shuts down through its ordinary path: every other partition flushes what its log holds, and
-/// the process exits with the failure's code.
+/// Whether a partition ended cleanly since the last look; a partition's failure, or the hosted group's end, which is always
+/// a failure while the role runs.
+fn look(ended: &mut CoreEnds, hosted: Option<&mut Hosted>) -> Result<bool, RoleError> {
+    if let Some(group) = hosted {
+        group.look()?;
+    }
+    ended.look()
+}
+
+/// The ordinary stop: every partition flushes what its log holds, and then the hosted group stops (design D10).
+///
+/// A future dropped while it waits leaves the partitions flushing on their threads and the group running, unwaited.
+async fn stop_in_order(ended: CoreEnds, hosted: Option<Hosted>) -> Result<(), RoleError> {
+    let flushed = ended.finish().await;
+    let stopped = match hosted {
+        Some(group) => group.stop().await,
+        None => Ok(()),
+    };
+    flushed.and(stopped)
+}
+
+/// A partition or the hosted group failed, so the process shuts down through its ordinary path: every other partition flushes
+/// what its log holds, the group stops after them, and the process exits with the failure's code.
 ///
 /// A future dropped while it waits leaves the stop set and the partitions flushing on their threads, unwaited.
 async fn stop_the_rest(
     failure: RoleError,
     ended: CoreEnds,
+    hosted: Option<Hosted>,
     stopping: &Stopping,
 ) -> Result<(), RoleError> {
-    tracing::error!(%failure, "a partition stopped; stopping the others");
+    tracing::error!(%failure, "a partition or the system group stopped; stopping the rest");
     stopping.set();
     // The first failure is the one reported.
-    drop(ended.finish().await);
+    drop(stop_in_order(ended, hosted).await);
     tracing::info!(role = %RoleKind::Storage, "stopping");
     Err(failure)
 }
 
-/// Whether the core behind `is_ready` became ready; false once the service stops first. A core ending first ends this.
+/// Whether the core behind `is_ready` became ready; false once the service stops first. A core ending first ends this, and
+/// so does the hosted group's end.
 ///
 /// A future dropped at its wait holds nothing: a core then telling its readiness finds no one, which it takes as a role
 /// gone.
 async fn wait_or_end(
     mut is_ready: oneshot::Receiver<()>,
     ended: &mut CoreEnds,
+    mut hosted: Option<&mut Hosted>,
     stopping: &Stopping,
 ) -> Result<bool, RoleError> {
+    // An event loop: readiness, a core's end, the group's end or the service's stop ends it (Ultra rule 2).
     loop {
         if matches!(is_ready.try_recv(), Ok(Some(()))) {
             return Ok(true);
         }
-        if ended.look()? || stopping.is_stopping() {
+        if look(ended, hosted.as_deref_mut())? || stopping.is_stopping() {
             return Ok(false);
         }
         compio::time::sleep(POLL).await;
+    }
+}
+
+/// The system group this process hosts: what its thread stops with, and the task accepting its role connections, which holds
+/// each connection's task, so dropping it closes every connection and lets go of every way to the group.
+struct Hosted {
+    stopped: Option<oneshot::Receiver<Result<(), RoleError>>>,
+    accepting: JoinHandle<()>,
+}
+
+impl Hosted {
+    /// Starts the group as `table` says, on core `core`, the one after the partitions', and listens at its role address once
+    /// it has recovered: the group's quiet time begins as it listens (`PROTOCOL.md` §11.5).
+    ///
+    /// A future dropped at the start leaves what [`start_system`] leaves; one dropped at the listen, the group running until
+    /// its handle, dropped with it, is gone.
+    async fn start(
+        start: &RoleStart,
+        cluster: &RoleCluster,
+        table: &SystemTable,
+        core: usize,
+    ) -> Result<Self, RoleError> {
+        let config = start.config();
+        let address = table.role_address();
+        // Parsed here so a malformed one is refused naming its setting; `listen` reads the text again.
+        let _parsed: Address = Address::parse(address).map_err(|error| {
+            RoleError::configuration(format!(
+                "the setting system.role_address holds {address}: {error}"
+            ))
+        })?;
+        let begun = system_start(config)?.with_core(core);
+        let data_dir = PathBuf::from(table.data_dir());
+        let group = start_system(config.clone(), cluster.id(), data_dir, begun, Vec::new()).await?;
+        let (handle, stopped) = group.into_parts();
+        let server = Server::new(cluster.id(), "storage", Endpoint::Frontend)?
+            .with_iterations(ROLE_ITERATIONS);
+        // The group's sessions tell no frontend of a Join here: its receiver is gone, so each Join is let go once registered.
+        let (joins, untold) = unbounded();
+        drop(untold);
+        let shared = SystemShared::new(cluster.clone(), handle, joins);
+        let listener = listen(address).await?;
+        let credentials = cluster.secret().credentials()?;
+        let accepting = spawn(accept_system(listener, server, credentials, shared));
+        tracing::info!(address, "the system group listens");
+        Ok(Self {
+            stopped: Some(stopped),
+            accepting,
+        })
+    }
+
+    /// Nothing while the group runs; what it stopped with otherwise, which is a failure while the role runs.
+    fn look(&mut self) -> Result<(), RoleError> {
+        let Some(stopped) = self.stopped.as_mut() else {
+            return Ok(());
+        };
+        let outcome = match stopped.try_recv() {
+            Ok(None) => return Ok(()),
+            Ok(Some(Err(failure))) => failure,
+            Ok(Some(Ok(()))) => RoleError::software("the system group stopped while the role runs"),
+            Err(_) => RoleError::software("the system group's thread ended without a word"),
+        };
+        self.stopped = None;
+        Err(outcome)
+    }
+
+    /// Closes the group's connections, which lets go of every way to it, and waits for it to stop, its last turn's sync done,
+    /// within [`GROUP_STOP_LOOKS`].
+    ///
+    /// A future dropped at its wait leaves the group stopping on its thread, unheard.
+    async fn stop(self) -> Result<(), RoleError> {
+        let Self { stopped, accepting } = self;
+        drop(accepting);
+        let Some(mut stopped) = stopped else {
+            return Ok(());
+        };
+        for _ in 0..GROUP_STOP_LOOKS {
+            match stopped.try_recv() {
+                Ok(None) => compio::time::sleep(POLL).await,
+                Ok(Some(outcome)) => return outcome,
+                Err(_) => {
+                    return Err(RoleError::software(
+                        "the system group's thread ended without a word",
+                    ));
+                }
+            }
+        }
+        Err(RoleError::unavailable(
+            "the system group did not stop within its limit once its connections closed",
+        ))
+    }
+}
+
+/// Accepts the roles' connections to the system group, each served in a task this task holds: one finished is let go at
+/// the next accept, so it holds at most the connections open, and dropping this task closes them all.
+///
+/// A future dropped at an accept takes no connection half-way, and drops every connection's task.
+async fn accept_system(
+    listener: Listener,
+    server: Server,
+    credentials: RoleCredentials,
+    shared: SystemShared,
+) {
+    let mut pace = AcceptPace::default();
+    let mut connections: Vec<JoinHandle<()>> = Vec::new();
+    // An event loop: it accepts until the stop drops it, or its runtime ends with the service (Ultra rule 2).
+    loop {
+        let carrier = pace.accept("role", || listener.accept()).await;
+        connections.retain(|connection| !connection.is_finished());
+        let (server, credentials) = (server.clone(), credentials.clone());
+        let session = SystemSession::new(shared.clone());
+        connections.push(spawn(async move {
+            serve_connection(carrier, &server, credentials, session).await;
+        }));
+    }
+}
+
+/// What the settings say the system group is, each bound the state machines' own: `[metadata]`, `[sequencer]` and
+/// `cluster.partition_count`, which a first start forms the placement over.
+fn system_start(config: &ServiceConfig) -> Result<SystemStart, RoleError> {
+    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
+    let refused = |error: &dyn std::fmt::Display| RoleError::configuration(error.to_string());
+    let partition_count = config
+        .cluster()
+        .partition_count()
+        .filter(|count| *count > 0)
+        .ok_or_else(|| {
+            RoleError::configuration("the setting cluster.partition_count is at least 1")
+        })?;
+    let sequencer_table = config.sequencer();
+    let required_ms = |value: Option<u64>, setting: &str| {
+        value.ok_or_else(|| RoleError::configuration(format!("the setting {setting} is required")))
+    };
+    let sequencer = SequencerConfig::new(
+        required_ms(sequencer_table.epoch_ms_min(), "sequencer.epoch_ms_min")?,
+        required_ms(sequencer_table.epoch_ms_max(), "sequencer.epoch_ms_max")?,
+    )
+    .map_err(|error| refused(&error))?;
+    let metadata = metadata_config(config)?;
+    let begun = SystemStart::new(metadata, sequencer, partition_count);
+    Ok(match config.metadata().bootstrap_secret_file() {
+        Some(file) => begun.with_bootstrap_file(file),
+        None => begun,
+    })
+}
+
+/// The metadata group's settings, each bound its own.
+fn metadata_config(config: &ServiceConfig) -> Result<MetadataConfig, RoleError> {
+    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
+    let refused = |error: &dyn std::fmt::Display| RoleError::configuration(error.to_string());
+    let table = config.metadata();
+    let mut metadata = MetadataConfig::new();
+    if let Some(size) = table.block_size_max() {
+        metadata = metadata
+            .with_block_size_max(size)
+            .map_err(|error| refused(&error))?;
+    }
+    if let Some(sessions) = table.sessions_max() {
+        metadata = metadata
+            .with_sessions_max(sessions)
+            .map_err(|error| refused(&error))?;
+    }
+    if let Some(rounds) = table.snapshot_rounds() {
+        metadata = metadata
+            .with_snapshot_rounds(rounds)
+            .map_err(|error| refused(&error))?;
+    }
+    if let Some(ms) = table.catalog_check_ms() {
+        metadata = metadata
+            .with_catalog_check_ms(ms)
+            .map_err(|error| refused(&error))?;
+    }
+    Ok(metadata)
+}
+
+/// `failure` naming `address`, the system group's it waited on, when the group was not there by the deadline
+/// (system-group, "A lost system group is waited for until the deadline"); any other failure as it is.
+fn naming(address: &Address, failure: RoleError) -> RoleError {
+    match failure.0 {
+        RoleErrorEnum::Unavailable { message } => {
+            RoleError::unavailable(format!("the system group at {address}: {message}"))
+        }
+        other @ (RoleErrorEnum::Configuration { .. }
+        | RoleErrorEnum::Io { .. }
+        | RoleErrorEnum::Software { .. }) => RoleError(other),
     }
 }
 
@@ -242,6 +510,7 @@ fn spawn_core(
             // A role gone has no one to tell.
             drop(end.send(outcome));
         });
+    // Detached: the thread's outcome comes through `ended`.
     let _thread = spawned
         .map_err(|error| RoleError::unavailable(format!("a partition's thread: {error}")))?;
     Ok(ended)
@@ -260,9 +529,10 @@ async fn serve_core(
     let name = RoleKind::Storage.to_string();
     let cluster = &start.cluster;
     let Some((placement, tenants)) = retry_until(cluster, &name, &stopping, || {
-        placement_of(&start.frontend, cluster, &name)
+        placement_of(&start.system, cluster, &name)
     })
-    .await?
+    .await
+    .map_err(|failure| naming(&start.system, failure))?
     else {
         return Ok(());
     };
@@ -275,9 +545,10 @@ async fn serve_core(
         .map_err(|error| RoleError::io(format!("the data directory {}: {error}", dir.display())))?;
     let leased = LeasedBlocks::new();
     // One want per lease the store asks for, which it asks at each allocation while it holds no block ahead: the
-    // frontend's task drains them as it runs, and nothing bounds them while it waits on the frontend.
+    // group's task drains them as it runs, and nothing bounds them while it waits on the system group.
     let (wanted, wants) = unbounded();
     let blocks = RefillBlocks::new(leased.clone(), wanted);
+    // Shared by the core and the discard thread, which raises the discard version off the core (Ultra rule 9).
     let partition = Arc::new(open_partition(&dir.join("store"), own, &placement, blocks)?);
     // At most one ask per core turn that raises the bound, each pass of the discard thread draining every ask: it holds
     // the turns of one synced write.
@@ -286,11 +557,12 @@ async fn serve_core(
     let config = WalConfig::new(cluster.id(), false);
     let bounds = RoundBounds::new(config.round_bytes(), config.round_transactions());
     let (mut log, log_io) = open_log(own, &dir, config).await?;
-    // A frontend that is not there yet, or stops under the start, is asked again until the join deadline, as joining is.
+    // A group that is not there yet, or stops under the start, is asked again until the join deadline, as joining is.
     let Some(held) = retry_until(cluster, &name, &stopping, || {
-        held_versions(&start.frontend, cluster, &name, &tenants)
+        held_versions(&start.system, cluster, &name, &tenants)
     })
-    .await?
+    .await
+    .map_err(|failure| naming(&start.system, failure))?
     else {
         return Ok(());
     };
@@ -455,10 +727,10 @@ struct Serving<'a> {
     log_io: LogIo,
 }
 
-/// Listens at the partition's address, leases its first blocks, joins the frontend and subscribes to its closes, then runs
-/// the partition's core until the service stops or the frontend stays away past the deadline.
+/// Listens at the partition's address, leases its first blocks, joins the system group and subscribes to its closes, then
+/// runs the partition's core until the service stops or the group stays away past the deadline.
 ///
-/// A future dropped at any await leaves the tasks it spawned, the accept loop, the answers' forwarding, the frontend's
+/// A future dropped at any await leaves the tasks it spawned, the accept loop, the answers' forwarding, the group's
 /// requests and the closes' delivery, running until their runtime ends; one dropped while the core runs drops the core
 /// and its host.
 async fn serve_partition(
@@ -491,7 +763,7 @@ async fn serve_partition(
     let (answers_tx, answers) = unbounded();
     let peers = Peers::new(
         cluster.clone(),
-        start.frontend.clone(),
+        start.system.clone(),
         name.clone(),
         answers_tx,
     );
@@ -499,7 +771,7 @@ async fn serve_partition(
     for prefix in [TypePrefix::RESOURCE, TypePrefix::STATEMENT] {
         top_up(&peers, &serving.leased, own, prefix, stopping).await?;
     }
-    spawn(frontend_requests(
+    spawn(system_requests(
         peers.clone(),
         serving.leased,
         own,
@@ -511,7 +783,8 @@ async fn serve_partition(
     let Some(subscription) = retry_until(cluster, &name, stopping, || {
         joined_subscription(&peers, &join, serving.delivered)
     })
-    .await?
+    .await
+    .map_err(|failure| naming(&start.system, failure))?
     else {
         return Ok(());
     };
@@ -596,6 +869,7 @@ fn close_request(config: &ServiceConfig) -> Result<CloseRequest, RoleError> {
     let Some(ms) = config.storage().close_request_ms() else {
         return Ok(CloseRequest::default());
     };
+    // Half the wait, rounded down to whole milliseconds.
     let epoch_ms_max = config.sequencer().epoch_ms_max().unwrap_or(ms / 2);
     CloseRequest::new(ms, epoch_ms_max).map_err(|error| RoleError::configuration(error.to_string()))
 }
@@ -665,34 +939,41 @@ fn accept_connections(
     Ok(())
 }
 
-/// Every catalog version of `tenants` the frontend holds with an effective epoch, for a replayed record naming one. A tenant's
-/// versions end at the first it never held, which the group refuses with code 7; any other failure fails the whole read, so a
-/// connection lost part way gives no partial set.
+/// Every catalog version of `tenants` the system group holds with an effective epoch, for a replayed record naming one, each
+/// read across its Catalog frames. A tenant's versions end at the first it never held, which the group refuses with code 7;
+/// any other failure fails the whole read, so a connection lost part way gives no partial set.
 ///
 /// A future dropped at a dial or a request drops the connection and the versions read so far: the read is whole or
 /// nothing.
 async fn held_versions(
-    frontend: &Address,
+    system: &Address,
     cluster: &RoleCluster,
     name: &str,
     tenants: &[u64],
 ) -> Result<HeldCatalogs, TransportError> {
     let mut held = HeldCatalogs::default();
     let mut client =
-        RoleClient::dial(frontend, cluster.id(), name, cluster.secret().password()).await?;
+        RoleClient::dial(system, cluster.id(), name, cluster.secret().password()).await?;
     for tenant in tenants {
-        let mut version = 1;
-        loop {
-            let reply = match client.request(&Catalog::request(*tenant, version)).await {
-                Ok(reply) => reply,
+        // Ends at the first version the group never held, or past `VERSIONS_PER_TENANT_MAX` (Ultra rule 2).
+        for version in 1..=VERSIONS_PER_TENANT_MAX {
+            let frames = match catalog_read(&mut client, *tenant, version).await {
+                Ok(frames) => frames,
                 Err(TransportError(TransportErrorEnum::Refused {
                     code: ErrorCode::Refused,
                     ..
                 })) => break,
                 Err(error) => return Err(error),
             };
-            let view = reply.view().map_err(TransportError::protocol)?;
-            let answer = CatalogView::from_frame(&view).map_err(TransportError::protocol)?;
+            let answer = frames
+                .view()
+                .ok_or_else(|| TransportError::authentication("a Catalog answer of no frame"))?;
+            tracing::info!(
+                tenant,
+                version,
+                epoch = answer.epoch(),
+                "a catalog version read"
+            );
             if answer.epoch() != 0 {
                 held.hold(HeldVersion::new(
                     *tenant,
@@ -701,47 +982,91 @@ async fn held_versions(
                     answer.bytes().to_vec(),
                 ));
             }
-            drop(reply);
-            version += 1;
+            if version == VERSIONS_PER_TENANT_MAX {
+                return Err(TransportError::authentication(format!(
+                    "tenant {tenant} holds more than {VERSIONS_PER_TENANT_MAX} catalog versions"
+                )));
+            }
         }
     }
     Ok(held)
 }
 
-/// The catalog version `version` announces, read from the frontend: what its close's delivery waits for.
+/// Version `version` of `tenant` read on `client` across its Catalog frames, credit granted for each frame after the first
+/// (`PROTOCOL.md` §13.7, design D13), at most [`CATALOG_FRAMES_MAX`] of them.
 ///
-/// A future dropped at a dial or the request drops the connection; a read changes nothing on the frontend.
+/// A future dropped at a send or a read leaves the connection part way through the answer: the caller drops it.
+async fn catalog_read(
+    client: &mut RoleClient,
+    tenant: u64,
+    version: u64,
+) -> Result<CatalogFrames, TransportError> {
+    let mut frames = CatalogFrames::new();
+    let first = client.request(&Catalog::request(tenant, version)).await?;
+    let stream = client.last_stream();
+    let mut last = taken(&mut frames, &first)?;
+    drop(first);
+    // At most `CATALOG_FRAMES_MAX` frames, each read once its credit is granted (Ultra rule 2).
+    for _ in 1..CATALOG_FRAMES_MAX {
+        if last {
+            return Ok(frames);
+        }
+        client.send_on(stream, &Credit::new(1)).await?;
+        let next = client.next_frame().await?;
+        last = taken(&mut frames, &next)?;
+    }
+    if last {
+        return Ok(frames);
+    }
+    Err(TransportError::authentication(format!(
+        "a catalog version of more than {CATALOG_FRAMES_MAX} frames"
+    )))
+}
+
+/// Takes `frame` into `frames`: whether it was the answer's last.
+fn taken(
+    frames: &mut CatalogFrames,
+    frame: &ultragraphdb_protocol_transport::ReceivedFrame,
+) -> Result<bool, TransportError> {
+    let view = frame.view().map_err(TransportError::protocol)?;
+    frames.push(&view).map_err(TransportError::protocol)?;
+    Ok(view.header().flags() & FLAG_LAST != 0)
+}
+
+/// The catalog version `version` announces, read from the system group across its frames: what its close's delivery waits
+/// for.
+///
+/// A future dropped at a dial or the request drops the connection; a read changes nothing in the group.
 async fn announced_catalog(
     peers: &Peers,
     version: &CatalogVersion,
 ) -> Result<CatalogContents, TransportError> {
     let mut client = RoleClient::dial(
-        peers.frontend(),
+        peers.system(),
         peers.cluster().id(),
         peers.name(),
         peers.cluster().secret().password(),
     )
     .await?;
     let tenant = version.tenant().get();
-    let reply = client
-        .request(&Catalog::request(tenant, version.version()))
-        .await?;
-    let view = reply.view().map_err(TransportError::protocol)?;
-    let answer = CatalogView::from_frame(&view).map_err(TransportError::protocol)?;
+    let frames = catalog_read(&mut client, tenant, version.version()).await?;
+    let answer = frames
+        .view()
+        .ok_or_else(|| TransportError::authentication("a Catalog answer of no frame"))?;
     CatalogContents::decode(tenant, version.version(), answer.bytes())
         .map_err(|error| TransportError::authentication(error.to_string()))
 }
 
-/// The map the frontend holds, checked against the even map this stage holds fixed, and the tenants its runs list.
+/// The map the system group holds, checked against the even map this stage holds fixed, and the tenants its runs list.
 ///
-/// A future dropped at a dial or the request drops the connection; a read changes nothing on the frontend.
+/// A future dropped at a dial or the request drops the connection; a read changes nothing in the group.
 async fn placement_of(
-    frontend: &Address,
+    system: &Address,
     cluster: &RoleCluster,
     name: &str,
 ) -> Result<(PlacementMap, Vec<u64>), TransportError> {
     let mut client =
-        RoleClient::dial(frontend, cluster.id(), name, cluster.secret().password()).await?;
+        RoleClient::dial(system, cluster.id(), name, cluster.secret().password()).await?;
     let reply = client.request(&Placement::request(0)).await?;
     let view = reply.view().map_err(TransportError::protocol)?;
     let placed = PlacementView::from_frame(&view).map_err(TransportError::protocol)?;
@@ -763,7 +1088,7 @@ async fn placement_of(
         });
     if !same {
         return Err(TransportError::authentication(
-            "the frontend's placement is not the even map this stage holds",
+            "the system group's placement is not the even map this stage holds",
         ));
     }
     let tenants = (0..placed.run_count())
@@ -775,7 +1100,7 @@ async fn placement_of(
 
 /// Joins for this partition and subscribes from `from`: the connection the closes arrive on.
 ///
-/// A future dropped past the Join leaves the frontend holding this partition joined, which the next attempt joins
+/// A future dropped past the Join leaves the group holding this partition joined, which the next attempt joins
 /// again; the subscription is dropped with its connection.
 async fn joined_subscription(
     peers: &Peers,
@@ -783,7 +1108,7 @@ async fn joined_subscription(
     from: Epoch,
 ) -> Result<RoleClient, TransportError> {
     let mut client = RoleClient::dial(
-        peers.frontend(),
+        peers.system(),
         peers.cluster().id(),
         peers.name(),
         peers.cluster().secret().password(),
@@ -794,7 +1119,7 @@ async fn joined_subscription(
     Ok(client)
 }
 
-/// Hands each close the subscription brings to the partition's mailbox, joining and subscribing again when the frontend
+/// Hands each close the subscription brings to the partition's mailbox, joining and subscribing again when the group
 /// goes away, from the last close it holds, until the deadline; past it, `lost` ends the core.
 ///
 /// A future dropped at a read, a catalog version's fetch or a rejoin leaves the closes handed on so far delivered and
@@ -813,10 +1138,11 @@ async fn deliver_closes(
 ) {
     while !stopping.is_stopping() {
         let read = client.next_frame().await;
-        // Asking again finds the same: the frontend no longer holds the close this partition needs (`PROTOCOL.md` §13.3).
+        // Asking again finds the same: the group no longer holds the close this partition needs (`PROTOCOL.md` §13.3).
         if let Some(ended) = read.as_ref().ok().and_then(subscription_end) {
+            // A core gone has already stopped.
             drop(lost.send(RoleError::unavailable(format!(
-                "the frontend ended this process's subscription: {ended}"
+                "the system group ended this process's subscription: {ended}"
             ))));
             return;
         }
@@ -826,7 +1152,7 @@ async fn deliver_closes(
                 if close.epoch().get() != after.get() + 1 {
                     // A core gone has already stopped.
                     drop(lost.send(RoleError::software(format!(
-                        "the frontend delivered close {} after close {}: a close follows the last by one epoch",
+                        "the system group delivered close {} after close {}: a close follows the last by one epoch",
                         close.epoch().get(),
                         after.get()
                     ))));
@@ -838,6 +1164,7 @@ async fn deliver_closes(
                     match announced_catalog(&peers, version).await {
                         Ok(contents) => fetched.push(contents),
                         Err(error) => {
+                            // A core gone has already stopped.
                             drop(lost.send(RoleError::unavailable(format!(
                                 "a catalog version a close announces: {error}"
                             ))));
@@ -854,7 +1181,7 @@ async fn deliver_closes(
                 drop(closes.send(PartitionMessage::Close(close)));
             }
             Err(error) => {
-                tracing::warn!(%error, "the frontend's connection ended; joining again");
+                tracing::warn!(%error, "the connection to the system group ended; joining again");
                 let name = peers.name().to_string();
                 let cluster = peers.cluster().clone();
                 let again = retry_until(&cluster, &name, &stopping, || {
@@ -866,7 +1193,7 @@ async fn deliver_closes(
                     Ok(None) => return,
                     Err(failure) => {
                         // A core gone has already stopped.
-                        drop(lost.send(failure));
+                        drop(lost.send(naming(peers.system(), failure)));
                         return;
                     }
                 }
@@ -875,7 +1202,7 @@ async fn deliver_closes(
     }
 }
 
-/// What the frontend said, when `frame` is the Error 1 ending the subscription; a frontend refusing as it stops is joined again.
+/// What the group said, when `frame` is the Error 1 ending the subscription; a group refusing as it stops is joined again.
 fn subscription_end(frame: &ultragraphdb_protocol_transport::ReceivedFrame) -> Option<String> {
     let view = frame.view().ok()?;
     (view.command() == Command::Error).then_some(())?;
@@ -883,7 +1210,7 @@ fn subscription_end(frame: &ultragraphdb_protocol_transport::ReceivedFrame) -> O
     (refused.code() == ErrorCode::Protocol).then(|| refused.message().to_string())
 }
 
-/// The close `frame` carries. A close always fits one frame (`PROTOCOL.md` §13.4 allows more, this frontend sends one).
+/// The close `frame` carries. A close always fits one frame (`PROTOCOL.md` §13.4 allows more, the group sends one).
 fn close_of(
     frame: &ultragraphdb_protocol_transport::ReceivedFrame,
 ) -> Result<Close, TransportError> {
@@ -920,7 +1247,7 @@ async fn forward_answers(
 
 /// Leases until `prefix` is held ahead of need, retrying until the deadline.
 ///
-/// A future dropped at a dial or a lease leaves the blocks supplied so far held; a block the frontend granted whose
+/// A future dropped at a dial or a lease leaves the blocks supplied so far held; a block the group granted whose
 /// reply was not read goes unused, its sequences skipped.
 async fn top_up(
     peers: &Peers,
@@ -932,7 +1259,7 @@ async fn top_up(
     let name = peers.name().to_string();
     let _done = retry_until(peers.cluster(), &name, stopping, || async {
         let mut client = RoleClient::dial(
-            peers.frontend(),
+            peers.system(),
             peers.cluster().id(),
             peers.name(),
             peers.cluster().secret().password(),
@@ -945,13 +1272,14 @@ async fn top_up(
 }
 
 /// Leases blocks of `prefix` on `client` until [`BLOCKS_AHEAD`] are held. A future dropped at a lease leaves the blocks
-/// supplied so far held; a block the frontend granted whose reply was not read goes unused, its sequences skipped.
+/// supplied so far held; a block the group granted whose reply was not read goes unused, its sequences skipped.
 async fn lease_ahead(
     client: &mut RoleClient,
     leased: &LeasedBlocks,
     own: PartitionId,
     prefix: TypePrefix,
 ) -> Result<(), TransportError> {
+    // Ends once BLOCKS_AHEAD blocks are held: each pass supplies one, or returns the refusal (Ultra rule 2).
     while leased.held(prefix) < BLOCKS_AHEAD {
         let reply = client
             .request(&Lease::request(prefix.get(), own.get(), BLOCK_SIZE))
@@ -967,16 +1295,16 @@ async fn lease_ahead(
     Ok(())
 }
 
-/// What the core asks of the frontend, in turn on one connection: leases ahead of need, and closes it asks for.
+/// What the core asks of the system group, in turn on one connection: leases ahead of need, and closes it asks for.
 ///
 /// A future dropped at its wait or a request drops the connection and what it was asking, which the core asks again: a
 /// lease at its next allocation, a close request as the commit step holds on, a default entry by the next recovery.
-async fn frontend_requests(
+async fn system_requests(
     peers: Peers,
     leased: LeasedBlocks,
     own: PartitionId,
     mut wants: UnboundedReceiver<TypePrefix>,
-    mut asks: UnboundedReceiver<FrontendAsk>,
+    mut asks: UnboundedReceiver<SystemAsk>,
 ) {
     let mut client: Option<RoleClient> = None;
     // An event loop: either channel's end, which is the core stopping, ends it (Ultra rule 2).
@@ -992,18 +1320,19 @@ async fn frontend_requests(
             return;
         };
         let asked = match asked {
-            Asked::Frontend(FrontendAsk::Report(report)) => {
+            Asked::Frontend(SystemAsk::Report(report)) => {
                 spawn(send_report(peers.clone(), report)).detach();
                 continue;
             }
-            Asked::Lease(_)
-            | Asked::Frontend(FrontendAsk::Close(_) | FrontendAsk::DefaultEntry(_)) => asked,
+            Asked::Lease(_) | Asked::Frontend(SystemAsk::Close(_) | SystemAsk::DefaultEntry(_)) => {
+                asked
+            }
         };
         let held = match client.take() {
             Some(open) => Ok(open),
             None => {
                 RoleClient::dial(
-                    peers.frontend(),
+                    peers.system(),
                     peers.cluster().id(),
                     peers.name(),
                     peers.cluster().secret().password(),
@@ -1015,17 +1344,17 @@ async fn frontend_requests(
             Ok(mut open) => {
                 let result = match asked {
                     Asked::Lease(prefix) => lease_ahead(&mut open, &leased, own, prefix).await,
-                    Asked::Frontend(FrontendAsk::Close(epoch)) => {
+                    Asked::Frontend(SystemAsk::Close(epoch)) => {
                         open.send_only(&CloseRequestBody::new(own.get(), epoch.get()))
                             .await
                     }
-                    Asked::Frontend(FrontendAsk::DefaultEntry(entry)) => {
+                    Asked::Frontend(SystemAsk::DefaultEntry(entry)) => {
                         let record =
                             DefaultEntry::request(entry.tenant(), entry.predicate().to_string());
                         open.request(&record).await.map(drop)
                     }
                     // Taken above, each on a connection of its own.
-                    Asked::Frontend(FrontendAsk::Report(_)) => Ok(()),
+                    Asked::Frontend(SystemAsk::Report(_)) => Ok(()),
                 };
                 client = result.is_ok().then_some(open);
                 result
@@ -1035,20 +1364,21 @@ async fn frontend_requests(
         if let Err(error) = done {
             // A lease is asked again as the next block is taken, a close request again as the commit step holds on, and a
             // default entry again by the next recovery (`PROTOCOL.md` §11.12).
-            tracing::warn!(%error, "a request to the frontend failed");
+            tracing::warn!(%error, "a request to the system group failed");
         }
     }
 }
 
-/// Sends `report` until the frontend answers it, on a connection of its own so a wait for the frontend holds no lease, or until the
-/// role's deadline, past which the frontend's own wait for it has ended (`PROTOCOL.md` §13.19).
+/// Sends `report` until the system group answers it, on a connection of its own so a wait for the group holds no lease, or
+/// until the role's deadline, past which the group's own wait for it has ended (`PROTOCOL.md` §13.19).
 ///
 /// A future dropped at a dial, the request or a wait drops the report, which the close delivered again checks again.
 async fn send_report(peers: Peers, report: Report) {
-    let due = now() + peers.cluster().deadline();
+    // A deadline past what the clock can name never passes: `join_deadline_ms` is a setting, so no sum of it may panic.
+    let due = now().checked_add(peers.cluster().deadline());
     loop {
         let dialled = RoleClient::dial(
-            peers.frontend(),
+            peers.system(),
             peers.cluster().id(),
             peers.name(),
             peers.cluster().secret().password(),
@@ -1060,7 +1390,7 @@ async fn send_report(peers: Peers, report: Report) {
         };
         match answered {
             Ok(()) => return,
-            Err(error) if now() >= due => {
+            Err(error) if due.is_some_and(|due| now() >= due) => {
                 tracing::warn!(%error, version = report.version(), "a catalog version's report went unanswered");
                 return;
             }
@@ -1069,8 +1399,8 @@ async fn send_report(peers: Peers, report: Report) {
     }
 }
 
-/// What the core's frontend connection takes next.
+/// What the core's connection to the system group takes next.
 enum Asked {
     Lease(TypePrefix),
-    Frontend(FrontendAsk),
+    Frontend(SystemAsk),
 }

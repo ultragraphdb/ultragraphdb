@@ -25,8 +25,8 @@ use ultragraphdb_common_role::{
 };
 use ultragraphdb_common_service::Stopping;
 use ultragraphdb_common_storage::{
-    CoreChannels, CoreMessage, CoreParts, FrontendAsk, LogIo, PartitionCore, Peers, RefillBlocks,
-    Retention, StoragePartition, StorageSession, TimedStorage,
+    CoreChannels, CoreMessage, CoreParts, LogIo, PartitionCore, Peers, RefillBlocks, Retention,
+    StoragePartition, StorageSession, SystemAsk, TimedStorage,
 };
 use ultragraphdb_core_ids::{Epoch, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
@@ -92,7 +92,7 @@ pub(crate) struct Rig {
     /// The closes the role's shell delivers to the core.
     pub(crate) closes: Sender<PartitionMessage>,
     /// What the core asks of the frontend.
-    pub(crate) asks: UnboundedReceiver<FrontendAsk>,
+    pub(crate) asks: UnboundedReceiver<SystemAsk>,
     /// The core's inbox, which its connections hand their requests to.
     pub(crate) inbox: UnboundedSender<CoreMessage>,
     /// The tap between the connections' sessions and the inbox.
@@ -116,7 +116,7 @@ impl Rig {
         let asks = &mut self.asks;
         compio::time::timeout(DUE, async {
             while let Some(ask) = asks.next().await {
-                if let FrontendAsk::Report(report) = ask {
+                if let SystemAsk::Report(report) = ask {
                     return Some(report);
                 }
             }

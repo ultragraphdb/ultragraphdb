@@ -47,11 +47,13 @@ impl Retention {
 
     /// The version bound to raise the discard version to at `now_us`: that of the latest epoch closed more than the retention
     /// ago, when one is new since the last answer and a raise is due.
+    #[must_use]
     pub fn due(&mut self, now_us: u64) -> Option<u64> {
         if now_us < self.next_raise_us {
             return None;
         }
         let mut past = None;
+        // Ends at the first close within the retention or at the queue's end: at most `closes.len()` turns (Ultra rule 2).
         while let Some((epoch, at_us)) = self.closes.front().copied()
             && now_us.saturating_sub(at_us) > self.retain_us
         {

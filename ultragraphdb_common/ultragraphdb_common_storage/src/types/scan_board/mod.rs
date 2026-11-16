@@ -62,6 +62,7 @@ impl<T> ScanBoard<T> {
     }
 
     /// The Scan whose turn it is, taken out while its frame is built.
+    #[must_use]
     pub fn take_turn(&mut self) -> Option<(ScanKey, T)> {
         let key = self.turns.pop_front()?;
         let slot = self.open.remove(&key)?;
@@ -140,6 +141,7 @@ impl<T> ScanBoard<T> {
     }
 
     /// A Scan whose time has passed at `now_us`, its time spent.
+    #[must_use]
     pub fn next_due(&mut self, now_us: u64) -> Option<ScanKey> {
         let (at_us, key) = *self.timers.first()?;
         if at_us > now_us {
@@ -163,6 +165,7 @@ impl<T> ScanBoard<T> {
     }
 
     /// A Scan whose epoch is at or below `closed`, its wait over.
+    #[must_use]
     pub fn next_closed(&mut self, closed: u64) -> Option<ScanKey> {
         let (epoch, key) = *self.epochs.first()?;
         if epoch > closed {
@@ -189,6 +192,7 @@ impl<T> ScanBoard<T> {
     }
 
     /// `transaction` ended: its open Scans, which the board no longer finds by it.
+    #[must_use]
     pub fn end_transaction(&mut self, transaction: BoundKey) -> Vec<ScanKey> {
         let named: Vec<ScanKey> = self.named_by(transaction).collect();
         for key in &named {

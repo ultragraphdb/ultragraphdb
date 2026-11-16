@@ -49,6 +49,7 @@ pub struct Prepared {
     token: Option<SessionToken>,
     epoch_floor: Option<Epoch>,
     one_frame: bool,
+    drop_command: bool,
 }
 
 impl Prepared {
@@ -68,6 +69,7 @@ impl Prepared {
             token: None,
             epoch_floor: None,
             one_frame: false,
+            drop_command: false,
         }
     }
 
@@ -100,11 +102,22 @@ impl Prepared {
         self.one_frame
     }
 
+    /// Whether the proposal is a Drop command (`PROTOCOL.md` §6.5), whatever it found to remove: one that found nothing
+    /// holds a record naming no operation, which reads as a transaction's that changed and read nothing; one that found
+    /// something is also [`Prepared::is_drop`].
+    #[must_use]
+    pub fn is_drop_command(&self) -> bool {
+        self.drop_command
+    }
+
     /// The drop `drop` asks in `tenant` on `applier` as a proposal of the commit step, on `buffers` (7.7): request
     /// `request` of session `session`, for `principal`, as a Commit is, so a retry is answered from the session table;
     /// a record naming the drop's target and its dropped key ranges, which abort every transaction that read or wrote in
     /// them below its version and commits after it, and whose round's apply drops what it names; its round closes after
-    /// it.
+    /// it. The record names `catalog`, the Drop's: for a drop of a tenant's data or of everything in it, the catalog
+    /// version it drops under, which the commit step checks at the round (`PROTOCOL.md` §6.5); 0 for the other kinds. It
+    /// is a Drop command ([`Prepared::is_drop_command`]) even when it finds nothing to remove and its record names no
+    /// operation.
     ///
     /// # Errors
     ///
@@ -112,7 +125,7 @@ impl Prepared {
     /// holds.
     pub fn drop<S, C, E, B>(
         applier: &ChangesetApplier<S, C, E, B>,
-        tenant: u64,
+        (tenant, catalog): (u64, u64),
         drop: DropRequest<'_>,
         session: u128,
         request: u64,
@@ -131,12 +144,17 @@ impl Prepared {
         read_set.seal();
         let written = WriteSetBuilder::new(&executed, session, request, &[])
             .with_principal(principal)
+            .with_catalog(catalog)
             .write_into(&mut record, usize::MAX);
         if let Err(refused) = written {
             applier.release(&executed);
             return Err(refused);
         }
-        Ok(Self::new(executed, read_set, record, Vec::new(), Rewrite::default()).with_one_frame())
+        let prepared = Self::new(executed, read_set, record, Vec::new(), Rewrite::default());
+        Ok(Self {
+            drop_command: true,
+            ..prepared.with_one_frame()
+        })
     }
 
     /// The end of a build sequenced through the commit step on `applier` as a proposal of the step, on `buffers`

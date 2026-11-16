@@ -42,6 +42,10 @@ impl Proposal for Prepared {
         Prepared::is_drop(self)
     }
 
+    fn is_drop_command(&self) -> bool {
+        Prepared::is_drop_command(self)
+    }
+
     fn is_one_frame(&self) -> bool {
         Prepared::is_one_frame(self)
     }

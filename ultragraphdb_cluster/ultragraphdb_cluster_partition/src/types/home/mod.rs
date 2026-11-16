@@ -34,6 +34,7 @@ use crate::types::waiter::Waiter;
 /// once, changing nothing.
 #[derive(Debug, Default)]
 pub struct Home {
+    // One entry per entity registered and per ticket not yet applied, each let go once its round applies (Ultra rule 2).
     /// By tenant and entity: the referrer set as decided, and the pipeline ticket of its latest decision, until that
     /// decision is applied.
     overlay: BTreeMap<(u64, SystemId), (ReferrerSet, u64)>,

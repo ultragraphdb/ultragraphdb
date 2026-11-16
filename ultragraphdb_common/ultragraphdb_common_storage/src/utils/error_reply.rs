@@ -62,6 +62,7 @@ fn found_value(error: &PartitionError) -> Option<RequestTerm> {
         | PartitionErrorEnum::Pipeline(_)
         | PartitionErrorEnum::Txn(_) => None,
     }?;
+    // A found value that is no term names nothing a client could compare: the refusal goes without it.
     match Term::from_str(found).ok()? {
         Term::NamedNode(node) => Some(RequestTerm::Iri(node.into_string())),
         Term::BlankNode(node) => Some(RequestTerm::BlankNode(node.into_string())),

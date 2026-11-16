@@ -39,6 +39,8 @@ impl<S: DurableStorage> PartitionCore<'_, S> {
         while let Some(message) = taking.receive(|| self.remote.try_recv()) {
             match message {
                 RemoteMessage::Register { home, write, batch } => {
+                    // One task per batch a write asks of a home, each ending at its answer or its connection's end: the
+                    // writes in flight, which the read-write limit and the connections' credit bound, bound them.
                     spawn(register(self.peers.clone(), home, write, batch)).detach();
                 }
                 RemoteMessage::Answered {
@@ -248,14 +250,14 @@ async fn client_of(peers: &Peers, address: &str) -> Result<RoleClient, Transport
     .await
 }
 
-/// Where `partition` listens, asked of the frontend when the core does not know. A future dropped at its dial or request
-/// drops that connection to the frontend, and the addresses known stay as they were.
+/// Where `partition` listens, asked of the system group when the core does not know. A future dropped at its dial or request
+/// drops that connection to the system group, and the addresses known stay as they were.
 async fn address_of(peers: &Peers, partition: u32) -> Result<String, TransportError> {
     if let Some(known) = peers.addresses.borrow().get(&partition) {
         return Ok(known.clone());
     }
     let mut client = RoleClient::dial(
-        &peers.frontend,
+        &peers.system,
         peers.cluster.id(),
         &peers.name,
         peers.cluster.secret().password(),

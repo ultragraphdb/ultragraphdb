@@ -8,7 +8,7 @@ use ultragraphdb_core_mapping::Declaration;
 use ultragraphdb_protocol_wire::{Report, RequestTerm};
 use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum};
 
-use crate::types::partition_core::{FrontendAsk, PartitionCore};
+use crate::types::partition_core::{PartitionCore, SystemAsk};
 use ultragraphdb_transactions_log::DurableStorage;
 
 impl<S: DurableStorage> PartitionCore<'_, S> {
@@ -60,8 +60,8 @@ impl<S: DurableStorage> PartitionCore<'_, S> {
             tracing::warn!(%refusal, version = contents.version(), "the data refuses a declaration");
         }
         let report = report_of(self.id.get(), &contents, refusals.first());
-        // A frontend link gone is reported by the subscription, and the close delivered again checks again.
-        drop(self.asks.unbounded_send(FrontendAsk::Report(report)));
+        // A link to the system group gone is reported by the subscription, and the close delivered again checks again.
+        drop(self.asks.unbounded_send(SystemAsk::Report(report)));
     }
 }
 

@@ -244,6 +244,7 @@ impl<S: DurableStorage> PartitionCore<'_, S> {
     /// pushed: one parking again takes the rest with it, and an answer ending the stream, or a Commit, which decides the
     /// transaction, drops them.
     fn resume_parked(&mut self, key: BoundKey, mut parked: Parked) {
+        // One turn per frame behind the parked one, whose count the connection's held bytes bound (Ultra rule 2).
         loop {
             self.taking = parked.taken;
             match self.resumed_step(key, &parked) {

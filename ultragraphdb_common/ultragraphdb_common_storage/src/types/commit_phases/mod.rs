@@ -79,12 +79,14 @@ impl CommitPhases {
     /// The histogram of `phase`, `None` for none: every phase has one.
     #[must_use]
     pub fn histogram(&self, phase: CommitPhase) -> Option<&LatencyHistogram> {
+        // Lossless: a fieldless enum's discriminant, 0 to 5.
         self.window.histogram(phase as usize)
     }
 
     /// The median, the 99th percentile and the mean of `phase`.
     #[must_use]
     pub fn figures(&self, phase: CommitPhase) -> (u64, u64, u64) {
+        // Lossless: a fieldless enum's discriminant, 0 to 5.
         self.window.figures(phase as usize)
     }
 

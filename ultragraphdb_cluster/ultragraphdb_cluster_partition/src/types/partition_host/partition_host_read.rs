@@ -33,6 +33,7 @@ where
     E: Executor,
 {
     /// The transaction a Bind named `identity`, while the partition holds it.
+    #[must_use]
     pub fn bound_read(&self, identity: &[u8; 16]) -> Option<BoundRead> {
         let key = *self.identities.get(identity)?;
         let bound = self.bound.get(&key)?;
@@ -170,6 +171,7 @@ where
     }
 
     /// The version below which the store refuses a read.
+    #[must_use]
     pub fn discard_ts(&self) -> u64 {
         self.partition.applier().quads().store().discard_ts()
     }
@@ -251,11 +253,13 @@ where
     }
 
     /// The newest epoch the partition has closed: its close delivered and every round stamped at or below it applied.
+    #[must_use]
     pub fn closed(&self) -> Epoch {
         self.pipeline.step().closed()
     }
 
     /// The partition's visibility watermark.
+    #[must_use]
     pub fn watermark(&self) -> u64 {
         self.pipeline.watermark()
     }

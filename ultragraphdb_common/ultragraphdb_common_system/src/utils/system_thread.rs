@@ -19,9 +19,6 @@ use crate::types::system_group::SystemGroup;
 use crate::types::system_handle::SystemHandle;
 use crate::types::system_start::SystemStart;
 
-/// The owner's core, where the endpoint's cores are numbered from 0.
-const OWNER_CORE: usize = 1;
-
 /// A running owner: the way to it, and what it stopped with. Its `Debug` holds every field but the secret.
 pub struct SystemThread {
     handle: SystemHandle,
@@ -128,6 +125,7 @@ pub async fn start_system(
     start: SystemStart,
     principals: Vec<(String, ScramVerifier)>,
 ) -> Result<SystemThread, RoleError> {
+    let core = start.core();
     // Bounded as `SystemHandle` says: each connection waits for its answer before it asks again.
     let (inbox, received) = mpsc::unbounded();
     let (recovered, recovery) = oneshot::channel();
@@ -139,7 +137,7 @@ pub async fn start_system(
     let spawned = std::thread::Builder::new()
         .name("frontend-owner".to_string())
         .spawn(move || {
-            let outcome = core_runtime(&config, OWNER_CORE).and_then(|(runtime, cpu)| {
+            let outcome = core_runtime(&config, core).and_then(|(runtime, cpu)| {
                 tracing::info!(core = "owner", "{cpu}");
                 runtime.block_on(async move {
                     let clock = OwnerClock::new();

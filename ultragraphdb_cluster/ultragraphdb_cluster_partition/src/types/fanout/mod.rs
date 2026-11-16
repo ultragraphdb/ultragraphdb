@@ -41,6 +41,7 @@ where
     E: Executor,
 {
     /// The reads over `partitions`.
+    #[must_use]
     pub fn new(partitions: &'p [Partition<S, C, E, B>]) -> Self {
         Self::over(partitions.iter().collect())
     }

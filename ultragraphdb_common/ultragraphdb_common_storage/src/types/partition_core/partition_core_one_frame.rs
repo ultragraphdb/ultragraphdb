@@ -212,6 +212,7 @@ impl<S: DurableStorage> PartitionCore<'_, S> {
         ticket: u64,
         pushes: Pushes,
     ) {
+        // The frame was validated when it was taken, so the folds never fall back; one that did would name no session.
         let (session, request) = FrameView::validate(&bytes, self.cluster, MAX_FRAME_SIZE)
             .ok()
             .and_then(|view| {
@@ -273,6 +274,7 @@ impl<S: DurableStorage> PartitionCore<'_, S> {
         }
         let key = (retry.connection, committing.stream);
         let (attempts, frame) = (retry.attempts, std::mem::take(&mut retry.frame));
+        // Validated when it was first taken: a frame refused now is one no attempt can run, answered as a retry not taken.
         let Ok(view) = FrameView::validate(&frame, self.cluster, MAX_FRAME_SIZE) else {
             return false;
         };
@@ -335,7 +337,13 @@ impl<S: DurableStorage> PartitionCore<'_, S> {
         let now = self.now_us();
         let ticket = drop_request(&asked).and_then(|drop| {
             self.host
-                .commit_drop((tenant, principal), drop, (session, request), now)
+                .commit_drop(
+                    (tenant, principal),
+                    drop,
+                    asked.catalog(),
+                    (session, request),
+                    now,
+                )
                 .map_err(|refusal| error_reply(&refusal))
         })?;
         let _none = self.committing.insert(

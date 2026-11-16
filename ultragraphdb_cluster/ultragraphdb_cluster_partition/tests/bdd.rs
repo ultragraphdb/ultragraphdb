@@ -49,7 +49,7 @@ use crate::cluster::{
     Cluster, Outcome, TENANT, Written, as_of, begin, bucket, changeset, epoch, ex, group, insert,
     insert_literal, pid,
 };
-use crate::hosts::{Host, on_hosts, turn_all};
+use crate::hosts::{Host, holds, on_hosts, turn_all};
 
 #[derive(Default, World)]
 struct Steps {
@@ -1843,6 +1843,68 @@ fn home_store_fails(w: &mut Steps) -> TestResult {
             .push(u64::from(first(hosts)?.bound_read(&[3; 16]).is_none()));
         Ok(())
     })
+}
+
+/// Versions 3 and 4 of the tenant are announced by the closes of epochs 2 and 3, so version 4 takes effect at epoch 4, the
+/// partition's open epoch once close 3 is delivered; the Drop is decided in a round of that epoch.
+#[when(
+    "version 4 of a tenant takes effect, an endpoint core whose view still holds version 3 sends a Drop of kind 4 naming `catalog` 3, and the partition decides it in a round of the epoch at which version 4 is in effect"
+)]
+fn drop_aimed_at_an_earlier_schema(w: &mut Steps) -> TestResult {
+    use ultragraphdb_cluster_partition::PartitionMessage;
+    use ultragraphdb_cluster_sequencer::{CatalogVersion, Close};
+    use ultragraphdb_store_apply::DropRequest;
+    // One partition owns every bucket, so any subject is its own.
+    let (subject, predicate) = ("s", "p");
+    on_hosts(1, |hosts| {
+        let host = hosts.first_mut().context("partition 1")?;
+        let _written = host.submit(changeset(vec![insert_literal(subject, predicate, "v")]), 0)?;
+        let _settled = turn_all(hosts, 3, 0)?;
+        let sender = hosts
+            .first()
+            .and_then(|host| host.mailbox().sender(pid(1).ok()?))
+            .context("partition 1's sender")?;
+        for (at, version) in [(2, 3), (3, 4)] {
+            let announced = vec![CatalogVersion::new(Tenant::new(TENANT), version)];
+            sender.send(PartitionMessage::Close(Close::new(
+                epoch(at)?,
+                0,
+                announced,
+                Vec::new(),
+            )?))?;
+            let _settled = turn_all(hosts, 2, 0)?;
+        }
+        let host = hosts.first_mut().context("partition 1")?;
+        let before = holds(host, "s", "p")?;
+        let ticket = host.commit_drop((TENANT, 1), DropRequest::Tenant, 3, (0, 0), 0)?;
+        let ended = turn_all(hosts, 3, 0)?;
+        let outcome = ended
+            .iter()
+            .find(|o| o.ticket() == ticket)
+            .context("the Drop's outcome")?;
+        let refusal = outcome
+            .outcome()
+            .as_ref()
+            .err()
+            .context("the Drop is refused")?;
+        let reply = error_reply(refusal);
+        let host = hosts.first().context("partition 1")?;
+        let changed = before && !holds(host, "s", "p")?;
+        w.numbers = vec![
+            u64::from(reply.code().number()),
+            reply.detail(),
+            u64::from(before),
+            u64::from(changed),
+        ];
+        Ok(())
+    })
+}
+
+#[then("the partition refuses the Drop with code 2, kind 5, and removes nothing")]
+fn drop_refused_by_the_partition(w: &mut Steps) -> TestResult {
+    // Code 2 (Conflict), kind 5 (Catalog), `PROTOCOL.md` §6.5; the fact written before it held before and after.
+    assert_eq!(w.numbers, vec![2, 5, 1, 0]);
+    Ok(())
 }
 
 #[then(

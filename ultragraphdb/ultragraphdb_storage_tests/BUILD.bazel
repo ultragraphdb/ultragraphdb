@@ -36,6 +36,32 @@ rust_test(
     deps = all_crate_deps(normal_dev = True),
 )
 
+# The storage binary hosting the system group: the features tagged `@system`, in two targets by their second tag, so each
+# stays within its time.
+[
+    rust_test(
+        name = name,
+        srcs = ["tests/system_bdd.rs"],
+        crate_root = "tests/system_bdd.rs",
+        # No frontend runs in these scenarios.
+        data = glob(["features/**/*.feature"]) + [
+            ":copy_config",
+            ":copy_storage",
+        ],
+        env = {"SYSTEM_FEATURES": features},
+        tags = [
+            "exclusive",
+            "integration_test",
+        ],
+        use_libtest_harness = False,
+        deps = all_crate_deps(normal_dev = True),
+    )
+    for name, features in [
+        ("system_bdd", "hosting"),
+        ("system_partitions_bdd", "partitions"),
+    ]
+]
+
 # Copy the config binary into the sandbox.
 copy_file(
     name = "copy_config",

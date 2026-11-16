@@ -39,6 +39,7 @@ ultragraphdb_transactions_txn = { workspace = true }
 
 [dev-dependencies]
 compio = { workspace = true }
+hegeltest = { workspace = true, features = ["static-engine"] }
 cucumber = { workspace = true }
 futures = { workspace = true }
 ultragraphdb_common_storage = { workspace = true }
@@ -50,6 +51,10 @@ ultragraphdb_transactions_log = { workspace = true }
 [[test]]
 name = "unit"
 path = "tests/mod.rs"
+
+[[test]]
+name = "property"
+path = "tests/property/mod.rs"
 
 [[test]]
 name = "bdd"

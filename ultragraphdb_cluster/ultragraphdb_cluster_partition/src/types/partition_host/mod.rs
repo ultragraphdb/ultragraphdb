@@ -67,6 +67,8 @@ where
     limits: TxnLimits,
     next_ticket: u64,
     last_ticket: u64,
+    // The tables below hold one entry per write, registration or bound transaction in flight, each ended by its answer or
+    // by the read-write limit's sweep, and the lists are drained by the core each turn (Ultra rule 2).
     /// The writes waiting for answers, by ticket.
     parked: BTreeMap<u64, ParkedWrite<'a, S, C, E, B>>,
     /// The registrations the home answers once durable, by the home's ticket: who asked, for which write and index.
@@ -96,6 +98,7 @@ where
     E: Executor,
 {
     /// The host of `partition` on `pipeline`, over `partition`'s applier, exchanging through `mailbox`.
+    #[must_use]
     pub fn new(
         partition: &'a Partition<S, C, E, B>,
         pipeline: Pipeline<'a, L, S, C, E, B>,
@@ -124,52 +127,62 @@ where
 
     /// The host numbering its tickets from `first`: a restarted host starts above every ticket its predecessor gave, so
     /// an answer sent to an earlier write cannot be taken for a later one's.
+    #[must_use]
     pub fn with_first_ticket(mut self, first: u64) -> Self {
         self.next_ticket = first;
         self
     }
 
     /// The ticket [`PartitionHost::submit`] gave its last write.
+    #[must_use]
     pub fn last_ticket(&self) -> u64 {
         self.last_ticket
     }
 
     /// The partition.
+    #[must_use]
     pub fn partition(&self) -> &'a Partition<S, C, E, B> {
         self.partition
     }
 
     /// The mailbox, whose senders reach every partition.
+    #[must_use]
     pub fn mailbox(&self) -> &PartitionMailbox {
         &self.mailbox
     }
 
     /// The latest close delivered to the partition.
+    #[must_use]
     pub fn delivered(&self) -> Epoch {
         self.pipeline.delivered()
     }
 
     /// Whether what was decided waits for a sync.
+    #[must_use]
     pub fn needs_sync(&self) -> bool {
         self.pipeline.needs_sync()
     }
 
     /// Whether the pipeline stopped: a failed sync or a refused round, after which recovery is the only next step.
+    #[must_use]
     pub fn is_stopped(&self) -> bool {
         self.pipeline.is_stopped()
     }
 
     /// How many times a write's unanswered registrations went again: what a home's crash or a slow home costs.
+    #[must_use]
     pub fn resends(&self) -> u64 {
         self.resends
     }
 
     /// How many writes wait for answers.
+    #[must_use]
     pub fn parked(&self) -> usize {
         self.parked.len()
     }
 
     /// The mailbox, given back as a restart keeps it, and the log, to be opened again.
+    #[must_use]
     pub fn into_parts(self) -> (PartitionMailbox, L) {
         (self.mailbox, self.pipeline.into_log())
     }
@@ -450,6 +463,7 @@ where
                 let registrations = parked.references.len();
                 let waited = now_us.saturating_sub(parked.began_us);
                 let _ended = self.parked.remove(&ticket);
+                // The limit in whole milliseconds, rounded down: it is set in milliseconds, so nothing is lost.
                 let refusal = PartitionError::from(TxnError::past_limit(limit_us / 1_000));
                 self.outcomes.push(PartitionOutcome::new(
                     ticket,

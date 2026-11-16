@@ -195,6 +195,7 @@ impl<'a, S: DurableStorage> PartitionCore<'a, S> {
         }
         let now = self.now_us();
         let closed = self.host.closed().get();
+        // Each loop takes an open Scan off the board's queue once, so it ends within the open Scans (Ultra rule 2).
         while let Some(key) = self.scans.next_closed(closed) {
             self.start_scan(key);
         }
@@ -445,6 +446,7 @@ impl<'a, S: DurableStorage> PartitionCore<'a, S> {
     ) -> Result<Entries, FrameRefusal> {
         let first = scan.range;
         let mut next = first;
+        // At most `scan.ranges.len()` turns: each moves on by one range (Ultra rule 2).
         while let Some(read) = scan
             .ranges
             .get(next)
@@ -464,6 +466,7 @@ impl<'a, S: DurableStorage> PartitionCore<'a, S> {
             next += 1;
         }
         scan.move_to(next);
+        // `next` is past `first` here: a first range that fits nothing returned above, so one range was taken.
         Ok(fill.finish_run(u32::try_from(next - 1).unwrap_or(u32::MAX)))
     }
 

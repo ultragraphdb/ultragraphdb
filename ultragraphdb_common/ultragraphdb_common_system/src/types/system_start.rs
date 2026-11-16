@@ -15,11 +15,15 @@ pub struct SystemStart {
     bootstrap_file: Option<String>,
     tenants: Vec<u64>,
     transaction_ms: u64,
+    core: usize,
 }
 
 impl SystemStart {
     /// `transaction_ms` unless set otherwise, 10,000 ms: the protocol's default (`PROTOCOL.md` §11.9).
     pub const TRANSACTION_MS: u64 = 10_000;
+
+    /// The core the group's runtime takes unless set otherwise, 1: the frontend's, whose endpoint cores are numbered from 0.
+    pub const CORE: usize = 1;
 
     /// The owner of a cluster of `partition_count` partitions.
     #[must_use]
@@ -31,6 +35,7 @@ impl SystemStart {
             bootstrap_file: None,
             tenants: Vec::new(),
             transaction_ms: Self::TRANSACTION_MS,
+            core: Self::CORE,
         }
     }
 
@@ -54,6 +59,20 @@ impl SystemStart {
     pub fn with_transaction_ms(mut self, transaction_ms: u64) -> Self {
         self.transaction_ms = transaction_ms;
         self
+    }
+
+    /// The start of a group whose runtime takes the role's `core`th core, from 0, as `[runtime] pin_cores` binds it: a storage
+    /// process's after its partitions' (design D3).
+    #[must_use]
+    pub fn with_core(mut self, core: usize) -> Self {
+        self.core = core;
+        self
+    }
+
+    /// The core the group's runtime takes, from 0.
+    #[must_use]
+    pub fn core(&self) -> usize {
+        self.core
     }
 
     /// The life of a read-write transaction, in milliseconds.

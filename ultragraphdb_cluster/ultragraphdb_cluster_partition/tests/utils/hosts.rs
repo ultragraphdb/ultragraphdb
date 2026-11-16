@@ -68,3 +68,20 @@ pub fn turn_all(
     }
     Ok(ended)
 }
+
+/// Whether `host`'s partition holds `<subject> <predicate>` with some object in the default graph of tenant 0, read at its
+/// latest state: what a Drop removed shows as no object.
+pub fn holds(host: &Host<'_>, subject: &str, predicate: &str) -> TestResult<bool> {
+    let mut txn = crate::utils::cluster::begin(host.partition())?;
+    let mut objects = Vec::new();
+    let read = txn.objects_into(
+        oxrdf::GraphName::DefaultGraph.as_ref(),
+        crate::utils::cluster::ex(subject).as_ref().into(),
+        crate::utils::cluster::ex(predicate).as_ref(),
+        0,
+        &mut objects,
+    );
+    let _buffers: ultragraphdb_transactions_txn::TxnBuffers = txn.abort();
+    read?;
+    Ok(!objects.is_empty())
+}

@@ -24,8 +24,8 @@ use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
 use ultragraphdb_common_role::{Answer, RoleCluster, RoleSecret};
 use ultragraphdb_common_service::Stopping;
 use ultragraphdb_common_storage::{
-    CoreChannels, CoreMessage, CoreParts, FrontendAsk, LogIo, PartitionCore, Peers, RefillBlocks,
-    Retention, StoragePartition, TimedStorage,
+    CoreChannels, CoreMessage, CoreParts, LogIo, PartitionCore, Peers, RefillBlocks, Retention,
+    StoragePartition, SystemAsk, TimedStorage,
 };
 use ultragraphdb_core_ids::{Epoch, TypePrefix};
 use ultragraphdb_core_mapping::RandomSource;
@@ -68,7 +68,7 @@ const BLOCK: u64 = 1 << 16;
 #[derive(Debug)]
 pub(crate) struct Driver {
     core: UnboundedSender<CoreMessage>,
-    asks: UnboundedReceiver<FrontendAsk>,
+    asks: UnboundedReceiver<SystemAsk>,
     homes: Option<oneshot::Sender<()>>,
     placement: PlacementMap,
 }
@@ -157,7 +157,7 @@ impl Driver {
     }
 
     /// The next thing the core asks of the frontend, or a failure naming `what` it waited for.
-    pub(crate) async fn asked(&mut self, what: &str) -> TestResult<FrontendAsk> {
+    pub(crate) async fn asked(&mut self, what: &str) -> TestResult<SystemAsk> {
         compio::time::timeout(DUE, self.asks.next())
             .await
             .map_err(|_| TestError::new(format!("nothing asked within {DUE:?}: {what}")))?
@@ -476,7 +476,7 @@ async fn core_of<'a>(
 ) -> TestResult<(
     PartitionCore<'a>,
     UnboundedSender<CoreMessage>,
-    UnboundedReceiver<FrontendAsk>,
+    UnboundedReceiver<SystemAsk>,
 )> {
     let id = partition.id();
     let io = LogIo::default();

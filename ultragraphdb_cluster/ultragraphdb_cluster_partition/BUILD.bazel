@@ -42,6 +42,7 @@ rust_test(
         ["tests/**/*.rs"],
         exclude = [
             "tests/bdd.rs",
+            "tests/property/**",
             "tests/workload_faults.rs",
             "tests/workload_seeds.rs",
         ],
@@ -49,6 +50,23 @@ rust_test(
     crate_root = "tests/mod.rs",
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_cluster_partition"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# The property tests, Hegel's, under `tests/property/`, mirroring `src/`, with a fixture of their own under `utils/`.
+# Derandomized and without an example database, so a run is a function of its sources and Bazel may cache it.
+rust_test(
+    name = "property",
+    srcs = glob(["tests/property/**/*.rs"]),
+    crate_root = "tests/property/mod.rs",
+    env = {
+        "HEGEL_DATABASE": "disabled",
+        "HEGEL_DERANDOMIZE": "true",
+    },
+    tags = ["property-test"],
     deps = [":ultragraphdb_cluster_partition"] + all_crate_deps(
         normal = True,
         normal_dev = True,

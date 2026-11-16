@@ -47,3 +47,8 @@ ultragraphdb_transport_tls = { workspace = true, features = ["test-utils"] }
 name = "bdd"
 path = "tests/bdd.rs"
 harness = false
+
+[[test]]
+name = "system_bdd"
+path = "tests/system_bdd.rs"
+harness = false

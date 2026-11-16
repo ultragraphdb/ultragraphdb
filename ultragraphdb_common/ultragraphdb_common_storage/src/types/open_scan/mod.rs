@@ -48,6 +48,7 @@ pub(crate) struct OpenScan<'a> {
     pub range: usize,
     pub from: Vec<u8>,
     pub after: Option<PostingIdentity>,
+    // An `Arc`, as the posting layer hands a list out: a list read across frames is held once, not read again (Ultra rule 9).
     pub held: Option<Arc<List>>,
     pub rows: usize,
 }

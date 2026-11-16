@@ -2913,7 +2913,7 @@ fn drop_of(
 ) -> TestResult<Prepared> {
     Prepared::drop(
         applier,
-        TENANT,
+        (TENANT, 0),
         request,
         session,
         number,
@@ -3258,7 +3258,7 @@ async fn replay_drop_pattern_session(w: &mut Steps) -> TestResult {
     pipe.sync(0).await?;
     let drop = Prepared::drop(
         &original,
-        TENANT,
+        (TENANT, 0),
         DropRequest::Predicate(ex("p").as_ref()),
         0,
         0,

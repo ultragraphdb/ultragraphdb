@@ -21,7 +21,7 @@ workspace = true
 
 [dependencies]
 compio = { workspace = true }
-futures = { workspace = true }
+futures = { workspace = true, features = ["std"] }
 oxrdf = { workspace = true }
 tracing = { workspace = true }
 ultragraphdb_cluster_metadata = { workspace = true }
@@ -51,6 +51,8 @@ ultragraphdb_transactions_log = { workspace = true }
 ultragraphdb_transactions_txn = { workspace = true }
 
 [dev-dependencies]
+# The tests block on a future and poll one: features Bazel's unified build has, and a Cargo build of this crate alone not.
+futures = { workspace = true, features = ["async-await", "executor", "std"] }
 ultragraphdb_cluster_sequencer = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 ultragraphdb_tool_test = { workspace = true }

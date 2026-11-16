@@ -81,6 +81,9 @@ const TICK: std::time::Duration = std::time::Duration::from_millis(1);
 /// the 2,188 a second the Shard-per-Core note measures, so admits two million requests a second, past what a core serves.
 const MESSAGES_PER_TURN_MAX: usize = TURN_BYTES / HEADER_SIZE;
 
+// The division is exact: 262,144 bytes are 1,024 headers.
+const _: () = assert!(TURN_BYTES.is_multiple_of(HEADER_SIZE));
+
 /// The epoch closes one turn takes of those delivered to it, the rest waiting for the next turn: 64. A close arrives at most
 /// once an epoch, and an epoch lasts at least `epoch_ms_min`, never under 1 ms (`PROTOCOL.md` §11.9), while a turn waits at
 /// most [`TICK`] and syncs once, about 0.46 ms at the 2,188 syncs a second the Shard-per-Core note measures: a turn finds one
@@ -103,9 +106,9 @@ pub const REMOTE_PER_TURN_MAX: usize = MESSAGES_PER_TURN_MAX;
 /// How long a partition keeps a Scan with no frame able to leave, by default (`PROTOCOL.md` §11.9), in milliseconds.
 pub const SCAN_STALL_MS_DEFAULT: u64 = 30_000;
 
-/// What the core asks of the frontend, on a connection of its own.
+/// What the core asks of the system group, on a connection of its own.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FrontendAsk {
+pub enum SystemAsk {
     /// The close of an epoch.
     Close(Epoch),
     /// The record of a predicate's default entry, after a first write of it or a replay of one (`PROTOCOL.md` §11.12).
@@ -200,7 +203,7 @@ struct Committing {
 #[derive(Debug, Clone)]
 pub struct Peers {
     cluster: RoleCluster,
-    frontend: Address,
+    system: Address,
     name: String,
     own: UnboundedSender<PartitionMessage>,
     // Shared by this core's tasks, all on its one thread, so `Rc` and `RefCell` hold them and no borrow crosses a wait.
@@ -209,18 +212,18 @@ pub struct Peers {
 }
 
 impl Peers {
-    /// What a core of `cluster` shares, dialling others as `name`, the frontend at `frontend`, a peer's messages reaching it
+    /// What a core of `cluster` shares, dialling others as `name`, the system group at `system`, a peer's messages reaching it
     /// through `own`. It knows no partition's address and holds no connection yet.
     #[must_use]
     pub fn new(
         cluster: RoleCluster,
-        frontend: Address,
+        system: Address,
         name: String,
         own: UnboundedSender<PartitionMessage>,
     ) -> Self {
         Self {
             cluster,
-            frontend,
+            system,
             name,
             own,
             addresses: Rc::new(RefCell::new(BTreeMap::new())),
@@ -234,10 +237,10 @@ impl Peers {
         &self.cluster
     }
 
-    /// The frontend's role address.
+    /// The system group's role address, which the core dials for what it asks of the group.
     #[must_use]
-    pub fn frontend(&self) -> &Address {
-        &self.frontend
+    pub fn system(&self) -> &Address {
+        &self.system
     }
 
     /// The name this role dials others under.
@@ -258,8 +261,11 @@ pub struct PartitionCore<'a, S: DurableStorage = CompioStorage> {
     remote: Receiver<RemoteMessage>,
     own: Sender<PartitionMessage>,
     closes: Receiver<PartitionMessage>,
-    asks: UnboundedSender<FrontendAsk>,
+    asks: UnboundedSender<SystemAsk>,
     peers: Peers,
+    // The tables below hold one entry per stream a connection opened, per request in the commit step or per home asked,
+    // each bounded by the connections' streams within their credit and by the read-write limit, past which the sweep
+    // ends a transaction (Ultra rule 2); `installing` holds at most one version.
     bound_tenant: BTreeMap<BoundKey, (u64, Pushes)>,
     /// The streams a Bind of kind 2 opened, each waiting for its Drop, with the tenant and the principal it named.
     drop_streams: BTreeMap<BoundKey, (u64, u64)>,
@@ -307,13 +313,13 @@ pub struct CoreChannels {
     remote: Receiver<RemoteMessage>,
     own: Sender<PartitionMessage>,
     closes: Receiver<PartitionMessage>,
-    asks: UnboundedSender<FrontendAsk>,
+    asks: UnboundedSender<SystemAsk>,
     discards: Sender<u64>,
 }
 
 impl CoreChannels {
     /// What its connections send it, `inbox`; what other partitions send it, `remote`; where messages reach it, `own`; the epoch
-    /// closes delivered to it, `closes`; where it asks the frontend, `asks`; and where each higher discard version goes,
+    /// closes delivered to it, `closes`; where it asks the system group, `asks`; and where each higher discard version goes,
     /// `discards`, read off the core.
     #[must_use]
     pub fn new(
@@ -321,7 +327,7 @@ impl CoreChannels {
         remote: Receiver<RemoteMessage>,
         own: Sender<PartitionMessage>,
         closes: Receiver<PartitionMessage>,
-        asks: UnboundedSender<FrontendAsk>,
+        asks: UnboundedSender<SystemAsk>,
         discards: Sender<u64>,
     ) -> Self {
         Self {
@@ -539,12 +545,12 @@ impl<'a, S: DurableStorage> PartitionCore<'a, S> {
             .await
             .map_err(|error| RoleError::io(format!("the partition {}: {error}", self.id.get())))?;
         if let Some(epoch) = self.host.take_close_request() {
-            // A frontend link gone is reported by the subscription.
-            drop(self.asks.unbounded_send(FrontendAsk::Close(epoch)));
+            // A link to the system group gone is reported by the subscription.
+            drop(self.asks.unbounded_send(SystemAsk::Close(epoch)));
         }
         for entry in self.host.partition().applier().take_default_entries() {
-            // A frontend link gone is reported by the subscription, and the recovery after it asks again.
-            drop(self.asks.unbounded_send(FrontendAsk::DefaultEntry(entry)));
+            // A link to the system group gone is reported by the subscription, and the recovery after it asks again.
+            drop(self.asks.unbounded_send(SystemAsk::DefaultEntry(entry)));
         }
         self.resume_ready();
         self.hand_out();

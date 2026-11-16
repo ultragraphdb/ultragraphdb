@@ -69,12 +69,12 @@ setting, a constructor or a public item another group's crates still name (desig
 
 ## 4. Storage hosts the group → `ultragraphdb_common_storage`, `ultragraphdb_storage`, `ultragraphdb_storage_tests`, `ultragraphdb_cluster_partition`
 
-- [ ] 4.1 Ultra Style lift of the crates group 3 did not lift, each in its own commit
+- [x] 4.1 Ultra Style lift of the crates group 3 did not lift, each in its own commit
 - [ ] 4.2 Scenarios: system-group ("One storage instance hosts the system group", "The system group runs on a core of its own over logs of its own", "The hosting process starts the group first and stops it last"); partitions ("A storage process hosts partitions over bucket ranges"); schema-changes ("A partition checks the catalog version a Drop names"); role-binaries (the storage parts of "Readiness, health and shutdown", "Each role runs one runtime per core", "Configuration is explicit and validated at start"), as Gherkin
-- [ ] 4.3 Phases 1 to 3: the storage service starting `start_system` on a runtime of its own when its settings hold `[system]`, before its partitions; partitions dialling `cluster.system_address`, co-hosted ones included; readiness and the stop order; exit 74 for a failed log of the group, and no exit for a lost peer in the hosting instance; a partition reading a catalog version across Catalog frames through `CatalogFrames` (design D13); a Drop of kind 3 or 4 whose `catalog` is not the version in effect at its round's epoch refused with code 2, kind 5, decided at the round as an Ingest share's is (design D14)
-- [ ] 4.4 Phase 4: the above; `storage_tests` starting a hosting and a non-hosting instance
+- [x] 4.3 Phases 1 to 3: the storage service starting `start_system` on a runtime of its own when its settings hold `[system]`, before its partitions; partitions dialling `cluster.system_address`, co-hosted ones included; readiness and the stop order; exit 74 for a failed log of the group, and no exit for a lost peer in the hosting instance; a partition reading a catalog version across Catalog frames through `CatalogFrames` (design D13); a Drop of kind 3 or 4 whose `catalog` is not the version in effect at its round's epoch refused with code 2, kind 5, decided at the round as an Ingest share's is (design D14)
+- [x] 4.4 Phase 4: the above; `storage_tests` starting a hosting and a non-hosting instance
 - [ ] 4.5 Phase 5: `scripts/mutants.sh` over each changed crate
-- [ ] 4.6 Property test, written in phase 2: over drawn catalog histories and a Drop decided at a drawn epoch, the Drop commits exactly when its `catalog` is the version in effect at that epoch
+- [x] 4.6 Property test, written in phase 2: over drawn catalog histories and a Drop decided at a drawn epoch, the Drop commits exactly when its `catalog` is the version in effect at that epoch
 
 ## 5. The frontend without books → `ultragraphdb_common_frontend`, `ultragraphdb_frontend`, `ultragraphdb_frontend_tests`, `ultragraphdb_client_core`
 

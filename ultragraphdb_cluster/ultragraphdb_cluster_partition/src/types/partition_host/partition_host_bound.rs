@@ -255,7 +255,10 @@ where
             .map_err(PartitionError::from)
     }
 
-    /// Commits the Drop `drop` of `tenant` by `principal` as request `request` of `session`: the ticket its outcome comes under.
+    /// Commits the Drop `drop` of `tenant` by `principal` as request `request` of `session`, naming `catalog`, the Drop's own
+    /// field: the ticket its outcome comes under. A Drop of a tenant's data or of everything in it whose `catalog` is not the
+    /// version in effect at its round's epoch is refused in its outcome with code 2, kind 5, decided at the round
+    /// (`PROTOCOL.md` §6.5).
     ///
     /// # Errors
     ///
@@ -265,6 +268,7 @@ where
         &mut self,
         (tenant, principal): (u64, u64),
         drop: DropRequest<'_>,
+        catalog: u64,
         (session, request): (u128, u64),
         now_us: u64,
     ) -> Result<u64, PartitionError> {
@@ -273,7 +277,7 @@ where
         let buffers = self.pipeline.buffers_mut().pop().unwrap_or_default();
         let prepared = Prepared::drop(
             self.partition.applier(),
-            tenant,
+            (tenant, catalog),
             drop,
             session,
             request,
@@ -347,6 +351,7 @@ where
     }
 
     /// How long a read-write transaction lives, in milliseconds.
+    #[must_use]
     pub fn bound_limit_ms(&self) -> u64 {
         u64::try_from(self.limits.read_write().as_millis()).unwrap_or(u64::MAX)
     }
@@ -358,6 +363,7 @@ where
 
     /// Whether a read of the transaction `key` waits on a home's answer, behind which its Write, Operation or Commit waits its turn
     /// (`PROTOCOL.md` §13.13).
+    #[must_use]
     pub fn read_waits(&self, key: BoundKey) -> bool {
         self.bound
             .get(&key)
@@ -365,6 +371,7 @@ where
     }
 
     /// The ticket the transaction `key` asks its current references under.
+    #[must_use]
     pub fn bound_ticket(&self, key: BoundKey) -> Option<u64> {
         self.bound.get(&key).map(|bound| bound.ticket)
     }

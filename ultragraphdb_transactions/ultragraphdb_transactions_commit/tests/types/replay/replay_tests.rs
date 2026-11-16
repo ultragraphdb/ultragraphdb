@@ -311,7 +311,7 @@ fn test_every_kind_of_round_replays_into_an_empty_store_as_the_first_apply_left_
     block_on(pipe.sync(0))?;
     let drop = Prepared::drop(
         &original,
-        TENANT,
+        (TENANT, 0),
         DropRequest::Predicate(crate::utils::fixture::ex("name").as_ref()),
         0,
         0,
@@ -343,7 +343,7 @@ fn assert_retry_answered_from_the_table(
     assert_eq!(again.retry(session, 7)?.version(), version(1, 8));
     let resend = Prepared::drop(
         replica,
-        TENANT,
+        (TENANT, 0),
         DropRequest::Predicate(crate::utils::fixture::ex("name").as_ref()),
         session,
         7,

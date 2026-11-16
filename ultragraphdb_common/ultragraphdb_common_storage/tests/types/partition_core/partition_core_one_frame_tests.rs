@@ -7,7 +7,7 @@
 
 use oxrdf::NamedNode;
 use ultragraphdb_common_role::Answer;
-use ultragraphdb_common_storage::{CoreMessage, FrontendAsk};
+use ultragraphdb_common_storage::{CoreMessage, SystemAsk};
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
 use ultragraphdb_protocol_wire::{
@@ -229,7 +229,7 @@ async fn declared_unique(
     let contents = CatalogContents::new(TENANT, 1, vec![Declaration::Predicate(declared)]);
     driver.tell(CoreMessage::Catalog(contents))?;
     let report = driver.asked("the catalog version's report").await?;
-    assert!(matches!(report, FrontendAsk::Report(_)), "{report:?}");
+    assert!(matches!(report, SystemAsk::Report(_)), "{report:?}");
     for request in 1..=PROBES {
         let mut terms = TermTable::new();
         let changes = vec![
@@ -533,7 +533,7 @@ async fn run_again(driver: &mut Driver, unique: Option<&str>) -> TestResult<Erro
         // What the frontend is asked before the report: the default entries of the predicates the writes created.
         while !matches!(
             driver.asked("the catalog version's report").await?,
-            FrontendAsk::Report(_)
+            SystemAsk::Report(_)
         ) {}
     }
     driver.release_homes();

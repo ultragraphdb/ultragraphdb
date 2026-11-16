@@ -16,3 +16,13 @@ fn test_a_start_holds_its_transaction_limit() -> TestResult {
     assert_eq!(start.with_transaction_ms(25).transaction_ms(), 25);
     Ok(())
 }
+
+/// A start takes core 1 unless set otherwise, the frontend's owner core, and the core it is set to: a storage process sets
+/// the core after its partitions' (design D3).
+#[test]
+fn test_a_start_holds_its_core() -> TestResult {
+    let start = SystemStart::new(MetadataConfig::new(), SequencerConfig::new(1, 5)?, 1);
+    assert_eq!(start.core(), 1);
+    assert_eq!(start.with_core(4).core(), 4);
+    Ok(())
+}

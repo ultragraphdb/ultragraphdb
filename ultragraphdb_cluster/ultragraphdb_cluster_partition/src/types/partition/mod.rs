@@ -42,6 +42,7 @@ where
 {
     /// The partition `id` of `placement`, writing through `applier`, whose quad store owns the partition's buckets
     /// ([`Partition::owned`]).
+    #[must_use]
     pub fn new(
         id: PartitionId,
         placement: PlacementMap,
@@ -74,16 +75,19 @@ where
     }
 
     /// The partition's ID.
+    #[must_use]
     pub fn id(&self) -> PartitionId {
         self.id
     }
 
     /// The placement map the partition routes by.
+    #[must_use]
     pub fn placement(&self) -> &PlacementMap {
         &self.placement
     }
 
     /// The partition's changeset applier.
+    #[must_use]
     pub fn applier(&self) -> &ChangesetApplier<S, C, E, B> {
         &self.applier
     }
@@ -104,6 +108,7 @@ where
     }
 
     /// Whether the partition owns every bucket of `tenant`'s run at `epoch`, as it always does alone.
+    #[must_use]
     pub fn owns_run(&self, tenant: u64, epoch: Epoch) -> bool {
         self.lowest_other(Some(tenant), epoch).is_none()
     }
