@@ -45,7 +45,7 @@ impl MetadataTable {
         self.snapshot_rounds
     }
 
-    /// `catalog_check_ms`: how long the frontend waits for each partition's report of a tightening's check.
+    /// `catalog_check_ms`: how long the system group waits for each partition's report of a tightening's check.
     #[must_use]
     pub fn catalog_check_ms(&self) -> Option<u64> {
         self.catalog_check_ms

@@ -13,7 +13,7 @@ use compio::io::{AsyncRead, AsyncWrite};
 use compio::runtime::Runtime;
 use cucumber::{then, when};
 use service_utils::WaitStrategy;
-use ultragraphdb_common_frontend::{RoleDouble, batch_frame, empty_batch, partition_answer};
+use ultragraphdb_common_frontend::{RoleDouble, batch_frame, empty_batch};
 use ultragraphdb_common_role::{Answer, RoleClient, RoleCluster, RoleSecret};
 use ultragraphdb_protocol_scram::{ScramClient, system_nonce};
 use ultragraphdb_protocol_transport::{
@@ -25,8 +25,9 @@ use ultragraphdb_protocol_wire::{
     MAX_FRAME_SIZE_U32, PatternSlot, QuadPattern, Read, TermTable, WriteChange,
 };
 use ultragraphdb_tests::{
-    CLIENT_ADDRESS, CLUSTER, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, FRONTEND_ROLE_ADDRESS,
-    SECRET, START_SECONDS, answering, exit_is, frontend_holding, role, scratch, with,
+    CLIENT_ADDRESS, CLUSTER, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, SECRET, START_SECONDS,
+    STORAGE_BINARY, STORAGE_OBSERVABILITY, SYSTEM_ROLE_ADDRESS, answering, exit_is,
+    frontend_holding, role, scratch, storage_holding, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_tls::TestPki;
@@ -36,12 +37,12 @@ use crate::{Steps, services};
 const ADMIN: &str = "admin";
 const PASSWORD: &str = "the administrator's password";
 
-/// The settings of a frontend bootstrapping its administrator.
+/// The settings of the storage process hosting the system group, which bootstraps the administrator (design D11).
 pub(crate) fn bootstrapping() -> TestResult<Vec<(String, String)>> {
     let file = scratch("bootstrap-secret");
     std::fs::write(&file, PASSWORD)?;
     Ok(with(
-        frontend_holding()?,
+        storage_holding()?,
         "metadata.bootstrap_secret_file",
         &file.display().to_string(),
     ))
@@ -52,7 +53,7 @@ fn over_tls(pki: &TestPki) -> TestResult<Vec<(String, String)>> {
     let (chain, key) = (scratch("server-chain.pem"), scratch("server-key.pem"));
     std::fs::write(&chain, pki.server_chain_pem())?;
     std::fs::write(&key, pki.server_key_pem())?;
-    let mut settings = bootstrapping()?;
+    let mut settings = frontend_holding()?;
     settings.retain(|(name, _)| name != "endpoint.plaintext");
     let settings = with(
         settings,
@@ -66,8 +67,16 @@ fn over_tls(pki: &TestPki) -> TestResult<Vec<(String, String)>> {
     ))
 }
 
-fn started(w: &mut Steps, settings: &[(String, String)]) -> TestResult {
+/// Starts the storage process hosting the system group, bootstrapping the administrator, then the frontend on `settings`, and
+/// waits until the client endpoint listens.
+pub(crate) fn started(w: &mut Steps, settings: &[(String, String)]) -> TestResult {
     let util = services()?;
+    let _storage: u32 = util.start_service_from_config(role(
+        STORAGE_BINARY,
+        &bootstrapping()?,
+        &scratch(STORAGE_BINARY),
+        answering(STORAGE_OBSERVABILITY, "/ready"),
+    ))?;
     let wait = answering(FRONTEND_OBSERVABILITY, "/health");
     let _pid: u32 = util.start_service_from_config(role(
         FRONTEND_BINARY,
@@ -76,7 +85,9 @@ fn started(w: &mut Steps, settings: &[(String, String)]) -> TestResult {
         wait,
     ))?;
     w.roles = Some(util);
-    until_listening()
+    until_listening()?;
+    // Ready once the frontend's view holds a close and a placement and Members lists the partition (design D10).
+    until_answering(FRONTEND_OBSERVABILITY, "/ready")
 }
 
 /// Waits for the client endpoint's listener, which opens after the first start has derived the administrator's verifier.
@@ -198,16 +209,8 @@ fn tls_client(w: &mut Steps) -> TestResult {
     started(w, &over_tls(&pki)?)?;
     Runtime::new()?.block_on(async {
         let cluster = played_cluster()?;
-        let frontend = Address::parse(&format!("tcp://{FRONTEND_ROLE_ADDRESS}"))?;
-        let partition = RoleDouble::start(&cluster, Endpoint::Partition, |frame| {
-            partition_answer(frame, CLUSTER, 5 << 22)
-        })
-        .await?;
-        let join = Join::storage(partition.address(), vec![1]);
-        partition
-            .join(&frontend, &cluster, "storage", &join)
-            .await
-            .map_err(TestError::new)?;
+        // The partition is the storage process hosting the system group, which `started` began; compute is played.
+        let frontend = Address::parse(&format!("tcp://{SYSTEM_ROLE_ADDRESS}"))?;
         let compute = RoleDouble::start(&cluster, Endpoint::Compute, |frame| {
             batch_frame(CLUSTER, frame.stream(), &empty_batch(4, 1), true)
                 .map_or(Answer::Done, Answer::Reply)
@@ -313,7 +316,7 @@ fn no_decision_named(w: &mut Steps) -> TestResult {
     "a cluster starts for the first time with a bootstrap credential file and a client authenticates with it"
 )]
 fn bootstrapped(w: &mut Steps) -> TestResult {
-    started(w, &bootstrapping()?)?;
+    started(w, &frontend_holding()?)?;
     Runtime::new()?.block_on(async {
         let _client = RoleClient::dial(&client_address()?, CLUSTER, ADMIN, PASSWORD).await?;
         Ok(())

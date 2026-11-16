@@ -11,7 +11,6 @@ use crate::types::settings_reader::SettingsReader;
 pub struct ClusterTable {
     id: Option<u64>,
     role_secret_file: Option<String>,
-    frontend_address: Option<String>,
     system_address: Option<String>,
     partition_count: Option<u32>,
     join_deadline_ms: Option<u64>,
@@ -22,7 +21,6 @@ impl ClusterTable {
         Ok(Self {
             id: reader.u64("cluster", "id")?,
             role_secret_file: reader.string("cluster", "role_secret_file")?,
-            frontend_address: reader.string("cluster", "frontend_address")?,
             system_address: reader.string("cluster", "system_address")?,
             partition_count: reader.u32("cluster", "partition_count")?,
             join_deadline_ms: reader.u64("cluster", "join_deadline_ms")?,
@@ -41,25 +39,20 @@ impl ClusterTable {
         self.role_secret_file.as_deref()
     }
 
-    /// `frontend_address`: the frontend's role address, which storage and compute join at.
-    #[must_use]
-    pub fn frontend_address(&self) -> Option<&str> {
-        self.frontend_address.as_deref()
-    }
-
     /// `system_address`: the system group's role address, which every role dials.
     #[must_use]
     pub fn system_address(&self) -> Option<&str> {
         self.system_address.as_deref()
     }
 
-    /// `partition_count`: the partitions the frontend forms the placement over.
+    /// `partition_count`: the partitions the system group forms the placement over, which its host reads.
     #[must_use]
     pub fn partition_count(&self) -> Option<u32> {
         self.partition_count
     }
 
-    /// `join_deadline_ms`: how long storage and compute retry joining, and the frontend connecting back.
+    /// `join_deadline_ms`: how long a role goes on dialling a peer that does not answer, the system group among them, before it
+    /// exits.
     #[must_use]
     pub fn join_deadline_ms(&self) -> Option<u64> {
         self.join_deadline_ms

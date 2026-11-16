@@ -27,8 +27,8 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
     CLUSTER, CONFIG_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering, exit_is, fresh_data,
-    http_status, members_at, role, role_of_service, scratch, start_config_service, start_double,
-    storage_holding, until_answering, until_ports_free, with,
+    frontend_holding, http_status, members_at, not_hosting, role, role_of_service, scratch,
+    start_config_service, start_double, storage_holding, until_answering, until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -89,17 +89,15 @@ struct Steps {
 }
 
 /// The settings of an instance of `count` partitions from `first`, at ports from `port`, observed at `observed`, dialling
-/// the system group at [`SYSTEM_ADDRESS`]: no `cluster.frontend_address`.
+/// the system group at [`SYSTEM_ADDRESS`] and hosting none.
 fn instance(
     first: u32,
     count: u32,
     port: u32,
     observed: &str,
 ) -> TestResult<Vec<(String, String)>> {
-    let mut settings = storage_holding()?;
-    settings.retain(|(name, _)| name != "cluster.frontend_address");
     let settings = with(
-        settings,
+        not_hosting(storage_holding()?),
         "observability.address",
         &format!("tcp://{observed}"),
     );
@@ -132,6 +130,8 @@ fn hosting(
     let settings = with(settings, "system.data_dir", system);
     let settings = with(settings, "cluster.partition_count", &partitions.to_string());
     let settings = with(settings, "sequencer.epoch_ms_min", "1");
+    // The `[metadata]` table the config service requires of a host, at the bound `PROTOCOL.md` §11.9 gives when unnamed.
+    let settings = with(settings, "metadata.sessions_max", "4096");
     Ok(with(settings, "sequencer.epoch_ms_max", "20"))
 }
 
@@ -357,7 +357,21 @@ fn data_holds(w: &mut Steps) -> TestResult {
 fn storage_alone(w: &mut Steps) -> TestResult {
     let util = services()?;
     let settings = hosting((1, 1, FIRST_PORT, FIRST_OBSERVED), 1, &fresh_data())?;
-    let _service: u32 = start_config_service(&util, &[("storage_1", &settings)])?;
+    // The target declares the frontend, as every target does (config-service, Roles); it is not started.
+    let _service: u32 = start_config_service(
+        &util,
+        &[
+            (
+                "frontend",
+                &with(
+                    frontend_holding()?,
+                    "cluster.system_address",
+                    &format!("tcp://{SYSTEM_ADDRESS}"),
+                ),
+            ),
+            ("storage_1", &settings),
+        ],
+    )?;
     let health = answering(FIRST_OBSERVED, "/health");
     let log = scratch("storage-alone.log");
     let _pid: u32 =

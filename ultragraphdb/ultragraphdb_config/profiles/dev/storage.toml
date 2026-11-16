@@ -1,7 +1,8 @@
 [cluster]
 id = 1
 role_secret_file = "/data/config/role.secret"
-frontend_address = "unix:///run/ultragraph/frontend.sock"
+system_address = "unix:///run/ultragraph/system.sock"
+partition_count = 1
 [observability]
 address = "tcp://127.0.0.1:8083"
 [storage]
@@ -9,3 +10,11 @@ partition_first = 1
 partition_count = 1
 role_address = "unix:///run/ultragraph/storage.sock"
 data_dir = "/data/storage"
+[system]
+role_address = "unix:///run/ultragraph/system.sock"
+data_dir = "/data/system"
+[metadata]
+bootstrap_secret_file = "/data/config/bootstrap.secret"
+[sequencer]
+epoch_ms_min = 2
+epoch_ms_max = 10

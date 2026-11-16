@@ -3189,6 +3189,7 @@ version = "0.1.0"
 dependencies = [
  "cucumber",
  "futures",
+ "hegeltest",
  "ultragraphdb_cluster_metadata",
  "ultragraphdb_cluster_placement",
  "ultragraphdb_cluster_sequencer",

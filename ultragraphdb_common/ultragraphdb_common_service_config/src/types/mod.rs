@@ -9,7 +9,6 @@ pub mod compute_table;
 pub mod config_table;
 pub mod endpoint_security;
 pub mod endpoint_table;
-pub mod frontend_table;
 pub mod metadata_table;
 pub mod observability_table;
 pub mod runtime_table;

@@ -13,7 +13,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use compio::runtime::spawn;
-use ultragraphdb_common_compute::{group_address, hold_peers, join_group};
+use ultragraphdb_common_compute::{hold_peers, join_group};
+use ultragraphdb_common_role::system_address;
 use ultragraphdb_common_service::{RoleIdentity, RoleStart, Stopping};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::Address;
@@ -43,42 +44,30 @@ fn start(cluster: &str) -> TestResult<RoleStart> {
     )?)
 }
 
-/// C6.4: with `cluster.system_address` named, compute dials it, whatever `cluster.frontend_address` names beside it.
+/// C6.4: compute dials the system group at `cluster.system_address`, the one address its settings name for it (design D2);
+/// settings naming the old `cluster.frontend_address` are refused at the start, naming it.
 #[test]
-fn test_the_group_is_the_system_address_where_it_is_named() -> TestResult {
-    let alone = start("system_address = \"tcp://storage-0:7100\"\n")?;
-    assert_eq!(group_address(&alone)?.to_string(), "tcp://storage-0:7100");
-    let both = start(
-        "frontend_address = \"tcp://frontend-0:7081\"\nsystem_address = \"unix:///run/ultragraph/system.sock\"\n",
-    )?;
+fn test_the_group_is_the_system_address() -> TestResult {
+    let named = start("system_address = \"unix:///run/ultragraph/system.sock\"\n")?;
     assert_eq!(
-        group_address(&both)?.to_string(),
+        system_address(&named)?.to_string(),
         "unix:///run/ultragraph/system.sock"
     );
+    let old = start(
+        "frontend_address = \"tcp://frontend-0:7081\"\nsystem_address = \"tcp://storage-0:7100\"\n",
+    )
+    .err()
+    .context("a refusal")?;
+    assert!(old.to_string().contains("frontend_address"), "{old}");
     Ok(())
 }
 
-/// Settings naming `cluster.frontend_address` alone, as every profile does until the switch (design D2), keep compute
-/// dialling it.
-#[test]
-fn test_the_frontend_address_alone_is_dialled_as_before() -> TestResult {
-    let old = start("frontend_address = \"tcp://frontend-0:7081\"\n")?;
-    assert_eq!(group_address(&old)?.to_string(), "tcp://frontend-0:7081");
-    Ok(())
-}
-
-/// Neither address is a configuration error naming `cluster.system_address`, and a `cluster.system_address` that is no
-/// address is one naming it, though `cluster.frontend_address` is named beside it.
+/// No address, or a `cluster.system_address` that is no address, is a configuration error naming `cluster.system_address`.
 #[test]
 fn test_no_group_address_is_refused_naming_the_system_address() -> TestResult {
-    let refusals = [
-        start("")?,
-        start(
-            "frontend_address = \"tcp://frontend-0:7081\"\nsystem_address = \"not an address\"\n",
-        )?,
-    ];
+    let refusals = [start("")?, start("system_address = \"not an address\"\n")?];
     for settings in refusals {
-        let refused = group_address(&settings).err().context("a refusal")?;
+        let refused = system_address(&settings).err().context("a refusal")?;
         assert_eq!(refused.exit_code(), RoleError::EX_CONFIG);
         assert!(
             refused.to_string().contains("cluster.system_address"),

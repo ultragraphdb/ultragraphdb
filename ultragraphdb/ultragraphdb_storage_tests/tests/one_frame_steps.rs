@@ -66,23 +66,23 @@ async fn committed(
     Ok(Ok((reply.commit_version(), reply.token().cloned(), node)))
 }
 
-/// A frontend holding the bootstrap administrator, and one partition.
+/// A frontend, and one partition's storage hosting the system group, which holds the bootstrap administrator.
 fn with_an_administrator(w: &mut Steps) -> TestResult {
     let util = crate::services()?;
     let file = scratch("admin-secret");
     std::fs::write(&file, "pw")?;
-    let settings = with(
-        frontend_holding()?,
-        "metadata.bootstrap_secret_file",
-        &file.display().to_string(),
-    );
     let _frontend: u32 = util.start_service_from_config(role(
         FRONTEND_BINARY,
-        &settings,
+        &frontend_holding()?,
         &scratch(FRONTEND_BINARY),
         answering(FRONTEND_OBSERVABILITY, "/health"),
     ))?;
-    let _storage = crate::start_storage(&util, &storage_holding()?, &scratch("storage-unique"))?;
+    let hosting = with(
+        storage_holding()?,
+        "metadata.bootstrap_secret_file",
+        &file.display().to_string(),
+    );
+    let _storage = crate::start_storage(&util, &hosting, &scratch("storage-unique"))?;
     w.roles = Some(util);
     Ok(())
 }

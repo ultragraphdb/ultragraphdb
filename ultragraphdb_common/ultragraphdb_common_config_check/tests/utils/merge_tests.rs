@@ -32,21 +32,21 @@ fn test_an_instance_label_is_lowercase_digits_and_underscores() {
 fn test_merged_settings_render_canonically() -> TestResult {
     let mut target = TargetFiles::new("ci");
     target.insert(
-        "frontend",
-        "frontend.toml",
-        b"[frontend]\ndata_dir = \"a\\u0001b\\tc\\\"d\\\\e\"\n".to_vec(),
+        "storage",
+        "storage.toml",
+        b"[storage]\ndata_dir = \"a\\u0001b\\tc\\\"d\\\\e\"\n".to_vec(),
     );
     let all = instances(&target);
-    let frontend = all.first().context("the frontend")?;
+    let storage = all.first().context("the storage instance")?;
     assert_eq!(
-        frontend.rendered(),
-        "[frontend]\ndata_dir = \"a\\u0001b\\tc\\\"d\\\\e\"\n"
+        storage.rendered(),
+        "[storage]\ndata_dir = \"a\\u0001b\\tc\\\"d\\\\e\"\n"
     );
     assert_eq!(
-        frontend
+        storage
             .config()
             .context("its settings")?
-            .frontend()
+            .storage()
             .data_dir(),
         Some("a\u{1}b\tc\"d\\e")
     );
@@ -57,16 +57,16 @@ fn test_merged_settings_render_canonically() -> TestResult {
 #[test]
 fn test_line_breaks_render_by_their_short_escapes() -> TestResult {
     let mut target = TargetFiles::new("ci");
-    let written = "[frontend]\ndata_dir = \"a\\nb\\rc\"\n";
-    target.insert("frontend", "frontend.toml", written.as_bytes().to_vec());
+    let written = "[storage]\ndata_dir = \"a\\nb\\rc\"\n";
+    target.insert("storage", "storage.toml", written.as_bytes().to_vec());
     let all = instances(&target);
-    let frontend = all.first().context("the frontend")?;
-    assert_eq!(frontend.rendered(), written);
+    let storage = all.first().context("the storage instance")?;
+    assert_eq!(storage.rendered(), written);
     assert_eq!(
-        frontend
+        storage
             .config()
             .context("its settings")?
-            .frontend()
+            .storage()
             .data_dir(),
         Some("a\nb\rc")
     );

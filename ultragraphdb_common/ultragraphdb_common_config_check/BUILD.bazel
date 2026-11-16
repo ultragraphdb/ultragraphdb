@@ -31,11 +31,29 @@ rust_test(
     name = "ultragraphdb_common_config_check_tests",
     srcs = glob(
         ["tests/**/*.rs"],
-        exclude = ["tests/bdd.rs"],
+        exclude = [
+            "tests/bdd.rs",
+            "tests/property/**",
+        ],
     ),
     crate_root = "tests/mod.rs",
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_common_config_check"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+rust_test(
+    name = "property",
+    srcs = glob(["tests/property/**/*.rs"]),
+    crate_root = "tests/property/mod.rs",
+    env = {
+        "HEGEL_DATABASE": "disabled",
+        "HEGEL_DERANDOMIZE": "true",
+    },
+    tags = ["property-test"],
     deps = [":ultragraphdb_common_config_check"] + all_crate_deps(
         normal = True,
         normal_dev = True,

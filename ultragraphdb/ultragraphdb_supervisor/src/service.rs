@@ -16,7 +16,7 @@ use compio::runtime::Runtime;
 use rustix::process::{Pid, Signal, kill_process};
 use ultragraphdb_common_config_check::{Instance, TargetFiles, check_config_service, instances};
 use ultragraphdb_common_service::{PARENT_PID, stop_with_parent};
-use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig};
+use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig, SystemTable};
 use ultragraphdb_common_telemetry::{LogFormat, TelemetryConfig, init};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_transport_http_client::{HttpClient, HttpUrl, read_key};
@@ -230,8 +230,8 @@ fn tcp_host_port(address: &str) -> Option<String> {
     address.strip_prefix("tcp://").map(str::to_string)
 }
 
-/// Whether the frontend holding `data_dir` has yet to create the cluster: its metadata group's log, `meta/` under it, is not
-/// there. The bootstrap administrator's password is read at that start alone, and the operator removes it afterwards, so it is
+/// Whether the storage instance hosting the system group over `data_dir`, its `system.data_dir`, has yet to create the cluster:
+/// its metadata group's log, `meta/` under it, is not there. The bootstrap administrator's password is read at that start alone, and the operator removes it afterwards, so it is
 /// drawn before that start and never again.
 fn first_start(data_dir: Option<&str>) -> bool {
     data_dir.is_none_or(|directory| !Path::new(directory).join("meta").exists())
@@ -327,7 +327,7 @@ impl Supervised<'_> {
                 config
                     .metadata()
                     .bootstrap_secret_file()
-                    .filter(|_| first_start(config.frontend().data_dir())),
+                    .filter(|_| first_start(config.system().map(SystemTable::data_dir))),
             ];
             for file in secrets.into_iter().flatten() {
                 draw_secret(file).map_err(Interrupt::Refused)?;

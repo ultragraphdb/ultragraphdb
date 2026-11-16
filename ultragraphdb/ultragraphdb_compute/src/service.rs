@@ -7,11 +7,11 @@ use std::time::{Duration, Instant};
 
 use compio::runtime::spawn;
 use ultragraphdb_common_compute::{
-    ComputeCore, ComputeSession, ReadTimes, group_address, hold_peers, join_group, read_times_of,
+    ComputeCore, ComputeSession, ReadTimes, hold_peers, join_group, read_times_of,
 };
 use ultragraphdb_common_role::{
     COMPUTE_WELCOME_CREDIT, OpenRequests, ROLE_ITERATIONS, RoleCluster, RoleCredentials, Server,
-    finish_open, serve_connection,
+    finish_open, serve_connection, system_address,
 };
 use ultragraphdb_common_service::{
     CoreListener, Readiness, RoleKind, RoleStart, Stopping, core_runtime,
@@ -26,7 +26,7 @@ use ultragraphdb_protocol_wire::Join;
 const FINISH_LIMIT: Duration = Duration::from_secs(50);
 
 /// The compute role: one runtime per core, each accepting at `[compute] role_address` and running what arrives on it wholly
-/// there. It joins the system group at the address [`group_address`] reads and is ready once the members it reads name a
+/// there. It joins the system group at `cluster.system_address` ([`system_address`]) and is ready once the members it reads name a
 /// partition that answers. It then asks the group and each of those partitions whether they answer, joining the group again
 /// when it no longer lists compute, and a peer that does not answer by the deadline ends it.
 ///
@@ -74,7 +74,7 @@ async fn join_as(
     stopping: &Stopping,
 ) -> Result<(), RoleError> {
     let cluster = RoleCluster::read(start)?;
-    let group = group_address(start)?;
+    let group = system_address(start)?;
     let listener = CoreListener::bind(own).await?;
     // Every core's reads, counted until each ends: a stop refuses new ones and drains these (role-binaries "Readiness, health and
     // shutdown").

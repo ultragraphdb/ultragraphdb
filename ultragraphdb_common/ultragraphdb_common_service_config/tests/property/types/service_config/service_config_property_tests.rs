@@ -11,13 +11,11 @@ use ultragraphdb_common_service_config::ServiceConfig;
 
 use crate::utils::drawn::{address, coin, path, u32_setting, u64_setting};
 
-/// Settings in use before this group, as drawn: each `(table, key, value)`, the value as the file writes it.
+/// Settings in use before group 2 that the switch kept (design D2), as drawn: each `(table, key, value)`, the value as the
+/// file writes it. `cluster.frontend_address`, `frontend.role_address` and `frontend.data_dir` left at the switch.
 struct InUse {
-    frontend_address: String,
     id: u64,
     partition_count: u32,
-    frontend_role_address: String,
-    frontend_data_dir: String,
     storage_role_address: String,
     storage_data_dir: String,
     sessions_max: u32,
@@ -28,11 +26,8 @@ struct InUse {
 impl InUse {
     fn draw(tc: &TestCase) -> Self {
         Self {
-            frontend_address: address(tc),
             id: u64_setting(tc),
             partition_count: u32_setting(tc),
-            frontend_role_address: address(tc),
-            frontend_data_dir: path(tc),
             storage_role_address: address(tc),
             storage_data_dir: path(tc),
             sessions_max: u32_setting(tc),
@@ -44,16 +39,12 @@ impl InUse {
     /// The file holding these settings, `cluster` lines added to `[cluster]`, and `tail` after the last table.
     fn text(&self, cluster: &str, tail: &str) -> String {
         format!(
-            "[cluster]\nfrontend_address = \"{}\"\nid = {}\npartition_count = {}\n{cluster}\
-             [frontend]\nrole_address = \"{}\"\ndata_dir = \"{}\"\n\
+            "[cluster]\nid = {}\npartition_count = {}\n{cluster}\
              [storage]\nrole_address = \"{}\"\ndata_dir = \"{}\"\n\
              [metadata]\nsessions_max = {}\n\
              [sequencer]\nepoch_ms_min = {}\nepoch_ms_max = {}\n{tail}",
-            self.frontend_address,
             self.id,
             self.partition_count,
-            self.frontend_role_address,
-            self.frontend_data_dir,
             self.storage_role_address,
             self.storage_data_dir,
             self.sessions_max,
@@ -64,11 +55,8 @@ impl InUse {
 
     /// Whether `config` holds each of these settings as drawn.
     fn read_in(&self, config: &ServiceConfig) -> bool {
-        config.cluster().frontend_address() == Some(self.frontend_address.as_str())
-            && config.cluster().id() == Some(self.id)
+        config.cluster().id() == Some(self.id)
             && config.cluster().partition_count() == Some(self.partition_count)
-            && config.frontend().role_address() == Some(self.frontend_role_address.as_str())
-            && config.frontend().data_dir() == Some(self.frontend_data_dir.as_str())
             && config.storage().role_address() == Some(self.storage_role_address.as_str())
             && config.storage().data_dir() == Some(self.storage_data_dir.as_str())
             && config.metadata().sessions_max() == Some(self.sessions_max)
@@ -187,7 +175,8 @@ impl Moved {
 }
 
 /// L2.4: `[metadata]` and `[sequencer]` with drawn values in a storage instance's file, hosting or not, read back as
-/// drawn, and equal to what the same text reads as in a frontend's file.
+/// drawn, and equal to what the same text reads as in a frontend's file, which the settings read alike and the config
+/// service's System check refuses.
 #[hegel::test]
 fn test_the_moved_tables_read_alike_in_a_storage_and_a_frontend_file(tc: TestCase) {
     let moved = Moved::draw(&tc);
@@ -206,12 +195,7 @@ fn test_the_moved_tables_read_alike_in_a_storage_and_a_frontend_file(tc: TestCas
         path(&tc),
         moved.text()
     );
-    let frontend = format!(
-        "[frontend]\nrole_address = \"{}\"\ndata_dir = \"{}\"\n[endpoint]\nplaintext = true\n{}",
-        address(&tc),
-        path(&tc),
-        moved.text()
-    );
+    let frontend = format!("[endpoint]\nplaintext = true\n{}", moved.text());
     let in_storage = ServiceConfig::parse(storage.as_bytes()).ok();
     let in_frontend = ServiceConfig::parse(frontend.as_bytes()).ok();
     assert!(

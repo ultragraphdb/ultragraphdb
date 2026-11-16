@@ -25,8 +25,9 @@ use ultragraphdb_transport_http_server::{BearerKey, HttpLimits, serve_http};
 const READ_KEY: &str = "read-key-0123456789abcdef01234567";
 const ADMIN_KEY: &str = "admin-key-0123456789abcdef0123456";
 
-const FRONTEND: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\npartition_count = 1\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n[frontend]\nrole_address = \"tcp://10.0.0.1:7081\"\ndata_dir = \"/data\"\n[sequencer]\nepoch_ms_min = 2\nepoch_ms_max = 10\n";
-const STORAGE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nfrontend_address = \"tcp://frontend:7081\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[storage]\npartition_count = 1\ndata_dir = \"/data\"\nrole_address = \"tcp://10.0.0.2:7000\"\n";
+const FRONTEND: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n";
+/// The one storage instance, hosting the system group; its `[storage]` table comes last, so what a test appends lands there.
+const STORAGE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\npartition_count = 1\n[metadata]\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[sequencer]\nepoch_ms_min = 2\nepoch_ms_max = 10\n[system]\nrole_address = \"tcp://10.0.0.2:7100\"\ndata_dir = \"/data/system\"\n[storage]\npartition_count = 1\ndata_dir = \"/data/storage\"\nrole_address = \"tcp://10.0.0.2:7000\"\n";
 
 /// How long a client waits on an answer: far past what a loopback takes.
 const WAIT: Duration = Duration::from_secs(5);

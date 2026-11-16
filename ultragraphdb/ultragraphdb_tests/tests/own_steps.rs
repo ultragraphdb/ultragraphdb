@@ -47,8 +47,8 @@ const SLOW_EPOCH_MS: u64 = 1_000;
 fn slow_epochs() -> Spec {
     Spec::one_partition()
         .frontend("storage.scan_stall_ms", STALL_MS)
-        .frontend("sequencer.epoch_ms_min", SLOW_EPOCH_MS)
-        .frontend("sequencer.epoch_ms_max", SLOW_EPOCH_MS)
+        .host("sequencer.epoch_ms_min", SLOW_EPOCH_MS)
+        .host("sequencer.epoch_ms_max", SLOW_EPOCH_MS)
         .storage("storage.close_request_ms", 4 * SLOW_EPOCH_MS)
 }
 
@@ -168,10 +168,7 @@ fn third_refused(w: &mut Steps) -> TestResult {
 /// A registry of one session, held by a client whose session the next Register evicts: the refusal its commit takes, and what
 /// it left held.
 fn evicted_commit(w: &mut Steps) -> TestResult {
-    own(
-        w,
-        &Spec::one_partition().frontend("metadata.sessions_max", 1),
-    )?;
+    own(w, &Spec::one_partition().host("metadata.sessions_max", 1))?;
     let at = cluster(w)?.client.clone();
     let [a, p, b] = ["a", "p", "b"].map(|name| w.iri(name));
     let (refused, held) = run(async {
@@ -314,10 +311,7 @@ fn evicted_told(w: &mut Steps) -> TestResult {
     "a retried Commit is recalled, every partition answers 18, and the registry has evicted the session meanwhile"
 )]
 fn evicted_meanwhile(w: &mut Steps) -> TestResult {
-    own(
-        w,
-        &Spec::one_partition().frontend("metadata.sessions_max", 1),
-    )?;
+    own(w, &Spec::one_partition().host("metadata.sessions_max", 1))?;
     let at = cluster(w)?.client.clone();
     let [a, p, b] = ["a", "p", "b"].map(|name| w.iri(name));
     let link = LossyLink::to(&at)?;
@@ -351,10 +345,7 @@ fn evicted_unknown(w: &mut Steps) -> TestResult {
     "the registry holds `sessions_max` sessions, each with a commit in flight, and a client registers another"
 )]
 fn registry_all_in_flight(w: &mut Steps) -> TestResult {
-    own(
-        w,
-        &Spec::one_partition().frontend("metadata.sessions_max", 1),
-    )?;
+    own(w, &Spec::one_partition().host("metadata.sessions_max", 1))?;
     let at = cluster(w)?.client.clone();
     let [a, p, b] = ["a", "p", "b"].map(|name| w.iri(name));
     let (mut first, mut second, session) = run(async {
@@ -401,10 +392,7 @@ fn register_busy(w: &mut Steps) -> TestResult {
     "the registry holds `sessions_max` sessions, the oldest has a Commit at its partition unanswered, its client's connection closes, and another session is registered"
 )]
 fn oldest_in_flight(w: &mut Steps) -> TestResult {
-    own(
-        w,
-        &Spec::one_partition().frontend("metadata.sessions_max", 2),
-    )?;
+    own(w, &Spec::one_partition().host("metadata.sessions_max", 2))?;
     let at = cluster(w)?.client.clone();
     let [a, p, b, c] = ["a", "p", "b", "c"].map(|name| w.iri(name));
     let running = cluster(w)?;
@@ -869,7 +857,7 @@ fn credit_drained(w: &mut Steps) -> TestResult {
 /// The cluster of two storage processes, and the subject in each's partition.
 fn two_storages(w: &mut Steps, spec: Spec) -> TestResult<(String, String)> {
     own(w, &spec.second_storage())?;
-    let ranges = placement_ranges(&cluster(w)?.frontend)?;
+    let ranges = placement_ranges(&cluster(w)?.system)?;
     Ok((
         iri_of_partition(&ranges, &w.iri("first/"), 1)?,
         iri_of_partition(&ranges, &w.iri("second/"), 2)?,
@@ -888,7 +876,7 @@ fn in_doubt_by_seventeen<T: std::fmt::Debug>(answer: &Result<T, ClientError>) ->
 fn storage_closes(w: &mut Steps) -> TestResult {
     let (first, second) = two_storages(w, Spec::one_partition())?;
     let at = cluster(w)?.client.clone();
-    let p = iri_of_partition(&placement_ranges(&cluster(w)?.frontend)?, &w.iri("p/"), 1)?;
+    let p = iri_of_partition(&placement_ranges(&cluster(w)?.system)?, &w.iri("p/"), 1)?;
     let mut held = run(async { client(&at).await })?;
     let (own, session) = run(async {
         // A partition's first write of a tenant gives it its initial catalog, which needs `rdf:type` from that term's home, so
@@ -1574,10 +1562,7 @@ fn data_gone_catalog_kept(w: &mut Steps) -> TestResult {
     "a client of 4 commit attempts registers, and a full registry answers its first two Registers code 14"
 )]
 fn register_retried(w: &mut Steps) -> TestResult {
-    own(
-        w,
-        &Spec::one_partition().frontend("metadata.sessions_max", 1),
-    )?;
+    own(w, &Spec::one_partition().host("metadata.sessions_max", 1))?;
     let at = cluster(w)?.client.clone();
     let [a, p, b] = ["a", "p", "b"].map(|n| w.iri(n));
     let (mut first, mut second, session) = run(async {
@@ -1623,10 +1608,7 @@ fn register_returned(w: &mut Steps) -> TestResult {
     "a client of 3 commit attempts registers, and a full registry answers every Register code 14"
 )]
 fn register_exhausted(w: &mut Steps) -> TestResult {
-    own(
-        w,
-        &Spec::one_partition().frontend("metadata.sessions_max", 1),
-    )?;
+    own(w, &Spec::one_partition().host("metadata.sessions_max", 1))?;
     let at = cluster(w)?.client.clone();
     let [a, p, b] = ["a", "p", "b"].map(|n| w.iri(n));
     let knobs = Knobs {
@@ -1748,7 +1730,7 @@ fn code_23_answers_all(w: &mut Steps) -> TestResult {
     own(w, &Spec::over(2))?;
     let running = cluster(w)?;
     let at = running.client.clone();
-    let ranges = placement_ranges(&running.frontend)?;
+    let ranges = placement_ranges(&running.system)?;
     let one = iri_of_partition(&ranges, &w.iri("one/"), 1)?;
     let (blob, p) = (w.iri("blob"), w.iri("p"));
     let fill = "x".repeat(400_000);

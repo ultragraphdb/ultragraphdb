@@ -26,10 +26,9 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_tests::{
     CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, DOUBLE_ADDRESS, FRONTEND_BINARY,
-    FRONTEND_OBSERVABILITY, FRONTEND_ROLE_ADDRESS, PARENT_PID, SECRET, START_SECONDS,
-    STORAGE_BINARY, answering, bootstrap, exit_is, frontend_holding, http_status, process,
-    render_settings, role, scratch, served_by_double, start_double, until_answering,
-    until_ports_free, with,
+    FRONTEND_OBSERVABILITY, PARENT_PID, SECRET, START_SECONDS, STORAGE_BINARY, SYSTEM_ROLE_ADDRESS,
+    answering, bootstrap, exit_is, frontend_holding, http_status, process, render_settings, role,
+    scratch, served_by_double, start_double, until_answering, until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -78,13 +77,9 @@ fn client_refusal(name: &str, password: &str) -> TestResult<String> {
 
 #[when("a client authenticates on the client endpoint with the role secret")]
 fn client_with_secret(w: &mut Steps) -> TestResult {
-    let util = services()?;
-    let log = scratch(FRONTEND_BINARY);
-    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
-    let settings = frontend_holding()?;
-    let _pid: u32 = util.start_service_from_config(role(FRONTEND_BINARY, &settings, &log, wait))?;
+    // The frontend relays an exchange to the system group, so the storage process hosting it starts first.
+    endpoint_steps::started(w, &frontend_holding()?)?;
     w.log = client_refusal("storage", SECRET)?;
-    w.roles = Some(util);
     Ok(())
 }
 
@@ -107,9 +102,10 @@ fn frontend_alone(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-/// The frontend's role address, dialled as storage holding the cluster's secret: `/health` answering says it is bound.
+/// The system group's role address, dialled as storage holding the cluster's secret. Since the switch (design D2) the
+/// frontend listens at no role address and the books are the system group's, in the storage process hosting it.
 async fn as_storage() -> TestResult<RoleClient> {
-    let target = Address::parse(&format!("tcp://{}", FRONTEND_ROLE_ADDRESS))?;
+    let target = Address::parse(&format!("tcp://{}", SYSTEM_ROLE_ADDRESS))?;
     Ok(RoleClient::dial(&target, CLUSTER, "storage", SECRET).await?)
 }
 
@@ -301,12 +297,12 @@ fn took_the_port(w: &mut Steps) -> TestResult {
 )]
 fn role_port_held_a_moment(w: &mut Steps) -> TestResult {
     let log = scratch("frontend-role-port-a-moment.log");
-    let held = std::net::TcpListener::bind(FRONTEND_ROLE_ADDRESS)?;
+    let held = std::net::TcpListener::bind(SYSTEM_ROLE_ADDRESS)?;
     let _pid = start_frontend(w, &frontend_holding()?, &log)?;
     let mut retried = false;
     for _ in 0..START_SECONDS * 100 {
         w.log = std::fs::read_to_string(&log).unwrap_or_default();
-        retried = retries_of(&w.log, FRONTEND_ROLE_ADDRESS) > 0;
+        retried = retries_of(&w.log, SYSTEM_ROLE_ADDRESS) > 0;
         if retried {
             break;
         }
@@ -338,7 +334,8 @@ fn health_after_binding(w: &mut Steps) -> TestResult {
 #[when("a role starts at a TCP address another process holds past the bound")]
 fn port_held_past_the_bound(w: &mut Steps) -> TestResult {
     let log = scratch("frontend-port-held.log");
-    let held = std::net::TcpListener::bind(FRONTEND_ROLE_ADDRESS)?;
+    // The frontend's client endpoint: since the switch it listens at no role address (design D2).
+    let held = std::net::TcpListener::bind(CLIENT_ADDRESS)?;
     let pid = start_frontend(w, &frontend_holding()?, &log)?;
     until_frontend_exits(w, pid, &log)?;
     drop(held);
@@ -351,7 +348,7 @@ fn port_held_past_the_bound(w: &mut Steps) -> TestResult {
 fn past_the_bound(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 69)?;
     assert_eq!(
-        retries_of(&w.log, FRONTEND_ROLE_ADDRESS),
+        retries_of(&w.log, CLIENT_ADDRESS),
         BIND_RETRIES as usize + 1,
         "a line per retry, and the error: {}",
         w.log

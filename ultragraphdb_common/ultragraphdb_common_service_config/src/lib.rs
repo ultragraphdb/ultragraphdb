@@ -4,7 +4,8 @@
  */
 
 //! The settings every role binary runs on: [`ServiceConfig`], one type per table of the settings file and one field
-//! per setting, so a table and key name one field and a field names one table and key.
+//! per setting, so a table and key name one field and a field names one table and key. `[frontend]` is a table with no
+//! setting: the frontend holds nothing of its own since the system group left it, and a key there is refused by its name.
 //!
 //! The settings are the bytes of one file, which [`ServiceConfig::parse`] reads: a role's come from the config service,
 //! and the config service's own from the file it is started with. A setting the file does not name is absent: the crate
@@ -28,7 +29,6 @@ pub use crate::types::compute_table::ComputeTable;
 pub use crate::types::config_table::ConfigTable;
 pub use crate::types::endpoint_security::EndpointSecurity;
 pub use crate::types::endpoint_table::EndpointTable;
-pub use crate::types::frontend_table::FrontendTable;
 pub use crate::types::metadata_table::MetadataTable;
 pub use crate::types::observability_table::ObservabilityTable;
 pub use crate::types::runtime_table::RuntimeTable;

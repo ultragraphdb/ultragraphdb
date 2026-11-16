@@ -20,9 +20,9 @@ use ultragraphdb_protocol_wire::{BodyView, Placement, PlacementView};
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
     CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS,
-    CONFIG_ADDRESS, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, FRONTEND_ROLE_ADDRESS, SECRET,
-    START_SECONDS, STORAGE_BINARY, STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, answering,
-    bootstrap, compute_on_one_host, fresh_data, frontend_holding, holding, process, scratch,
+    CONFIG_ADDRESS, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, SECRET, START_SECONDS, STORAGE_BINARY,
+    STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, SYSTEM_ROLE_ADDRESS, answering, bootstrap,
+    compute_on_one_host, fresh_data, frontend_holding, holding, not_hosting, process, scratch,
     start_config_service_at, storage_holding, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -93,6 +93,9 @@ pub(crate) struct Spec {
     pub(crate) two_computes: bool,
     pub(crate) frontend: Vec<(&'static str, String)>,
     pub(crate) storage: Vec<(&'static str, String)>,
+    /// The settings of the storage process hosting the system group beyond every storage process's: its `[metadata]` and
+    /// `[sequencer]` settings.
+    pub(crate) host: Vec<(&'static str, String)>,
 }
 
 impl Spec {
@@ -104,6 +107,7 @@ impl Spec {
             two_computes: false,
             frontend: Vec::new(),
             storage: Vec::new(),
+            host: Vec::new(),
         }
     }
 
@@ -127,6 +131,12 @@ impl Spec {
         self
     }
 
+    /// With the hosting storage process's setting `name` holding `value`: a setting of the system group's.
+    pub(crate) fn host(mut self, name: &'static str, value: u64) -> Self {
+        self.host.push((name, value.to_string()));
+        self
+    }
+
     /// With a second compute process.
     pub(crate) fn second_compute(mut self) -> Self {
         self.two_computes = true;
@@ -142,7 +152,8 @@ impl Spec {
 }
 
 /// Where one cluster's processes listen: the config service, each role's `/health` and `/ready` (frontend, storage, compute),
-/// each role's address in that order, and the client endpoint's.
+/// the role addresses (the system group's, which the first storage process hosts, storage's and compute's, in that order),
+/// and the client endpoint's.
 #[derive(Debug, Clone)]
 struct Layout {
     carrier: Carriers,
@@ -168,13 +179,13 @@ impl Layout {
         let (roles, client) = match carrier {
             Carriers::Tcp | Carriers::Tls => (
                 [
-                    format!("tcp://{}", shifted(FRONTEND_ROLE_ADDRESS, shift)?),
+                    format!("tcp://{}", shifted(SYSTEM_ROLE_ADDRESS, shift)?),
                     format!("tcp://{}", shifted(STORAGE_ROLE_ADDRESS, shift)?),
                     format!("tcp://{}", shifted(COMPUTE_ROLE_ADDRESS, shift)?),
                 ],
                 format!("tcp://{}", shifted(CLIENT_ADDRESS, shift)?),
             ),
-            Carriers::Unix => (["f", "s", "c"].map(socket), socket("e")),
+            Carriers::Unix => (["g", "s", "c"].map(socket), socket("e")),
         };
         Ok(Self {
             carrier,
@@ -216,19 +227,12 @@ impl Layout {
 
     /// The frontend's settings of `spec`, its endpoint over this layout's carrier.
     fn frontend_settings(&self, spec: &Spec) -> TestResult<Vec<(String, String)>> {
-        let secret = scratch("bootstrap-secret");
-        std::fs::write(&secret, PASSWORD)?;
         let [f_obs, _, _] = &self.observability;
-        let [f, _, _] = &self.roles;
+        let [system, _, _] = &self.roles;
         let mut settings = frontend_holding()?;
         for (name, value) in [
             ("observability.address", format!("tcp://{f_obs}")),
-            (
-                "metadata.bootstrap_secret_file",
-                secret.display().to_string(),
-            ),
-            ("cluster.partition_count", spec.partitions.to_string()),
-            ("frontend.role_address", f.clone()),
+            ("cluster.system_address", system.clone()),
             ("endpoint.address", self.client.clone()),
         ] {
             settings = with(settings, name, &value);
@@ -256,25 +260,48 @@ impl Layout {
         Ok(settings)
     }
 
-    /// The storage process of the partitions from `first`, `count` of them, at `address`, its observability at `observability`.
+    /// The storage process of the partitions from `first`, `count` of them, at `address`, its observability at `observability`;
+    /// when `hosting`, the one hosting the system group at this layout's address for it, which forms the placement over the
+    /// partitions of `spec` and reads the bootstrap administrator's password at its first start.
     fn storage_settings(
         &self,
         spec: &Spec,
         (first, count): (u32, u32),
-        address: &str,
-        observability: &str,
+        (address, observability): (&str, &str),
+        hosting: bool,
     ) -> TestResult<Vec<(String, String)>> {
-        let [f, _, _] = &self.roles;
+        let [system, _, _] = &self.roles;
         let mut settings = storage_holding()?;
+        if !hosting {
+            settings = not_hosting(settings);
+        }
         for (name, value) in [
             ("observability.address", format!("tcp://{observability}")),
             ("storage.partition_first", first.to_string()),
             ("storage.partition_count", count.to_string()),
             ("storage.role_address", address.to_string()),
             ("storage.data_dir", fresh_data()),
-            ("cluster.frontend_address", f.clone()),
+            ("cluster.system_address", system.clone()),
         ] {
             settings = with(settings, name, &value);
+        }
+        if hosting {
+            let secret = scratch("bootstrap-secret");
+            std::fs::write(&secret, PASSWORD)?;
+            for (name, value) in [
+                (
+                    "metadata.bootstrap_secret_file",
+                    secret.display().to_string(),
+                ),
+                ("cluster.partition_count", spec.partitions.to_string()),
+                ("system.role_address", system.clone()),
+                ("system.data_dir", fresh_data()),
+            ] {
+                settings = with(settings, name, &value);
+            }
+            for (name, value) in &spec.host {
+                settings = with(settings, name, value);
+            }
         }
         for (name, value) in &spec.storage {
             settings = with(settings, name, value);
@@ -288,12 +315,12 @@ impl Layout {
         address: &str,
         observability: &str,
     ) -> TestResult<Vec<(String, String)>> {
-        let [f, _, _] = &self.roles;
+        let [system, _, _] = &self.roles;
         let mut settings = holding(compute_on_one_host(), SECRET)?;
         for (name, value) in [
             ("observability.address", format!("tcp://{observability}")),
             ("compute.role_address", address.to_string()),
-            ("cluster.frontend_address", f.clone()),
+            ("cluster.system_address", system.clone()),
         ] {
             settings = with(settings, name, &value);
         }
@@ -328,8 +355,8 @@ pub(crate) struct Cluster {
     util: Option<ServiceUtil>,
     /// Where a client dials.
     pub(crate) client: ClientAt,
-    /// The frontend's role address.
-    pub(crate) frontend: String,
+    /// The system group's role address, in the first storage process.
+    pub(crate) system: String,
     /// Each partition's role address, partition 1 first.
     pub(crate) partitions: Vec<String>,
     config: String,
@@ -342,7 +369,7 @@ impl Drop for Cluster {
         // A client kept for this cluster dials nothing any more.
         crate::shells::forget_clients_of(&self.client.address);
         self.util = None;
-        let sockets = [&self.client.address, &self.frontend]
+        let sockets = [&self.client.address, &self.system]
             .into_iter()
             .chain(&self.partitions)
             .filter_map(|address| address.strip_prefix("unix://"));
@@ -442,6 +469,16 @@ impl Cluster {
         Ok(std::fs::read_to_string(&self.member("frontend")?.log)?)
     }
 
+    /// What the storage process hosting the system group has logged so far: the first storage process.
+    pub(crate) fn host_log(&self) -> TestResult<String> {
+        let host = self
+            .members
+            .iter()
+            .find(|member| member.program == STORAGE_BINARY)
+            .context("the hosting storage process")?;
+        Ok(std::fs::read_to_string(&host.log)?)
+    }
+
     /// Where `/ready` of the frontend answers.
     pub(crate) fn frontend_ready_address(&self) -> TestResult<String> {
         Ok(self.member("frontend")?.observability.clone())
@@ -491,7 +528,7 @@ fn plan(layout: &Layout, spec: &Spec) -> TestResult<Vec<Planned>> {
         } else {
             "storage"
         },
-        settings: layout.storage_settings(spec, (1, first_count), storage_role, s_obs)?,
+        settings: layout.storage_settings(spec, (1, first_count), (storage_role, s_obs), true)?,
         observability: s_obs.clone(),
         wait_path: "/ready",
     });
@@ -503,8 +540,8 @@ fn plan(layout: &Layout, spec: &Spec) -> TestResult<Vec<Planned>> {
             settings: layout.storage_settings(
                 spec,
                 (2, spec.partitions.saturating_sub(1).max(1)),
-                &layout.second(storage_role)?,
-                &observability,
+                (&layout.second(storage_role)?, &observability),
+                false,
             )?,
             observability,
             wait_path: "/ready",
@@ -567,12 +604,12 @@ fn start(layout: &Layout, spec: &Spec, util: ServiceUtil) -> TestResult<Cluster>
             killed: Cell::new(false),
         });
     }
-    let [frontend_role, _, _] = &layout.roles;
+    let [system_role, _, _] = &layout.roles;
     let [f_obs, _, _] = &layout.observability;
     let cluster = Cluster {
         util: Some(util),
         client: layout.client_at()?,
-        frontend: frontend_role.clone(),
+        system: system_role.clone(),
         partitions: (1..=spec.partitions)
             .map(|partition| layout.partition(partition, spec))
             .collect::<TestResult<_>>()?,
@@ -670,22 +707,22 @@ pub(crate) fn spread_client(carrier: Carriers) -> TestResult<ClientAt> {
 /// every run.
 static SPREAD_RANGES: OnceLock<Vec<(u32, u32, u32)>> = OnceLock::new();
 
-/// Reads the shared spread cluster's ranges from its frontend, once in a process.
-fn hold_spread_ranges(frontend: &str) -> TestResult {
+/// Reads the shared spread cluster's ranges from its system group, once in a process.
+fn hold_spread_ranges(system: &str) -> TestResult {
     if SPREAD_RANGES.get().is_none() {
-        let ranges = placement_ranges(frontend)?;
+        let ranges = placement_ranges(system)?;
         drop(SPREAD_RANGES.set(ranges));
     }
     Ok(())
 }
 
-/// The ranges of the placement map the frontend at `frontend` holds, as its own Placement answers them: first bucket, past
+/// The ranges of the placement map the system group at `system` holds, as its own Placement answers them: first bucket, past
 /// bucket and partition. It runs on a compio runtime of its own, since a role client speaks compio whichever shell a run
 /// drives.
-pub(crate) fn placement_ranges(frontend: &str) -> TestResult<Vec<(u32, u32, u32)>> {
+pub(crate) fn placement_ranges(system: &str) -> TestResult<Vec<(u32, u32, u32)>> {
     Runtime::new()?.block_on(async {
         let mut role =
-            RoleClient::dial(&Address::parse(frontend)?, CLUSTER, "storage", SECRET).await?;
+            RoleClient::dial(&Address::parse(system)?, CLUSTER, "storage", SECRET).await?;
         let reply = role.request(&Placement::request(0)).await?;
         let view = reply.view()?;
         let map = PlacementView::from_frame(&view)?;

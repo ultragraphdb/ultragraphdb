@@ -8,11 +8,11 @@
 //! the text the test writes.
 
 use ultragraphdb_common_service_config::ServiceConfig;
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// The table each role's own file holds beside `[cluster]`.
 const ROLE_TABLES: [&str; 3] = [
-    "[frontend]\nrole_address = \"tcp://frontend-0:7081\"\ndata_dir = \"/data/frontend\"\n",
+    "[endpoint]\nplaintext = true\n",
     "[compute]\nrole_address = \"tcp://compute-0:7300\"\n",
     "[storage]\nrole_address = \"tcp://storage-0:7200\"\ndata_dir = \"/data/storage\"\n",
 ];
@@ -31,19 +31,17 @@ fn test_the_system_address_reads_in_every_role_file_on_either_carrier() -> TestR
     Ok(())
 }
 
-/// C2.9: a file holding `cluster.frontend_address` and `cluster.system_address` both reads each as written; the old
-/// setting leaves in group 7.
+/// C2.9, since the switch (design D2): a file holding `cluster.frontend_address` beside `cluster.system_address` is refused,
+/// the old setting naming itself.
 #[test]
-fn test_the_frontend_and_system_addresses_read_side_by_side() -> TestResult {
+fn test_the_frontend_address_beside_the_system_address_is_refused() -> TestResult {
     let text = "[cluster]\nfrontend_address = \"tcp://frontend-0:7081\"\nsystem_address = \"tcp://storage-0:7100\"\n";
-    let config = ServiceConfig::parse(text.as_bytes())?;
-    assert_eq!(
-        config.cluster().frontend_address(),
-        Some("tcp://frontend-0:7081")
-    );
-    assert_eq!(
-        config.cluster().system_address(),
-        Some("tcp://storage-0:7100")
+    let refused = ServiceConfig::parse(text.as_bytes())
+        .err()
+        .context("a refusal")?;
+    assert!(
+        refused.to_string().contains("frontend_address"),
+        "{refused}"
     );
     Ok(())
 }
@@ -51,8 +49,7 @@ fn test_the_frontend_and_system_addresses_read_side_by_side() -> TestResult {
 /// A file naming no `cluster.system_address` reads it as absent: the crate invents no default.
 #[test]
 fn test_an_absent_system_address_reads_as_absent() -> TestResult {
-    let config =
-        ServiceConfig::parse(b"[cluster]\nfrontend_address = \"tcp://frontend-0:7081\"\n")?;
+    let config = ServiceConfig::parse(b"[cluster]\nid = 1\n")?;
     assert_eq!(config.cluster().system_address(), None);
     Ok(())
 }

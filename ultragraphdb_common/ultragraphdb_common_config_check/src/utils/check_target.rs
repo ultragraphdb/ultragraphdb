@@ -175,6 +175,14 @@ fn describe(
             line,
         );
     }
+    if let ServiceConfigErrorEnum::Missing { setting } = &problem.0 {
+        return (
+            Some(setting.clone()),
+            "it is absent".to_string(),
+            "the table holding it requires it".to_string(),
+            None,
+        );
+    }
     if let ServiceConfigErrorEnum::UnknownTable { table } = &problem.0 {
         return (
             None,

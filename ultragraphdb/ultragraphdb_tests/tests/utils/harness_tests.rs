@@ -228,18 +228,23 @@ fn test_holding_writes_the_secret_it_names() -> TestResult {
     Ok(())
 }
 
+/// Each storage process a scenario starts holds directories of its own, its partitions' and the system group's, apart from
+/// each other; the frontend holds none.
 #[test]
 fn test_each_holding_role_has_a_data_directory_of_its_own() -> TestResult {
     let _key = keyed()?;
     let (frontend, storage) = (frontend_holding()?, storage_holding()?);
-    let (again, storage_again) = (frontend_holding()?, storage_holding()?);
-    assert_ne!(
-        setting(&frontend, "frontend.data_dir")?,
-        setting(&again, "frontend.data_dir")?
-    );
+    let storage_again = storage_holding()?;
+    for name in ["storage.data_dir", "system.data_dir"] {
+        assert_ne!(setting(&storage, name)?, setting(&storage_again, name)?);
+    }
     assert_ne!(
         setting(&storage, "storage.data_dir")?,
-        setting(&storage_again, "storage.data_dir")?
+        setting(&storage, "system.data_dir")?
+    );
+    assert!(
+        frontend.iter().all(|(name, _)| !name.ends_with("data_dir")),
+        "{frontend:?}"
     );
     for settings in [&frontend, &storage] {
         let file = setting(settings, "cluster.role_secret_file")?;

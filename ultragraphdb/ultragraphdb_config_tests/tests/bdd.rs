@@ -34,11 +34,13 @@ const START_SECONDS: u64 = 20;
 const READ_KEY: &str = "a read key of at least thirty two bytes long";
 const ADMIN_KEY: &str = "an admin key of at least thirty two bytes long";
 
-const FRONTEND: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\npartition_count = 2\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n[frontend]\nrole_address = \"tcp://10.0.0.1:7081\"\ndata_dir = \"/data\"\n[sequencer]\nepoch_ms_min = 2\nepoch_ms_max = 10\n";
-const STORAGE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nfrontend_address = \"tcp://frontend:7081\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[storage]\npartition_count = 1\ndata_dir = \"/data\"\n";
-const STORAGE_1: &str = "[storage]\npartition_first = 1\nrole_address = \"tcp://10.0.0.2:7000\"\n";
+const FRONTEND: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n";
+const STORAGE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[storage]\npartition_count = 1\ndata_dir = \"/data/storage\"\n";
+/// The instance hosting the system group: its partitions, then the cluster's partition count, the two moved tables and its
+/// `[system]` table.
+const STORAGE_1: &str = "[storage]\npartition_first = 1\nrole_address = \"tcp://10.0.0.2:7000\"\n[cluster]\npartition_count = 2\n[metadata]\n[sequencer]\nepoch_ms_min = 2\nepoch_ms_max = 10\n[system]\nrole_address = \"tcp://10.0.0.2:7100\"\ndata_dir = \"/data/system\"\n";
 const STORAGE_2: &str = "[storage]\npartition_first = 2\nrole_address = \"tcp://10.0.0.4:7000\"\n";
-const COMPUTE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nfrontend_address = \"tcp://frontend:7081\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[compute]\nrole_address = \"tcp://10.0.0.3:7082\"\n";
+const COMPUTE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[compute]\nrole_address = \"tcp://10.0.0.3:7082\"\n";
 
 static FOLDERS: AtomicU32 = AtomicU32::new(0);
 
@@ -288,7 +290,7 @@ fn broken_start(w: &mut Steps) -> TestResult {
     )?;
     std::fs::write(
         settings.join("ci_storage.toml"),
-        STORAGE.replace("data_dir = \"/data\"\n", ""),
+        STORAGE.replace("data_dir = \"/data/storage\"\n", ""),
     )?;
     start_refused(w)
 }
@@ -450,7 +452,7 @@ fn held(_w: &mut Steps) -> TestResult {
     assert_eq!(reply.header("X-Revision"), Some("2"));
     says(
         &body_of(&reply),
-        &["partition_first = 1", "data_dir = \"/data\""],
+        &["partition_first = 1", "data_dir = \"/data/storage\""],
     );
     Ok(())
 }
@@ -516,7 +518,7 @@ fn broken_revision(w: &mut Steps) -> TestResult {
     prepare(w)?;
     let _pid = start_serving(w)?;
     let body = bundle(
-        &STORAGE.replace("data_dir = \"/data\"\n", ""),
+        &STORAGE.replace("data_dir = \"/data/storage\"\n", ""),
         &format!("{COMPUTE}partiton = 1\n"),
     );
     w.reply = Some(ask(
@@ -1083,7 +1085,10 @@ fn restored(w: &mut Steps) -> TestResult {
         "/v1/targets/ci/instances/storage_1",
         b"",
     )?);
-    says(&served, &["partition_first = 1", "data_dir = \"/data\""]);
+    says(
+        &served,
+        &["partition_first = 1", "data_dir = \"/data/storage\""],
+    );
     let files = ask(ADMIN_KEY, "GET", "/v1/targets/ci/revisions/1", b"")?;
     says(&String::from_utf8_lossy(files.body()), &["# edited"]);
     Ok(())
@@ -1262,7 +1267,10 @@ fn restore_status_refused(w: &mut Steps) -> TestResult {
 #[when("a restore reads a revision of target `ci` whose `storage` lacks `data_dir`")]
 fn restore_refused_settings(w: &mut Steps) -> TestResult {
     prepare(w)?;
-    let revision = bundle(&STORAGE.replace("data_dir = \"/data\"\n", ""), COMPUTE);
+    let revision = bundle(
+        &STORAGE.replace("data_dir = \"/data/storage\"\n", ""),
+        COMPUTE,
+    );
     restore_from_stand_in(w, vec![(200, listing_of("1")), (200, revision)])
 }
 

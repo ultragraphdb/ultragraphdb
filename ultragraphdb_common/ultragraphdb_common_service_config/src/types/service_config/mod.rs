@@ -9,7 +9,6 @@ use crate::types::cluster_table::ClusterTable;
 use crate::types::compute_table::ComputeTable;
 use crate::types::config_table::ConfigTable;
 use crate::types::endpoint_table::EndpointTable;
-use crate::types::frontend_table::FrontendTable;
 use crate::types::metadata_table::MetadataTable;
 use crate::types::observability_table::ObservabilityTable;
 use crate::types::runtime_table::RuntimeTable;
@@ -26,7 +25,6 @@ pub struct ServiceConfig {
     compute: ComputeTable,
     config: ConfigTable,
     endpoint: EndpointTable,
-    frontend: FrontendTable,
     metadata: MetadataTable,
     observability: ObservabilityTable,
     runtime: RuntimeTable,
@@ -70,7 +68,6 @@ impl ServiceConfig {
             compute: ComputeTable::read(reader)?,
             config: ConfigTable::read(reader)?,
             endpoint: EndpointTable::read(reader)?,
-            frontend: FrontendTable::read(reader)?,
             metadata: MetadataTable::read(reader)?,
             observability: ObservabilityTable::read(reader)?,
             runtime: RuntimeTable::read(reader)?,
@@ -108,12 +105,6 @@ impl ServiceConfig {
     #[must_use]
     pub fn endpoint(&self) -> &EndpointTable {
         &self.endpoint
-    }
-
-    /// The `[frontend]` table.
-    #[must_use]
-    pub fn frontend(&self) -> &FrontendTable {
-        &self.frontend
     }
 
     /// The `[metadata]` table.

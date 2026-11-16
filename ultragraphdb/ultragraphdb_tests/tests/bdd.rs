@@ -36,8 +36,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use ultragraphdb_protocol_wire::RoleKind;
 use ultragraphdb_tests::{
     COMPUTE_BINARY, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS, CONFIG_BINARY, FRONTEND_BINARY,
-    FRONTEND_OBSERVABILITY, FRONTEND_ROLE_ADDRESS, SECRET, STORAGE_BINARY, STORAGE_OBSERVABILITY,
-    STORAGE_ROLE_ADDRESS, answering, compute_on_one_host, frontend_holding, holding, http_status,
+    FRONTEND_OBSERVABILITY, SECRET, STORAGE_BINARY, STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS,
+    SYSTEM_ROLE_ADDRESS, answering, compute_on_one_host, frontend_holding, holding, http_status,
     members_at, role_of_service, scratch, start_config_service, storage_holding, until_answering,
     with,
 };
@@ -89,7 +89,8 @@ struct Steps {
     compute: String,
     conversation: Option<conformance_steps::Conversation>,
     described: Option<ultragraphdb_protocol_wire::Describe>,
-    frontend: String,
+    /// The system group's role address, in the storage process hosting it.
+    system: String,
     kind: Option<u64>,
     link: Option<lossy_link::LossyLink>,
     named: Option<String>,
@@ -166,7 +167,7 @@ fn start_in_order(
 
 #[when("the frontend starts, then storage, then compute")]
 fn start_all(w: &mut Steps) -> TestResult {
-    w.frontend = format!("tcp://{}", FRONTEND_ROLE_ADDRESS);
+    w.system = format!("tcp://{}", SYSTEM_ROLE_ADDRESS);
     w.storage = format!("tcp://{}", STORAGE_ROLE_ADDRESS);
     w.compute = format!("tcp://{}", COMPUTE_ROLE_ADDRESS);
     start_in_order(
@@ -182,26 +183,30 @@ fn start_all_unix(w: &mut Steps) -> TestResult {
     // A socket's path has a short limit, which the sandbox's own directory passes.
     let socket =
         |name: &str| PathBuf::from(format!("/tmp/ugdb-{name}-{}.sock", std::process::id()));
-    let paths = [socket("f"), socket("s"), socket("c")];
-    let [f, st, c] = paths
+    let paths = [socket("g"), socket("s"), socket("c")];
+    let [g, st, c] = paths
         .each_ref()
         .map(|path| format!("unix://{}", path.display()));
     let partition_socket = PathBuf::from(format!("/tmp/ugdb-s-{}-p1.sock", std::process::id()));
-    let joining = "cluster.frontend_address";
-    let frontend_settings = with(frontend_holding()?, "frontend.role_address", &f);
+    let dialled = "cluster.system_address";
+    let frontend_settings = with(frontend_holding()?, dialled, &g);
     let storage_settings = with(
-        with(storage_holding()?, joining, &f),
+        with(
+            with(storage_holding()?, dialled, &g),
+            "system.role_address",
+            &g,
+        ),
         "storage.role_address",
         &st,
     );
     let compute_settings = with(
-        with(compute_on_one_host(), joining, &f),
+        with(compute_on_one_host(), dialled, &g),
         "compute.role_address",
         &c,
     );
-    (w.frontend, w.storage, w.compute) = (f, format!("unix://{}", partition_socket.display()), c);
-    let [f_path, _, c_path] = paths;
-    w.sockets = vec![f_path, partition_socket, c_path];
+    (w.system, w.storage, w.compute) = (g, format!("unix://{}", partition_socket.display()), c);
+    let [g_path, _, c_path] = paths;
+    w.sockets = vec![g_path, partition_socket, c_path];
     start_in_order(
         w,
         &frontend_settings,
@@ -222,7 +227,7 @@ fn all_ready(w: &mut Steps) -> TestResult {
         (RoleKind::Compute, 0, w.compute.clone()),
         (RoleKind::Storage, 1, w.storage.clone()),
     ];
-    assert_eq!(members_at(&w.frontend)?, expected);
+    assert_eq!(members_at(&w.system)?, expected);
     Ok(())
 }
 

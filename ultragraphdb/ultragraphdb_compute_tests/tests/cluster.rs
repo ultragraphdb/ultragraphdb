@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use service_utils::ServiceUtil;
 use ultragraphdb_tests::{
-    COMPUTE_BINARY, SECRET, STORAGE_BINARY, answering, compute_on_one_host, holding, role, scratch,
-    storage_holding, with,
+    COMPUTE_BINARY, SECRET, STORAGE_BINARY, answering, compute_on_one_host, holding, not_hosting,
+    role, scratch, storage_holding, with,
 };
 use ultragraphdb_tool_bdd::TestResult;
 
@@ -103,17 +103,15 @@ fn start_storage(
             "observability.address",
             format!("tcp://127.0.0.1:{}", base + 52),
         ),
-        (
-            "cluster.frontend_address",
-            format!("tcp://127.0.0.1:{base}"),
-        ),
+        ("cluster.system_address", format!("tcp://127.0.0.1:{base}")),
         (
             "storage.role_address",
             format!("tcp://127.0.0.1:{}", base + 10),
         ),
         ("storage.partition_count", info.partitions.to_string()),
     ];
-    let mut held = storage_holding()?;
+    // The played frontend plays the system group, so the storage process hosts none.
+    let mut held = not_hosting(storage_holding()?);
     for (name, value) in &settings {
         held = with(held, name, value);
     }
@@ -136,7 +134,7 @@ pub fn start_compute(util: &ServiceUtil, base: u32, extra: &[(&str, &str)]) -> T
             format!("tcp://127.0.0.1:{}", base + 51),
         ),
         (
-            "cluster.frontend_address",
+            "cluster.system_address",
             format!("tcp://127.0.0.1:{}", base + 1),
         ),
         (

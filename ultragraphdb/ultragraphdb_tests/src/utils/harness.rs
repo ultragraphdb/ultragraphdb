@@ -23,7 +23,7 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use crate::utils::http_status::http_status;
 use crate::utils::one_host::{
     CLIENT_ADDRESS, CLUSTER, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS, FRONTEND_OBSERVABILITY,
-    FRONTEND_ROLE_ADDRESS, STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, frontend_on_one_host,
+    STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, SYSTEM_ROLE_ADDRESS, frontend_on_one_host,
     render_settings, storage_on_one_host,
 };
 
@@ -275,34 +275,31 @@ pub fn fresh_data() -> String {
     .to_string()
 }
 
-/// A storage process's settings, with a role secret and a data directory of its own.
+/// A storage process's settings, hosting the system group, with a role secret and data directories of its own: its
+/// partitions' and the group's.
 ///
 /// # Errors
 ///
 /// When the role secret file cannot be written.
 pub fn storage_holding() -> TestResult<Vec<(String, String)>> {
     Ok(with(
-        holding(storage_on_one_host(), SECRET)?,
-        "storage.data_dir",
+        with(
+            holding(storage_on_one_host(), SECRET)?,
+            "storage.data_dir",
+            &fresh_data(),
+        ),
+        "system.data_dir",
         &fresh_data(),
     ))
 }
 
-/// The frontend's settings, with a role secret and a data directory of its own.
+/// The frontend's settings, with a role secret; it holds no data.
 ///
 /// # Errors
 ///
 /// When the role secret file cannot be written.
 pub fn frontend_holding() -> TestResult<Vec<(String, String)>> {
-    let directory = scratch(&format!(
-        "frontend-{}",
-        DIRECTORIES.fetch_add(1, Ordering::Relaxed)
-    ));
-    Ok(with(
-        holding(frontend_on_one_host(), SECRET)?,
-        "frontend.data_dir",
-        &directory.display().to_string(),
-    ))
+    holding(frontend_on_one_host(), SECRET)
 }
 
 /// `settings` with a role secret file holding `secret`.
@@ -336,11 +333,11 @@ pub fn until_answering(address: &str, path: &str) -> TestResult {
     Err(TestError::new(format!("{address}{path} never answered")))
 }
 
-/// What the frontend at `address` lists: each member's kind, partition and address.
+/// What the system group at `address` lists: each member's kind, partition and address.
 ///
 /// # Errors
 ///
-/// When the runtime cannot start, the frontend refuses the dial or the request, or its answer is no Members or names a
+/// When the runtime cannot start, the system group refuses the dial or the request, or its answer is no Members or names a
 /// member without its address.
 pub fn members_at(address: &str) -> TestResult<Vec<(RoleKind, u32, String)>> {
     Runtime::new()?.block_on(async {
@@ -400,7 +397,7 @@ const DECLARED: [(&str, &str); 9] = [
     (CONFIG_ADDRESS, "the config service"),
     (DOUBLE_ADDRESS, "the config double"),
     (CLIENT_ADDRESS, "the frontend's client endpoint"),
-    (FRONTEND_ROLE_ADDRESS, "the frontend's role endpoint"),
+    (SYSTEM_ROLE_ADDRESS, "the system group's role endpoint"),
     (FRONTEND_OBSERVABILITY, "the frontend's observability"),
     (COMPUTE_ROLE_ADDRESS, "compute's role endpoint"),
     (COMPUTE_OBSERVABILITY, "compute's observability"),

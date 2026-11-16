@@ -13,7 +13,7 @@ use ultragraphdb_tool_toml::TomlErrorEnum;
 const EVERY_SETTING: &str = r#"
 [cluster]
 role_secret_file = "/secret"
-frontend_address = "tcp://f:1"
+system_address = "tcp://f:1"
 partition_count = 12
 [compute]
 role_address = "tcp://c:2"
@@ -27,9 +27,6 @@ held_bytes = 24
 auth_failures_before_throttle = 5
 auth_throttled_failures_before_ban = 3
 auth_ban_ms = 25
-[frontend]
-role_address = "tcp://f:4"
-data_dir = "/f"
 [metadata]
 block_size_max = 14
 sessions_max = 15
@@ -66,7 +63,7 @@ fn refusal(
 fn test_every_setting_reaches_its_field() -> TestResult {
     let c = ServiceConfig::parse(EVERY_SETTING.as_bytes())?;
     assert_eq!(c.cluster().role_secret_file(), Some("/secret"));
-    assert_eq!(c.cluster().frontend_address(), Some("tcp://f:1"));
+    assert_eq!(c.cluster().system_address(), Some("tcp://f:1"));
     assert_eq!(c.cluster().partition_count(), Some(12));
     assert_eq!(c.compute().role_address(), Some("tcp://c:2"));
     assert_eq!(c.endpoint().address(), Some("tcp://e:3"));
@@ -78,8 +75,6 @@ fn test_every_setting_reaches_its_field() -> TestResult {
     assert_eq!(c.endpoint().auth_failures_before_throttle(), Some(5));
     assert_eq!(c.endpoint().auth_throttled_failures_before_ban(), Some(3));
     assert_eq!(c.endpoint().auth_ban_ms(), Some(25));
-    assert_eq!(c.frontend().role_address(), Some("tcp://f:4"));
-    assert_eq!(c.frontend().data_dir(), Some("/f"));
     assert_eq!(c.metadata().block_size_max(), Some(14));
     assert_eq!(c.metadata().sessions_max(), Some(15));
     assert_eq!(c.metadata().snapshot_rounds(), Some(16));
@@ -300,21 +295,36 @@ fn test_the_remaining_settings_reach_their_fields() -> TestResult {
     Ok(())
 }
 
-/// C2.10: a file of the settings in use, holding none of this stage's new ones, reads every setting as written, and the
-/// new read as absent: `[frontend]` and `cluster.frontend_address` stay until group 7's switch (design D2).
+/// C7.28: since the switch (design D2), `cluster.frontend_address`, `frontend.role_address` and `frontend.data_dir` are
+/// refused as unknown settings, each by its name, and `[frontend]` stays a table, holding no setting.
 #[test]
-fn test_the_settings_in_use_read_as_before_with_none_of_the_new() -> TestResult {
-    for text in [EVERY_SETTING, THE_REST] {
-        let c = ServiceConfig::parse(text.as_bytes())?;
-        assert_eq!(c.system(), None);
-        assert_eq!(c.cluster().system_address(), None);
+fn test_the_old_settings_are_refused_by_name() -> TestResult {
+    for (text, table, key) in [
+        (
+            "[cluster]\nfrontend_address = \"tcp://f:1\"\n",
+            "cluster",
+            "frontend_address",
+        ),
+        (
+            "[frontend]\nrole_address = \"tcp://f:4\"\n",
+            "frontend",
+            "role_address",
+        ),
+        ("[frontend]\ndata_dir = \"/f\"\n", "frontend", "data_dir"),
+    ] {
+        let ServiceConfigErrorEnum::Toml(toml) = refusal(ServiceConfig::parse(text.as_bytes()))?
+        else {
+            return Err(TestError::new(format!("{text} is refused otherwise")));
+        };
+        assert!(
+            matches!(toml.0, TomlErrorEnum::UnreadKey { table: ref held, key: ref name } if held == table && name == key),
+            "{toml}"
+        );
     }
-    let c = ServiceConfig::parse(EVERY_SETTING.as_bytes())?;
-    assert_eq!(c.cluster().frontend_address(), Some("tcp://f:1"));
-    assert_eq!(c.frontend().role_address(), Some("tcp://f:4"));
-    assert_eq!(c.frontend().data_dir(), Some("/f"));
-    assert_eq!(c.metadata().sessions_max(), Some(15));
-    assert_eq!(c.sequencer().epoch_ms_max(), Some(18));
+    assert_eq!(
+        ServiceConfig::parse(b"[frontend]\n")?,
+        ServiceConfig::default()
+    );
     Ok(())
 }
 

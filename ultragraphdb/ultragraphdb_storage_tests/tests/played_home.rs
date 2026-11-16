@@ -22,7 +22,7 @@ use ultragraphdb_protocol_wire::{
     ReferenceView,
 };
 use ultragraphdb_store_quads::iri_bucket;
-use ultragraphdb_tests::{CLUSTER, FRONTEND_ROLE_ADDRESS, SECRET};
+use ultragraphdb_tests::{CLUSTER, SECRET, SYSTEM_ROLE_ADDRESS};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::TENANT;
@@ -162,7 +162,7 @@ fn credentials() -> TestResult<RoleCredentials> {
 pub async fn play_home(script: &HomeScript) -> TestResult {
     let held = credentials()?;
     let mut frontend = RoleClient::dial(
-        &Address::parse(&format!("tcp://{FRONTEND_ROLE_ADDRESS}"))?,
+        &Address::parse(&format!("tcp://{SYSTEM_ROLE_ADDRESS}"))?,
         CLUSTER,
         "storage",
         SECRET,

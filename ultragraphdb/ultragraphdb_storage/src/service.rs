@@ -20,7 +20,7 @@ use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
 use ultragraphdb_cluster_sequencer::{CatalogVersion, Close, SequencerConfig};
 use ultragraphdb_common_role::{
     PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleCredentials, Server,
-    frontend_address, listen, retry_until, serve_connection, system_address,
+    listen, retry_until, serve_connection, system_address,
 };
 use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
 use ultragraphdb_common_service_config::{
@@ -147,7 +147,8 @@ pub(crate) async fn storage_role(
         .ok_or_else(|| {
             RoleError::configuration("the setting storage.partition_count is at least 1")
         })?;
-    let system = dialled(&start)?;
+    // The group's address the partitions dial (design D2, D4), a hosting instance's partitions included.
+    let system = system_address(&start)?;
     let ids = partition_ids(first, count)?;
     // The group first: a partition's recovery reads the catalog versions its log names from it (design D10).
     let mut hosted = match config.system() {
@@ -185,20 +186,6 @@ pub(crate) async fn storage_role(
         compio::time::sleep(POLL).await;
     }
     stop_in_order(ended, hosted).await
-}
-
-/// The system group's address the partitions dial (design D2, D4): `cluster.system_address`, which a hosting instance's
-/// partitions dial too. Until group 7's switch, settings naming `cluster.frontend_address` and neither a `[system]` table nor
-/// `cluster.system_address` dial the frontend there, which hosts the group until group 5, as they did before this stage.
-fn dialled(start: &RoleStart) -> Result<Address, RoleError> {
-    let config = start.config();
-    let cluster = config.cluster();
-    let hosted_or_named = config.system().is_some() || cluster.system_address().is_some();
-    if hosted_or_named || cluster.frontend_address().is_none() {
-        system_address(start)
-    } else {
-        frontend_address(start)
-    }
 }
 
 /// The partitions `storage.partition_first` and `storage.partition_count` name.

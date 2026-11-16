@@ -2,7 +2,8 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: Validating settings before anything serves them
-  openspec/changes/stage-5-5-three-role-refactor/specs/config-service/spec.md
+  openspec/changes/stage-5-5-three-role-refactor/specs/config-service/spec.md, with the System, System address, Data and
+  Fixed rules of openspec/changes/stage-5-8-system-group/specs/config-service/spec.md
 
   Scenario: An instance's file overrides its role's
     When target `ci` holds `storage` with `partition_count = 2` and `storage_2` with `partition_first = 3`
@@ -19,6 +20,26 @@ Feature: Validating settings before anything serves them
   Scenario: A partition no one holds is refused
     When `partition_count` is 4 and the storage instances hold partitions 1 to 3
     Then the revision is refused naming partition 4
+
+  Scenario: Two hosting instances are refused
+    When `storage_1` and `storage_2` both hold a `[system]` table
+    Then the revision is refused naming `system` and both instances
+
+  Scenario: A target with no hosting instance is refused
+    When no storage instance holds a `[system]` table
+    Then the revision is refused naming `system` and the target
+
+  Scenario: The frontend's old settings are refused by name
+    When the frontend's file holds `frontend.role_address`, or any file holds `cluster.frontend_address`
+    Then the revision is refused naming the setting as unknown
+
+  Scenario: The books' directory inside a partition's is refused
+    When `storage_1` holds `storage.data_dir = "/data/storage"` and `system.data_dir = "/data/storage/system"`
+    Then the revision is refused naming both settings and the instance
+
+  Scenario: A system address that differs is refused
+    When `compute_1` names a `cluster.system_address` whose port differs from `storage_1`'s `system.role_address`
+    Then the revision is refused naming both addresses and both instances
 
   Scenario: Two listeners on one address are refused
     When `storage_1`'s second partition derives the address `compute_1` listens at

@@ -3,13 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! One host's settings: where each role listens and joins, and the TOML they are written as. That the settings pass the config
+//! One host's settings: where each role listens and dials the system group, and the TOML they are written as. That the settings pass the config
 //! check whole is `harness_tests`'s.
 
 use ultragraphdb_tests::{
     CLIENT_ADDRESS, CLUSTER, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS, FRONTEND_OBSERVABILITY,
-    FRONTEND_ROLE_ADDRESS, STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, compute_on_one_host,
-    frontend_on_one_host, render_settings, storage_on_one_host,
+    STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, SYSTEM_ROLE_ADDRESS, compute_on_one_host,
+    frontend_on_one_host, not_hosting, render_settings, storage_on_one_host,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -30,18 +30,48 @@ fn test_the_frontend_listens_at_its_declared_addresses() -> TestResult {
         setting(&settings, "observability.address")?,
         tcp(FRONTEND_OBSERVABILITY)
     );
-    assert_eq!(
-        setting(&settings, "frontend.role_address")?,
-        tcp(FRONTEND_ROLE_ADDRESS)
-    );
     assert_eq!(setting(&settings, "endpoint.address")?, tcp(CLIENT_ADDRESS));
+    assert!(
+        settings
+            .iter()
+            .all(|(name, _)| !name.starts_with("frontend.")),
+        "the frontend holds no role address and no data: {settings:?}"
+    );
     assert_eq!(setting(&settings, "cluster.id")?, CLUSTER.to_string());
     Ok(())
 }
 
+/// Storage hosts the system group at the address every role dials: its `[system]` table's role address.
 #[test]
-fn test_compute_and_storage_join_the_frontend() -> TestResult {
-    let frontend = setting(&frontend_on_one_host(), "frontend.role_address")?;
+fn test_storage_hosts_the_system_group_every_role_dials() -> TestResult {
+    let tcp = |address: &str| format!("tcp://{address}");
+    let storage = storage_on_one_host();
+    assert_eq!(
+        setting(&storage, "system.role_address")?,
+        tcp(SYSTEM_ROLE_ADDRESS)
+    );
+    for settings in [frontend_on_one_host(), compute_on_one_host(), storage] {
+        assert_eq!(
+            setting(&settings, "cluster.system_address")?,
+            tcp(SYSTEM_ROLE_ADDRESS)
+        );
+    }
+    let other = not_hosting(storage_on_one_host());
+    assert!(
+        other.iter().all(|(name, _)| !name.starts_with("system.")
+            && !name.starts_with("sequencer.")
+            && name != "cluster.partition_count"),
+        "{other:?}"
+    );
+    assert_eq!(
+        setting(&other, "cluster.system_address")?,
+        tcp(SYSTEM_ROLE_ADDRESS)
+    );
+    Ok(())
+}
+
+#[test]
+fn test_compute_and_storage_listen_at_their_declared_addresses() -> TestResult {
     let tcp = |address: &str| format!("tcp://{address}");
     for (settings, role_address, observability, own) in [
         (
@@ -57,7 +87,6 @@ fn test_compute_and_storage_join_the_frontend() -> TestResult {
             STORAGE_ROLE_ADDRESS,
         ),
     ] {
-        assert_eq!(setting(&settings, "cluster.frontend_address")?, frontend);
         assert_eq!(setting(&settings, "cluster.id")?, CLUSTER.to_string());
         assert_eq!(setting(&settings, role_address)?, tcp(own));
         assert_eq!(

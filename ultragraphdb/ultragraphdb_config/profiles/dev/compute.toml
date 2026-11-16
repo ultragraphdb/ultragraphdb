@@ -1,7 +1,7 @@
 [cluster]
 id = 1
 role_secret_file = "/data/config/role.secret"
-frontend_address = "unix:///run/ultragraph/frontend.sock"
+system_address = "unix:///run/ultragraph/system.sock"
 [observability]
 address = "tcp://127.0.0.1:8082"
 [compute]

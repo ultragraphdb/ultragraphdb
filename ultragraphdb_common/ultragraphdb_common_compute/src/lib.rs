@@ -21,6 +21,6 @@ pub use crate::types::compute_session::ComputeSession;
 pub use crate::types::frontier::Frontier;
 pub use crate::types::lookup_at::LookupAt;
 pub use crate::types::read_times::ReadTimes;
-pub use crate::utils::joining::{group_address, hold_peers, join_group};
+pub use crate::utils::joining::{hold_peers, join_group};
 pub use crate::utils::keys::prefix_end;
 pub use crate::utils::read_times_of::read_times_of;

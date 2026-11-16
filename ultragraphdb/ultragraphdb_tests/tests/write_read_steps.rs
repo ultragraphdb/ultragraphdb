@@ -79,7 +79,7 @@ async fn scanned_term(address: &str, partition: u32, iri: &str) -> TestResult<bo
 )]
 fn writes_one_per_partition(w: &mut Steps) -> TestResult {
     let cluster = start_own(w.carrier, PARTITIONS)?;
-    let ranges = placement_ranges(&cluster.frontend)?;
+    let ranges = placement_ranges(&cluster.system)?;
     let routed = Runtime::new()?.block_on(async {
         let mut client = client(&cluster.client).await?;
         let mut routed = Vec::new();

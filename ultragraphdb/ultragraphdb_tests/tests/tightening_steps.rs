@@ -66,8 +66,8 @@ async fn declared(client: &mut TestClient, write: &Write) -> Result<Committed, C
 
 /// The latest catalog version of the tenant, 0 for none, as a partition asks for it, on a runtime of its own: a role client is
 /// compio's, whichever shell a run's client takes.
-fn latest_version(frontend: &str) -> TestResult<u64> {
-    let address = Address::parse(frontend)?;
+fn latest_version(system: &str) -> TestResult<u64> {
+    let address = Address::parse(system)?;
     Runtime::new()?.block_on(async {
         let mut role = RoleClient::dial(&address, CLUSTER, "storage", SECRET).await?;
         let Ok(reply) = role.request(&Catalog::request(TENANT, 0)).await else {
@@ -94,7 +94,7 @@ async fn single(client: &mut TestClient, predicate: &str) -> TestResult<bool> {
 fn contradicted(w: &mut Steps) -> TestResult {
     let (a, nick) = (w.iri("a"), w.iri("nick"));
     let cluster = start_own(w.carrier, 1)?;
-    let before = latest_version(&cluster.frontend)?;
+    let before = latest_version(&cluster.system)?;
     let mut seen = run(async {
         let mut client = client(&cluster.client).await?;
         for value in ["x", "y"] {
@@ -115,7 +115,7 @@ fn contradicted(w: &mut Steps) -> TestResult {
             ..Seen::default()
         })
     })?;
-    seen.versions = (before, latest_version(&cluster.frontend)?);
+    seen.versions = (before, latest_version(&cluster.system)?);
     w.tightening = seen;
     w.cluster = Some(cluster);
     Ok(())
@@ -146,7 +146,7 @@ fn over_two(w: &mut Steps) -> TestResult {
     let nick = w.iri("nick");
     let scenario = w.iri("partition");
     let cluster = start_own(w.carrier, 2)?;
-    let ranges = placement_ranges(&cluster.frontend)?;
+    let ranges = placement_ranges(&cluster.system)?;
     w.tightening = run(async {
         let mut client = client(&cluster.client).await?;
         for partition in 1..=2 {
@@ -161,8 +161,9 @@ fn over_two(w: &mut Steps) -> TestResult {
             &declaration(DeclaredPredicate::new(&nick).with_single(true)),
         )
         .await?;
+        // The system group, in the storage process hosting it, logs each partition's report.
         let reports = cluster
-            .frontend_log()?
+            .host_log()?
             .lines()
             .filter(|line| line.contains(REPORTED))
             .map(str::to_string)
@@ -214,9 +215,9 @@ const CHECK_MS: u64 = 300;
 )]
 fn silent(w: &mut Steps) -> TestResult {
     let nick = w.iri("nick");
-    let spec = Spec::one_partition().frontend("metadata.catalog_check_ms", CHECK_MS);
+    let spec = Spec::one_partition().host("metadata.catalog_check_ms", CHECK_MS);
     let cluster = start_own_as(w.carrier, &spec)?;
-    let before = latest_version(&cluster.frontend)?;
+    let before = latest_version(&cluster.system)?;
     let mut seen = run(async {
         let mut client = client(&cluster.client).await?;
         cluster.signal("storage", Signal::Stop)?;
@@ -231,7 +232,7 @@ fn silent(w: &mut Steps) -> TestResult {
         let (detail, message) = refused?;
         let mut late = false;
         for _ in 0..POLLS {
-            late = cluster.frontend_log()?.contains(REPORTED);
+            late = cluster.host_log()?.contains(REPORTED);
             if late {
                 break;
             }
@@ -244,7 +245,7 @@ fn silent(w: &mut Steps) -> TestResult {
             ..Seen::default()
         })
     })?;
-    seen.versions = (before, latest_version(&cluster.frontend)?);
+    seen.versions = (before, latest_version(&cluster.system)?);
     w.tightening = seen;
     w.cluster = Some(cluster);
     Ok(())
@@ -380,7 +381,7 @@ fn write_refused(w: &mut Steps) -> TestResult {
 fn no_term_held(w: &mut Steps) -> TestResult {
     let (name, b, stem) = (w.iri("name"), w.iri("b"), w.iri("subject"));
     let cluster = start_own(w.carrier, 2)?;
-    let ranges = placement_ranges(&cluster.frontend)?;
+    let ranges = placement_ranges(&cluster.system)?;
     w.seen.facts = run(async {
         let mut client = client(&cluster.client).await?;
         let property = DeclaredPredicate::new(&name).with_kind(DeclaredKind::Property);

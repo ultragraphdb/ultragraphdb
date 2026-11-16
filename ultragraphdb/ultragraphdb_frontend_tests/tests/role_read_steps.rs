@@ -22,7 +22,7 @@ use ultragraphdb_store_quads::{iri_bucket, term_key};
 use ultragraphdb_tests::{
     CLUSTER, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, FRONTEND_BINARY, FRONTEND_OBSERVABILITY,
     SECRET, STORAGE_BINARY, STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, answering,
-    compute_on_one_host, holding, role, scratch, storage_holding, until_answering,
+    compute_on_one_host, frontend_holding, holding, role, scratch, until_answering,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -76,13 +76,13 @@ fn started(w: &mut Steps) -> TestResult {
     let frontend = answering(FRONTEND_OBSERVABILITY, "/health");
     let _frontend: u32 = util.start_service_from_config(role(
         FRONTEND_BINARY,
-        &bootstrapping()?,
+        &frontend_holding()?,
         &scratch(FRONTEND_BINARY),
         frontend,
     ))?;
     let _storage: u32 = util.start_service_from_config(role(
         STORAGE_BINARY,
-        &storage_holding()?,
+        &bootstrapping()?,
         &scratch(STORAGE_BINARY),
         answering(STORAGE_OBSERVABILITY, "/health"),
     ))?;

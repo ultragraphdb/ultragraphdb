@@ -27,20 +27,6 @@ fn required<'a>(value: Option<&'a str>, setting: &str) -> Result<&'a str, RoleEr
     value.ok_or_else(|| RoleError::configuration(format!("the setting {setting} is required")))
 }
 
-/// The frontend's role address the settings of `start` name.
-///
-/// # Errors
-///
-/// [`RoleError::configuration`] when `cluster.frontend_address` is absent or does not parse.
-pub fn frontend_address(start: &RoleStart) -> Result<Address, RoleError> {
-    let frontend = required(
-        start.config().cluster().frontend_address(),
-        "cluster.frontend_address",
-    )?;
-    Address::parse(frontend)
-        .map_err(|error| RoleError::configuration(format!("the address {frontend}: {error}")))
-}
-
 /// The system group's role address the settings of `start` name, which every role dials.
 ///
 /// # Errors
@@ -87,7 +73,7 @@ where
                 tracing::warn!(role, %error, "joining was refused or failed");
                 if due.is_some_and(|due| now() >= due) {
                     return Err(RoleError::unavailable(format!(
-                        "the frontend did not take this {role} within {} ms, after {attempts} attempts: {error}",
+                        "the system group did not take this {role} within {} ms, after {attempts} attempts: {error}",
                         cluster.deadline().as_millis()
                     )));
                 }

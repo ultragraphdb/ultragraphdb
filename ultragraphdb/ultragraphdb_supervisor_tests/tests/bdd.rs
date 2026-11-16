@@ -419,9 +419,9 @@ fn stopped_on_0(w: &mut Steps) -> TestResult {
 #[when("the supervisor receives SIGTERM while the frontend waits for its partition")]
 fn terminated_in_the_start(w: &mut Steps) -> TestResult {
     write_profile(w)?;
-    // The frontend refuses every Lease of storage's block size, so storage leases nothing and the start waits on it until its
-    // deadline.
-    let settings = w.root.join("profile").join("frontend.toml");
+    // The system group, in the storage process hosting it, refuses every Lease of storage's block size, so storage leases
+    // nothing and the start waits on it until its deadline.
+    let settings = w.root.join("profile").join("storage.toml");
     let text = std::fs::read_to_string(&settings)?;
     std::fs::write(
         &settings,
@@ -667,9 +667,19 @@ fn broken_file(w: &mut Steps) -> TestResult {
     write_profile(w)?;
     let settings = w.root.join("profile").join("storage.toml");
     let text = std::fs::read_to_string(&settings)?;
+    // `storage.data_dir` alone: the `[system]` table's `data_dir` stays.
+    let mut table = "";
     let kept: Vec<&str> = text
         .lines()
-        .filter(|line| !line.starts_with("data_dir"))
+        .filter(|line| {
+            if let Some(name) = line
+                .strip_prefix('[')
+                .and_then(|rest| rest.strip_suffix(']'))
+            {
+                table = name;
+            }
+            !(table == "storage" && line.starts_with("data_dir"))
+        })
         .collect();
     std::fs::write(&settings, kept.join("\n") + "\n")?;
     start_supervisor(w, on_profile(w))?;

@@ -17,9 +17,23 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 
 static FOLDERS: AtomicU32 = AtomicU32::new(0);
 
-const FRONTEND: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\npartition_count = 2\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n[frontend]\nrole_address = \"tcp://10.0.0.1:7081\"\ndata_dir = \"/data\"\n[sequencer]\nepoch_ms_min = 2\nepoch_ms_max = 10\n";
-const STORAGE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nfrontend_address = \"tcp://frontend:7081\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[storage]\npartition_count = 1\ndata_dir = \"/data\"\n";
-const COMPUTE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nfrontend_address = \"tcp://frontend:7081\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[compute]\nrole_address = \"tcp://10.0.0.3:7082\"\n";
+const FRONTEND: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n";
+const STORAGE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[storage]\npartition_count = 1\ndata_dir = \"/data/storage\"\n";
+/// What makes `storage_1` the system group's host, written after its `[storage]` table so that table's lines stay where a
+/// scenario counts them: the partitions the placement is formed over, the two moved tables and the `[system]` table.
+const HOSTING: &str = "[cluster]\npartition_count = 2\n[metadata]\n[sequencer]\nepoch_ms_min = 2\nepoch_ms_max = 10\n[system]\nrole_address = \"tcp://10.0.0.2:7100\"\ndata_dir = \"/data/system\"\n";
+const COMPUTE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[compute]\nrole_address = \"tcp://10.0.0.3:7082\"\n";
+
+/// `storage`, the file of `storage_1`, with what makes it the system group's host, the placement formed over `partitions`.
+fn hosted(storage: &str, partitions: u32) -> String {
+    format!(
+        "{storage}{}",
+        HOSTING.replace(
+            "partition_count = 2",
+            &format!("partition_count = {partitions}")
+        )
+    )
+}
 
 #[derive(Debug, Default, World)]
 struct Steps {
@@ -27,6 +41,8 @@ struct Steps {
     report: CheckReport,
     defects: Vec<Defect>,
     target: TargetFiles,
+    /// Each setting a scenario planted, with the defects of the revision holding it.
+    planted: Vec<(String, Vec<Defect>)>,
 }
 
 fn folder(w: &mut Steps) -> TestResult<PathBuf> {
@@ -49,7 +65,11 @@ fn valid() -> TargetFiles {
     target.insert(
         "storage_1",
         "ci_storage_1.toml",
-        b"[storage]\npartition_first = 1\nrole_address = \"tcp://10.0.0.2:7000\"\n".to_vec(),
+        hosted(
+            "[storage]\npartition_first = 1\nrole_address = \"tcp://10.0.0.2:7000\"\n",
+            2,
+        )
+        .into_bytes(),
     );
     target.insert(
         "storage_2",
@@ -145,7 +165,7 @@ fn merged(w: &mut Steps) -> TestResult {
 #[when("a revision's `storage_1` lacks `data_dir` and whose `compute_1` names `partiton`")]
 fn two_broken(w: &mut Steps) {
     let shared = STORAGE.replace(
-        "data_dir = \"/data\"
+        "data_dir = \"/data/storage\"
 ",
         "",
     );
@@ -177,7 +197,10 @@ fn held_twice(w: &mut Steps) {
         with(
             valid(),
             "storage_1",
-            "[storage]\npartition_first = 2\nrole_address = \"tcp://10.0.0.2:7000\"\n",
+            &hosted(
+                "[storage]\npartition_first = 2\nrole_address = \"tcp://10.0.0.2:7000\"\n",
+                2,
+            ),
         ),
         "storage_2",
         "[storage]\npartition_first = 2\nrole_address = \"tcp://10.0.0.4:7000\"\n",
@@ -192,11 +215,13 @@ fn names_both(w: &mut Steps) {
 
 #[when("`partition_count` is 4 and the storage instances hold partitions 1 to 3")]
 fn uncovered(w: &mut Steps) {
-    let frontend = FRONTEND.replace("partition_count = 2", "partition_count = 4");
     let storage = with(
-        with(valid(), "frontend", &frontend),
+        valid(),
         "storage_1",
-        "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\n",
+        &hosted(
+            "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\n",
+            4,
+        ),
     );
     let target = with(
         storage,
@@ -212,13 +237,132 @@ fn names_partition(w: &mut Steps) {
     assert_eq!(w.defects.len(), 1, "{}", listing(&w.defects));
 }
 
+#[when("`storage_1` and `storage_2` both hold a `[system]` table")]
+fn two_hosts(w: &mut Steps) {
+    let second = hosted(
+        "[storage]\npartition_first = 2\nrole_address = \"tcp://10.0.0.4:7000\"\n",
+        2,
+    )
+    .replace("tcp://10.0.0.2:7100", "tcp://10.0.0.4:7100");
+    w.defects = check_target(&with(valid(), "storage_2", &second), None);
+}
+
+#[then("the revision is refused naming `system` and both instances")]
+fn names_both_hosts(w: &mut Steps) {
+    says(w, &["setting system:", "storage_1", "storage_2"]);
+}
+
+#[when("no storage instance holds a `[system]` table")]
+fn no_host(w: &mut Steps) {
+    let plain = "[storage]\npartition_first = 1\nrole_address = \"tcp://10.0.0.2:7000\"\n";
+    w.defects = check_target(&with(valid(), "storage_1", plain), None);
+}
+
+#[then("the revision is refused naming `system` and the target")]
+fn names_no_host(w: &mut Steps) {
+    says(w, &["target ci, setting system:"]);
+}
+
+#[when(
+    "the frontend's file holds `frontend.role_address`, or any file holds `cluster.frontend_address`"
+)]
+fn old_settings(w: &mut Steps) {
+    let planted = [
+        (
+            "frontend.role_address",
+            "frontend",
+            format!("{FRONTEND}[frontend]\nrole_address = \"tcp://10.0.0.1:7081\"\n"),
+        ),
+        (
+            "cluster.frontend_address",
+            "compute_1",
+            COMPUTE.replace(
+                "[cluster]\n",
+                "[cluster]\nfrontend_address = \"tcp://frontend:7081\"\n",
+            ),
+        ),
+        (
+            "cluster.frontend_address",
+            "frontend",
+            FRONTEND.replace(
+                "[cluster]\n",
+                "[cluster]\nfrontend_address = \"tcp://frontend:7081\"\n",
+            ),
+        ),
+    ];
+    w.planted = planted
+        .into_iter()
+        .map(|(setting, key, text)| {
+            (
+                format!("instance {key}, setting {setting}"),
+                check_target(&with(valid(), key, &text), None),
+            )
+        })
+        .collect();
+}
+
+#[then("the revision is refused naming the setting as unknown")]
+fn names_unknown(w: &mut Steps) {
+    for (naming, defects) in &w.planted {
+        let text = listing(defects);
+        assert!(
+            text.contains(&format!("{naming}: no such setting exists")),
+            "{naming} in: {text}"
+        );
+    }
+}
+
+#[when(
+    r#"`storage_1` holds `storage.data_dir = "/data/storage"` and `system.data_dir = "/data/storage/system"`"#
+)]
+fn system_inside_storage(w: &mut Steps) {
+    let inside = hosted(
+        "[storage]\npartition_first = 1\nrole_address = \"tcp://10.0.0.2:7000\"\ndata_dir = \"/data/storage\"\n",
+        2,
+    )
+    .replace("\"/data/system\"", "\"/data/storage/system\"");
+    w.defects = check_target(&with(valid(), "storage_1", &inside), None);
+}
+
+#[then("the revision is refused naming both settings and the instance")]
+fn names_both_settings(w: &mut Steps) {
+    says(
+        w,
+        &[
+            "instance storage_1, setting system.data_dir: /data/storage/system",
+            "storage.data_dir, /data/storage",
+        ],
+    );
+}
+
+#[when(
+    "`compute_1` names a `cluster.system_address` whose port differs from `storage_1`'s `system.role_address`"
+)]
+fn system_address_differs(w: &mut Steps) {
+    let compute = COMPUTE.replace("tcp://10.0.0.2:7100", "tcp://10.0.0.2:7101");
+    w.defects = check_target(&with(valid(), "compute_1", &compute), None);
+}
+
+#[then("the revision is refused naming both addresses and both instances")]
+fn names_both_addresses(w: &mut Steps) {
+    says(
+        w,
+        &[
+            "instance compute_1, setting cluster.system_address: it holds tcp://10.0.0.2:7101",
+            "storage_1's system.role_address is tcp://10.0.0.2:7100",
+        ],
+    );
+}
+
 #[when("`storage_1`'s second partition derives the address `compute_1` listens at")]
 fn colliding(w: &mut Steps) {
-    let frontend = FRONTEND.replace("partition_count = 2", "partition_count = 3");
     let storage = with(
-        with(valid(), "frontend", &frontend),
+        valid(),
         "storage_1",
-        "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.3:7081\"\n",
+        &hosted(
+            "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.3:7081\"\n",
+            3,
+        ),
     );
     let target = with(
         with(
@@ -428,7 +572,10 @@ fn zero_partitions(w: &mut Steps) {
     let target = with(
         valid(),
         "storage_1",
-        "[storage]\npartition_first = 1\npartition_count = 0\nrole_address = \"tcp://10.0.0.2:7000\"\n",
+        &hosted(
+            "[storage]\npartition_first = 1\npartition_count = 0\nrole_address = \"tcp://10.0.0.2:7000\"\n",
+            2,
+        ),
     );
     w.defects = check_target(&target, None);
 }
@@ -455,7 +602,10 @@ fn zero_stall(w: &mut Steps) {
     let target = with(
         valid(),
         "storage_1",
-        "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\nscan_stall_ms = 0\n",
+        &hosted(
+            "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\nscan_stall_ms = 0\n",
+            2,
+        ),
     );
     w.defects = check_target(&target, None);
 }
@@ -473,7 +623,10 @@ fn long_stall(w: &mut Steps) {
     let target = with(
         valid(),
         "storage_1",
-        "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\nscan_stall_ms = 30001\n",
+        &hosted(
+            "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\nscan_stall_ms = 30001\n",
+            2,
+        ),
     );
     w.defects = check_target(&target, None);
 }
@@ -502,7 +655,10 @@ fn zero_retention(w: &mut Steps) {
     let target = with(
         valid(),
         "storage_1",
-        "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\nread_retain_ms = 0\n",
+        &hosted(
+            "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\nread_retain_ms = 0\n",
+            2,
+        ),
     );
     w.defects = check_target(&target, None);
 }
@@ -520,7 +676,10 @@ fn zero_parked_bytes(w: &mut Steps) {
     let target = with(
         valid(),
         "storage_1",
-        "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\nheld_bytes = 0\n",
+        &hosted(
+            "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\nheld_bytes = 0\n",
+            2,
+        ),
     );
     w.defects = check_target(&target, None);
 }

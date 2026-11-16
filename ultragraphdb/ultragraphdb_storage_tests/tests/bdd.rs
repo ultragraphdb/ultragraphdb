@@ -41,10 +41,10 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
     ADMIN_KEY, CLUSTER, CONFIG_ADDRESS, CONFIG_BINARY, DOUBLE_ADDRESS, DOUBLE_REVISION,
-    FRONTEND_BINARY, FRONTEND_OBSERVABILITY, FRONTEND_ROLE_ADDRESS, READ_KEY, SECRET,
-    START_SECONDS, STORAGE_BINARY, STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, TARGET, answering,
-    bootstrap, config_folder, config_process, exit_is, fresh_data, frontend_holding, holding,
-    http_body, http_status, members_at, process, render_settings, role, role_of_service, scratch,
+    FRONTEND_BINARY, FRONTEND_OBSERVABILITY, READ_KEY, SECRET, START_SECONDS, STORAGE_BINARY,
+    STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, SYSTEM_ROLE_ADDRESS, TARGET, answering, bootstrap,
+    config_folder, config_process, exit_is, fresh_data, frontend_holding, holding, http_body,
+    http_status, members_at, not_hosting, process, render_settings, role, role_of_service, scratch,
     served_by_double, start_config_service, start_double, storage_holding, storage_on_one_host,
     until_answering, until_ports_free, with,
 };
@@ -68,7 +68,8 @@ struct Steps {
     code: Option<u8>,
     config_pid: u32,
     exited: Option<ExitStatus>,
-    frontend: String,
+    /// The system group's role address, which Members are read at.
+    system: String,
     graph: String,
     kernel: read_kernel_steps::KernelSteps,
     log: String,
@@ -87,8 +88,16 @@ const SHORT_DEADLINE_MS: &str = "800";
 const ADMIN_ADDRESS: &str = "127.0.0.1:18090";
 
 /// The addresses a role of these scenarios holds beyond those every suite declares, and what holds each.
-const OWN_ADDRESSES: [(&str, &str); 5] = [
+const OWN_ADDRESSES: [(&str, &str); 7] = [
     (ADMIN_ADDRESS, "a loadable role's admin listener"),
+    (
+        REFUSED_ROLE_ADDRESS,
+        "the role endpoint of the storage process holding another role secret",
+    ),
+    (
+        REFUSED_OBSERVABILITY,
+        "the observability of the storage process holding another role secret",
+    ),
     (
         "127.0.0.1:17200",
         "the role endpoint of the storage process hosting partitions 1 and 2",
@@ -131,22 +140,31 @@ fn run_to_exit(w: &mut Steps, variables: Vec<(String, String)>) -> TestResult {
     Ok(())
 }
 
+/// Where the storage process holding another role secret listens: beside the hosting process's partition and observability.
+const REFUSED_ROLE_ADDRESS: &str = "127.0.0.1:17183";
+const REFUSED_OBSERVABILITY: &str = "127.0.0.1:18183";
+
 #[when("a storage process started with a different role secret connects to the frontend")]
 fn wrong_secret(w: &mut Steps) -> TestResult {
     let util = services()?;
-    let log = scratch(FRONTEND_BINARY);
-    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
-    let settings = frontend_holding()?;
-    let _frontend: u32 =
-        util.start_service_from_config(role(FRONTEND_BINARY, &settings, &log, wait))?;
-    let refused = with(
-        with(
-            holding(storage_on_one_host(), "another secret")?,
-            "storage.data_dir",
-            &fresh_data(),
+    // The books' host since the switch is the storage process hosting the system group, which every role dials.
+    let _host: u32 = start_storage(&util, &storage_holding()?, &scratch("storage-host.log"))?;
+    let refused = [
+        ("storage.data_dir", fresh_data()),
+        ("cluster.join_deadline_ms", SHORT_DEADLINE_MS.to_string()),
+        (
+            "storage.role_address",
+            format!("tcp://{REFUSED_ROLE_ADDRESS}"),
         ),
-        "cluster.join_deadline_ms",
-        SHORT_DEADLINE_MS,
+        (
+            "observability.address",
+            format!("tcp://{REFUSED_OBSERVABILITY}"),
+        ),
+    ]
+    .iter()
+    .fold(
+        not_hosting(holding(storage_on_one_host(), "another secret")?),
+        |settings, (name, value)| with(settings, name, value),
     );
     let refused_log = scratch("storage-refused.log");
     let pid = util.start_service_from_config(role(
@@ -157,7 +175,7 @@ fn wrong_secret(w: &mut Steps) -> TestResult {
     ))?;
     w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
     w.log = std::fs::read_to_string(&refused_log)?;
-    w.frontend = format!("tcp://{}", FRONTEND_ROLE_ADDRESS);
+    w.system = format!("tcp://{}", SYSTEM_ROLE_ADDRESS);
     w.roles = Some(util);
     Ok(())
 }
@@ -176,7 +194,13 @@ fn refused_and_retried(w: &mut Steps) -> TestResult {
         .and_then(|count| count.parse::<u32>().ok())
         .context("the attempts it made")?;
     assert!(attempts > 1, "{}", w.log);
-    assert_eq!(members_at(&w.frontend)?, Vec::new(), "no role joined");
+    // Members lists the hosting process's partition alone: the refused process joined nothing.
+    let expected = vec![(
+        RoleKind::Storage,
+        1,
+        format!("tcp://{STORAGE_ROLE_ADDRESS}"),
+    )];
+    assert_eq!(members_at(&w.system)?, expected, "no role joined");
     w.roles = None;
     Ok(())
 }
@@ -185,7 +209,11 @@ fn refused_and_retried(w: &mut Steps) -> TestResult {
 fn missing_secret(w: &mut Steps) -> TestResult {
     let absent = scratch("never-written");
     let settings = with(
-        with(storage_on_one_host(), "storage.data_dir", &fresh_data()),
+        with(
+            not_hosting(storage_on_one_host()),
+            "storage.data_dir",
+            &fresh_data(),
+        ),
         "cluster.role_secret_file",
         &absent.display().to_string(),
     );
@@ -282,7 +310,13 @@ fn refused_at(partition: u32, frame: &ReceivedFrame) -> TestResult {
 /// The settings of a storage process hosting `count` partitions from `first`, at TCP ports from `port`.
 fn storage_of(first: u32, count: u32, port: u32) -> TestResult<Vec<(String, String)>> {
     let observed = format!("tcp://127.0.0.1:{}", 18_100 + first);
-    let mut settings = with(storage_holding()?, "observability.address", &observed);
+    // The process of partition 1 hosts the system group, which forms the placement over the four.
+    let own = if first == 1 {
+        with(storage_holding()?, "cluster.partition_count", "4")
+    } else {
+        not_hosting(storage_holding()?)
+    };
+    let mut settings = with(own, "observability.address", &observed);
     settings = with(settings, "storage.partition_first", &first.to_string());
     settings = with(settings, "storage.partition_count", &count.to_string());
     Ok(with(
@@ -311,7 +345,7 @@ fn start_processes(w: &mut Steps, firsts: &[u32]) -> TestResult {
 /// As [`start_processes`], both storage processes holding `held` beside their own settings.
 fn processes_holding(w: &mut Steps, firsts: &[u32], held: &[(&str, &str)]) -> TestResult {
     let util = services()?;
-    let settings = with(frontend_holding()?, "cluster.partition_count", "4");
+    let settings = frontend_holding()?;
     let holding = |own: Vec<(String, String)>| {
         held.iter()
             .fold(own, |all, (setting, value)| with(all, setting, value))
@@ -346,7 +380,7 @@ fn processes_holding(w: &mut Steps, firsts: &[u32], held: &[(&str, &str)]) -> Te
         w.pid = util.start_service_from_config(start)?;
     }
     w.roles = Some(util);
-    w.frontend = format!("tcp://{}", FRONTEND_ROLE_ADDRESS);
+    w.system = format!("tcp://{}", SYSTEM_ROLE_ADDRESS);
     Ok(())
 }
 
@@ -359,7 +393,7 @@ fn claims(w: &mut Steps) -> TestResult {
     "both join, Members names each partition's address, and a write reaches its partition on either process"
 )]
 fn on_either(w: &mut Steps) -> TestResult {
-    let members = members_at(&w.frontend)?;
+    let members = members_at(&w.system)?;
     let expected: Vec<(RoleKind, u32, String)> =
         [(1, 17_200), (2, 17_201), (3, 17_300), (4, 17_301)]
             .map(|(partition, port)| {
@@ -678,8 +712,8 @@ fn exits_on_the_end(w: &mut Steps) -> TestResult {
 fn on_played_frontend(w: &mut Steps, push: Push) -> TestResult<Arc<Played>> {
     let log = scratch("storage-invariant.log");
     let settings = with(
-        storage_holding()?,
-        "cluster.frontend_address",
+        not_hosting(storage_holding()?),
+        "cluster.system_address",
         &format!("tcp://{PLAYED_FRONTEND_ADDRESS}"),
     );
     let util = services()?;
@@ -737,8 +771,8 @@ fn leased_ahead(w: &mut Steps) -> TestResult {
 fn stopped_joining(w: &mut Steps) -> TestResult {
     let log = scratch("storage-stopped-joining.log");
     let settings = with(
-        storage_holding()?,
-        "cluster.frontend_address",
+        not_hosting(storage_holding()?),
+        "cluster.system_address",
         &format!("tcp://{PLAYED_FRONTEND_ADDRESS}"),
     );
     let util = services()?;
@@ -791,14 +825,18 @@ fn exits_on_the_violation(w: &mut Steps) -> TestResult {
         "the system group delivered close {OUT_OF_ORDER_EPOCH} after close 0: a close follows the last by one epoch"
     );
     assert!(w.log.contains(&said), "{}", w.log);
-    assert!(w.log.contains("a partition stopped"), "{}", w.log);
+    assert!(
+        w.log.contains("a partition or the system group stopped"),
+        "{}",
+        w.log
+    );
     assert!(w.log.contains("stopping role=storage"), "{}", w.log);
     Ok(())
 }
 
 #[when("the storage binary receives settings with no `storage.data_dir`")]
 fn no_data_dir(w: &mut Steps) -> TestResult {
-    let text = render_settings(&holding(storage_on_one_host(), SECRET)?);
+    let text = render_settings(&holding(not_hosting(storage_on_one_host()), SECRET)?);
     storage_on(w, &text)
 }
 

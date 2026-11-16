@@ -480,14 +480,15 @@ pub(crate) fn development_over_unix(c: &Containers) -> TestResult {
         (0o700, nonroot, nonroot),
         "the sockets' directory: its mode, user and group"
     );
-    let frontend = setting(&profile("dev/frontend.toml")?, "role_address")?.to_string();
+    // The system group's socket, in the storage process hosting it, which every role dials (design D2).
+    let system = setting(&profile("dev/frontend.toml")?, "system_address")?.to_string();
     let compute = setting(&profile("dev/compute.toml")?, "role_address")?.to_string();
     let storage = profile("dev/storage.toml")?;
-    assert_eq!(frontend, "unix:///run/ultragraph/frontend.sock");
+    assert_eq!(system, "unix:///run/ultragraph/system.sock");
     assert_eq!(compute, "unix:///run/ultragraph/compute.sock");
     let first: u32 = setting(&storage, "partition_first")?.parse()?;
     let count: u32 = setting(&storage, "partition_count")?.parse()?;
-    let mut expected: BTreeSet<String> = [&frontend, &compute]
+    let mut expected: BTreeSet<String> = [&system, &compute]
         .iter()
         .filter_map(|address| address.strip_prefix("unix://"))
         .map(str::to_string)
@@ -612,7 +613,7 @@ pub(crate) fn write_and_read(c: &Containers) -> TestResult<Vec<Vec<String>>> {
 /// The `dev-net` profile with every role at its own container's name in place of the loopback, every listener this host
 /// reaches open on the container's interfaces, and its secrets and central file under `/secrets`.
 fn over_three_hosts(text: &str) -> String {
-    text.replace("tcp://127.0.0.1:7081", "tcp://frontend:7081")
+    text.replace("tcp://127.0.0.1:7081", "tcp://storage:7081")
         .replace("tcp://127.0.0.1:7082", "tcp://compute:7082")
         .replace("tcp://127.0.0.1:7100", "tcp://storage:7100")
         .replace("tcp://127.0.0.1:", "tcp://0.0.0.0:")

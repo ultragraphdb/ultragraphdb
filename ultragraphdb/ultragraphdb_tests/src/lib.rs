@@ -19,7 +19,7 @@ pub use crate::utils::harness::{
 pub use crate::utils::http_status::{http_body, http_status};
 pub use crate::utils::one_host::{
     CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS,
-    FRONTEND_BINARY, FRONTEND_OBSERVABILITY, FRONTEND_ROLE_ADDRESS, STORAGE_BINARY,
-    STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, compute_on_one_host, frontend_on_one_host,
-    render_settings, storage_on_one_host,
+    FRONTEND_BINARY, FRONTEND_OBSERVABILITY, STORAGE_BINARY, STORAGE_OBSERVABILITY,
+    STORAGE_ROLE_ADDRESS, SYSTEM_ROLE_ADDRESS, compute_on_one_host, frontend_on_one_host,
+    not_hosting, render_settings, storage_on_one_host,
 };

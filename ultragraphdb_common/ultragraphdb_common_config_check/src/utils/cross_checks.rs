@@ -8,8 +8,9 @@ use std::collections::BTreeMap;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_placement::PlacementMap;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
-use ultragraphdb_common_service_config::{ServiceConfig, partition_address};
+use ultragraphdb_common_service_config::{ServiceConfig, SystemTable, partition_address};
 use ultragraphdb_protocol_transport::Address;
+use ultragraphdb_tool_toml::TomlDocument;
 
 use crate::types::defect::Defect;
 use crate::types::instance::Instance;
@@ -33,6 +34,23 @@ impl Checking<'_> {
     ) {
         self.defects
             .push(self.located(instance, setting, found, required));
+    }
+
+    /// Whether the files `instance` takes its settings from, its own and its role's, hold the table `table`, a header with no
+    /// key in it included; `None` when one of them does not parse, and so tells nothing.
+    fn holds(&self, instance: &Instance, table: &str) -> Option<bool> {
+        let (name, role) = (instance.name(), instance.role());
+        let mut held = false;
+        for key in [(role != name).then_some(role), Some(name)]
+            .into_iter()
+            .flatten()
+        {
+            if let Some(bytes) = self.target.bytes(key) {
+                let document = TomlDocument::parse(bytes).ok()?;
+                held |= document.tables().iter().any(|found| found.name() == table);
+            }
+        }
+        Some(held)
     }
 
     /// A defect of `setting` of `instance`, standing in the file that sets it: the instance's own, else its role's. A file
@@ -96,15 +114,241 @@ pub(crate) fn cross_checks(target: &TargetFiles, active: Option<&TargetFiles>) -
         }
     }
     identity(&mut checking, &held);
-    frontend_address(&mut checking, &held);
+    system(&mut checking, &held);
+    system_address(&mut checking, &held);
     partitions(&mut checking, &held);
     addresses(&mut checking, &held);
     data_dirs(&mut checking, &held);
+    system_data_dir(&mut checking, &held);
     relations(&mut checking, &held);
     if let Some(active) = active {
         fixed(&mut checking, &held, active);
+        fixed_system(&mut checking, &held, active);
     }
     checking.defects
+}
+
+/// The tables a storage instance holds beside `[system]` when it hosts the system group, and no other instance holds.
+const MOVED_TABLES: [&str; 2] = ["metadata", "sequencer"];
+
+/// The one storage instance whose settings hold `[system]`, with its table; `None` unless exactly one does.
+fn the_host(held: &[Instance]) -> Option<(&Instance, &SystemTable)> {
+    let mut hosts = held
+        .iter()
+        .filter(|instance| instance.role() == "storage")
+        .filter_map(|instance| {
+            instance
+                .config()
+                .and_then(ServiceConfig::system)
+                .map(|table| (instance, table))
+        });
+    let first = hosts.next()?;
+    hosts.next().is_none().then_some(first)
+}
+
+/// The settings of the first storage instance holding `[system]`, which hold what the system group is formed with: the
+/// cluster's partition count and the sequencer's bounds. A second is the System check's to refuse.
+fn host_config(held: &[Instance]) -> Option<&ServiceConfig> {
+    held.iter()
+        .filter(|instance| instance.role() == "storage")
+        .filter_map(Instance::config)
+        .find(|config| config.system().is_some())
+}
+
+/// The System check: one storage instance holds `[system]`, with both its settings, the two moved tables and a partition;
+/// no other instance holds a moved table. A `[system]` table lacking a setting is refused by the file's own check, which names
+/// it, and still counts here as the table it is.
+fn system(checking: &mut Checking<'_>, held: &[Instance]) {
+    let storage: Vec<(&Instance, Option<bool>)> = held
+        .iter()
+        .filter(|instance| instance.role() == "storage")
+        .map(|instance| (instance, checking.holds(instance, "system")))
+        .collect();
+    let hosts: Vec<&Instance> = storage
+        .iter()
+        .filter(|(_, holds)| *holds == Some(true))
+        .map(|(instance, _)| *instance)
+        .collect();
+    // A storage instance whose file does not parse may host or not, so a count would guess; its file is refused anyway.
+    if storage.iter().all(|(_, holds)| holds.is_some()) {
+        hosts_counted(checking, &hosts);
+    }
+    for host in &hosts {
+        host_holds(checking, host);
+    }
+    for instance in held {
+        let hosting = instance.role() == "storage" && hosts.contains(&instance);
+        for table in MOVED_TABLES {
+            if !hosting && checking.holds(instance, table) == Some(true) {
+                checking.report(
+                    instance.name(),
+                    table,
+                    format!("it holds a [{table}] table and does not host the system group"),
+                    "the [metadata] and [sequencer] tables stand in the settings of the storage instance holding [system]",
+                );
+            }
+        }
+    }
+}
+
+/// One host and no more: none is refused naming the target, and each after the first naming the first.
+fn hosts_counted(checking: &mut Checking<'_>, hosts: &[&Instance]) {
+    let required = "one storage instance hosts the system group in this release: its settings, and no other's, hold [system]";
+    let Some(first) = hosts.first() else {
+        checking.defects.push(
+            Defect::new("no storage instance holds a [system] table", required)
+                .of_target(checking.target.name())
+                .of_setting("system"),
+        );
+        return;
+    };
+    for other in hosts.iter().skip(1) {
+        checking.report(
+            other.name(),
+            "system",
+            format!(
+                "{} and {} both hold a [system] table",
+                first.name(),
+                other.name()
+            ),
+            required,
+        );
+    }
+}
+
+/// What a host holds beside `[system]`: the two moved tables and at least one partition.
+fn host_holds(checking: &mut Checking<'_>, host: &Instance) {
+    for table in MOVED_TABLES {
+        if checking.holds(host, table) == Some(false) {
+            checking.report(
+                host.name(),
+                table,
+                format!("the instance hosting the system group holds no [{table}] table"),
+                "the storage instance holding [system] holds the [metadata] and [sequencer] tables",
+            );
+        }
+    }
+    if host
+        .config()
+        .is_some_and(|config| partitions_of(config).is_empty())
+    {
+        checking.report(
+            host.name(),
+            "system",
+            "it hosts the system group and holds no partition".to_string(),
+            "the system group is hosted beside at least one partition in this release",
+        );
+    }
+}
+
+/// The System address check: every `cluster.system_address` reaches the host's `system.role_address` by its scheme and
+/// port, or its Unix path. A host may differ, since a Service's name reaches a pod that binds its own.
+fn system_address(checking: &mut Checking<'_>, held: &[Instance]) {
+    let Some((host, table)) = the_host(held) else {
+        return;
+    };
+    let role_address = table.role_address();
+    for instance in held {
+        if let Some(address) = instance
+            .config()
+            .and_then(|config| config.cluster().system_address())
+            && reach(address) != reach(role_address)
+        {
+            checking.report(
+                instance.name(),
+                "cluster.system_address",
+                format!(
+                    "it holds {address}, and {}'s system.role_address is {role_address}",
+                    host.name()
+                ),
+                "it must reach the system group's role address: the same scheme and port, or the same Unix path; a host may differ",
+            );
+        }
+    }
+}
+
+/// The Data check's rule of the system group's directory: it shares no path with the `data_dir` of an instance on its host,
+/// the host's own included: equal, inside or containing.
+fn system_data_dir(checking: &mut Checking<'_>, held: &[Instance]) {
+    let Some((host, table)) = the_host(held) else {
+        return;
+    };
+    let Some(machine) = host.config().and_then(|config| host_of(host, config)) else {
+        return;
+    };
+    let system = components(table.data_dir());
+    for instance in held {
+        let Some(config) = instance.config() else {
+            continue;
+        };
+        let (Some(directory), Some(on)) =
+            (data_dir_of(instance, config), host_of(instance, config))
+        else {
+            continue;
+        };
+        if on != machine {
+            continue;
+        }
+        if let Some(relation) = relation(&system, &components(directory)) {
+            checking.report(
+                host.name(),
+                "system.data_dir",
+                format!(
+                    "{} {relation} {}'s {}.data_dir, {directory}",
+                    table.data_dir(),
+                    instance.name(),
+                    instance.role()
+                ),
+                "the system group's directory shares no path with a data directory on its host",
+            );
+        }
+    }
+}
+
+/// `directory`'s components as written, a trailing separator ignored: `.` and `..` are components like any other.
+fn components(directory: &str) -> Vec<&str> {
+    directory.trim_end_matches('/').split('/').collect()
+}
+
+/// How the directory of `first`'s components stands to `second`'s, when they share a path.
+fn relation(first: &[&str], second: &[&str]) -> Option<&'static str> {
+    if first == second {
+        Some("is")
+    } else if first.starts_with(second) {
+        Some("lies inside")
+    } else if second.starts_with(first) {
+        Some("contains")
+    } else {
+        None
+    }
+}
+
+/// The Fixed check's rule of the host: while the placement is fixed, the instance holding `[system]` and its
+/// `system.data_dir` stay as the active revision has them. An active revision with no single host compares nothing.
+fn fixed_system(checking: &mut Checking<'_>, held: &[Instance], active: &TargetFiles) {
+    let before = instances(active);
+    let (Some((was, was_table)), Some((now, now_table))) = (the_host(&before), the_host(held))
+    else {
+        return;
+    };
+    if was.name() != now.name() {
+        checking.report(
+            now.name(),
+            "system",
+            format!(
+                "it holds [system], and the active revision's {} holds it",
+                was.name()
+            ),
+            "the instance hosting the system group stays the one hosting it in this release",
+        );
+    } else if components(was_table.data_dir()) != components(now_table.data_dir()) {
+        checking.report(
+            now.name(),
+            "system.data_dir",
+            "it differs from the active revision".to_string(),
+            "the system group's data stays where it is",
+        );
+    }
 }
 
 fn roles(checking: &mut Checking<'_>, held: &[Instance]) {
@@ -135,7 +379,8 @@ fn roles(checking: &mut Checking<'_>, held: &[Instance]) {
     }
 }
 
-/// A role's required settings: each `(setting, value)` whose value is absent is a defect.
+/// A role's required settings: each `(setting, value)` whose value is absent is a defect. Every role dials the system group;
+/// the storage instance hosting it also forms the placement and runs the sequencer.
 fn required(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceConfig) {
     let cluster = config.cluster();
     let mut needed: Vec<(&str, bool)> = vec![
@@ -144,56 +389,47 @@ fn required(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceCo
             "cluster.role_secret_file",
             cluster.role_secret_file().is_some(),
         ),
+        ("cluster.system_address", cluster.system_address().is_some()),
         (
             "observability.address",
             config.observability().address().is_some(),
         ),
     ];
     match instance.role() {
-        "frontend" => needed.extend([
-            (
-                "cluster.partition_count",
-                cluster.partition_count().is_some(),
-            ),
-            (
-                "frontend.role_address",
-                config.frontend().role_address().is_some(),
-            ),
-            ("frontend.data_dir", config.frontend().data_dir().is_some()),
-            (
-                "sequencer.epoch_ms_min",
-                config.sequencer().epoch_ms_min().is_some(),
-            ),
-            (
-                "sequencer.epoch_ms_max",
-                config.sequencer().epoch_ms_max().is_some(),
-            ),
-        ]),
-        "storage" => needed.extend([
-            (
-                "cluster.frontend_address",
-                cluster.frontend_address().is_some(),
-            ),
-            (
-                "storage.role_address",
-                config.storage().role_address().is_some(),
-            ),
-            ("storage.data_dir", config.storage().data_dir().is_some()),
-            (
-                "storage.partition_count",
-                config.storage().partition_count().is_some(),
-            ),
-        ]),
-        _ => needed.extend([
-            (
-                "cluster.frontend_address",
-                cluster.frontend_address().is_some(),
-            ),
-            (
-                "compute.role_address",
-                config.compute().role_address().is_some(),
-            ),
-        ]),
+        "frontend" => {}
+        "storage" => {
+            needed.extend([
+                (
+                    "storage.role_address",
+                    config.storage().role_address().is_some(),
+                ),
+                ("storage.data_dir", config.storage().data_dir().is_some()),
+                (
+                    "storage.partition_count",
+                    config.storage().partition_count().is_some(),
+                ),
+            ]);
+            if config.system().is_some() {
+                needed.extend([
+                    (
+                        "cluster.partition_count",
+                        cluster.partition_count().is_some(),
+                    ),
+                    (
+                        "sequencer.epoch_ms_min",
+                        config.sequencer().epoch_ms_min().is_some(),
+                    ),
+                    (
+                        "sequencer.epoch_ms_max",
+                        config.sequencer().epoch_ms_max().is_some(),
+                    ),
+                ]);
+            }
+        }
+        _ => needed.push((
+            "compute.role_address",
+            config.compute().role_address().is_some(),
+        )),
     }
     for (setting, present) in needed {
         if !present {
@@ -211,7 +447,9 @@ fn required(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceCo
 /// Each bound, by the domain type that states it.
 fn bounds(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceConfig) {
     let name = instance.name();
-    if instance.role() == "frontend" {
+    // The sequencer, the metadata group and the placement are the host's, so their bounds are; anyone else holding the
+    // tables is the System check's to refuse.
+    if instance.role() == "storage" && config.system().is_some() {
         let table = config.sequencer();
         if let (Some(min), Some(max)) = (table.epoch_ms_min(), table.epoch_ms_max())
             && let Err(error) = SequencerConfig::new(min, max)
@@ -387,30 +625,31 @@ fn metadata_bounds(checking: &mut Checking<'_>, name: &str, config: &ServiceConf
     }
 }
 
-/// The addresses others reach `instance` at, by the setting that names each.
+/// The addresses `instance` dials or others reach it at, by the setting that names each.
 fn role_addresses<'a>(
     instance: &Instance,
     config: &'a ServiceConfig,
 ) -> Vec<(&'static str, &'a str)> {
     let mut held = Vec::new();
-    if let Some(address) = config.cluster().frontend_address() {
-        held.push(("cluster.frontend_address", address));
+    if let Some(address) = config.cluster().system_address() {
+        held.push(("cluster.system_address", address));
     }
-    let own = match instance.role() {
-        "frontend" => config
-            .frontend()
-            .role_address()
-            .map(|address| ("frontend.role_address", address)),
-        "storage" => config
-            .storage()
-            .role_address()
-            .map(|address| ("storage.role_address", address)),
-        _ => config
-            .compute()
-            .role_address()
-            .map(|address| ("compute.role_address", address)),
-    };
-    held.extend(own);
+    match instance.role() {
+        "frontend" => {}
+        "storage" => {
+            if let Some(address) = config.storage().role_address() {
+                held.push(("storage.role_address", address));
+            }
+            if let Some(table) = config.system() {
+                held.push(("system.role_address", table.role_address()));
+            }
+        }
+        _ => {
+            if let Some(address) = config.compute().role_address() {
+                held.push(("compute.role_address", address));
+            }
+        }
+    }
     held
 }
 
@@ -498,32 +737,6 @@ fn reach(address: &str) -> String {
     }
 }
 
-fn frontend_address(checking: &mut Checking<'_>, held: &[Instance]) {
-    let Some(role_address) = held
-        .iter()
-        .find(|instance| instance.role() == "frontend")
-        .and_then(Instance::config)
-        .and_then(|config| config.frontend().role_address())
-        .map(str::to_string)
-    else {
-        return;
-    };
-    for instance in held.iter().filter(|instance| instance.role() != "frontend") {
-        if let Some(address) = instance
-            .config()
-            .and_then(|config| config.cluster().frontend_address())
-            && reach(address) != reach(&role_address)
-        {
-            checking.report(
-                instance.name(),
-                "cluster.frontend_address",
-                format!("it holds {address}, and the frontend listens at {role_address}"),
-                "it must reach the frontend's role address: the same scheme and port, or the same Unix path",
-            );
-        }
-    }
-}
-
 /// The most partitions of one storage instance the checks walk: one past the most a cluster holds, so a count past it still
 /// places a partition outside the cluster's, where a count of billions would otherwise be walked and held whole (Ultra rules
 /// 2 and 3).
@@ -541,11 +754,7 @@ fn partitions_of(config: &ServiceConfig) -> Vec<u32> {
 }
 
 fn partitions(checking: &mut Checking<'_>, held: &[Instance]) {
-    let Some(total) = held
-        .iter()
-        .find(|instance| instance.role() == "frontend")
-        .and_then(Instance::config)
-        .and_then(|config| config.cluster().partition_count())
+    let Some(total) = host_config(held).and_then(|config| config.cluster().partition_count())
     else {
         return;
     };
@@ -602,7 +811,8 @@ fn is_wildcard(address: &str) -> bool {
     address.starts_with("tcp://0.0.0.0:") || address.starts_with("tcp://[::]:")
 }
 
-/// Every listener of `instance`, a partition's derived address included, with the setting behind it.
+/// Every listener of `instance`, a partition's derived address and the system group's included, with the setting behind
+/// it.
 fn listeners(instance: &Instance, config: &ServiceConfig) -> Vec<(&'static str, String)> {
     let mut held: Vec<(&'static str, String)> = Vec::new();
     let mut add = |setting: &'static str, address: Option<&str>| {
@@ -613,10 +823,7 @@ fn listeners(instance: &Instance, config: &ServiceConfig) -> Vec<(&'static str, 
     add("observability.address", config.observability().address());
     add("admin.address", config.admin().address());
     match instance.role() {
-        "frontend" => {
-            add("frontend.role_address", config.frontend().role_address());
-            add("endpoint.address", config.endpoint().address());
-        }
+        "frontend" => add("endpoint.address", config.endpoint().address()),
         "compute" => add("compute.role_address", config.compute().role_address()),
         _ => {
             if let Some(base) = config.storage().role_address() {
@@ -626,6 +833,9 @@ fn listeners(instance: &Instance, config: &ServiceConfig) -> Vec<(&'static str, 
                         held.push(("storage.role_address", derived));
                     }
                 }
+            }
+            if let Some(table) = config.system() {
+                held.push(("system.role_address", table.role_address().to_string()));
             }
         }
     }
@@ -679,17 +889,17 @@ fn host_of(instance: &Instance, config: &ServiceConfig) -> Option<String> {
     }
 }
 
-/// The instance's `data_dir`.
+/// The instance's `data_dir`: a storage instance's, the one role holding data.
 fn data_dir_of<'a>(instance: &Instance, config: &'a ServiceConfig) -> Option<&'a str> {
     match instance.role() {
-        "frontend" => config.frontend().data_dir(),
         "storage" => config.storage().data_dir(),
         _ => None,
     }
 }
 
+/// The Data check's rule of two instances on one host: each holds a `data_dir` of its own, compared component by component.
 fn data_dirs(checking: &mut Checking<'_>, held: &[Instance]) {
-    let mut taken: BTreeMap<(String, String), String> = BTreeMap::new();
+    let mut taken: BTreeMap<(String, Vec<&str>), String> = BTreeMap::new();
     for instance in held {
         let Some(config) = instance.config() else {
             continue;
@@ -699,7 +909,7 @@ fn data_dirs(checking: &mut Checking<'_>, held: &[Instance]) {
         else {
             continue;
         };
-        let key = (host, directory.to_string());
+        let key = (host, components(directory));
         match taken.get(&key) {
             Some(holder) => checking.report(
                 instance.name(),
@@ -715,11 +925,7 @@ fn data_dirs(checking: &mut Checking<'_>, held: &[Instance]) {
 }
 
 fn relations(checking: &mut Checking<'_>, held: &[Instance]) {
-    let Some(epoch_ms_max) = held
-        .iter()
-        .find(|instance| instance.role() == "frontend")
-        .and_then(Instance::config)
-        .and_then(|config| config.sequencer().epoch_ms_max())
+    let Some(epoch_ms_max) = host_config(held).and_then(|config| config.sequencer().epoch_ms_max())
     else {
         return;
     };

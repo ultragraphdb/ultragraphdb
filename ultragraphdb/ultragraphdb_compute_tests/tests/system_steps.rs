@@ -21,9 +21,8 @@ use crate::{Steps, services, signal};
 /// Where the hosting storage process's system group listens: an address of its own beside its partitions'.
 const SYSTEM_ROLE_ADDRESS: &str = "127.0.0.1:17084";
 
-/// `settings` dialling the system group at `system` in place of the frontend.
-fn dialling(mut settings: Vec<(String, String)>, system: &str) -> Vec<(String, String)> {
-    settings.retain(|(name, _)| name != "cluster.frontend_address");
+/// `settings` dialling the system group at `system`.
+fn dialling(settings: Vec<(String, String)>, system: &str) -> Vec<(String, String)> {
     with(settings, "cluster.system_address", system)
 }
 

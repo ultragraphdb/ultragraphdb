@@ -51,27 +51,21 @@ EOF
 [cluster]
 id = 1
 role_secret_file = "/m7/keys/role.secret"
-partition_count = $P
+system_address = "tcp://$S:7081"
 [observability]
 address = "tcp://0.0.0.0:8081"
 [endpoint]
 address = "tcp://0.0.0.0:7080"
 plaintext = true
-[frontend]
-role_address = "tcp://$F:7081"
-data_dir = "/var/tmp/m7/frontend"
-[metadata]
-bootstrap_secret_file = "/m7/keys/bootstrap.secret"
-[sequencer]
-epoch_ms_min = 2
-epoch_ms_max = 10
 $(runtime)
 EOF
+  # The storage instance hosts the system group, the metadata group and the sequencer, at an address of its own.
   cat > "$M7/profile/storage.toml" <<EOF
 [cluster]
 id = 1
 role_secret_file = "/m7/keys/role.secret"
-frontend_address = "tcp://$F:7081"
+system_address = "tcp://$S:7081"
+partition_count = $P
 [observability]
 address = "tcp://0.0.0.0:8083"
 [storage]
@@ -79,13 +73,21 @@ partition_first = 1
 partition_count = $P
 role_address = "tcp://$S:7100"
 data_dir = "/var/tmp/m7/storage"
+[system]
+role_address = "tcp://$S:7081"
+data_dir = "/var/tmp/m7/system"
+[metadata]
+bootstrap_secret_file = "/m7/keys/bootstrap.secret"
+[sequencer]
+epoch_ms_min = 2
+epoch_ms_max = 10
 $(runtime)
 EOF
   cat > "$M7/profile/compute.toml" <<EOF
 [cluster]
 id = 1
 role_secret_file = "/m7/keys/role.secret"
-frontend_address = "tcp://$F:7081"
+system_address = "tcp://$S:7081"
 [observability]
 address = "tcp://0.0.0.0:8082"
 [compute]

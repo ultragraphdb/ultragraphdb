@@ -8,9 +8,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use compio::runtime::Runtime;
-use ultragraphdb_common_role::{
-    RoleCluster, RoleSecret, frontend_address, retry_until, system_address,
-};
+use ultragraphdb_common_role::{RoleCluster, RoleSecret, retry_until, system_address};
 use ultragraphdb_common_service::{RoleIdentity, RoleStart, Stopping};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::TransportError;
@@ -36,22 +34,6 @@ fn cluster(deadline: Duration) -> TestResult<RoleCluster> {
     std::fs::write(&file, b"s3cret")?;
     let secret = RoleSecret::read(&file.display().to_string())?;
     Ok(RoleCluster::new(7, secret, deadline))
-}
-
-/// The frontend's address is the one the settings name; its absence names the setting.
-#[test]
-fn test_the_frontend_address_is_the_setting() -> TestResult {
-    let named = frontend_address(&start("frontend_address = \"tcp://127.0.0.1:7081\"\n")?)?;
-    assert_eq!(named.target(), "127.0.0.1:7081");
-    let absent = frontend_address(&start("")?).err().context("a refusal")?;
-    assert_eq!(absent.exit_code(), RoleError::EX_CONFIG);
-    assert!(
-        absent
-            .to_string()
-            .contains("the setting cluster.frontend_address is required"),
-        "{absent}"
-    );
-    Ok(())
 }
 
 /// The settings of a start as `role` (`frontend`, `compute` or `storage`), `cluster` the lines of their `[cluster]`
@@ -80,9 +62,7 @@ fn test_the_system_address_is_the_setting_for_every_role() -> TestResult {
 /// The system group's address absent is refused as a configuration error naming `cluster.system_address`.
 #[test]
 fn test_an_absent_system_address_is_refused_naming_it() -> TestResult {
-    let absent = system_address(&start("frontend_address = \"tcp://127.0.0.1:7081\"\n")?)
-        .err()
-        .context("a refusal")?;
+    let absent = system_address(&start("")?).err().context("a refusal")?;
     assert_eq!(absent.exit_code(), RoleError::EX_CONFIG);
     assert!(
         absent.to_string().contains("cluster.system_address"),
@@ -112,20 +92,18 @@ fn test_a_system_address_that_is_no_address_is_refused_naming_it() -> TestResult
     Ok(())
 }
 
-/// C2.9: with `cluster.frontend_address` and `cluster.system_address` both named, each function gives its own: the old
-/// leaves in group 7.
+/// C2.9, since the switch (design D2): settings naming `cluster.frontend_address` beside `cluster.system_address` are refused
+/// at the start, naming the old setting, before any address is read.
 #[test]
-fn test_the_frontend_and_system_addresses_are_each_their_own() -> TestResult {
-    let start = start(
+fn test_settings_naming_the_frontend_address_are_refused() -> TestResult {
+    let refused = start(
         "frontend_address = \"tcp://frontend-0:7081\"\nsystem_address = \"unix:///run/ultragraph/system.sock\"\n",
-    )?;
-    assert_eq!(
-        frontend_address(&start)?.to_string(),
-        "tcp://frontend-0:7081"
-    );
-    assert_eq!(
-        system_address(&start)?.to_string(),
-        "unix:///run/ultragraph/system.sock"
+    )
+    .err()
+    .context("a refusal")?;
+    assert!(
+        refused.to_string().contains("frontend_address"),
+        "{refused}"
     );
     Ok(())
 }

@@ -8,10 +8,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use compio::runtime::spawn;
-use ultragraphdb_common_role::{
-    RoleClient, RoleCluster, frontend_address, retry_until, system_address,
-};
-use ultragraphdb_common_service::{RoleKind, RoleStart, Stopping};
+use ultragraphdb_common_role::{RoleClient, RoleCluster, retry_until};
+use ultragraphdb_common_service::{RoleKind, Stopping};
 use ultragraphdb_error_role::{RoleError, RoleErrorEnum};
 use ultragraphdb_protocol_transport::{Address, TransportError};
 use ultragraphdb_protocol_wire::{BodyView, Join, Members, MembersView, RoleKind as MemberKind};
@@ -22,23 +20,6 @@ const POLL: Duration = Duration::from_millis(100);
 
 /// How many times per `cluster.join_deadline_ms` compute asks each peer whether it still answers.
 const ASKS_PER_DEADLINE: u32 = 2;
-
-/// The system group's role address compute dials (`PROTOCOL.md` §11.12, *Joining*): `cluster.system_address` where the
-/// settings of `start` name it, else `cluster.frontend_address`, the address the system group answers at until the
-/// settings switch to the system group's own (design D2).
-///
-/// # Errors
-///
-/// [`RoleError::configuration`] naming `cluster.system_address` when neither setting is named, or naming the setting
-/// that does not parse.
-pub fn group_address(start: &RoleStart) -> Result<Address, RoleError> {
-    let cluster = start.config().cluster();
-    if cluster.system_address().is_none() && cluster.frontend_address().is_some() {
-        frontend_address(start)
-    } else {
-        system_address(start)
-    }
-}
 
 /// Joins the system group at `group` with `join` until it answers and its Members lists a partition that answers in turn,
 /// retrying until the cluster's deadline (`PROTOCOL.md` §11.12, *Joining*): where the partitions listen, or `None` once
