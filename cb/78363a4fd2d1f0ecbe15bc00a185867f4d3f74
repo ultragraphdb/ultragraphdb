@@ -1,0 +1,160 @@
+ultragraphdb_common/ultragraphdb_common_config_check/src/utils/check_target.rs
+  s_21eff977e05256::t_ba2d6d0dac2e74 178-185
+ultragraphdb_common/ultragraphdb_common_config_check/src/utils/cross_checks.rs
+  s_21eff977e05256::t_0881433894deeb 117-118,122,126,131-132,160,233,294,412
+  s_21eff977e05256::t_9b651c40e9f69f 11,13,39-55,133-159,161-232,234-293,295-353,382-383,392,399-411,413-432,450-452,628,634-652,757,814-815,826,837-839,892,900,902,912,928
+AGENTS.md
+  s_21eff977e05256::t_55c65b12bb9e73 251,254,259-261,264,268,272
+deploy/helm/ultragraphdb/profile/kube/compute.toml
+  s_21eff977e05256::t_c3c9b81ab5c606 4
+deploy/helm/ultragraphdb/profile/kube/frontend.toml
+  s_21eff977e05256::t_5f98aedad37b23 4
+deploy/helm/ultragraphdb/profile/kube/storage.toml
+  s_21eff977e05256::t_4cb1a1e425e083 4-5,13-20
+openspec/changes/stage-5-8-system-group/notes/group-7.md
+  s_21eff977e05256::t_5de947417563db 1-310
+openspec/changes/stage-5-8-system-group/tasks.md
+  s_21eff977e05256::t_88e93bf62df656 97,99-100
+scripts/bench_cluster.sh
+  s_21eff977e05256::t_4a80d842f23cab 54,62,67-68,76-83,90
+ultragraphdb/ultragraphdb_compute/src/service.rs
+  s_21eff977e05256::t_a606a1ada83fa7 10,14,29,77
+ultragraphdb/ultragraphdb_compute_tests/tests/cluster.rs
+  s_21eff977e05256::t_376400201fd405 14-15,106,113-114,137
+ultragraphdb/ultragraphdb_compute_tests/tests/system_steps.rs
+  s_21eff977e05256::t_baf2eef9653ce2 24-25
+ultragraphdb/ultragraphdb_config/profiles/dev-net/compute.toml
+  s_21eff977e05256::t_fee7e3cf096b1b 4
+ultragraphdb/ultragraphdb_config/profiles/dev-net/frontend.toml
+  s_21eff977e05256::t_37f7c7114d1e49 4
+ultragraphdb/ultragraphdb_config/profiles/dev-net/storage.toml
+  s_21eff977e05256::t_b13eb976927aaa 4-5,13-20
+ultragraphdb/ultragraphdb_config/profiles/dev/compute.toml
+  s_21eff977e05256::t_551c021f1294a9 4
+ultragraphdb/ultragraphdb_config/profiles/dev/frontend.toml
+  s_21eff977e05256::t_5cdfe072e878e6 4
+ultragraphdb/ultragraphdb_config/profiles/dev/storage.toml
+  s_21eff977e05256::t_c2ee238c3852eb 4-5,13-20
+ultragraphdb/ultragraphdb_config_tests/tests/bdd.rs
+  s_21eff977e05256::t_46cb7f17d01042 37-41,43,293,455,521,1088-1091,1270-1273
+ultragraphdb/ultragraphdb_frontend_tests/tests/bdd.rs
+  s_21eff977e05256::t_5f7267c927f765 29-31,80-81,105-106,108,300,305,337-338,351
+ultragraphdb/ultragraphdb_frontend_tests/tests/endpoint_steps.rs
+  s_21eff977e05256::t_4b85cc3ac6cb2d 16,28-30,40,45,56,70-72,74-79,88-90,212-213,319
+ultragraphdb/ultragraphdb_frontend_tests/tests/role_read_steps.rs
+  s_21eff977e05256::t_2724a669edc552 25,79,85
+ultragraphdb/ultragraphdb_storage/src/service.rs
+  s_21eff977e05256::t_1e8c07e70d90aa 23,150-151
+ultragraphdb/ultragraphdb_storage_tests/tests/bdd.rs
+  s_21eff977e05256::t_0cb363e9001f42 44-47,71-72,91,93-100,143-146,150-161,163-167,178,197-203,212-216,313-319,348,383,396,715-716,774-775,828-832,839
+ultragraphdb/ultragraphdb_storage_tests/tests/one_frame_steps.rs
+  s_21eff977e05256::t_b390bb2292cfd1 69,76,80-85
+ultragraphdb/ultragraphdb_storage_tests/tests/played_home.rs
+  s_21eff977e05256::t_4adb92b66590ba 25,165
+ultragraphdb/ultragraphdb_storage_tests/tests/system_bdd.rs
+  s_21eff977e05256::t_cada04db3330ba 30-31,92,100,133-134,360-374
+ultragraphdb/ultragraphdb_supervisor/src/service.rs
+  s_21eff977e05256::t_6b9408f941d569 19,233-234,330
+ultragraphdb/ultragraphdb_supervisor_tests/tests/bdd.rs
+  s_21eff977e05256::t_e523179d09c421 422-424,670-671,674-682
+ultragraphdb/ultragraphdb_supervisor_tests/tests/images.rs
+  s_21eff977e05256::t_fac82f2bd21b21 483-484,487,491,616
+ultragraphdb/ultragraphdb_tests/src/lib.rs
+  s_21eff977e05256::t_041cdcef5a9819 22-24
+ultragraphdb/ultragraphdb_tests/src/utils/harness.rs
+  s_21eff977e05256::t_d652b917beebc3 26,278-279,286-291,296,302,336,340,400
+ultragraphdb/ultragraphdb_tests/src/utils/one_host.rs
+  s_21eff977e05256::t_3d10aca23c4b3c 18-19,30,39,49,59-60,67,77-78,87-88,98-99,101,107-115,119-132
+ultragraphdb/ultragraphdb_tests/tests/bdd.rs
+  s_21eff977e05256::t_0f490c2234f5e9 39-40,92-93,170,186-187,191-192,194-198,203,207-209,230
+ultragraphdb/ultragraphdb_tests/tests/cluster.rs
+  s_21eff977e05256::t_52ffb467228855 23-25,96-98,110,134-139,155-156,182,188,231,235,263-265,270-271,273,275-277,284,288-305,318,323,358-359,372,472-481,531,543-544,607,612,710-711,713,719,722,725
+ultragraphdb/ultragraphdb_tests/tests/own_steps.rs
+  s_21eff977e05256::t_fd67bc08f98e62 50-51,171,314,348,395,860,879,1565,1611,1733
+ultragraphdb/ultragraphdb_tests/tests/tightening_steps.rs
+  s_21eff977e05256::t_cbf89cdf5574f1 69-70,97,118,149,164,166,218,220,235,248,384
+ultragraphdb/ultragraphdb_tests/tests/utils/harness_tests.rs
+  s_21eff977e05256::t_ba0447ce1b980d 231-232,237-240,243-247
+ultragraphdb/ultragraphdb_tests/tests/utils/one_host_tests.rs
+  s_21eff977e05256::t_8b2ad21c9d0d83 6,11-12,34-39,44-72,74
+ultragraphdb/ultragraphdb_tests/tests/write_read_steps.rs
+  s_21eff977e05256::t_2d22a4eae8508e 82
+ultragraphdb_common/ultragraphdb_common_compute/src/lib.rs
+  s_21eff977e05256::t_dc1e4f0904604e 24
+ultragraphdb_common/ultragraphdb_common_compute/src/utils/joining.rs
+  s_21eff977e05256::t_5a956c5e084ffe 11-12
+ultragraphdb_common/ultragraphdb_common_compute/tests/utils/joining_tests.rs
+  s_21eff977e05256::t_da81ced546e944 16-17,47-48,50-51,53,56-61,65,68,70
+ultragraphdb_common/ultragraphdb_common_config/tests/bdd.rs
+  s_21eff977e05256::t_29c151902e3167 20-22
+ultragraphdb_common/ultragraphdb_common_config/tests/types/config_api/config_api_tests.rs
+  s_21eff977e05256::t_b91ec271d676df 28-30
+ultragraphdb_common/ultragraphdb_common_config/tests/types/config_store/config_store_tests.rs
+  s_21eff977e05256::t_da678df0162d83 21-23
+ultragraphdb_common/ultragraphdb_common_config_check/BUILD.bazel
+  s_21eff977e05256::t_9c35c8d39c8d8f 34-37,48-62
+ultragraphdb_common/ultragraphdb_common_config_check/Cargo.toml
+  s_21eff977e05256::t_14024de9aa3e29 33,40-43
+ultragraphdb_common/ultragraphdb_common_config_check/features/config-service/validation.feature
+  s_21eff977e05256::t_a06b38356002f1 5-6,24-43
+ultragraphdb_common/ultragraphdb_common_config_check/tests/bdd.rs
+  s_21eff977e05256::t_dda542a14a583a 20-36,44-45,68-72,168,200-203,219,221-224,240-356,360,362-365,575-578,605-608,626-629,658-661,679-682
+ultragraphdb_common/ultragraphdb_common_config_check/tests/property/mod.rs
+  s_21eff977e05256::t_efecbb2a9a3afc 6-8,10-11
+ultragraphdb_common/ultragraphdb_common_config_check/tests/property/utils/cross_checks_property_tests.rs
+  s_21eff977e05256::t_a1115b4a4ba197 1-375
+ultragraphdb_common/ultragraphdb_common_config_check/tests/property/utils/drawn_target.rs
+  s_21eff977e05256::t_0afdfe2448d7a0 1-196
+ultragraphdb_common/ultragraphdb_common_config_check/tests/property/utils/mod.rs
+  s_21eff977e05256::t_6cb80685570f24 1-9
+ultragraphdb_common/ultragraphdb_common_config_check/tests/utils/cross_checks_tests.rs
+  s_21eff977e05256::t_d880b78815a071 13-17,19-26,111,113-114,116-117,119,121-122,138-140,144,154-155,226-227,229-230,232,234,237-252,254-257,259,262-263,265-273,275,277-278,281-283,285,288,306,308,310,335,339,341,343,368,371,373,376,399,404,407,445-875
+ultragraphdb_common/ultragraphdb_common_config_check/tests/utils/merge_tests.rs
+  s_21eff977e05256::t_21513863f56904 35-37,40,42-43,46,49,60-61,63-64,66,69
+ultragraphdb_common/ultragraphdb_common_role/src/lib.rs
+  s_21eff977e05256::t_c76665f8116626 8-9,33
+ultragraphdb_common/ultragraphdb_common_role/src/utils/joining_role.rs
+  s_21eff977e05256::t_fd265fb2cc1022 76
+ultragraphdb_common/ultragraphdb_common_role/tests/utils/joining_role_tests.rs
+  s_21eff977e05256::t_9432bd3cba2fcd 11,65,95-96,98-99,101-106
+ultragraphdb_common/ultragraphdb_common_service_config/src/lib.rs
+  s_21eff977e05256::t_5930fdbe8f8bc1 7-8
+ultragraphdb_common/ultragraphdb_common_service_config/src/types/cluster_table.rs
+  s_21eff977e05256::t_cc60a505633e60 48,54-55
+ultragraphdb_common/ultragraphdb_common_service_config/src/types/metadata_table.rs
+  s_21eff977e05256::t_bd829d38d75466 48
+ultragraphdb_common/ultragraphdb_common_service_config/src/types/settings_reader/mod.rs
+  s_21eff977e05256::t_85a025eed06b49 10-12
+ultragraphdb_common/ultragraphdb_common_service_config/tests/property/types/service_config/service_config_property_tests.rs
+  s_21eff977e05256::t_00e77916adee32 14-15,42,58,178-179,198
+ultragraphdb_common/ultragraphdb_common_service_config/tests/types/cluster_table_tests.rs
+  s_21eff977e05256::t_db56e7b6cccf3f 11,15,34-35,37,39-44,52
+ultragraphdb_common/ultragraphdb_common_service_config/tests/types/service_config/service_config_tests.rs
+  s_21eff977e05256::t_da255c9547aabd 16,66,298-299,301-322,324-327
+Cargo.lock
+  s_125723206bc3a5::t_fe38f716303fb7 3192
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cb78363a4fd2d1f0ecbe15bc00a185867f4d3f74",
+  "prompts": {},
+  "sessions": {
+    "s_125723206bc3a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-afbf5ed99f38e6353",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
