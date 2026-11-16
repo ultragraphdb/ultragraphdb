@@ -7,11 +7,11 @@ use std::net::IpAddr;
 use std::rc::{Rc, Weak};
 
 use ultragraphdb_common_role::OpenRequests;
+use ultragraphdb_common_system::SystemHandle;
 
 use crate::traits::authorizer::Authorizer;
 use crate::types::endpoint_limits::EndpointLimits;
 use crate::types::one_frame_phases::OneFramePhases;
-use crate::types::owner_handle::OwnerHandle;
 use crate::types::role_links::RoleLinks;
 use crate::types::tenant_gate::TenantGate;
 use crate::types::throttle_handle::ThrottleHandle;
@@ -21,7 +21,7 @@ use crate::types::throttle_handle::ThrottleHandle;
 /// weakly and keep no owner from stopping.
 #[derive(Debug, Clone)]
 pub struct EndpointCore<A> {
-    owner: Rc<OwnerHandle>,
+    owner: Rc<SystemHandle>,
     logins: ThrottleHandle,
     links: RoleLinks,
     gate: TenantGate<A>,
@@ -35,7 +35,7 @@ impl<A: Authorizer> EndpointCore<A> {
     /// request passing `gate`.
     #[must_use]
     pub fn new(
-        owner: OwnerHandle,
+        owner: SystemHandle,
         logins: ThrottleHandle,
         links: RoleLinks,
         gate: TenantGate<A>,
@@ -71,12 +71,12 @@ impl<A: Authorizer> EndpointCore<A> {
 impl<A> EndpointCore<A> {
     /// The way to the owner.
     #[must_use]
-    pub fn owner(&self) -> &OwnerHandle {
+    pub fn owner(&self) -> &SystemHandle {
         self.owner.as_ref()
     }
 
     /// The way to the owner while the core lasts, for what outlives its sessions.
-    pub(crate) fn owner_weak(&self) -> Weak<OwnerHandle> {
+    pub(crate) fn owner_weak(&self) -> Weak<SystemHandle> {
         Rc::downgrade(&self.owner)
     }
 

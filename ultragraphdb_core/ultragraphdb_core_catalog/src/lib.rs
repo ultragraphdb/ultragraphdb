@@ -9,7 +9,8 @@
 //! A [`Catalog`] declares a predicate's kind, cardinality, datatype constraint, unique values, indexes and domains,
 //! an entity type's one parent, numbered in preorder, and a relation's roles; it checks a write's object against a
 //! declaration. [`Catalog::entry`] is a declaration's store entry, and [`Catalog::load`] reads a tenant's catalog
-//! back, refusing it whole when an entry does not read back.
+//! back, refusing it whole when an entry does not read back. [`describe_of`] is the answer to a Describe of a catalog
+//! version's declarations, in the wire's `Describe`.
 //!
 //! ```
 //! use oxrdf::NamedNode;
@@ -39,4 +40,5 @@ pub use crate::types::catalog_contents::CatalogContents;
 pub use crate::utils::catalog_codec::{
     ENTITY_TYPE, PREDICATE, RELATION, decode as decode_declaration, encode as encode_declaration,
 };
+pub use crate::utils::describe_of::describe_of;
 pub use crate::utils::tokenizer_datatypes::tokenizer_takes;

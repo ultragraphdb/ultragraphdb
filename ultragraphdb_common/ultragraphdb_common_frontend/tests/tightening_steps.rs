@@ -8,8 +8,8 @@
 use std::time::Duration;
 
 use cucumber::{then, when};
-use ultragraphdb_common_frontend::DropStep;
 use ultragraphdb_common_role::RoleClient;
+use ultragraphdb_common_system::DropStep;
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_mapping::{Cardinality, Declaration};
 use ultragraphdb_protocol_wire::{

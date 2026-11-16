@@ -32,6 +32,7 @@ ultragraphdb_transport_tls = { workspace = true }
 mimalloc = { workspace = true }
 ultragraphdb_common_service = { workspace = true }
 ultragraphdb_common_frontend = { workspace = true }
+ultragraphdb_common_system = { workspace = true }
 
 [dev-dependencies]
 

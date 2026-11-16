@@ -12,8 +12,8 @@ use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
     AskedCredentials, AuthThrottle, ClientSession, CoreJoins, EndpointCore, EndpointLimits,
-    EveryAuthenticated, JoinFanOut, JoinedRoles, LoginLimits, OwnerHandle, OwnerStart, RoleLinks,
-    RoleSession, RoleShared, TenantGate, ThrottleHandle, start_owner,
+    EveryAuthenticated, JoinFanOut, JoinedRoles, LoginLimits, RoleLinks, TenantGate,
+    ThrottleHandle,
 };
 use ultragraphdb_common_role::{
     ConnectionBound, OpenRequests, ROLE_ITERATIONS, RoleCluster, RoleCredentials, Server,
@@ -21,6 +21,9 @@ use ultragraphdb_common_role::{
 };
 use ultragraphdb_common_service::{CoreListener, Readiness, RoleStart, Stopping, core_runtime};
 use ultragraphdb_common_service_config::{EndpointSecurity, EndpointTable, ServiceConfig};
+use ultragraphdb_common_system::{
+    SystemHandle, SystemSession, SystemShared, SystemStart, start_system,
+};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{AUTHENTICATION_TIMEOUT, Endpoint};
 use ultragraphdb_protocol_transport_compio::{AcceptPace, CompioTlsStream, Listener};
@@ -63,7 +66,7 @@ pub(crate) async fn frontend_role(
     let data_dir = PathBuf::from(required(config.frontend().data_dir(), "frontend.data_dir")?);
     let credentials = cluster.secret().credentials()?;
     let owner_start = owner_start(config)?;
-    let owner = start_owner(
+    let owner = start_system(
         config.clone(),
         cluster.id(),
         data_dir,
@@ -91,7 +94,7 @@ pub(crate) async fn frontend_role(
     let listening = readiness.clone();
     let (joined, joins) = JoinedRoles::new(cluster.clone(), links.clone(), readiness);
     spawn(joined.with_cores(cores).follow()).detach();
-    let shared = RoleShared::new(cluster.clone(), handle.clone(), joins);
+    let shared = SystemShared::new(cluster.clone(), handle.clone(), joins);
     let mut reporting = None;
     let mut accepting = vec![spawn(accept_roles(
         listen(role_address).await?,
@@ -182,7 +185,7 @@ impl Clients {
     /// Endpoint core `core`, asking `owner` and reaching the roles through `links`.
     fn core(
         &self,
-        owner: OwnerHandle,
+        owner: SystemHandle,
         links: RoleLinks,
         core: usize,
     ) -> EndpointCore<EveryAuthenticated> {
@@ -202,7 +205,7 @@ impl Clients {
 struct CoreStart {
     config: ServiceConfig,
     cluster: RoleCluster,
-    owner: OwnerHandle,
+    owner: SystemHandle,
     clients: Clients,
     stopping: Stopping,
     joins: CoreJoins,
@@ -213,7 +216,7 @@ struct CoreStart {
 async fn core_links(
     cluster: &RoleCluster,
     config: &ServiceConfig,
-    owner: &OwnerHandle,
+    owner: &SystemHandle,
 ) -> RoleLinks {
     let links = RoleLinks::new(cluster.clone(), "frontend".to_string())
         .with_dial_ms(endpoint_limits(config).transaction_ms());
@@ -228,7 +231,7 @@ async fn core_links(
 fn start_cores(
     config: &ServiceConfig,
     cluster: &RoleCluster,
-    owner: &OwnerHandle,
+    owner: &SystemHandle,
     clients: &Clients,
     stopping: &Stopping,
 ) -> Result<JoinFanOut, RoleError> {
@@ -346,7 +349,7 @@ fn required<'a>(value: Option<&'a str>, setting: &str) -> Result<&'a str, RoleEr
 }
 
 /// What the settings say the owner is, each bound the state machines' own.
-fn owner_start(config: &ServiceConfig) -> Result<OwnerStart, RoleError> {
+fn owner_start(config: &ServiceConfig) -> Result<SystemStart, RoleError> {
     // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
     let refused = |error: &dyn std::fmt::Display| RoleError::configuration(error.to_string());
     let partition_count = config
@@ -387,7 +390,7 @@ fn owner_start(config: &ServiceConfig) -> Result<OwnerStart, RoleError> {
             .with_catalog_check_ms(ms)
             .map_err(|error| refused(&error))?;
     }
-    let owner = OwnerStart::new(metadata, sequencer, partition_count);
+    let owner = SystemStart::new(metadata, sequencer, partition_count);
     Ok(match table.bootstrap_secret_file() {
         Some(file) => owner.with_bootstrap_file(file),
         None => owner,
@@ -400,14 +403,14 @@ async fn accept_roles(
     listener: Listener,
     server: Server,
     credentials: RoleCredentials,
-    shared: RoleShared,
+    shared: SystemShared,
 ) {
     let mut pace = AcceptPace::default();
     // An event loop: it accepts for as long as its runtime runs, which ends with the service (Ultra rule 2).
     loop {
         let carrier = pace.accept("role", || listener.accept()).await;
         let (server, credentials) = (server.clone(), credentials.clone());
-        let session = RoleSession::new(shared.clone());
+        let session = SystemSession::new(shared.clone());
         spawn(async move {
             serve_connection(carrier, &server, credentials, session).await;
         })

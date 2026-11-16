@@ -1,0 +1,316 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
+mod system_group_answer;
+pub(crate) mod system_group_catalog;
+mod system_group_check;
+pub(super) mod system_group_syncing;
+mod system_group_turn;
+
+use std::collections::{BTreeMap, VecDeque};
+use std::fmt;
+use std::path::PathBuf;
+
+use futures::channel::oneshot::Sender;
+use ultragraphdb_cluster_metadata::{MetadataGroup, MetadataSnapshot};
+use ultragraphdb_cluster_placement::NodeId;
+use ultragraphdb_cluster_sequencer::{ClockReading, Close, Sequencer, SequencerSnapshot};
+use ultragraphdb_core_ids::{Epoch, Tenant};
+use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
+use ultragraphdb_error_role::RoleError;
+use ultragraphdb_protocol_scram::{DEFAULT_ITERATIONS, ScramVerifier};
+use ultragraphdb_protocol_wire::ErrorReply;
+use ultragraphdb_traits_log::OrderedLog;
+
+use crate::types::membership::Membership;
+use crate::types::system_asked::SystemAsked;
+use crate::types::system_start::SystemStart;
+use crate::utils::snapshot_file;
+
+/// The replica leading every partition while each has one.
+const LEADER: u32 = 1;
+
+/// The closes between two of the sequencer's snapshots, which let its log be trimmed.
+const CLOSES_PER_SNAPSHOT: u32 = 4_096;
+
+/// The waiting asks one turn takes after the one it waited for, the rest waiting for the next turn: 1,024. An ask stands for a
+/// frame an endpoint core read, of at least a header's 256 bytes, so this is the most asks of the smallest frames a partition's
+/// turn budgets bytes for, 256 KiB (`ultragraphdb_common_storage`'s `TURN_BYTES`), and the owner's turn and a partition's take
+/// their inboxes alike. The asks a turn takes share its one sync of the metadata group, so at the 2,188 syncs a second the
+/// Shard-per-Core note measures the owner answers two million asks a second, while an epoch falling due waits behind at most
+/// these 1,024 decisions in memory.
+const ASKS_PER_TURN_MAX: usize = 1_024;
+
+/// An answer that waits for the metadata group's next sync.
+#[derive(Debug)]
+enum Durable {
+    Lease(u64, Sender<Result<u64, ErrorReply>>),
+    Registered(Sender<Result<(), ErrorReply>>),
+    /// A default entry's record, and whether it was held already.
+    Recorded(bool, Sender<Result<bool, ErrorReply>>),
+    /// A restoring version, and the refusal of the declaring Commit waiting on what it withdraws, if one still is.
+    Restored(Option<(VersionSender, ErrorReply)>),
+}
+
+/// Where a declaring Commit's answer goes.
+type VersionSender = Sender<Result<u64, ErrorReply>>;
+
+/// A declaring Commit waiting on a catalog version's effective epoch: its tenant, the version and where to answer.
+type VersionWaiter = (Tenant, u64, VersionSender);
+
+/// The one owner of the metadata group, the sequencer and who joined: everything an endpoint core asks is decided here,
+/// generic over the log so replication replaces it in stage 8.
+pub struct SystemGroup<M: OrderedLog, S: OrderedLog> {
+    metadata: MetadataGroup<M>,
+    sequencer: Sequencer<S>,
+    membership: Membership,
+    durable: Vec<Durable>,
+    closes_waited: Vec<(Epoch, Sender<Result<Close, ErrorReply>>)>,
+    /// The catalog versions a declaring Commit waits on the effective epoch of.
+    versions_waited: Vec<VersionWaiter>,
+    /// What the data refused of each version being checked, its predicate and the term at fault: the first partition's
+    /// word, which the Commit's refusal names. A restart forgets it with the Commit that would hear it.
+    check_refusals: BTreeMap<(Tenant, u64), (String, String)>,
+    /// When each version being checked, its epoch assigned, stops waiting for its partitions.
+    check_deadlines: BTreeMap<(Tenant, u64), u64>,
+    /// The sessions with a commit in flight, each with whether it may record the session in a partition's table, which keeps a
+    /// full registry from evicting it.
+    in_flight: BTreeMap<u128, bool>,
+    /// Each tenant's schema id, by the catalog version it was computed of: only a new version changes it (`PROTOCOL.md` §11.7).
+    schema_ids: BTreeMap<u64, (u64, u64)>,
+    closes_since_snapshot: u32,
+    snapshots: Option<PathBuf>,
+    /// The last close the sequencer's log holds durable, as its last sync left it: what the gate's facts name while the
+    /// sequencer syncs the next (design D17).
+    closed: u64,
+    /// The asks a sync's wait took and did not answer, in the order they came, for the turn after it (design D17).
+    waiting: VecDeque<SystemAsked>,
+}
+
+impl<M: OrderedLog, S: OrderedLog> fmt::Debug for SystemGroup<M, S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SystemGroup")
+            .field("membership", &self.membership)
+            .field("closes_waited", &self.closes_waited.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
+    /// The owner over its two logs at `now`, recovered from the snapshots in `snapshots` when it names a directory, and
+    /// the logs' rounds after them. A metadata group holding no placement forms an even map over the configured
+    /// partitions, durable before this returns; one holding a map keeps it. A close the sequencer's log holds and the
+    /// group never learned, since the process stopped between the two syncs, is learned here.
+    ///
+    /// A future dropped at a log's recovery drops both logs as they were read; one dropped at a sync leaves what it appended
+    /// durable or lost as the process's end leaves it, and the next recovery reads what is durable.
+    ///
+    /// # Errors
+    ///
+    /// [`RoleError::io`] for a failed log or snapshot file; [`RoleError::software`] for a log or a snapshot that does
+    /// not replay; [`RoleError::configuration`] for a partition count the placement cannot hold.
+    pub async fn recover(
+        metadata_log: M,
+        sequencer_log: S,
+        start: &SystemStart,
+        snapshots: Option<PathBuf>,
+        now: ClockReading,
+    ) -> Result<Self, RoleError> {
+        let (metadata_snapshot, sequencer_snapshot) = match &snapshots {
+            Some(directory) => (
+                snapshot_file::load(&directory.join(METADATA_SNAPSHOT))?
+                    .map(|bytes| MetadataSnapshot::decode(&bytes))
+                    .transpose()
+                    .map_err(|error| stopped(&error))?,
+                snapshot_file::load(&directory.join(SEQUENCER_SNAPSHOT))?
+                    .map(|bytes| SequencerSnapshot::decode(&bytes))
+                    .transpose()
+                    .map_err(|error| stopped(&error))?,
+            ),
+            None => (None, None),
+        };
+        let mut metadata =
+            MetadataGroup::recover(metadata_log, *start.metadata(), metadata_snapshot)
+                .await
+                .map_err(|error| stopped(&error))?;
+        let sequencer =
+            Sequencer::recover_from(sequencer_log, *start.sequencer(), now, sequencer_snapshot)
+                .await
+                .map_err(|error| stopped(&error))?;
+        if metadata.state().placement().is_none() {
+            let _position = metadata
+                .init_placement(start.partition_count(), NodeId::new(LEADER))
+                .map_err(|error| RoleError::configuration(error.to_string()))?;
+            let _durable = metadata.sync().await.map_err(|error| stopped(&error))?;
+        }
+        first_start(&mut metadata, start).await?;
+        let partitions = placed_partitions(&metadata).unwrap_or(start.partition_count());
+        if partitions != start.partition_count() {
+            tracing::warn!(
+                held = partitions,
+                configured = start.partition_count(),
+                "the metadata group holds a placement over another partition count, which it keeps"
+            );
+        }
+        let mut owner = Self {
+            metadata,
+            sequencer,
+            membership: Membership::new(partitions),
+            durable: Vec::new(),
+            closes_waited: Vec::new(),
+            versions_waited: Vec::new(),
+            check_refusals: BTreeMap::new(),
+            check_deadlines: BTreeMap::new(),
+            in_flight: BTreeMap::new(),
+            schema_ids: BTreeMap::new(),
+            closes_since_snapshot: 0,
+            snapshots,
+            closed: 0,
+            waiting: VecDeque::new(),
+        };
+        owner.closed = owner.sequencer.last_closed().get();
+        if owner.learn_missed()? {
+            let _durable = owner
+                .metadata
+                .sync()
+                .await
+                .map_err(|error| stopped(&error))?;
+        }
+        Ok(owner)
+    }
+
+    /// Creates `tenant` when the group does not hold it, durable before this returns.
+    ///
+    /// A future dropped at the sync leaves the command appended, durable at the group's next sync or lost with the
+    /// process.
+    ///
+    /// # Errors
+    ///
+    /// [`RoleError::software`] naming the refusal, or [`RoleError::io`] for a failed log.
+    pub async fn create_tenant_once(&mut self, tenant: u64) -> Result<(), RoleError> {
+        if self
+            .metadata
+            .create_tenant(Tenant::new(tenant))
+            .map_err(|error| stopped(&error))?
+            .is_some()
+        {
+            let _durable = self
+                .metadata
+                .sync()
+                .await
+                .map_err(|error| stopped(&error))?;
+        }
+        Ok(())
+    }
+
+    /// The secret an unknown name's verifier derives from, which the first start drew.
+    #[must_use]
+    pub fn unknown_secret(&self) -> Option<[u8; 32]> {
+        self.metadata.state().unknown_secret().copied()
+    }
+
+    /// Creates the principal `name` holding `verifier` when the group does not hold it, durable before this returns.
+    ///
+    /// A future dropped at the sync leaves the command appended, durable at the group's next sync or lost with the
+    /// process.
+    ///
+    /// # Errors
+    ///
+    /// [`RoleError::software`] naming the refusal, or [`RoleError::io`] for a failed log.
+    pub async fn create_principal_once(
+        &mut self,
+        name: &str,
+        verifier: ScramVerifier,
+    ) -> Result<(), RoleError> {
+        if self.metadata.state().principal(name).is_some() {
+            return Ok(());
+        }
+        let _created = self
+            .metadata
+            .create_principal(name, verifier, false)
+            .map_err(|error| stopped(&error))?;
+        let _durable = self
+            .metadata
+            .sync()
+            .await
+            .map_err(|error| stopped(&error))?;
+        Ok(())
+    }
+}
+
+/// The cluster's first start: tenant 0, created by a command of the group, the secret an unknown name's verifier derives from, and
+/// the bootstrap administrator from the secret file the settings name, each durable before any role serves.
+/// A future dropped at the sync leaves the commands appended, durable at the group's next sync or lost with the
+/// process.
+async fn first_start<L: OrderedLog>(
+    metadata: &mut MetadataGroup<L>,
+    start: &SystemStart,
+) -> Result<(), RoleError> {
+    let tenant = metadata
+        .create_tenant(Tenant::new(FIRST_TENANT))
+        .map_err(|error| stopped(&error))?;
+    let mut secret = [0; 32];
+    getrandom::fill(&mut secret)
+        .map_err(|error| RoleError::unavailable(format!("the random source: {error}")))?;
+    let drawn = metadata
+        .draw_secret(secret)
+        .map_err(|error| stopped(&error))?;
+    let bootstrapped = bootstrap(metadata, start)?;
+    if tenant.is_some() || drawn.is_some() || bootstrapped {
+        let _durable = metadata.sync().await.map_err(|error| stopped(&error))?;
+    }
+    Ok(())
+}
+
+/// The bootstrap administrator of a group holding no principal, when the settings name its secret file: whether it was created. The
+/// file is read once, here, and the group keeps only the verifier derived from it (`SECURITY.md`).
+fn bootstrap<L: OrderedLog>(
+    metadata: &mut MetadataGroup<L>,
+    start: &SystemStart,
+) -> Result<bool, RoleError> {
+    let Some(file) = start.bootstrap_file() else {
+        return Ok(false);
+    };
+    if metadata.state().principals() > 0 {
+        return Ok(false);
+    }
+    let held = std::fs::read(file).map_err(|error| {
+        RoleError::configuration(format!("metadata.bootstrap_secret_file {file}: {error}"))
+    })?;
+    let mut salt = [0; 16];
+    getrandom::fill(&mut salt)
+        .map_err(|error| RoleError::unavailable(format!("the random source: {error}")))?;
+    let _created = metadata
+        .bootstrap(BOOTSTRAP_NAME, &held, &salt, DEFAULT_ITERATIONS)
+        .map_err(|error| RoleError::configuration(error.to_string()))?;
+    Ok(true)
+}
+
+/// What an owner's failure stops the process with: a failed log's code, or a bug's.
+pub(crate) fn stopped(error: &ClusterError) -> RoleError {
+    if matches!(error.0, ClusterErrorEnum::Log(_)) {
+        RoleError::io(error.to_string())
+    } else {
+        RoleError::software(error.to_string())
+    }
+}
+
+/// The highest partition of the placement the group holds.
+fn placed_partitions<L: OrderedLog>(metadata: &MetadataGroup<L>) -> Option<u32> {
+    let map = metadata.state().placement()?;
+    map.ranges_at(map.latest_change())
+        .iter()
+        .map(|(_, partition)| partition.get())
+        .max()
+}
+
+/// The tenant the cluster's first start creates.
+const FIRST_TENANT: u64 = 0;
+
+/// The bootstrap administrator's name.
+const BOOTSTRAP_NAME: &str = "admin";
+
+const METADATA_SNAPSHOT: &str = "metadata.snapshot";
+const SEQUENCER_SNAPSHOT: &str = "sequencer.snapshot";

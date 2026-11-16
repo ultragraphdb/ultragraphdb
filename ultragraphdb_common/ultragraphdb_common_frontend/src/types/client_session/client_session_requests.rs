@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use ultragraphdb_common_role::Answer;
+use ultragraphdb_common_system::TenantFacts;
 use ultragraphdb_core_ids::{SessionToken, Version};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
@@ -18,7 +19,6 @@ use crate::traits::authorizer::Authorizer;
 use crate::types::bind_state::BindState;
 use crate::types::client_transaction::ClientTransaction;
 use crate::types::gate_scope::GateScope;
-use crate::types::tenant_facts::TenantFacts;
 
 fn protocol(rule: &ultragraphdb_error_protocol::ProtocolError) -> ErrorReply {
     ErrorReply::protocol(rule)

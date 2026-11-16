@@ -19,9 +19,8 @@ use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
     AskedCredentials, AuthThrottle, Authorizer, ClientSession, DoubleFrame, EndpointCore,
-    EndpointLimits, EveryAuthenticated, IriPlace, JoinedRoles, LoginLimits, OwnerHandle,
-    OwnerStart, OwnerThread, RoleDouble, RoleLinks, RoleSession, RoleShared, TenantGate,
-    batch_frame, empty_batch, iri_place, partition_answer, start_owner,
+    EndpointLimits, EveryAuthenticated, IriPlace, JoinedRoles, LoginLimits, RoleDouble, RoleLinks,
+    TenantGate, batch_frame, empty_batch, iri_place, partition_answer,
 };
 use ultragraphdb_common_role::{
     Answer, ConnectionBound, ParkedBytes, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret,
@@ -29,6 +28,9 @@ use ultragraphdb_common_role::{
 };
 use ultragraphdb_common_service::Readiness;
 use ultragraphdb_common_service_config::ServiceConfig;
+use ultragraphdb_common_system::{
+    SystemHandle, SystemSession, SystemShared, SystemStart, SystemThread, start_system,
+};
 use ultragraphdb_core_ids::Bucket;
 use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_protocol_transport::{Address, Endpoint};
@@ -95,7 +97,7 @@ type Counts = Rc<RefCell<Vec<Option<ParkedBytes>>>>;
 
 /// The frontend under a scenario.
 pub(crate) struct Stage {
-    pub owner: OwnerHandle,
+    pub owner: SystemHandle,
     pub cluster: RoleCluster,
     pub role: Address,
     pub client: Address,
@@ -103,7 +105,7 @@ pub(crate) struct Stage {
     pub map: PlacementMap,
     counts: Counts,
     directory: PathBuf,
-    thread: Option<OwnerThread>,
+    thread: Option<SystemThread>,
     tasks: Vec<JoinHandle<()>>,
 }
 
@@ -127,7 +129,7 @@ impl Stage {
         let held = directory.clone();
         let cluster = cluster_of(&directory)?;
         let verifier = ScramVerifier::derive("pw", b"salt", 4_096)?;
-        let start = OwnerStart::new(
+        let start = SystemStart::new(
             MetadataConfig::new()
                 .with_sessions_max(options.sessions)?
                 .with_catalog_check_ms(options.check_ms)?,
@@ -135,7 +137,7 @@ impl Stage {
             options.partitions,
         )
         .with_tenants(options.tenants.clone());
-        let thread = start_owner(
+        let thread = start_system(
             ServiceConfig::default(),
             CLUSTER,
             directory,
@@ -515,7 +517,7 @@ pub(crate) fn view_frame(bytes: &[u8]) -> TestResult<FrameView<'_>> {
 fn accept_roles(
     listener: Listener,
     cluster: &RoleCluster,
-    owner: &OwnerHandle,
+    owner: &SystemHandle,
     links: &RoleLinks,
 ) -> TestResult<JoinHandle<()>> {
     let roles =
@@ -523,11 +525,11 @@ fn accept_roles(
     let credentials = cluster.secret().credentials()?;
     let (joined, joins) = JoinedRoles::new(cluster.clone(), links.clone(), Readiness::default());
     spawn(joined.follow()).detach();
-    let shared = RoleShared::new(cluster.clone(), owner.clone(), joins);
+    let shared = SystemShared::new(cluster.clone(), owner.clone(), joins);
     Ok(spawn(async move {
         while let Ok(carrier) = listener.accept().await {
             let (roles, credentials) = (roles.clone(), credentials.clone());
-            let session = RoleSession::new(shared.clone());
+            let session = SystemSession::new(shared.clone());
             spawn(async move {
                 serve_connection(carrier, &roles, credentials, session).await;
             })

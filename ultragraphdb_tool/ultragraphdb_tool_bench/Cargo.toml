@@ -25,7 +25,7 @@ ultragraphdb_cluster_metadata = { workspace = true }
 ultragraphdb_cluster_partition = { workspace = true }
 ultragraphdb_cluster_placement = { workspace = true }
 ultragraphdb_cluster_sequencer = { workspace = true }
-ultragraphdb_common_frontend = { workspace = true }
+ultragraphdb_common_system = { workspace = true }
 ultragraphdb_common_service_config = { workspace = true }
 ultragraphdb_common_telemetry = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }

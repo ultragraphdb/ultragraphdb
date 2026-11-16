@@ -4,4 +4,5 @@
  */
 
 pub mod catalog_codec;
+pub mod describe_of;
 pub mod tokenizer_datatypes;

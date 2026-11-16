@@ -160,7 +160,9 @@ Files: under `ultragraphdb_common/ultragraphdb_common_frontend/`, `src/lib.rs`, 
 | `common_frontend:bdd` | 135 scenarios, 270 steps passed | 135 scenarios, 270 steps passed |
 | `make build` | passes | passes |
 
-### Step (c): not made, the new edge closes a cycle under Bazel
+### Step (c): `describe_of` and the three beside it move to `core_catalog`
+
+#### The dependency check, first run
 
 Checked first, as the step asks, by adding `ultragraphdb_protocol_wire = { workspace = true }` to
 `ultragraphdb_core_catalog`'s `[dependencies]` and building `//ultragraphdb_core/ultragraphdb_core_catalog`. Bazel
@@ -211,32 +213,129 @@ What would let the step go on, each a decision for the user, none made here:
 
 Task 3.3 moves "what step (c) left in `utils/declarations.rs`", and the owner calls `describe_of` (`types/owner/
 owner_catalog.rs:57`, `:73`), so `common_system` would name an item of `common_frontend` if the owner moved without it.
-The move therefore waits for step (c), and this run stopped here.
+The first run therefore stopped here and reported.
 
-## The gate over tasks 3.1, 3.2 (a) and 3.2 (b)
+#### The fix, and the check run again
 
-Run over the working tree holding the three steps, on HEAD `dbfd958e` (the other agent's commit, which touched none of
-these files):
+The user took option 1: `ultragraphdb_protocol/ultragraphdb_protocol_wire/BUILD.bazel` sets no `aliases` on the library,
+with a comment saying why, since the wire library renames no dependency. With it, `core_catalog`'s edge to the wire
+analyses and builds: `bazel build //...` passes, and the wire's own targets (`ultragraphdb_protocol_wire_tests`, `bdd`,
+`property`) pass. Cargo's `Cargo.lock` takes the one line the new edge needs, `"ultragraphdb_protocol_wire"` in
+`ultragraphdb_core_catalog`'s dependencies, and no version.
+
+#### The step
+
+`describe_of`, `preorder`, `kinds` and `declared_predicate` moved verbatim from
+`ultragraphdb_common_frontend/src/utils/declarations.rs` to the new `ultragraphdb_core_catalog/src/utils/describe_of.rs`;
+`describe_of` is public there, exported at the root and carries `#[must_use]`, the other three are private.
+`core_catalog` depends on `ultragraphdb_protocol_wire`; its crate documentation names `describe_of`, and its `AGENTS.md`
+row names the dependency and the function. The owner's catalog code imports it from `core_catalog`. What stays in
+`declarations.rs` is the building of a catalog version: `declaration_of`, `merged`, `tightens`, `restored`,
+`version_bytes` and their helpers.
+
+No test names the four directly: `describe_of` is tested through the owner's Describe and schema id
+(`tests/types/owner/owner_catalog_tests.rs` and the frontend's BDD scenarios), so no test moved with it and none was
+added. The clippy aspect with the five extra lints is clean over `describe_of.rs`; `core_catalog`'s other files hold
+`must_use_candidate` and `missing_errors_doc` gaps of their own, outside this group's lifts.
+
+Files: `ultragraphdb_core/ultragraphdb_core_catalog/Cargo.toml`, `src/lib.rs`, `src/utils/mod.rs`,
+`src/utils/describe_of.rs` (new); `ultragraphdb_common/ultragraphdb_common_frontend/src/utils/declarations.rs`,
+`src/types/owner/owner_catalog.rs`; `Cargo.lock` (one line); `AGENTS.md` (the `core_catalog` row).
+
+| Target | Before | After |
+|---|---|---|
+| `core_catalog:ultragraphdb_core_catalog_tests` | 57 passed | 57 passed |
+| `core_catalog:bdd` | 5 scenarios, 10 steps passed | 5 scenarios, 10 steps passed |
+| `common_frontend:ultragraphdb_common_frontend_tests` | 97 passed | 97 passed |
+| `common_frontend:bdd` | 135 scenarios, 270 steps passed | 135 scenarios, 270 steps passed |
+| `make build` | passes | passes |
+
+Commit note: the two frontend files this step edited, `utils/declarations.rs` and `types/owner/owner_catalog.rs`, move
+whole in task 3.3, so in the working tree this step's edits to them sit inside 3.3's renames. Steps (c) and 3.3 are
+therefore committed together, or (c) is committed first from these notes' list with 3.3's moves made after it.
+
+## Task 3.3: the move into `ultragraphdb_common_system`
+
+The owner, its handle and asks, its start and thread, the snapshot file, its role session, the membership and what
+step (c) left of `utils/declarations.rs` moved from `ultragraphdb_common_frontend` into the new crate
+`ultragraphdb_common/ultragraphdb_common_system`, with their tests, features and test utilities. Every file that moved
+whole moved with `git mv`, so `git log --follow` reads its history; the frontend files left are edited in place.
+
+Names, by design D1's table: `Owner` is `SystemGroup`, `OwnerHandle` `SystemHandle`, `Asked` `SystemAsked`, `OwnerStart`
+`SystemStart`, `start_owner` `start_system`, `RoleSession` `SystemSession`; `Membership`, `ReportAsked`, `DropStep` and
+`TenantFacts` keep theirs. Three names D1's table does not give follow the same rule: `OwnerThread`, which `start_system`
+returns, is `SystemThread`; `RoleShared`, the state `SystemSession` shares, is `SystemShared`; the test utility
+`owner_run` is `system_run`. Two `Debug` names follow their types, `SystemGroup { … }` and `SystemThread { … }`, and the
+one test reading the first (`system_group_tests.rs`, `test_an_owners_debug_form_names_its_membership_and_waits`) reads
+`"SystemGroup {"`. Nothing else was renamed: the thread is still `frontend-owner`, its runtime still logs `core =
+"owner"`, the refusals still say "the frontend's owner stopped", and no setting, exit code or wire byte changed. The
+secrets fix of `e7545937` moved unchanged: `SystemThread`'s hand-written `Debug` prints the secret as `<redacted>`, and
+`test_a_running_owner_never_prints_its_secret` moved with it. The five `#[expect(clippy::disallowed_methods)]` of the
+moved code moved with it.
+
+| From `common_frontend` | To `common_system` |
+|---|---|
+| `src/types/owner/mod.rs`, `owner_answer.rs`, `owner_catalog.rs`, `owner_check.rs`, `owner_syncing.rs`, `owner_turn.rs` | `src/types/system_group/mod.rs`, `system_group_answer.rs`, `system_group_catalog.rs`, `system_group_check.rs`, `system_group_syncing.rs`, `system_group_turn.rs` |
+| `src/types/owner_handle.rs`, `asked.rs`, `owner_start.rs`, `role_session.rs` | `src/types/system_handle.rs`, `system_asked.rs`, `system_start.rs`, `system_session.rs` |
+| `src/types/membership.rs`, `report_asked.rs`, `tenant_facts.rs` | the same names |
+| `src/utils/owner_thread.rs`, `snapshot_file.rs`, `declarations.rs` | `src/utils/system_thread.rs`, `snapshot_file.rs`, `declarations.rs` |
+| `src/utils_test/owner_run.rs` | `src/utils_test/system_run.rs` |
+| `tests/types/owner/mod.rs` and its five `owner_*_tests.rs` | `tests/types/system_group/mod.rs` and five `system_group_*_tests.rs` |
+| `tests/types/owner_tests.rs`, `role_session_tests.rs`, `membership_tests.rs`, `report_asked_tests.rs` | `tests/types/system_group_tests.rs`, `system_session_tests.rs`, `membership_tests.rs`, `report_asked_tests.rs` |
+| `tests/utils/owner_thread_tests.rs` | `tests/utils/system_thread_tests.rs` |
+| `tests/bdd.rs`, the owner's steps | `tests/bdd.rs`, with its 16 steps; the frontend's `tests/bdd.rs` is written anew: its step modules, `Steps { ran }` and `main` |
+| `features/client-endpoint/owner.feature`, `features/partitions/placement.feature`, `features/transactions/sessions.feature` | the same paths |
+
+New files of the crate, each with the repository's header: `Cargo.toml` (`[lints] workspace = true`, the `test-utils`
+feature, `[[test]] unit` and `[[test]] bdd`), `BUILD.bazel` (the library with `crate_features = ["test-utils"]`, `doc`,
+the unit `rust_test` rooted at `tests/mod.rs` tagged `unit-test`, the `bdd` target tagged `bdd-test` with the features
+as data), `src/lib.rs` (what the crate is, and its planes), `src/types/mod.rs`, `src/utils/mod.rs`,
+`src/utils_test/mod.rs`, `tests/mod.rs`, `tests/types/mod.rs`, `tests/utils/mod.rs`.
+
+`common_system` names no item of `common_frontend` (`grep -rn common_frontend ultragraphdb_common/ultragraphdb_common_system`
+finds nothing). `common_frontend` depends on `common_system` and imports `SystemHandle`, `TenantFacts` and `DropStep` from
+it; `EndpointCore::owner` returns the `SystemHandle`. Its dependencies are otherwise unchanged: those the move left unused
+in its `src/` (`traits_log`, `transactions_log`, `error_cluster`, `traits_catalog`; `cluster_metadata`,
+`cluster_sequencer`, `core_catalog` and `common_service_config` are named by its tests alone) go in task 5.5, as
+`tasks.md` has it. The frontend binary imports the moved items from `common_system` and depends on it;
+`ultragraphdb_tool_bench`'s owner check (`src/utils/owner_run.rs`) depends on `common_system` in place of
+`common_frontend`, which it no longer names. `Cargo.lock` takes the new package and the four new edges, and no version.
+`AGENTS.md`: the new crate's row, the `common_frontend`, `ultragraphdb_frontend` and `ultragraphdb_tool_bench` rows
+brought to it, and `common_system` among the users of `futures`, `getrandom`, `oxrdf` and `compio`.
+
+Left on disk, not deleted: the three directories the moves emptied, `ultragraphdb_common_frontend/src/types/owner/`,
+`tests/types/owner/` and `features/partitions/`. Git tracks none of them; removing them is the user's call.
+
+The tests in the frontend that start the group (`tests/endpoint_stage.rs`, `tests/types/client_session_tests.rs`,
+`tests/types/joined_roles_tests.rs`, `tests/tightening_steps.rs`) changed their imports and the renamed names alone.
+
+| Target | Before the move | After the move |
+|---|---|---|
+| `common_frontend:ultragraphdb_common_frontend_tests` | 97 passed | 56 passed |
+| `common_system:ultragraphdb_common_system_tests` | | 41 passed |
+| Unit tests, sum | 97 | 97 |
+| `common_frontend:bdd` | 135 scenarios, 270 steps passed | 127 scenarios, 254 steps passed |
+| `common_system:bdd` | | 8 scenarios, 16 steps passed |
+| BDD, sum | 135 scenarios, 270 steps | 135 scenarios, 270 steps |
+| `ultragraphdb_tool_bench` targets | pass | pass |
+| Clippy aspect, the workspace table and the five lints, over `common_system` | | library and unit tests clean; the `bdd` target reports the aspect's two known limits (`indexing_slicing` in a test, an `#[expect]` fulfilled under the repository's `clippy.toml`), as the frontend's did |
+| `make build` | passes | passes |
+
+## The gates
+
+**Over 3.1, 3.2 (a) and 3.2 (b)**, before `e32306f5`: `make build` passed; `bazel test //...
+--test_tag_filters=-integration_test` passed, 148 targets; `make test` failed one integration scenario, "The frontend
+serves clients on every core" (`ultragraphdb_tests`, 201 of 202 in its first set), 15 runtimes logged against 16 CPUs.
+That came of `fe27ebff`, an ancestor of the base, where the role's first runtime stopped logging `core=0`; the user's
+commit `e32306f5` restored the line.
+
+**At the end, over 3.2 (c) and 3.3**, on HEAD `e32306f5`:
 
 | Gate | Result |
 |---|---|
 | `make build` | passes |
-| `bazel test //... --test_tag_filters=-integration_test` | 148 targets, all pass |
-| `make test` | build, doc (20), unit (79), property (5), Loom (5) and BDD (39) targets pass; integration: 6 of 7 targets pass, `//ultragraphdb/ultragraphdb_tests:bdd` fails one scenario of 202 |
+| `bazel test //... --test_tag_filters=-integration_test` | 150 targets (148 and the new crate's two), all pass |
+| `make test` | passes in full: doc 20, unit 80, property 5, Loom 5 and BDD 40 targets; integration 7 of 7 |
 
-Integration counts: `compute_tests:bdd` 88 scenarios, `config_tests:bdd` 44, `frontend_tests:bdd` 20,
-`storage_tests:bdd` 98, `supervisor_tests:bdd` 28, `supervisor_tests:image_bdd` 7, all passed; `ultragraphdb_tests:bdd`
-202 scenarios (201 passed, 1 failed), then 10, 36, 38 and 36, all passed.
-
-The failure, reproduced on a second run: "The frontend serves clients on every core"
-(`ultragraphdb/ultragraphdb_tests/features/client-endpoint/processes.feature:13`), step
-`ultragraphdb/ultragraphdb_tests/tests/own_steps.rs:260`, `assertion left == right failed: a runtime per CPU: [1, 2, …,
-15]`, 15 against 16. It does not come of this run's change; it stands at `e7545937`. The step counts the distinct `core=`
-values of the frontend's "a runtime on the … driver" lines and expects one per CPU. Since `fe27ebff` (an ancestor of
-`e7545937`), the role's first runtime is built by `role_runtime` and logs "the role's first runtime on the … driver"
-with no `core` field, where it was `core_runtime(config, 0)` logging `core=0`
-(`ultragraphdb_common/ultragraphdb_common_service/src/utils/run_service.rs:316-332`). What is left logs core 1 (the
-owner, `utils/owner_thread.rs`, `OWNER_CORE`) and cores 1 to 15 (the endpoint cores, `ultragraphdb_frontend`'s
-`start_cores`): 15 values on this 16-CPU machine. This run changed none of those lines. That it fails at `e7545937` was
-established from the code and its history, not by a run at that commit, since a run there needs a second checkout and a
-full build.
+Integration scenarios: `compute_tests:bdd` 88, `config_tests:bdd` 44, `frontend_tests:bdd` 20, `storage_tests:bdd` 98,
+`supervisor_tests:bdd` 28, `supervisor_tests:image_bdd` 7, `ultragraphdb_tests:bdd` 202, 10, 36, 38 and 36; all passed.

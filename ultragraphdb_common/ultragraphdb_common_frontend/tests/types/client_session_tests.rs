@@ -11,13 +11,14 @@ use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
     AskedCredentials, AuthThrottle, ClientSession, EndpointCore, EndpointLimits,
-    EveryAuthenticated, LoginLimits, OwnerHandle, OwnerStart, RoleDouble, RoleLinks, TenantGate,
-    batch_frame, empty_batch, last_frame, partition_answer, start_owner,
+    EveryAuthenticated, LoginLimits, RoleDouble, RoleLinks, TenantGate, batch_frame, empty_batch,
+    last_frame, partition_answer,
 };
 use ultragraphdb_common_role::{
     Answer, OpenRequests, RoleClient, RoleCluster, RoleSecret, Server, listen, serve_connection,
 };
 use ultragraphdb_common_service_config::ServiceConfig;
+use ultragraphdb_common_system::{SystemHandle, SystemStart, start_system};
 use ultragraphdb_core_ids::{Epoch, SessionToken};
 use ultragraphdb_protocol_scram::{Credentials, ScramVerifier};
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportErrorEnum};
@@ -36,7 +37,7 @@ fn directory(name: &str) -> PathBuf {
 }
 
 /// A client endpoint over `owner` at a free port; its address.
-async fn endpoint(owner: OwnerHandle) -> TestResult<Address> {
+async fn endpoint(owner: SystemHandle) -> TestResult<Address> {
     let limits = EndpointLimits::new(1 << 22, Duration::from_secs(30));
     endpoint_within(owner, LoginLimits::default(), limits).await
 }
@@ -44,7 +45,7 @@ async fn endpoint(owner: OwnerHandle) -> TestResult<Address> {
 /// A client endpoint over `owner` of `limits` at a free port, each connection admitted by a throttle of `logins` first as the
 /// frontend admits it; its address.
 async fn endpoint_within(
-    owner: OwnerHandle,
+    owner: SystemHandle,
     logins: LoginLimits,
     limits: EndpointLimits,
 ) -> TestResult<Address> {
@@ -97,12 +98,13 @@ fn test_authentication_asks_the_owner_for_the_verifier() -> TestResult {
         std::fs::remove_dir_all(&data)?;
     }
     Runtime::new()?.block_on(async {
-        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let start = SystemStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
         let principals = vec![(
             "alice".to_string(),
             ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
         )];
-        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let owner =
+            start_system(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
         let address = endpoint(owner.handle().clone()).await?;
         let mut alice = RoleClient::dial(&address, CLUSTER, "alice", "pw").await?;
         let asked = alice
@@ -170,12 +172,13 @@ fn test_a_source_past_its_failures_is_banned_until_its_ban_ends() -> TestResult 
     }
     let ban = Duration::from_millis(500);
     Runtime::new()?.block_on(async {
-        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let start = SystemStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
         let principals = vec![(
             "alice".to_string(),
             ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
         )];
-        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let owner =
+            start_system(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
         let limits = EndpointLimits::new(1 << 22, Duration::from_secs(30));
         let address =
             endpoint_within(owner.handle().clone(), LoginLimits::new(1, 1, ban), limits).await?;
@@ -234,7 +237,7 @@ async fn until(what: &str, holds: impl Fn() -> bool) -> TestResult {
 /// A client endpoint over `owner` reaching the roles through `links`, its connections and its sessions counted in `open`, at a
 /// free port: its address.
 async fn counted_endpoint(
-    owner: OwnerHandle,
+    owner: SystemHandle,
     links: RoleLinks,
     open: OpenRequests,
 ) -> TestResult<Address> {
@@ -270,7 +273,7 @@ async fn counted_endpoint(
 }
 
 /// A client endpoint over `owner` reaching the roles through `links`, at a free port: its address.
-async fn endpoint_over(owner: OwnerHandle, links: RoleLinks) -> TestResult<Address> {
+async fn endpoint_over(owner: SystemHandle, links: RoleLinks) -> TestResult<Address> {
     counted_endpoint(owner, links, OpenRequests::default()).await
 }
 
@@ -295,12 +298,13 @@ fn test_a_relayed_commit_stays_open_until_its_reply_leaves() -> TestResult {
         std::fs::remove_dir_all(&data)?;
     }
     Runtime::new()?.block_on(async {
-        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let start = SystemStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
         let principals = vec![(
             "alice".to_string(),
             ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
         )];
-        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let owner =
+            start_system(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
         let file = directory("relayed-secret");
         std::fs::write(&file, "a role secret")?;
         let cluster = RoleCluster::new(
@@ -365,12 +369,13 @@ fn test_a_relayed_read_stays_open_until_its_last_leaves() -> TestResult {
         std::fs::remove_dir_all(&data)?;
     }
     Runtime::new()?.block_on(async {
-        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let start = SystemStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
         let principals = vec![(
             "alice".to_string(),
             ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
         )];
-        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let owner =
+            start_system(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
         let file = directory("read-open-secret");
         std::fs::write(&file, "a role secret")?;
         let cluster = RoleCluster::new(
@@ -434,12 +439,13 @@ fn test_a_relayed_one_frame_write_and_drop_are_each_open() -> TestResult {
         std::fs::remove_dir_all(&data)?;
     }
     Runtime::new()?.block_on(async {
-        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let start = SystemStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
         let principals = vec![(
             "alice".to_string(),
             ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
         )];
-        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let owner =
+            start_system(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
         let file = directory("writes-open-secret");
         std::fs::write(&file, "a role secret")?;
         let cluster = RoleCluster::new(
@@ -494,12 +500,13 @@ fn test_a_refusal_naming_a_term_past_the_client_s_frame_fits_it() -> TestResult 
         std::fs::remove_dir_all(&data)?;
     }
     Runtime::new()?.block_on(async {
-        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let start = SystemStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
         let principals = vec![(
             "alice".to_string(),
             ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
         )];
-        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let owner =
+            start_system(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
         let address = endpoint(owner.handle().clone()).await?;
         // 2^19, lossless.
         let mut alice =
@@ -556,12 +563,13 @@ fn test_a_connection_holds_the_default_count_of_statements() -> TestResult {
         std::fs::remove_dir_all(&data)?;
     }
     Runtime::new()?.block_on(async {
-        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let start = SystemStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
         let principals = vec![(
             "alice".to_string(),
             ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
         )];
-        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let owner =
+            start_system(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
         let file = directory("statements-secret");
         std::fs::write(&file, "a role secret")?;
         let cluster = RoleCluster::new(
@@ -626,12 +634,13 @@ fn test_a_token_of_an_opened_epoch_is_served() -> TestResult {
         std::fs::remove_dir_all(&data)?;
     }
     Runtime::new()?.block_on(async {
-        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let start = SystemStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
         let principals = vec![(
             "alice".to_string(),
             ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
         )];
-        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let owner =
+            start_system(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
         let handle = owner.handle().clone();
         // Two closes past, the epoch the second opened is above both 0 and 1, and at most the open epoch however many closes
         // follow.

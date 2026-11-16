@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
-use ultragraphdb_common_frontend::{OwnerStart, start_owner};
 use ultragraphdb_common_service_config::ServiceConfig;
+use ultragraphdb_common_system::{SystemStart, start_system};
 use ultragraphdb_protocol_wire::ErrorReply;
 
 use crate::errors::bench_error::BenchError;
@@ -51,11 +51,11 @@ pub fn run_owner(args: &OwnerArgs) -> Result<String, BenchError> {
     let (least, most) = args.epoch_ms();
     let sequencer =
         SequencerConfig::new(least, most).map_err(|e| BenchError::usage(e.to_string()))?;
-    let start = OwnerStart::new(MetadataConfig::new(), sequencer, 1)
+    let start = SystemStart::new(MetadataConfig::new(), sequencer, 1)
         .with_bootstrap_file(password.display().to_string());
     let runtime = compio::runtime::Runtime::new()?;
     let checks_us = runtime.block_on(async {
-        let owner = start_owner(
+        let owner = start_system(
             ServiceConfig::default(),
             CLUSTER,
             args.dir().join("data"),
