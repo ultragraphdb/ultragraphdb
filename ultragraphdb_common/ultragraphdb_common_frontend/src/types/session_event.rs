@@ -19,11 +19,11 @@ pub enum SessionEvent {
         /// What it said.
         event: LinkEvent,
     },
-    /// The owner's placement map, asked for after a refusal naming another owner: what the request of `stream` waits for.
+    /// The system group's placement map, asked for after a refusal naming another owner: what the request of `stream` waits for.
     Map {
         /// The client's stream.
         stream: u64,
-        /// The map; `None` when the owner stopped or holds none.
+        /// The map; `None` when the system group could not be asked.
         map: Option<PlacementMap>,
     },
     /// The catalog version a declaring Commit of `stream` asked for took effect, or was refused.
@@ -40,11 +40,16 @@ pub enum SessionEvent {
         /// The refusal, if any.
         outcome: Result<(), ErrorReply>,
     },
-    /// Whether the registry still holds the session of the retried Commit of `stream`.
-    SessionHeld {
+    /// Members was read again for the read of `read`, which found no compute process left.
+    MembersRead {
+        /// The read's stream.
+        read: u64,
+    },
+    /// The second Check of kind 1 of the retried Commit of `stream`, every partition having answered 18 (`PROTOCOL.md` §11.5).
+    SecondCheck {
         /// The client's stream.
         stream: u64,
-        /// Whether it does.
-        held: bool,
+        /// Its outcome: passed, or the refusal it gave.
+        outcome: Result<(), ErrorReply>,
     },
 }

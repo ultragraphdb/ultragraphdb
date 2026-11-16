@@ -23,6 +23,7 @@ use crate::types::destination::Destination;
 use crate::types::link_event::LinkEvent;
 use crate::types::queued::Queued;
 use crate::types::route_key::RouteKey;
+use crate::utils::declare_bound::declare_fits;
 use crate::utils::iri_place::{IriPlace, iri_place};
 use crate::utils::term_rules::{check_change, check_operation, check_table};
 
@@ -297,6 +298,15 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             }
             txn.declared.push(declared.clone());
         }
+        // A Declare is one frame: declarations past what it holds within the link's `max_frame` end the transaction with
+        // code 6 (`PROTOCOL.md` §11.13, *A new version*).
+        declare_fits(
+            txn.tenant,
+            txn.catalog,
+            self.principal,
+            &txn.declared,
+            self.core.system().max_frame(),
+        )?;
         Ok(true)
     }
 

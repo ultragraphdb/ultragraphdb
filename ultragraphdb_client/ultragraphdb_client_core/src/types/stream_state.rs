@@ -9,13 +9,14 @@ use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use ultragraphdb_protocol_transport::ReceivedFrame;
-use ultragraphdb_protocol_wire::{Command, FLAG_LAST};
+use ultragraphdb_protocol_wire::{Command, DescribeFrames, FLAG_LAST};
 
 use crate::errors::client_error::ClientError;
 
 /// One open stream of the connection: the request waiting on it for its one reply, the transaction it carries, the
 /// result being read on it with its frames arrived, its credit and the frame buffers it may hold, the transaction a read's
-/// stream runs in, the refusal it ended with, a read's last progress, and the transaction's reads' deadline.
+/// stream runs in, the refusal it ended with, a read's last progress, the transaction's reads' deadline, and the frames of a
+/// Describe's answer taken so far.
 #[derive(Debug, Default)]
 pub(crate) struct StreamState {
     pub pending: Option<u64>,
@@ -33,6 +34,9 @@ pub(crate) struct StreamState {
     pub with_caller: bool,
     /// What the core keeps of a read's handle ([`crate::ResultStream`]).
     pub handle: Option<Arc<AtomicBool>>,
+    /// A Describe's answer continued across frames (`PROTOCOL.md` §8.3, *Continuation*): the frames taken before its
+    /// last, read as one body once the last arrives.
+    pub describe: Option<Box<DescribeFrames>>,
 }
 
 impl StreamState {

@@ -21,8 +21,6 @@ workspace = true
 [dependencies]
 compio = { workspace = true }
 tracing = { workspace = true }
-ultragraphdb_cluster_metadata = { workspace = true }
-ultragraphdb_cluster_sequencer = { workspace = true }
 ultragraphdb_common_role = { workspace = true }
 ultragraphdb_common_service_config = { workspace = true }
 ultragraphdb_error_role = { workspace = true }
@@ -32,7 +30,6 @@ ultragraphdb_transport_tls = { workspace = true }
 mimalloc = { workspace = true }
 ultragraphdb_common_service = { workspace = true }
 ultragraphdb_common_frontend = { workspace = true }
-ultragraphdb_common_system = { workspace = true }
 
 [dev-dependencies]
 

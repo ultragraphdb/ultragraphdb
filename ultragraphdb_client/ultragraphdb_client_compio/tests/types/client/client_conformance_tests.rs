@@ -142,7 +142,7 @@ fn conversation_script(golden_server: &mut Golden) -> TestResult {
     for step in [
         Step::any().reply(golden("register")?),
         Step::expect("prepare").reply(golden("prepare_reply")?),
-        Step::expect("describe").reply(golden("describe_reply")?),
+        Step::expect("describe").reply(last_of(golden("describe_reply")?)),
         Step::any().reply(writable()?),
         Step::any().reply(golden("begin")?),
         Step::expect("read")
@@ -393,6 +393,16 @@ fn test_every_golden_frame_crosses_the_shell_over_a_plain_split_and_delayed_netw
         assert_eq!((server.steps_left(), server.connections()), (0, 1));
     }
     Ok(())
+}
+
+/// `frame` flagged `LAST`, its header's checksum recomputed: a Describe's last frame carries `LAST` (`PROTOCOL.md` §8.3,
+/// *Continuation*; §11.2), and the golden `describe_reply` holds flags 0.
+fn last_of(mut frame: Vec<u8>) -> Vec<u8> {
+    // Byte 65 holds the header's flags, bit 0 `LAST` (`PROTOCOL.md` §2.1).
+    frame[65] |= 1;
+    let checksum = xxhash_rust::xxh3::xxh3_64(&frame[8..256]);
+    frame[..8].copy_from_slice(&checksum.to_le_bytes());
+    frame
 }
 
 /// RFC 7677 §3's client nonce, the one the golden Authenticate exchange was made with.

@@ -174,6 +174,11 @@ impl RoleDouble {
         self.connections.borrow_mut().clear();
     }
 
+    /// Closes every connection it accepted and goes on listening, as a process whose connections were cut does.
+    pub fn drop_connections(&self) {
+        self.connections.borrow_mut().clear();
+    }
+
     /// Stops reading its one connection past the frame it is reading now, and goes on sending what it answers.
     pub fn stop_reading(&self) {
         self.reading.hold(1);

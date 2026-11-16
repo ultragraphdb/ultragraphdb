@@ -6,7 +6,7 @@
 use futures::StreamExt;
 use futures::future::join;
 use ultragraphdb_common_role::{Answer, ParkedBytes, Push, Session};
-use ultragraphdb_protocol_scram::{MECHANISM, ScramServer};
+use ultragraphdb_protocol_scram::{MECHANISM, system_nonce};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
 
@@ -19,24 +19,56 @@ use crate::types::route_key::RouteKey;
 use crate::types::session_event::SessionEvent;
 
 impl<A: Authorizer + Clone> Session for ClientSession<A> {
-    /// Asks the owner for the name's verifier and the throttle how long the failures of its source call for, both by message, and
-    /// waits that long (design D15).
-    /// A future dropped at the answers or at the delay leaves the credentials unanswered, which fails the exchange.
-    async fn authenticating(&mut self, first: &[u8]) {
-        // A malformed message asks for nothing, and the machine refuses it.
-        let Ok(name) = ScramServer::name_in(first) else {
-            return;
-        };
-        let (held, delay) = join(
-            self.core.owner().verifier(name.clone()),
-            self.core.logins().delay(self.peer),
-        )
-        .await;
-        if !delay.is_zero() {
-            compio::time::sleep(delay).await;
+    /// Relays the exchange's step `step` to the system group (design D8): the client-first-message's name in a Challenge, asked
+    /// beside the throttle's delay for the source, which it then waits; the client-final-message's AuthMessage and proof in a
+    /// Verify. The answer is prepared for the connection's machine. A step the system group cannot be asked for ends the
+    /// connection with code 17, counting no failure (`PROTOCOL.md` §11.12, *While the system group cannot be reached*).
+    /// A future dropped at an answer or at the delay leaves the step unprepared, which fails the exchange.
+    async fn authenticating_step(&mut self, step: u32, message: &[u8]) -> Result<(), ErrorReply> {
+        if step == 0 {
+            let Ok(nonce) = system_nonce() else {
+                self.relay.refused();
+                return Ok(());
+            };
+            let Ok(name) = self.relay.first(message, &nonce) else {
+                self.relay.refused();
+                return Ok(());
+            };
+            self.asked_name = Some(name.clone());
+            let (asked, delay) = join(
+                self.core.system().challenge(&name),
+                self.core.logins().delay(self.peer),
+            )
+            .await;
+            match asked {
+                Ok((iterations, salt)) => {
+                    if !delay.is_zero() {
+                        compio::time::sleep(delay).await;
+                    }
+                    self.relay.challenged(&salt, iterations);
+                }
+                Err(refusal) if refusal.code() == ErrorCode::Unavailable => return Err(refusal),
+                Err(_) => self.relay.refused(),
+            }
+            return Ok(());
         }
-        self.credentials.answered(name.clone(), held);
-        self.asked_name = Some(name);
+        let (Ok((auth_message, proof)), Some(name)) = (self.relay.last(message), self.relay.name())
+        else {
+            self.relay.refused();
+            return Ok(());
+        };
+        match self
+            .core
+            .system()
+            .verify(&name, &auth_message, &proof)
+            .await
+        {
+            Ok(Some((principal, signature))) => self.relay.verified(principal, &signature),
+            Ok(None) => self.relay.refused(),
+            Err(refusal) if refusal.code() == ErrorCode::Unavailable => return Err(refusal),
+            Err(_) => self.relay.refused(),
+        }
+        Ok(())
     }
 
     fn authenticated(&mut self, principal: u64) {
@@ -99,6 +131,9 @@ impl<A: Authorizer + Clone> Session for ClientSession<A> {
     }
 
     fn cancelled(&mut self, stream: u64) {
+        if self.describes.remove(&stream).is_some() {
+            return;
+        }
         if self.transactions.contains_key(&stream) {
             self.abort(stream);
         } else if self.reads.contains_key(&stream) {
@@ -110,19 +145,23 @@ impl<A: Authorizer + Clone> Session for ClientSession<A> {
                 Some((link, relayed)) if one.session != 0 => {
                     link.hold(
                         *relayed,
-                        CommitHold::new(self.core.owner_weak(), one.session),
+                        CommitHold::new(self.core.system().clone(), one.session),
                     );
                 }
                 Some((link, relayed)) => {
                     let _unopened = link.forget(*relayed);
                 }
-                None if one.session != 0 => self.core.owner().commit_ended(one.session),
+                None if one.session != 0 => self.core.system().ended(one.session.to_be_bytes()),
                 None => {}
             }
         }
     }
 
     fn credited(&mut self, stream: u64, frames: u32) {
+        if self.describes.contains_key(&stream) {
+            self.describe_credited(stream, frames);
+            return;
+        }
         self.read_credited(stream, frames);
     }
 }
@@ -134,7 +173,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             SessionEvent::Map { stream, map } => self.map_refreshed(stream, map),
             SessionEvent::Declared { stream, outcome } => self.declared(stream, outcome),
             SessionEvent::DropCatalog { stream, outcome } => self.drop_catalog(stream, outcome),
-            SessionEvent::SessionHeld { stream, held } => self.recall_session(stream, held),
+            SessionEvent::SecondCheck { stream, outcome } => self.recall_session(stream, outcome),
+            SessionEvent::MembersRead { read } => self.members_read(read),
         }
     }
 
@@ -165,7 +205,7 @@ impl<A> Drop for ClientSession<A> {
     /// A connection that closes aborts its open transactions: their Bind streams and reads cancelled. Its commits already relayed
     /// proceed, each session held in flight until its partition's stream ends, so a full registry does not evict it first.
     fn drop(&mut self) {
-        let owner = self.core.owner();
+        let owner = self.core.system();
         for transaction in self.transactions.values() {
             let route = match &transaction.bind {
                 BindState::Bound { link, stream, .. } | BindState::Binding { link, stream, .. } => {
@@ -177,7 +217,7 @@ impl<A> Drop for ClientSession<A> {
                 (Some((link, stream)), true) if transaction.session_held != 0 => {
                     link.hold(
                         stream,
-                        CommitHold::new(self.core.owner_weak(), transaction.session_held),
+                        CommitHold::new(self.core.system().clone(), transaction.session_held),
                     );
                     continue;
                 }
@@ -185,7 +225,7 @@ impl<A> Drop for ClientSession<A> {
                 (Some(_) | None, _) => {}
             }
             if transaction.session_held != 0 {
-                owner.commit_ended(transaction.session_held);
+                owner.ended(transaction.session_held.to_be_bytes());
             }
         }
         for read in self.reads.values() {
@@ -198,13 +238,13 @@ impl<A> Drop for ClientSession<A> {
                 Some((link, stream)) if one.session != 0 => {
                     link.hold(
                         *stream,
-                        CommitHold::new(self.core.owner_weak(), one.session),
+                        CommitHold::new(self.core.system().clone(), one.session),
                     );
                 }
                 Some((link, stream)) => {
                     let _unopened = link.forget(*stream);
                 }
-                None if one.session != 0 => owner.commit_ended(one.session),
+                None if one.session != 0 => owner.ended(one.session.to_be_bytes()),
                 None => {}
             }
         }
@@ -212,18 +252,15 @@ impl<A> Drop for ClientSession<A> {
             if dropping.sent && dropping.session != 0 {
                 dropping.link.hold(
                     dropping.stream,
-                    CommitHold::new(self.core.owner_weak(), dropping.session),
+                    CommitHold::new(self.core.system().clone(), dropping.session),
                 );
                 continue;
             }
             // Its Bind stream is let go at the partition, as a transaction's is.
             dropping.link.cancel(dropping.stream);
             if dropping.session != 0 {
-                owner.commit_ended(dropping.session);
+                owner.ended(dropping.session.to_be_bytes());
             }
-        }
-        for recall in self.recalls.values() {
-            owner.commit_ended(recall.session);
         }
     }
 }

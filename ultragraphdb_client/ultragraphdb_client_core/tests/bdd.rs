@@ -15,9 +15,9 @@ use ultragraphdb_client_core::{
 };
 use ultragraphdb_protocol_transport::{Anonymous, Login, NetworkFaults};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, ColumnType, Command, CommitView, ErrorCode, Execute, FLAG_LAST,
-    FrameView, Header, MAX_FRAME_SIZE, PatternSlot, Prepare, QuadPattern, Read, ResultBatch,
-    ResultTerm, TermTable, Welcome,
+    BodyBuilder, BodyView, ColumnType, Command, CommitView, Describe, ErrorCode, Execute,
+    FLAG_LAST, FrameView, Header, MAX_FRAME_SIZE, PatternSlot, Prepare, QuadPattern, Read,
+    ResultBatch, ResultTerm, TermTable, Welcome,
 };
 
 /// The unit tests' harness, shared by path: each target uses a part of it.
@@ -27,6 +27,8 @@ pub mod utils {
 }
 
 /// The steps of the scenarios of the client's requests and outcomes, a file per feature.
+#[path = "bdd_steps/describe_steps.rs"]
+mod describe_steps;
 #[path = "bdd_steps/in_doubt_steps.rs"]
 mod in_doubt_steps;
 #[path = "bdd_steps/read_steps.rs"]
@@ -53,6 +55,7 @@ pub(crate) struct Steps {
     numbers: Vec<u64>,
     outcomes: Vec<Result<(), ClientError>>,
     harness: Option<Harness>,
+    describes: Vec<Describe>,
     transaction: Option<Transaction>,
     session: Option<Session>,
     stream: Option<ResultStream>,

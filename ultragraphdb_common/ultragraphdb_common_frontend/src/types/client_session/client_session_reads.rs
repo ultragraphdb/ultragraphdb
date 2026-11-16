@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use compio::runtime::spawn;
 use ultragraphdb_common_role::Answer;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Command, ComputeRead, DETAIL_TRANSACTION_NOT_HELD, ErrorCode,
@@ -18,6 +19,7 @@ use crate::types::client_read::ClientRead;
 use crate::types::link_event::LinkEvent;
 use crate::types::queued::Queued;
 use crate::types::route_key::RouteKey;
+use crate::types::session_event::SessionEvent;
 use crate::utils::iri_place::{IriPlace, iri_place};
 use crate::utils::term_rules::{binds_nobody, check_pattern, check_table};
 
@@ -130,6 +132,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 tried: Vec::new(),
                 frames: 0,
                 last_frame: now(),
+                members_read: false,
             },
         );
         if let Some(open) = self.transactions.get_mut(&transaction) {
@@ -247,6 +250,11 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return;
         };
         let Some((address, link)) = self.core.links().next_compute(&state.tried) else {
+            if !state.members_read {
+                // Members is read again before a read is refused for want of a compute process (design D9).
+                self.members_again(read);
+                return;
+            }
             let refusal = ErrorReply::new(ErrorCode::Unavailable, "no compute process answers");
             self.refuse_read(read, &refusal);
             return;
@@ -282,6 +290,31 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             sent.tried.push(address);
             sent.last_frame = now();
         }
+    }
+
+    /// Reads Members again for `read`, which is dispatched once it is read, or refused then if no compute process is left.
+    fn members_again(&mut self, read: u64) {
+        if let Some(state) = self.reads.get_mut(&read) {
+            state.members_read = true;
+        }
+        let system = self.core.system().clone();
+        let events = self.events_in.clone();
+        spawn(async move {
+            if let Err(refusal) = system.members().await {
+                tracing::debug!(
+                    reason = refusal.message(),
+                    "Members could not be read for a read"
+                );
+            }
+            // A session gone has no one to tell.
+            drop(events.unbounded_send(SessionEvent::MembersRead { read }));
+        })
+        .detach();
+    }
+
+    /// Members was read again for `read`: it goes to the next compute process.
+    pub(super) fn members_read(&mut self, read: u64) {
+        self.dispatch_read(read);
     }
 
     /// Answers `read` with `refusal`, which ends it.

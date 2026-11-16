@@ -148,6 +148,11 @@ impl Server {
         let nonces = move || system_nonce().unwrap_or_else(|_| fallback.clone());
         let authenticator = ScramAuthenticator::new(credentials, nonces, self.unknown)
             .with_iterations(self.iterations);
+        Some(self.machine_of(authenticator, at))
+    }
+
+    /// The machine of a connection accepted at `at`, authenticating through `authenticator`.
+    fn machine_of<A: Authenticator>(&self, authenticator: A, at: Instant) -> ServerConnection<A> {
         // The default limits are a client's. A role connection carries what the frontend already bounded on its clients'
         // connections, so a role endpoint announces the protocol's largest frame and its most streams (`PROTOCOL.md` §11.12).
         let limits =
@@ -161,12 +166,12 @@ impl Server {
         };
         let connection = ServerConnection::new(self.cluster, welcome, authenticator, at)
             .with_endpoint(self.endpoint);
-        Some(if self.endpoint == Endpoint::Client {
+        if self.endpoint == Endpoint::Client {
             connection
         } else {
             // A role connection may rest between requests for as long as a Subscribe's closes take.
             connection.with_limits(AUTHENTICATION_TIMEOUT, Duration::MAX)
-        })
+        }
     }
 }
 
@@ -177,7 +182,7 @@ impl Server {
 /// A dropped future ends the connection as a failing stream does, without its shutdown: a frame read or written in part is
 /// cut, `session` is dropped with what it holds, and the connection's place under the server's bound and its open
 /// request are let go.
-pub async fn serve_connection<S, C, H>(stream: S, server: &Server, credentials: C, mut session: H)
+pub async fn serve_connection<S, C, H>(stream: S, server: &Server, credentials: C, session: H)
 where
     S: Splittable,
     S::ReadHalf: AsyncRead,
@@ -189,6 +194,42 @@ where
         tracing::warn!("no nonce could be drawn for a connection");
         return;
     };
+    serve_machine(stream, server, machine, session).await;
+}
+
+/// Serves one connection as [`serve_connection`] does, its authentication run by `authenticator` in place of credentials held
+/// here: the frontend's client endpoint, which relays each exchange to the system group (`PROTOCOL.md` §11.1).
+///
+/// A dropped future ends the connection as [`serve_connection`] says.
+pub async fn serve_connection_with<S, A, H>(
+    stream: S,
+    server: &Server,
+    authenticator: A,
+    session: H,
+) where
+    S: Splittable,
+    S::ReadHalf: AsyncRead,
+    S::WriteHalf: AsyncWrite,
+    A: Authenticator,
+    H: Session,
+{
+    let machine = server.machine_of(authenticator, now());
+    serve_machine(stream, server, machine, session).await;
+}
+
+/// Serves one connection by `machine`. A dropped future ends it as [`serve_connection`] says.
+async fn serve_machine<S, A, H>(
+    stream: S,
+    server: &Server,
+    machine: ServerConnection<A>,
+    mut session: H,
+) where
+    S: Splittable,
+    S::ReadHalf: AsyncRead,
+    S::WriteHalf: AsyncWrite,
+    A: Authenticator,
+    H: Session,
+{
     // Held until the connection ends, whichever way it goes on from here.
     let held = server.bound.as_ref().map(ConnectionBound::enter);
     let mut machine = match &held {
@@ -351,9 +392,17 @@ where
         && view.command() == Command::Authenticate
         && view.header().stream() == 0
         && let Ok(message) = AuthenticateView::from_frame(&view)
-        && message.step() == 0
     {
-        session.authenticating(message.message()).await;
+        if message.step() == 0 {
+            session.authenticating(message.message()).await;
+        }
+        if let Err(refusal) = session
+            .authenticating_step(message.step(), message.message())
+            .await
+        {
+            let _closing = machine.close_connection(&refusal)?;
+            return Ok(());
+        }
     }
     let credit = received.view().ok().and_then(|view| {
         (view.command() == Command::Credit)

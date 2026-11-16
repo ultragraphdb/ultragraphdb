@@ -341,15 +341,19 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         self.refresh_map(transaction);
     }
 
-    /// Asks the owner for the placement map; `stream`'s request waits for it.
+    /// Asks the system group for the placement map; `stream`'s request waits for it.
     pub(super) fn refresh_map(&mut self, stream: u64) {
         if let Some(txn) = self.transactions.get_mut(&stream) {
             txn.awaiting_map = true;
         }
-        let owner = self.core.owner().clone();
+        let system = self.core.system().clone();
+        let links = self.core.links().clone();
         let events = self.events_in.clone();
         spawn(async move {
-            let map = owner.map().await;
+            let map = match system.read_placement().await {
+                Ok(()) => links.map(),
+                Err(_) => None,
+            };
             // A session gone has no one to tell.
             drop(events.unbounded_send(SessionEvent::Map { stream, map }));
         })

@@ -7,7 +7,6 @@ use std::num::NonZeroU32;
 use std::time::Duration;
 
 use compio::runtime::{Runtime, spawn};
-use futures::channel::mpsc::unbounded;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_role::{
@@ -109,10 +108,9 @@ fn test_a_subscription_past_the_closes_held_ends_with_an_error() -> TestResult {
     })
 }
 
-/// What the role sessions over `owner` of `cluster` share, the joins they tell taken by no one.
+/// What the role sessions over `owner` of `cluster` share.
 fn shared_of(cluster: RoleCluster, owner: SystemHandle) -> SystemShared {
-    let (joins, _joined) = unbounded();
-    SystemShared::new(cluster, owner, joins)
+    SystemShared::new(cluster, owner)
 }
 
 /// The role cluster whose secret is in a file under `data`.

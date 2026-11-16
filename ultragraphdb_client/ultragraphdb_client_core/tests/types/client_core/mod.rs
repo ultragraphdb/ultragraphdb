@@ -14,6 +14,8 @@ mod client_core_conformance_tests;
 #[cfg(test)]
 mod client_core_debug_tests;
 #[cfg(test)]
+mod client_core_describe_tests;
+#[cfg(test)]
 mod client_core_faults_tests;
 #[cfg(test)]
 mod client_core_lost_tests;

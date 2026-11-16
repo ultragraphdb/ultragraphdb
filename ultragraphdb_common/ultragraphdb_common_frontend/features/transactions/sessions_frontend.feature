@@ -36,10 +36,6 @@ Feature: Exactly-once commits, the frontend's side
     When a DirectWrite through a session is answered code 17, the partition had not committed it, and the client sends it again
     Then the frontend relays it, not recalls it, the partition commits it, and the reply carries its commit version
 
-  Scenario: A token above the open epoch is refused
-    When the sequencer's open epoch is 30, and a Begin, a DirectWrite and a ConditionalWrite each carry a token of epoch 31
-    Then each is refused with Error 1 on its stream, the message naming epoch 31
-
   Scenario: A write reaching two partitions is refused
     When a DirectWrite writes subjects of partitions 1 and 2
     Then the frontend refuses it with code 23 before any relay, and neither is held

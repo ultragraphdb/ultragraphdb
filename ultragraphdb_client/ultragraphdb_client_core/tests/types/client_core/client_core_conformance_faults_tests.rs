@@ -30,7 +30,7 @@ use ultragraphdb_protocol_wire::{
 };
 
 use crate::types::client_core::client_core_conformance_tests::{
-    golden, numbered, restream, stream_of, view,
+    golden, golden_reply, numbered, restream, stream_of, view,
 };
 use crate::utils::harness::{
     CLUSTER, RELEASE, begun, committed, described, dropped, frame_through, prepared, registered,
@@ -710,7 +710,7 @@ fn test_every_golden_reply_under_every_fault_is_read_or_refused_by_the_connectio
             for seed in 1..=SEEDS {
                 let mut peer = Peer::welcomed()?.with_probe()?;
                 let (wait, stream) = (case.setup)(&mut peer)?;
-                let frame = restream(&golden(case.name)?, stream);
+                let frame = restream(&golden_reply(case.name)?, stream);
                 peer.cross(faults, seed, &frame, &wait, case.check, &mut tally)?;
             }
         }

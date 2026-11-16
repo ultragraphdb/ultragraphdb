@@ -13,7 +13,6 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use compio::runtime::{JoinHandle, spawn};
-use futures::channel::mpsc::unbounded;
 use futures::future::poll_immediate;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::{ClockReading, SequencerConfig};
@@ -139,8 +138,7 @@ impl Stage {
         std::fs::write(&file, "a role secret")?;
         let secret = RoleSecret::read(&file.display().to_string())?;
         let cluster = RoleCluster::new(CLUSTER, secret, Duration::from_secs(1));
-        let (joins, _joined) = unbounded();
-        let shared = SystemShared::new(cluster.clone(), handle.clone(), joins);
+        let shared = SystemShared::new(cluster.clone(), handle.clone());
         // Bound at port 0 and read back, so no other process takes the port between a choice and the bind.
         let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
         let address = listener.local_address()?;

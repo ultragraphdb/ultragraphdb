@@ -11,8 +11,10 @@ mod endpoint_stage;
 mod endpoint_steps;
 mod endpoint_steps_requests;
 mod endpoint_steps_sessions;
+mod link_steps;
 mod on_way_steps;
 mod operation_steps;
+mod played_stage;
 mod relay_steps;
 mod tightening_steps;
 

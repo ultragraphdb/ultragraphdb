@@ -18,13 +18,13 @@ use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
-    AskedCredentials, AuthThrottle, Authorizer, ClientSession, DoubleFrame, EndpointCore,
-    EndpointLimits, EveryAuthenticated, IriPlace, JoinedRoles, LoginLimits, RoleDouble, RoleLinks,
-    TenantGate, batch_frame, empty_batch, iri_place, partition_answer,
+    AuthThrottle, Authorizer, ClientSession, DoubleFrame, EndpointCore, EndpointLimits,
+    EveryAuthenticated, IriPlace, LoginLimits, RelayAuthenticator, RoleDouble, RoleLinks,
+    SystemLink, TenantGate, batch_frame, empty_batch, iri_place, partition_answer,
 };
 use ultragraphdb_common_role::{
     Answer, ConnectionBound, ParkedBytes, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret,
-    Server, Session, serve_connection,
+    Server, Session, serve_connection, serve_connection_with,
 };
 use ultragraphdb_common_service::Readiness;
 use ultragraphdb_common_service_config::ServiceConfig;
@@ -98,6 +98,8 @@ type Counts = Rc<RefCell<Vec<Option<ParkedBytes>>>>;
 /// The frontend under a scenario.
 pub(crate) struct Stage {
     pub owner: SystemHandle,
+    /// The core's link to the group.
+    pub system: SystemLink,
     pub cluster: RoleCluster,
     pub role: Address,
     pub client: Address,
@@ -136,7 +138,10 @@ impl Stage {
             SequencerConfig::new(1, 5)?,
             options.partitions,
         )
-        .with_tenants(options.tenants.clone());
+        .with_tenants(options.tenants.clone())
+        // The group's quiet time, twice `transaction_ms` from its start, in which every check of kind 1 answers 14 (`PROTOCOL.md`
+        // §11.5), has passed before a client's first request: the scenarios here are those of a group past it.
+        .with_transaction_ms(1);
         let thread = start_system(
             ServiceConfig::default(),
             CLUSTER,
@@ -153,20 +158,33 @@ impl Stage {
         let links = RoleLinks::new(cluster.clone(), "frontend".to_string())
             .with_dial_ms(options.limits.transaction_ms());
         let map = owner.map().await.context("a placement map")?;
+        let role = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
+        let client = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
+        let role_address = role.local_address()?;
+        let client_address = client.local_address()?;
+        let accepting_roles = accept_roles(role, &cluster, &owner)?;
+        let (throttle, throttling) = AuthThrottle::new(LoginLimits::default()).serve();
+        spawn(throttling).detach();
+        // The core dials the system group at the role address the stage serves it at (task 5.2).
+        let system = SystemLink::dial(
+            role_address.clone(),
+            cluster.clone(),
+            links.clone(),
+            options.limits.transaction_ms(),
+            Readiness::default(),
+        );
+        let deadline = compio::time::interval(WAIT).tick().await + WAIT;
+        system
+            .answering(deadline)
+            .await
+            .map_err(|refusal| TestError::new(format!("{refusal:?}")))?;
         if options.older_map {
             links.set_map(PlacementMap::even(1, NodeId::new(1))?);
         } else {
             links.set_map(map.clone());
         }
-        let role = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
-        let client = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
-        let role_address = role.local_address()?;
-        let client_address = client.local_address()?;
-        let accepting_roles = accept_roles(role, &cluster, &owner, &links)?;
-        let (throttle, throttling) = AuthThrottle::new(LoginLimits::default()).serve();
-        spawn(throttling).detach();
         let core = EndpointCore::new(
-            owner.clone(),
+            system.clone(),
             throttle,
             links.clone(),
             TenantGate::new(authorizer),
@@ -177,6 +195,7 @@ impl Stage {
             accept_clients(client, unknown, options.connections, core, counts.clone())?;
         Ok(Self {
             owner,
+            system,
             cluster,
             role: role_address,
             client: client_address,
@@ -197,6 +216,7 @@ impl Stage {
     /// Stops the frontend's listeners and its owner, for a scenario restarting it over the same directory.
     pub(crate) async fn stop(mut self) -> TestResult {
         self.tasks.clear();
+        self.system.stop();
         let thread = self.thread.take().context("an owner")?;
         drop(self.owner);
         drop(self.links);
@@ -230,7 +250,16 @@ impl Stage {
         ))
     }
 
-    /// A partition played by `script`, joined as `partition`.
+    /// Members read over the stage's link, as a frontend reads it at its start until every partition is listed (design D9): the
+    /// doubles join after the stage starts, so each join is followed by this read.
+    pub(crate) async fn read_members(&self) -> TestResult {
+        self.system
+            .members()
+            .await
+            .map_err(|refusal| TestError::new(format!("{refusal:?}")))
+    }
+
+    /// A partition played by `script`, joined as `partition`, and Members read.
     pub(crate) async fn partition_with<F>(
         &self,
         partition: u32,
@@ -245,6 +274,7 @@ impl Stage {
             .join(&self.role, &self.cluster, "storage", &join)
             .await
             .map_err(TestError::new)?;
+        self.read_members().await?;
         Ok(double)
     }
 
@@ -256,7 +286,7 @@ impl Stage {
         .await
     }
 
-    /// A compute process played by `script`, joined.
+    /// A compute process played by `script`, joined, and Members read.
     pub(crate) async fn compute_with<F>(&self, script: F) -> TestResult<RoleDouble>
     where
         F: Fn(&DoubleFrame) -> Answer + 'static,
@@ -267,6 +297,7 @@ impl Stage {
             .join(&self.role, &self.cluster, "compute", &join)
             .await
             .map_err(TestError::new)?;
+        self.read_members().await?;
         Ok(double)
     }
 
@@ -518,14 +549,11 @@ fn accept_roles(
     listener: Listener,
     cluster: &RoleCluster,
     owner: &SystemHandle,
-    links: &RoleLinks,
 ) -> TestResult<JoinHandle<()>> {
     let roles =
         Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
     let credentials = cluster.secret().credentials()?;
-    let (joined, joins) = JoinedRoles::new(cluster.clone(), links.clone(), Readiness::default());
-    spawn(joined.follow()).detach();
-    let shared = SystemShared::new(cluster.clone(), owner.clone(), joins);
+    let shared = SystemShared::new(cluster.clone(), owner.clone());
     Ok(spawn(async move {
         while let Ok(carrier) = listener.accept().await {
             let (roles, credentials) = (roles.clone(), credentials.clone());
@@ -555,11 +583,11 @@ where
     Ok(spawn(async move {
         while let Ok(carrier) = listener.accept().await {
             let server = clients.clone();
-            let credentials = AskedCredentials::default();
-            let session = ClientSession::new(core.clone(), credentials.clone(), carrier.peer_ip());
+            let relay = RelayAuthenticator::default();
+            let session = ClientSession::new(core.clone(), relay.clone(), carrier.peer_ip());
             counts.borrow_mut().push(session.parked());
             spawn(async move {
-                serve_connection(carrier, &server, credentials, session).await;
+                serve_connection_with(carrier, &server, relay, session).await;
             })
             .detach();
         }

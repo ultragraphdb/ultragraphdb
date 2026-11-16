@@ -11,17 +11,22 @@ use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
     AskedCredentials, AuthThrottle, ClientSession, EndpointCore, EndpointLimits,
-    EveryAuthenticated, LoginLimits, RoleDouble, RoleLinks, TenantGate, batch_frame, empty_batch,
-    last_frame, partition_answer,
+    EveryAuthenticated, LoginLimits, RelayAuthenticator, RoleDouble, RoleLinks, SystemLink,
+    TenantGate, batch_frame, empty_batch, last_frame, partition_answer,
 };
 use ultragraphdb_common_role::{
-    Answer, OpenRequests, RoleClient, RoleCluster, RoleSecret, Server, listen, serve_connection,
+    Answer, OpenRequests, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server, listen,
+    serve_connection, serve_connection_with,
 };
+use ultragraphdb_common_service::Readiness;
 use ultragraphdb_common_service_config::ServiceConfig;
-use ultragraphdb_common_system::{SystemHandle, SystemStart, start_system};
+use ultragraphdb_common_system::{
+    SystemHandle, SystemSession, SystemShared, SystemStart, start_system,
+};
 use ultragraphdb_core_ids::{Epoch, SessionToken};
 use ultragraphdb_protocol_scram::{Credentials, ScramVerifier};
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportErrorEnum};
+use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::{
     Begin, BodyView, ColumnType, Command, Commit, DirectWrite, DropCommand, ErrorCode, Execute,
     Join, MAX_FRAME_FLOOR, MAX_FRAME_FLOOR_U32, Members, PatternSlot, Prepare, PrepareView,
@@ -34,6 +39,47 @@ const ITERATIONS: u32 = 4_096;
 
 fn directory(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("client-session-{name}-{}", std::process::id()))
+}
+
+/// A cluster whose role secret is in a file of its own, apart from every other test's.
+fn cluster_named(name: &str) -> TestResult<RoleCluster> {
+    static FILES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let numbered = FILES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let file = directory(&format!("secret-{name}-{numbered}"));
+    std::fs::write(&file, "a role secret")?;
+    Ok(RoleCluster::new(
+        CLUSTER,
+        RoleSecret::read(&file.display().to_string())?,
+        Duration::from_secs(1),
+    ))
+}
+
+/// `owner` served at a role address of its own, as the system group's host serves it, and a core's link to it reading
+/// Members into `links`, once its view answers.
+async fn linked(owner: SystemHandle, links: RoleLinks, name: &str) -> TestResult<SystemLink> {
+    let cluster = cluster_named(name)?;
+    let roles =
+        Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+    let credentials = cluster.secret().credentials()?;
+    let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
+    let address = listener.local_address()?;
+    let shared = SystemShared::new(cluster.clone(), owner);
+    spawn(async move {
+        while let Ok(carrier) = listener.accept().await {
+            let (roles, credentials) = (roles.clone(), credentials.clone());
+            let session = SystemSession::new(shared.clone());
+            spawn(async move { serve_connection(carrier, &roles, credentials, session).await })
+                .detach();
+        }
+    })
+    .detach();
+    let link = SystemLink::dial(address, cluster, links, 5_000, Readiness::default());
+    link.answering(
+        compio::time::interval(Duration::from_secs(1)).tick().await + Duration::from_secs(5),
+    )
+    .await
+    .map_err(|refusal| TestError::new(format!("{refusal:?}")))?;
+    Ok(link)
 }
 
 /// A client endpoint over `owner` at a free port; its address.
@@ -64,22 +110,24 @@ async fn endpoint_within(
     );
     let (throttle, throttling) = AuthThrottle::new(logins).serve();
     spawn(throttling).detach();
+    let links = RoleLinks::new(cluster, "frontend".to_string());
+    let link = linked(owner, links.clone(), &format!("link-{port}")).await?;
     let core = EndpointCore::new(
-        owner,
+        link,
         throttle,
-        RoleLinks::new(cluster, "frontend".to_string()),
+        links,
         TenantGate::new(EveryAuthenticated),
         limits,
     );
     spawn(async move {
         while let Ok(carrier) = listener.accept().await {
-            let credentials = AskedCredentials::default();
+            let relay = RelayAuthenticator::default();
             let peer = carrier.peer_ip();
-            let session = ClientSession::new(core.clone(), credentials.clone(), peer);
+            let session = ClientSession::new(core.clone(), relay.clone(), peer);
             let (server, core) = (server.clone(), core.clone());
             spawn(async move {
                 if core.admits(peer).await {
-                    serve_connection(carrier, &server, credentials, session).await;
+                    serve_connection_with(carrier, &server, relay, session).await;
                 }
             })
             .detach();
@@ -243,8 +291,13 @@ async fn counted_endpoint(
 ) -> TestResult<Address> {
     let (throttle, throttling) = AuthThrottle::new(LoginLimits::default()).serve();
     spawn(throttling).detach();
+    let map = links.map();
+    let link = linked(owner, links.clone(), "counted").await?;
+    if let Some(map) = map {
+        links.set_map(map);
+    }
     let core = EndpointCore::new(
-        owner,
+        link,
         throttle,
         links,
         TenantGate::new(EveryAuthenticated),
@@ -261,10 +314,10 @@ async fn counted_endpoint(
     let address = listener.local_address()?;
     spawn(async move {
         while let Ok(carrier) = listener.accept().await {
-            let credentials = AskedCredentials::default();
-            let session = ClientSession::new(core.clone(), credentials.clone(), None);
+            let relay = RelayAuthenticator::default();
+            let session = ClientSession::new(core.clone(), relay.clone(), None);
             let server = server.clone();
-            spawn(async move { serve_connection(carrier, &server, credentials, session).await })
+            spawn(async move { serve_connection_with(carrier, &server, relay, session).await })
                 .detach();
         }
     })
@@ -321,6 +374,12 @@ fn test_a_relayed_commit_stays_open_until_its_reply_leaves() -> TestResult {
         .await?;
         let links = RoleLinks::new(cluster, "frontend".to_string());
         links.set_map(owner.handle().map().await.context("a placement map")?);
+        // The system group lists it in Members, which the core's link reads into its links (design D9).
+        owner
+            .handle()
+            .join(Join::storage(partition.address(), vec![1]))
+            .await
+            .map_err(|refusal| TestError::new(format!("{refusal:?}")))?;
         links.joined(&Join::storage(partition.address(), vec![1]));
         let open = OpenRequests::default();
         let address = counted_endpoint(owner.handle().clone(), links, open.clone()).await?;
@@ -386,6 +445,12 @@ fn test_a_relayed_read_stays_open_until_its_last_leaves() -> TestResult {
         let compute = RoleDouble::start(&cluster, Endpoint::Compute, |_| Answer::Open).await?;
         let links = RoleLinks::new(cluster, "frontend".to_string());
         links.set_map(owner.handle().map().await.context("a placement map")?);
+        // The system group lists it in Members, which the core's link reads into its links (design D9).
+        owner
+            .handle()
+            .join(Join::compute(compute.address()))
+            .await
+            .map_err(|refusal| TestError::new(format!("{refusal:?}")))?;
         links.joined(&Join::compute(compute.address()));
         let open = OpenRequests::default();
         let address = counted_endpoint(owner.handle().clone(), links, open.clone()).await?;
@@ -462,6 +527,12 @@ fn test_a_relayed_one_frame_write_and_drop_are_each_open() -> TestResult {
         .await?;
         let links = RoleLinks::new(cluster, "frontend".to_string());
         links.set_map(owner.handle().map().await.context("a placement map")?);
+        // The system group lists it in Members, which the core's link reads into its links (design D9).
+        owner
+            .handle()
+            .join(Join::storage(partition.address(), vec![1]))
+            .await
+            .map_err(|refusal| TestError::new(format!("{refusal:?}")))?;
         links.joined(&Join::storage(partition.address(), vec![1]));
         let open = OpenRequests::default();
         let address = counted_endpoint(owner.handle().clone(), links, open.clone()).await?;
@@ -580,6 +651,12 @@ fn test_a_connection_holds_the_default_count_of_statements() -> TestResult {
         let compute = RoleDouble::start(&cluster, Endpoint::Compute, |_| Answer::Open).await?;
         let links = RoleLinks::new(cluster, "frontend".to_string());
         links.set_map(owner.handle().map().await.context("a placement map")?);
+        // The system group lists it in Members, which the core's link reads into its links (design D9).
+        owner
+            .handle()
+            .join(Join::compute(compute.address()))
+            .await
+            .map_err(|refusal| TestError::new(format!("{refusal:?}")))?;
         links.joined(&Join::compute(compute.address()));
         let address = endpoint_over(owner.handle().clone(), links).await?;
         let mut alice = RoleClient::dial(&address, CLUSTER, "alice", "pw").await?;

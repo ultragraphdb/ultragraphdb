@@ -3,33 +3,26 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
 use compio::runtime::spawn;
-use ultragraphdb_cluster_metadata::MetadataConfig;
-use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
-    AskedCredentials, AuthThrottle, ClientSession, CoreJoins, EndpointCore, EndpointLimits,
-    EveryAuthenticated, JoinFanOut, JoinedRoles, LoginLimits, RoleLinks, TenantGate,
-    ThrottleHandle,
+    AuthThrottle, ClientSession, EndpointCore, EndpointLimits, EveryAuthenticated, LoginLimits,
+    RelayAuthenticator, RoleLinks, SystemLink, TenantGate, ThrottleHandle,
 };
 use ultragraphdb_common_role::{
-    ConnectionBound, OpenRequests, ROLE_ITERATIONS, RoleCluster, RoleCredentials, Server,
-    finish_open, listen, serve_connection,
+    ConnectionBound, OpenRequests, RoleCluster, Server, finish_open, serve_connection_with,
+    system_address,
 };
 use ultragraphdb_common_service::{CoreListener, Readiness, RoleStart, Stopping, core_runtime};
 use ultragraphdb_common_service_config::{EndpointSecurity, EndpointTable, ServiceConfig};
-use ultragraphdb_common_system::{
-    SystemHandle, SystemSession, SystemShared, SystemStart, start_system,
-};
 use ultragraphdb_error_role::RoleError;
-use ultragraphdb_protocol_transport::{AUTHENTICATION_TIMEOUT, Endpoint};
+use ultragraphdb_protocol_transport::{AUTHENTICATION_TIMEOUT, Address, Endpoint};
 use ultragraphdb_protocol_transport_compio::{AcceptPace, CompioTlsStream, Listener};
 use ultragraphdb_transport_tls::{CertificateChainFile, PrivateKeyFile, TlsAcceptor};
 
-/// How often the role looks at whether its owner stopped or the service was told to.
+/// How often the role looks at whether the system group is gone or the service was told to stop.
 const OWNER_POLL: Duration = Duration::from_millis(20);
 
 /// How long a stop waits on the open requests: within the 60 s a stopping role has, so a peer reading no answer costs no failure.
@@ -42,19 +35,19 @@ const SCAN_STALL_MS_DEFAULT: u64 = 30_000;
 /// The connections the endpoint holds when `[endpoint] connections_max` does not say (`PROTOCOL.md` §11.9).
 const CONNECTIONS_MAX_DEFAULT: u32 = 4_096;
 
-/// The frontend role: it recovers its owner, then listens at `[frontend] role_address` for the roles joining and at
-/// `[endpoint] address`, when set, for clients, over TLS 1.3 or clear text as the table says, on an endpoint core per CPU (design
-/// D14). It is ready once it has connected back to a partition, and runs until its owner stops or the service does, when every
-/// core stops accepting connections and the open requests are finished.
+/// The frontend role: its endpoint cores dial the system group at `cluster.system_address` (design D5) and serve clients at
+/// `[endpoint] address`, when set, over TLS 1.3 or clear text as the table says, on an endpoint core per CPU. It hosts no group
+/// and listens at no role address. It is ready once its first core's view holds a close and a placement and Members lists every
+/// partition, and runs until the service stops, or until the system group has been gone for `[cluster] join_deadline_ms`, when
+/// every core stops accepting connections and the open requests are finished.
 ///
 /// # Errors
 ///
 /// [`RoleError::configuration`] for a setting absent or out of its bounds, a refused role secret, or a client endpoint deciding
-/// neither TLS nor clear text; [`RoleError::unavailable`] when it cannot listen; what recovery refused or the owner stopped with.
+/// neither TLS nor clear text; [`RoleError::unavailable`] when it cannot listen, or the system group was gone past the deadline.
 ///
-/// A future dropped at the owner's start or at a listen leaves the owner, once started, running on its thread; one
-/// dropped at its wait or in the drain leaves the accepting tasks and the requests still open running until their
-/// runtime ends.
+/// A future dropped at a listen leaves nothing running; one dropped at its wait or in the drain leaves the accepting tasks and
+/// the requests still open running until their runtime ends.
 pub(crate) async fn frontend_role(
     start: RoleStart,
     readiness: Readiness,
@@ -62,70 +55,50 @@ pub(crate) async fn frontend_role(
 ) -> Result<(), RoleError> {
     let cluster = RoleCluster::read(&start)?;
     let config = start.config();
-    let role_address = required(config.frontend().role_address(), "frontend.role_address")?;
-    let data_dir = PathBuf::from(required(config.frontend().data_dir(), "frontend.data_dir")?);
-    let credentials = cluster.secret().credentials()?;
-    let owner_start = owner_start(config)?;
-    let owner = start_system(
-        config.clone(),
-        cluster.id(),
-        data_dir,
-        owner_start,
-        Vec::new(),
-    )
-    .await?;
-    let unknown_secret = owner.unknown_secret();
-    let (handle, mut stopped) = owner.into_parts();
     let open = OpenRequests::new(stopping.clone());
-    let roles = Server::new(cluster.id(), "frontend", Endpoint::Frontend)?
-        .with_iterations(ROLE_ITERATIONS)
-        .with_open(open.clone());
-    let links = core_links(&cluster, config, &handle).await;
+    let address = system_address(&start)?;
+    let links = core_links(&cluster, config);
+    let system = SystemLink::dial(
+        address.clone(),
+        cluster.clone(),
+        links.clone(),
+        endpoint_limits(config).transaction_ms(),
+        readiness.clone(),
+    );
     let clients = match config.endpoint().address() {
-        Some(address) => {
-            Some(Clients::bind(config, address, cluster.id(), unknown_secret, &open).await?)
-        }
+        Some(endpoint) => Some(Clients::bind(config, endpoint, cluster.id(), &open).await?),
         None => None,
     };
-    let cores = match &clients {
-        Some(clients) => start_cores(config, &cluster, &handle, clients, &stopping)?,
-        None => JoinFanOut::new(),
-    };
-    let listening = readiness.clone();
-    let (joined, joins) = JoinedRoles::new(cluster.clone(), links.clone(), readiness);
-    spawn(joined.with_cores(cores).follow()).detach();
-    let shared = SystemShared::new(cluster.clone(), handle.clone(), joins);
-    let mut reporting = None;
-    let mut accepting = vec![spawn(accept_roles(
-        listen(role_address).await?,
-        roles,
-        credentials,
-        shared,
-    ))];
-    if let Some(clients) = clients {
-        let core = clients.core(handle, links, 0);
-        reporting = Some(core.clone());
+    if let Some(clients) = &clients {
+        start_cores(config, &cluster, &address, clients, &stopping)?;
+    }
+    let mut accepting = Vec::new();
+    let core = clients
+        .as_ref()
+        .map(|clients| clients.core(system.clone(), links, 0));
+    if let (Some(clients), Some(core)) = (clients, &core) {
         accepting.push(spawn(accept_clients(
             clients.listener.on_this_core()?,
             clients.server,
-            core,
+            core.clone(),
             clients.security,
         )));
     }
-    listening.set_listening();
-    // What the owner made durable it answered for, so a stop leaves nothing to flush but the answers on their way.
+    readiness.set_listening();
+    let deadline = cluster.deadline();
     while !stopping.is_stopping() {
-        // The phases of the writes the endpoint relays, logged as they fall due.
-        reporting.iter().for_each(EndpointCore::report_phases);
-        match stopped.try_recv() {
-            Ok(Some(outcome)) => return outcome,
-            Ok(None) => compio::time::sleep(OWNER_POLL).await,
-            Err(_) => {
-                return Err(RoleError::software(
-                    "the owner's thread ended without a word",
-                ));
-            }
+        // The phases of the writes the endpoint relays and its Checks' round trips, logged as they fall due.
+        core.iter().for_each(EndpointCore::report_phases);
+        if system
+            .lost_since()
+            .is_some_and(|since| since.elapsed() >= deadline)
+        {
+            return Err(RoleError::unavailable(format!(
+                "the system group at {address} has been gone for join_deadline_ms, {} ms",
+                deadline.as_millis()
+            )));
         }
+        compio::time::sleep(OWNER_POLL).await;
     }
     let _left = finish_open(accepting, &open, FINISH_LIMIT).await;
     Ok(())
@@ -149,7 +122,6 @@ impl Clients {
         config: &ServiceConfig,
         address: &str,
         cluster: u64,
-        unknown_secret: [u8; 32],
         open: &OpenRequests,
     ) -> Result<Self, RoleError> {
         let security = config
@@ -161,8 +133,7 @@ impl Clients {
         spawn(throttling).detach();
         Ok(Self {
             listener: CoreListener::bind(address).await?,
-            server: client_server(cluster, config.endpoint(), unknown_secret)?
-                .with_open(open.clone()),
+            server: client_server(cluster, config.endpoint())?.with_open(open.clone()),
             security,
             limits,
             open: open.clone(),
@@ -182,15 +153,15 @@ impl Clients {
         })
     }
 
-    /// Endpoint core `core`, asking `owner` and reaching the roles through `links`.
+    /// Endpoint core `core`, asking the system group through `system` and reaching the roles through `links`.
     fn core(
         &self,
-        owner: SystemHandle,
+        system: SystemLink,
         links: RoleLinks,
         core: usize,
     ) -> EndpointCore<EveryAuthenticated> {
         EndpointCore::new(
-            owner,
+            system.with_core(core),
             self.logins.clone(),
             links,
             TenantGate::new(EveryAuthenticated),
@@ -205,45 +176,34 @@ impl Clients {
 struct CoreStart {
     config: ServiceConfig,
     cluster: RoleCluster,
-    owner: SystemHandle,
+    /// The system group's role address, which the core dials.
+    system: Address,
     clients: Clients,
     stopping: Stopping,
-    joins: CoreJoins,
     core: usize,
 }
 
-/// A core's links to the other roles, dialling as the frontend, holding the owner's placement map.
-async fn core_links(
-    cluster: &RoleCluster,
-    config: &ServiceConfig,
-    owner: &SystemHandle,
-) -> RoleLinks {
-    let links = RoleLinks::new(cluster.clone(), "frontend".to_string())
-        .with_dial_ms(endpoint_limits(config).transaction_ms());
-    if let Some(map) = owner.map().await {
-        links.set_map(map);
-    }
-    links
+/// A core's links to the other roles, dialling as the frontend; the placement map is its link's to read.
+fn core_links(cluster: &RoleCluster, config: &ServiceConfig) -> RoleLinks {
+    RoleLinks::new(cluster.clone(), "frontend".to_string())
+        .with_dial_ms(endpoint_limits(config).transaction_ms())
 }
 
-/// Starts an endpoint core on each CPU the process may use but the first, the service's own; what reaches them every role
-/// that joins.
+/// Starts an endpoint core on each CPU the process may use but the first, the service's own.
 fn start_cores(
     config: &ServiceConfig,
     cluster: &RoleCluster,
-    owner: &SystemHandle,
+    system: &Address,
     clients: &Clients,
     stopping: &Stopping,
-) -> Result<JoinFanOut, RoleError> {
-    let mut cores = JoinFanOut::new();
+) -> Result<(), RoleError> {
     for core in 1..std::thread::available_parallelism().map_or(1, usize::from) {
         let start = CoreStart {
             config: config.clone(),
             cluster: cluster.clone(),
-            owner: owner.clone(),
+            system: system.clone(),
             clients: clients.another()?,
             stopping: stopping.clone(),
-            joins: cores.add_core(),
             core,
         };
         #[expect(
@@ -262,7 +222,7 @@ fn start_cores(
             });
         drop(spawned.map_err(|error| RoleError::unavailable(format!("a core's thread: {error}")))?);
     }
-    Ok(cores)
+    Ok(())
 }
 
 /// Serves clients on this core until the service stops, then stops accepting and waits for the open requests, as core 0 does.
@@ -272,15 +232,20 @@ async fn serve_core(start: CoreStart) {
     let CoreStart {
         config,
         cluster,
-        owner,
+        system,
         clients,
         stopping,
-        joins,
         core,
     } = start;
-    let links = core_links(&cluster, &config, &owner).await;
-    spawn(joins.follow(links.clone())).detach();
-    let endpoint = clients.core(owner, links, core);
+    let links = core_links(&cluster, &config);
+    let link = SystemLink::dial(
+        system,
+        cluster,
+        links.clone(),
+        endpoint_limits(&config).transaction_ms(),
+        Readiness::default(),
+    );
+    let endpoint = clients.core(link, links, core);
     let listener = match clients.listener.on_this_core() {
         Ok(listener) => listener,
         Err(error) => return tracing::error!(core, %error, "an endpoint core does not listen"),
@@ -329,93 +294,14 @@ fn login_limits(config: &ServiceConfig) -> LoginLimits {
     )
 }
 
-/// The server clients connect to, answering unknown names from the secret the metadata group holds, and past its bound of connections
-/// with the limit error.
-fn client_server(
-    cluster: u64,
-    endpoint: &EndpointTable,
-    unknown_secret: [u8; 32],
-) -> Result<Server, RoleError> {
+/// The server clients connect to, each exchange relayed to the system group (design D8), and past its bound of connections with
+/// the limit error.
+fn client_server(cluster: u64, endpoint: &EndpointTable) -> Result<Server, RoleError> {
     let bound = endpoint
         .connections_max()
         .unwrap_or(CONNECTIONS_MAX_DEFAULT);
     Ok(Server::new(cluster, "frontend", Endpoint::Client)?
-        .with_unknown_secret(unknown_secret)
         .with_bound(ConnectionBound::new(u64::from(bound))))
-}
-
-fn required<'a>(value: Option<&'a str>, setting: &str) -> Result<&'a str, RoleError> {
-    value.ok_or_else(|| RoleError::configuration(format!("the setting {setting} is required")))
-}
-
-/// What the settings say the owner is, each bound the state machines' own.
-fn owner_start(config: &ServiceConfig) -> Result<SystemStart, RoleError> {
-    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
-    let refused = |error: &dyn std::fmt::Display| RoleError::configuration(error.to_string());
-    let partition_count = config
-        .cluster()
-        .partition_count()
-        .filter(|count| *count > 0)
-        .ok_or_else(|| {
-            RoleError::configuration("the setting cluster.partition_count is at least 1")
-        })?;
-    let sequencer_table = config.sequencer();
-    let required_ms = |value: Option<u64>, setting: &str| {
-        value.ok_or_else(|| RoleError::configuration(format!("the setting {setting} is required")))
-    };
-    let sequencer = SequencerConfig::new(
-        required_ms(sequencer_table.epoch_ms_min(), "sequencer.epoch_ms_min")?,
-        required_ms(sequencer_table.epoch_ms_max(), "sequencer.epoch_ms_max")?,
-    )
-    .map_err(|error| refused(&error))?;
-    let table = config.metadata();
-    let mut metadata = MetadataConfig::new();
-    if let Some(size) = table.block_size_max() {
-        metadata = metadata
-            .with_block_size_max(size)
-            .map_err(|error| refused(&error))?;
-    }
-    if let Some(sessions) = table.sessions_max() {
-        metadata = metadata
-            .with_sessions_max(sessions)
-            .map_err(|error| refused(&error))?;
-    }
-    if let Some(rounds) = table.snapshot_rounds() {
-        metadata = metadata
-            .with_snapshot_rounds(rounds)
-            .map_err(|error| refused(&error))?;
-    }
-    if let Some(ms) = table.catalog_check_ms() {
-        metadata = metadata
-            .with_catalog_check_ms(ms)
-            .map_err(|error| refused(&error))?;
-    }
-    let owner = SystemStart::new(metadata, sequencer, partition_count);
-    Ok(match table.bootstrap_secret_file() {
-        Some(file) => owner.with_bootstrap_file(file),
-        None => owner,
-    })
-}
-
-/// Accepts the roles joining, each connection served in a task of its own. A future dropped at an accept, as its
-/// runtime's end drops it, takes no connection half-way.
-async fn accept_roles(
-    listener: Listener,
-    server: Server,
-    credentials: RoleCredentials,
-    shared: SystemShared,
-) {
-    let mut pace = AcceptPace::default();
-    // An event loop: it accepts for as long as its runtime runs, which ends with the service (Ultra rule 2).
-    loop {
-        let carrier = pace.accept("role", || listener.accept()).await;
-        let (server, credentials) = (server.clone(), credentials.clone());
-        let session = SystemSession::new(shared.clone());
-        spawn(async move {
-            serve_connection(carrier, &server, credentials, session).await;
-        })
-        .detach();
-    }
 }
 
 /// Accepts clients, each connection served, its TLS handshake included, in a task of its own. A future dropped at an
@@ -448,9 +334,9 @@ async fn accept_clients(
     loop {
         let carrier = pace.accept("client", || listener.accept()).await;
         let server = server.clone();
-        let credentials = AskedCredentials::default();
+        let relay = RelayAuthenticator::default();
         let peer = carrier.peer_ip();
-        let session = ClientSession::new(core.clone(), credentials.clone(), peer);
+        let session = ClientSession::new(core.clone(), relay.clone(), peer);
         let (acceptor, core) = (acceptor.clone(), core.clone());
         spawn(async move {
             // A banned source's connection closes as accepted, before TLS or any frame (design D15); asked on the connection's own
@@ -459,7 +345,7 @@ async fn accept_clients(
                 return tracing::debug!(?peer, "a banned source's connection was closed");
             }
             let Some(acceptor) = acceptor else {
-                return serve_connection(carrier, &server, credentials, session).await;
+                return serve_connection_with(carrier, &server, relay, session).await;
             };
             // A handshake counts against the bound and ends by the authentication timeout, as an unauthenticated
             // connection does (`PROTOCOL.md` §11.9): a peer that sends nothing holds no descriptor past it.
@@ -475,7 +361,7 @@ async fn accept_clients(
             drop(handshaking);
             match accepted {
                 Ok(Ok(stream)) => {
-                    serve_connection(stream, &server, credentials, session).await;
+                    serve_connection_with(stream, &server, relay, session).await;
                 }
                 // A clear-text Hello reaching this endpoint fails here, and no frame is read.
                 Ok(Err(error)) => tracing::debug!(%error, "a TLS handshake failed"),

@@ -15,8 +15,9 @@ use ultragraphdb_protocol_transport::{
     AuthenticationStep, ClientAuthentication, Login, ReceivedFrame, TransportError,
 };
 use ultragraphdb_protocol_wire::{
-    AuthenticateView, BeginView, BodyView, Command, CommitView, DescribeView, DropCommandView,
-    ErrorCode, ErrorReplyView, FrameView, PrepareView, RefusedRequest, RegisterView, Welcome,
+    AuthenticateView, BeginView, BodyView, Command, CommitView, Credit, Describe, DescribeFrames,
+    DropCommandView, ErrorCode, ErrorReplyView, FrameView, PrepareView, RefusedRequest,
+    RegisterView, Welcome,
 };
 
 use crate::errors::client_error::{ClientError, ClientErrorEnum};
@@ -305,7 +306,8 @@ impl<L: Login> ClientCore<L> {
             }
         } else {
             match self.decode(expect, stream, &view, now) {
-                Ok(outcome) => outcome,
+                Ok(Some(outcome)) => outcome,
+                Ok(None) => return Ok(()),
                 Err(error) => return self.fatal(error),
             }
         };
@@ -431,15 +433,15 @@ impl<L: Login> ClientCore<L> {
 
     /// The reply `view` decoded for what its request expects, a command [`ClientCore::place`] found it answered by; a reply
     /// naming another commit is [`ClientError::reply_mismatch`], an answer of the request, and a reply breaking a rule is
-    /// the caller's error.
+    /// the caller's error. `None` while a Describe's answer continues in further frames.
     fn decode(
         &mut self,
         expect: Expect,
         stream: u64,
         view: &FrameView<'_>,
         now: Instant,
-    ) -> Result<Result<Reply, ClientError>, ClientError> {
-        Ok(match expect {
+    ) -> Result<Option<Result<Reply, ClientError>>, ClientError> {
+        Ok(Some(match expect {
             Expect::Register => {
                 let number = RegisterView::from_frame(view)
                     .map_err(ClientError::protocol)?
@@ -466,13 +468,43 @@ impl<L: Login> ClientCore<L> {
                     prepare.result_types().to_vec(),
                 )))
             }
-            Expect::Describe => {
-                let describe = DescribeView::from_frame(view)
-                    .and_then(|d| d.to_body())
-                    .map_err(ClientError::protocol)?;
-                Ok(Reply::Described(describe))
-            }
-        })
+            Expect::Describe => match self.described(stream, view)? {
+                Some(describe) => Ok(Reply::Described(describe)),
+                None => return Ok(None),
+            },
+        }))
+    }
+
+    /// A Describe frame of the answer on `stream`, read with the frames before it as one body through the wire's
+    /// [`DescribeFrames`] (`PROTOCOL.md` §8.3, *Continuation*): the answer once the frame flagged `LAST` is taken, `None`
+    /// before it. The frames spend the stream's credit, which starts with the Welcome's `initial_credit`, as a read's do
+    /// (§11.3): a frame not the last that spends it grants [`crate::ClientConfig::credit`] more frames. A frame
+    /// [`DescribeFrames::push`] refuses, one breaking the first's command header or passing `catalog_bytes_max` among them
+    /// ([`ProtocolError::field_value`] `"describe"`), or an answer whose body breaks §8.3's Order, is the caller's error.
+    fn described(
+        &mut self,
+        stream: u64,
+        view: &FrameView<'_>,
+    ) -> Result<Option<Describe>, ClientError> {
+        let renewal = self.config.credit();
+        let state = self
+            .streams
+            .get_mut(&stream)
+            .ok_or_else(|| ClientError::stream_finished(stream))?;
+        let frames = state.describe.get_or_insert_with(Box::default);
+        frames.push(view).map_err(ClientError::protocol)?;
+        if frames.is_last() {
+            let describe = frames.view().and_then(|d| d.to_body());
+            return describe.map(Some).map_err(ClientError::protocol);
+        }
+        state.credit = state.credit.saturating_sub(1);
+        if state.credit > 0 {
+            return Ok(None);
+        }
+        state.credit = renewal;
+        let frame = self.frame(&Credit::new(renewal), stream)?;
+        self.outbox.push_back(frame);
+        Ok(None)
     }
 
     /// A Begin's reply on `stream`: its transaction, its reads' deadline running from here, later than the server's, which

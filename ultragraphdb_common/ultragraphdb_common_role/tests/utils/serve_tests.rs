@@ -17,10 +17,11 @@ use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Level, Metadata, Subscriber};
 use ultragraphdb_common_role::{
     Answer, ConnectionBound, ParkedBytes, Push, ROLE_ITERATIONS, RoleClient, RoleCredentials,
-    RoleSecret, Server, Session, listen, serve_connection,
+    RoleSecret, Server, Session, listen, serve_connection, serve_connection_with,
 };
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_error_role::RoleError;
+use ultragraphdb_protocol_scram::ScramAuthenticator;
 use ultragraphdb_protocol_transport::{
     Address, Endpoint, ReceivedFrame, TransportError, TransportErrorEnum,
 };
@@ -964,4 +965,63 @@ fn test_a_server_never_prints_its_secret() -> TestResult {
         "{printed}"
     );
     Ok(())
+}
+
+/// A session refusing every step of an exchange before the machine takes it, as the frontend whose system group is lost does.
+#[derive(Debug, Clone, Copy)]
+struct Unreachable;
+
+impl Session for Unreachable {
+    async fn authenticating_step(&mut self, _step: u32, _message: &[u8]) -> Result<(), ErrorReply> {
+        Err(ErrorReply::new(
+            ErrorCode::Unavailable,
+            "the system group cannot be reached",
+        ))
+    }
+
+    async fn answer(&mut self, _stream: u64, _frame: ReceivedFrame) -> Answer {
+        Answer::Refuse(ErrorReply::new(ErrorCode::Unavailable, REFUSED))
+    }
+}
+
+/// A connection served with an authenticator in place of credentials authenticates by it and is served; one whose session
+/// refuses the exchange's step is closed with that refusal, code 17, in place of the step (`PROTOCOL.md` §11.12, *While the
+/// system group cannot be reached*).
+#[test]
+fn test_a_connection_authenticates_by_the_authenticator_it_is_served_with() -> TestResult {
+    bounded(async {
+        for refusing in [false, true] {
+            let listener = listen(&free_tcp()?).await?;
+            let address = listener.local_address()?;
+            // The system group's role address, which serves Members.
+            let server = Server::new(CLUSTER, "test", Endpoint::Frontend)?;
+            let authenticator =
+                ScramAuthenticator::new(credentials()?, || "servernonce".to_string(), [5; 32])
+                    .with_iterations(ROLE_ITERATIONS);
+            spawn(async move {
+                if let Ok(carrier) = listener.accept().await {
+                    if refusing {
+                        serve_connection_with(carrier, &server, authenticator, Unreachable).await;
+                    } else {
+                        serve_connection_with(carrier, &server, authenticator, Listing).await;
+                    }
+                }
+            })
+            .detach();
+            let dialled = RoleClient::dial(&address, CLUSTER, "compute", PASSWORD).await;
+            if refusing {
+                let refused = dialled.err().context("a refusal")?;
+                assert_eq!(
+                    refused_with(&refused),
+                    Some(ErrorCode::Unavailable),
+                    "{refused}"
+                );
+            } else {
+                let mut client = dialled?;
+                let reply = client.request(&Members::new()).await?;
+                assert_eq!(reply.command(), Command::Members.number());
+            }
+        }
+        Ok(())
+    })
 }

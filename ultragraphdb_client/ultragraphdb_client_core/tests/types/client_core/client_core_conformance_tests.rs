@@ -46,6 +46,20 @@ pub fn golden(name: &str) -> TestResult<Vec<u8>> {
         .context("reading the golden frame")
 }
 
+/// Golden reply `name` as a server sends it: the golden Describe reply flagged `LAST`, which a Describe's last frame
+/// carries (`PROTOCOL.md` §8.3, *Continuation*; §11.2) and the golden frame, written before an answer could continue,
+/// does not; its header's checksum recomputed with xxhash-rust directly. Every other reply as it stands.
+pub fn golden_reply(name: &str) -> TestResult<Vec<u8>> {
+    let mut frame = golden(name)?;
+    if name == "describe_reply" {
+        // Byte 65 holds the header's flags, bit 0 `LAST` (`PROTOCOL.md` §2.1).
+        frame[65] |= 1;
+        let checksum = xxhash_rust::xxh3::xxh3_64(&frame[8..256]);
+        frame[..8].copy_from_slice(&checksum.to_le_bytes());
+    }
+    Ok(frame)
+}
+
 /// `frame` moved to `stream`: the header's stream rewritten and its checksum recomputed with xxhash-rust directly.
 pub fn restream(frame: &[u8], stream: u64) -> Vec<u8> {
     let mut frame = frame.to_vec();
@@ -273,7 +287,7 @@ fn test_every_golden_reply_is_read_as_its_values() -> TestResult {
                   name: &str,
                   stream: u64|
      -> TestResult<Result<Reply, ClientError>> {
-        direct.deliver(&pool, &restream(&golden(name)?, stream))??;
+        direct.deliver(&pool, &restream(&golden_reply(name)?, stream))??;
         direct.core.take_reply(pending).context("an answer")
     };
     let p = d.core.register(now)?;

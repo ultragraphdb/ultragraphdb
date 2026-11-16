@@ -49,6 +49,17 @@ pub trait Session {
         std::future::ready(())
     }
 
+    /// Step `step` of an authentication is about to run on the client's `message`, after [`Session::authenticating`] for
+    /// step 0: what the step needs from elsewhere is fetched here, before the machine, which runs without waiting, takes it.
+    /// A refusal ends the connection with it on stream 0 in place of the step, and is no failed authentication.
+    fn authenticating_step(
+        &mut self,
+        _step: u32,
+        _message: &[u8],
+    ) -> impl Future<Output = Result<(), ErrorReply>> {
+        std::future::ready(Ok(()))
+    }
+
     /// The connection authenticated, or authenticated again, as `principal`.
     fn authenticated(&mut self, _principal: u64) {}
 

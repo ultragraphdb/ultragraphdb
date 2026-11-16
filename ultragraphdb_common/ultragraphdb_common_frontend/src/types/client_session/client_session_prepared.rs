@@ -37,7 +37,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         if let Some(pattern) = asked.pattern() {
             check_pattern(asked.terms(), pattern)?;
         }
-        let schema = self.core.owner().schema_id(tenant).await?;
+        let schema = self.core.system().schema_id(tenant).await?;
         let reply = self
             .statements
             .prepare(&asked, schema)
@@ -78,7 +78,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             )
             .with_detail(statement));
         }
-        let schema = self.core.owner().schema_id(tenant).await?;
+        let schema = self.core.system().schema_id(tenant).await?;
         let (terms, pattern) = self
             .statements
             .execute(&asked, schema)

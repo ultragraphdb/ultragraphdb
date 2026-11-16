@@ -10,7 +10,6 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use compio::runtime::{JoinHandle, spawn};
-use futures::channel::mpsc::unbounded;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::{ClockReading, SequencerConfig};
 use ultragraphdb_common_role::{
@@ -119,8 +118,7 @@ pub(crate) async fn served(handle: &SystemHandle) -> Option<(Address, String, Jo
     let secret = RoleSecret::read(&file.display().to_string()).ok()?;
     let password = secret.password().to_string();
     let cluster = RoleCluster::new(CLUSTER, secret, Duration::from_secs(1));
-    let (joins, _joined) = unbounded();
-    let shared = SystemShared::new(cluster.clone(), handle.clone(), joins);
+    let shared = SystemShared::new(cluster.clone(), handle.clone());
     // Bound at port 0 and read back, so no other process takes the port between a choice and the bind.
     let listener = Listener::bind(&Address::any_port("127.0.0.1").ok()?)
         .await

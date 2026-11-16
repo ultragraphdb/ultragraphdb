@@ -18,7 +18,6 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use compio::runtime::{JoinHandle, spawn};
-use futures::channel::mpsc::unbounded;
 use ultragraphdb_common_role::{
     ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server, serve_connection,
 };
@@ -134,8 +133,7 @@ where
     let owner = make(storage.clone(), clock.clone()).await?;
     let (handle, run) = running(owner, &clock);
     let cluster = cluster_named(name)?;
-    let (joins, _joined) = unbounded();
-    let shared = SystemShared::new(cluster.clone(), handle.clone(), joins);
+    let shared = SystemShared::new(cluster.clone(), handle.clone());
     // Bound at port 0 and read back, so no other process takes the port between a choice and the bind.
     let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
     let address = listener.local_address()?;

@@ -32,5 +32,5 @@ pub use crate::types::role_secret::{
 pub use crate::types::role_writer::RoleWriter;
 pub use crate::utils::finish_open::finish_open;
 pub use crate::utils::joining_role::{frontend_address, retry_until, system_address};
-pub use crate::utils::serve::{Server, serve_connection};
+pub use crate::utils::serve::{Server, serve_connection, serve_connection_with};
 pub use ultragraphdb_common_service::listen;

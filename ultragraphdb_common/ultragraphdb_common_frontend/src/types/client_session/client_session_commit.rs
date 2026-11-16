@@ -6,8 +6,8 @@
 use compio::runtime::spawn;
 use ultragraphdb_common_role::Answer;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Command, Commit, CommitView, ErrorCode, ErrorReply, FrameView, Header,
-    MAX_FRAME_SIZE, Recall,
+    BodyBuilder, BodyView, CheckKind, CheckOutcome, Command, Commit, CommitView, ErrorCode,
+    ErrorReply, FrameView, Header, MAX_FRAME_SIZE, Recall,
 };
 
 use super::client_session_bind::{command_of, error_of};
@@ -18,8 +18,11 @@ use crate::types::client_transaction::ClientTransaction;
 use crate::types::commit_hold::CommitHold;
 use crate::types::link_event::LinkEvent;
 use crate::types::queued::Queued;
+use crate::types::recall_answer::RecallAnswer;
+use crate::types::recall_decision::RecallDecision;
 use crate::types::route_key::RouteKey;
 use crate::types::session_event::SessionEvent;
+use crate::utils::recall_order::{recall_decision, second_check_answer};
 
 impl<A: Authorizer + Clone> ClientSession<A> {
     /// A Commit: of the transaction on `stream`, or a retry on a stream of its own.
@@ -51,8 +54,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         if session != 0
             && let Err(refusal) = self
                 .core
-                .owner()
-                .begin_commit(session, self.principal)
+                .system()
+                .check(session.to_be_bytes(), self.principal, CheckKind::Marks)
                 .await
         {
             self.end_transaction(stream, &refusal);
@@ -112,7 +115,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     /// Lets go of the session `txn`'s Commit marked in flight, if any.
     pub(super) fn release_session(&self, txn: &ClientTransaction) {
         if txn.session_held != 0 {
-            self.core.owner().commit_ended(txn.session_held);
+            self.core.system().ended(txn.session_held.to_be_bytes());
         }
     }
 
@@ -153,7 +156,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 if txn.session_held != 0 {
                     link.hold(
                         *stream,
-                        CommitHold::new(self.core.owner_weak(), txn.session_held),
+                        CommitHold::new(self.core.system().clone(), txn.session_held),
                     );
                 }
             }
@@ -180,8 +183,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             ));
         }
         self.core
-            .owner()
-            .begin_recall(session, self.principal)
+            .system()
+            .check(session.to_be_bytes(), self.principal, CheckKind::Asks)
             .await?;
         let partitions = self.core.links().every_partition();
         let mut recalling = Recalling {
@@ -193,7 +196,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         for partition in &partitions {
             let Some(link) = self.core.links().partition(*partition) else {
                 recalling.unanswered -= 1;
-                recalling.unavailable = true;
+                recalling.answers.push(RecallAnswer::Unavailable);
                 continue;
             };
             let header = link.header(Command::Recall, link.next_stream());
@@ -208,7 +211,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 }
                 Err(_) => {
                     recalling.unanswered -= 1;
-                    recalling.unavailable = true;
+                    recalling.answers.push(RecallAnswer::Unavailable);
                 }
             }
         }
@@ -224,100 +227,78 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return;
         };
         recalling.unanswered = recalling.unanswered.saturating_sub(1);
-        match event {
-            LinkEvent::Closed => recalling.unavailable = true,
+        let answer = match event {
+            LinkEvent::Closed => RecallAnswer::Unavailable,
             LinkEvent::Frame(frame) => {
                 let command = command_of(&frame);
                 if command == Some(Command::Commit) || command == Some(Command::Drop) {
-                    recalling.stored = Some(frame);
+                    let _first = recalling.stored.get_or_insert(frame);
+                    RecallAnswer::Stored
                 } else {
                     let refusal = error_of(cluster, &frame);
                     match refusal.as_ref().map(ErrorReply::code) {
-                        Some(ErrorCode::SessionBusy) => recalling.busy = true,
+                        Some(ErrorCode::SessionBusy) => RecallAnswer::Busy,
                         Some(ErrorCode::RequestOutOfOrder) => {
-                            recalling.out_of_order = refusal.map(|reply| reply.detail());
+                            RecallAnswer::OutOfOrder(refusal.map_or(0, |reply| reply.detail()))
                         }
-                        Some(ErrorCode::NotCommitted) => {}
+                        Some(ErrorCode::NotCommitted) => RecallAnswer::NotCommitted,
                         Some(_) | None => {
                             tracing::debug!(partition, "a Recall was refused otherwise");
-                            recalling.unavailable = true;
+                            RecallAnswer::Unavailable
                         }
                     }
                 }
             }
-        }
+        };
+        recalling.answers.push(answer);
         self.recall_decides(stream);
     }
 
-    /// Answers a retried Commit once every partition has, in `PROTOCOL.md` §11.5's order: a stored reply, 14, 17, 13, then 12 or 18.
+    /// Answers a retried Commit once every partition has, in `PROTOCOL.md` §11.5's order: a stored reply, 14, 17, 13, then the
+    /// second Check of kind 1 when every partition answered 18. A Recall marks nothing, so it ends with no Ended.
     fn recall_decides(&mut self, stream: u64) {
         let Some(recalling) = self.recalls.get(&stream).filter(|r| r.unanswered == 0) else {
             return;
         };
-        let session = recalling.session;
-        if !recalling.busy
-            && !recalling.unavailable
-            && recalling.stored.is_none()
-            && recalling.out_of_order.is_none()
-        {
-            let owner = self.core.owner().clone();
-            let events = self.events_in.clone();
-            spawn(async move {
-                let held = owner.session_held(session).await;
-                // A session gone has no one to tell.
-                drop(events.unbounded_send(SessionEvent::SessionHeld { stream, held }));
-            })
-            .detach();
-            return;
+        match recall_decision(&recalling.answers) {
+            RecallDecision::SecondCheck => {
+                let (session, principal) = (recalling.session, self.principal);
+                let system = self.core.system().clone();
+                let events = self.events_in.clone();
+                spawn(async move {
+                    let outcome = system
+                        .check(session.to_be_bytes(), principal, CheckKind::Asks)
+                        .await;
+                    // A session gone has no one to tell.
+                    drop(events.unbounded_send(SessionEvent::SecondCheck { stream, outcome }));
+                })
+                .detach();
+            }
+            RecallDecision::Stored => {
+                let Some(ended) = self.recalls.remove(&stream) else {
+                    return;
+                };
+                if let Some(mut stored) = ended.stored {
+                    // A frame the framer took holds its header.
+                    drop(Header::stamp_stream(&mut stored, stream));
+                    self.push(stream, stored);
+                }
+            }
+            RecallDecision::Refused(refusal) => {
+                let _ended = self.recalls.remove(&stream);
+                self.push_error(stream, &refusal);
+            }
         }
-        let Some(ended) = self.recalls.remove(&stream) else {
-            return;
-        };
-        self.core.owner().commit_ended(session);
-        if let Some(mut stored) = ended.stored {
-            // A frame the framer took holds its header.
-            drop(Header::stamp_stream(&mut stored, stream));
-            self.push(stream, stored);
-            return;
-        }
-        let refusal = if ended.busy {
-            ErrorReply::new(
-                ErrorCode::SessionBusy,
-                "the commit is still in a partition's commit step",
-            )
-        } else if ended.unavailable {
-            ErrorReply::new(
-                ErrorCode::Unavailable,
-                "a partition could not be asked, and the commit stays in doubt",
-            )
-        } else {
-            let last = ended.out_of_order.unwrap_or(0);
-            ErrorReply::new(
-                ErrorCode::RequestOutOfOrder,
-                format!("the session's last request here is {last}"),
-            )
-            .with_detail(last)
-        };
-        self.push_error(stream, &refusal);
     }
 
-    /// Every partition answered 18: the registry says whether the session is still held.
-    pub(super) fn recall_session(&mut self, stream: u64, held: bool) {
+    /// Every partition answered 18: the second Check's `outcome` answers the client, 18 when it passed (`PROTOCOL.md` §11.5).
+    pub(super) fn recall_session(&mut self, stream: u64, outcome: Result<(), ErrorReply>) {
         let Some(recalling) = self.recalls.remove(&stream) else {
             return;
         };
-        self.core.owner().commit_ended(recalling.session);
-        let refusal = if held {
-            ErrorReply::new(
-                ErrorCode::NotCommitted,
-                format!("request {} was not committed", recalling.request),
-            )
-            .with_detail(recalling.request)
-        } else {
-            ErrorReply::new(
-                ErrorCode::SessionEvicted,
-                "the registry evicted this session, and the outcome is unknown",
-            )
+        let refusal = match outcome {
+            Ok(()) => second_check_answer(CheckOutcome::Passed, recalling.request),
+            Err(refusal) => refusal,
         };
         self.push_error(stream, &refusal);
     }
@@ -337,12 +318,15 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return Answer::Open;
         };
         let declared = std::mem::take(&mut txn.declared);
-        let (tenant, built_on) = (txn.tenant, txn.catalog);
+        let (tenant, built_on, principal) = (txn.tenant, txn.catalog, self.principal);
         txn.commit_out = Some(0);
-        let owner = self.core.owner().clone();
+        let system = self.core.system().clone();
         let events = self.events_in.clone();
         spawn(async move {
-            let outcome = owner.declare(tenant, built_on, declared).await;
+            let outcome = system
+                .declare(tenant, built_on, principal, declared)
+                .await
+                .map(|(_, commit_version)| commit_version);
             // A session gone has no one to tell; the version stands.
             drop(events.unbounded_send(SessionEvent::Declared { stream, outcome }));
         })

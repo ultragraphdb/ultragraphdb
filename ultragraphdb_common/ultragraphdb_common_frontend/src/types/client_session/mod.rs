@@ -19,19 +19,19 @@ use std::time::Instant;
 
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use ultragraphdb_common_role::{OpenFrame, ParkedBytes};
-use ultragraphdb_common_system::DropStep;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, Command, ErrorReply, FLAG_LAST, Header, HeaderView, MAX_FRAME_FLOOR_U32,
     StatementCache,
 };
 
 use crate::traits::authorizer::Authorizer;
-use crate::types::asked_credentials::AskedCredentials;
 use crate::types::claim::Claim;
 use crate::types::client_read::ClientRead;
 use crate::types::client_transaction::ClientTransaction;
 use crate::types::counted_frame::CountedFrame;
 use crate::types::endpoint_core::EndpointCore;
+use crate::types::recall_answer::RecallAnswer;
+use crate::types::relay_authenticator::RelayAuthenticator;
 use crate::types::role_link::RoleLink;
 use crate::types::route_key::RouteKey;
 use crate::types::route_sink::RouteSink;
@@ -63,8 +63,8 @@ struct DropRelay {
     frame: Vec<u8>,
     session: u128,
     tenant: u64,
-    /// The catalog version its reply calls for.
-    step: Option<DropStep>,
+    /// The catalog version its reply calls for: the Drop's kind and target, as its Declare names them.
+    step: Option<(ultragraphdb_protocol_wire::DropKind, Option<String>)>,
     /// Its reply, waiting for that version.
     reply: Option<Vec<u8>>,
     link: RoleLink,
@@ -79,24 +79,26 @@ struct Recalling {
     session: u128,
     request: u64,
     unanswered: usize,
+    /// The first stored reply a partition gave.
     stored: Option<Vec<u8>>,
-    busy: bool,
-    unavailable: bool,
-    out_of_order: Option<u64>,
+    /// What each partition answered, in the order the answers arrived.
+    answers: Vec<RecallAnswer>,
 }
 
 /// One client connection: the rules of `PROTOCOL.md` §§6 to 8 and 11 past those its connection's machine keeps. It holds nothing
 /// another connection reads: its requests arrive by [`ultragraphdb_common_role::Session::answer`], and everything else, each
-/// role's frames and each owner's answer that does not wait, by message, so one request's wait holds up no other. Whatever it
+/// role's frames and each answer of the system group that does not wait, by message, so one request's wait holds up no other. Whatever it
 /// sends goes out in the order its transaction's rules need, through [`ultragraphdb_common_role::Session::next_push`].
 ///
-/// A request's future awaits the owner and nothing else, past its authentication's delay, and its connection awaits it to
-/// its end, so only the runtime's end drops one: a future dropped at the owner's answer leaves what it asked with the
-/// owner, a commit's session held in flight included, and the runtime's end takes the owner with it.
+/// A request's future awaits the system group through the core's [`crate::SystemLink`] and nothing else, past its
+/// authentication's delay, and its connection awaits it to its end, so only the runtime's end drops one: a future dropped at
+/// the group's answer leaves what it asked with the group, a commit's session marked in flight included, which the group
+/// ends twice `transaction_ms` after the link's connection closes.
 #[derive(Debug)]
 pub struct ClientSession<A> {
     core: EndpointCore<A>,
-    credentials: AskedCredentials,
+    /// The exchange its connection's machine answers, relayed to the system group (design D8).
+    relay: RelayAuthenticator,
     /// The name the connection's latest exchange authenticates as.
     asked_name: Option<String>,
     peer: Option<IpAddr>,
@@ -109,6 +111,8 @@ pub struct ClientSession<A> {
     drops: BTreeMap<u64, DropRelay>,
     recalls: BTreeMap<u64, Recalling>,
     claims: BTreeMap<u64, Claim>,
+    /// Each Describe's frames not yet sent, and the credit its client granted (`PROTOCOL.md` §8.3, *Continuation*).
+    describes: BTreeMap<u64, (VecDeque<Vec<u8>>, u32)>,
     held: u64,
     /// What the connection has on its way to a role, whose bound stops its reads (`PROTOCOL.md` §11.12, *Frames on their way*).
     on_way: ParkedBytes,
@@ -123,8 +127,8 @@ pub struct ClientSession<A> {
 }
 
 impl<A: Authorizer + Clone> ClientSession<A> {
-    /// A session on `core`, filling `credentials` for the connection's machine, the connection's peer `peer`.
-    pub fn new(core: EndpointCore<A>, credentials: AskedCredentials, peer: Option<IpAddr>) -> Self {
+    /// A session on `core`, preparing `relay`'s answers for the connection's machine, the connection's peer `peer`.
+    pub fn new(core: EndpointCore<A>, relay: RelayAuthenticator, peer: Option<IpAddr>) -> Self {
         let statements = StatementCache::new(core.limits().statements());
         let bound = usize::try_from(core.limits().held_bytes()).unwrap_or(usize::MAX);
         // A role's frames reach it metered as `out`'s are, and the owner's answers one for each request asked: the
@@ -132,7 +136,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         let (events_in, events) = unbounded();
         Self {
             core,
-            credentials,
+            relay,
             asked_name: None,
             peer,
             principal: 0,
@@ -144,6 +148,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             drops: BTreeMap::new(),
             recalls: BTreeMap::new(),
             claims: BTreeMap::new(),
+            describes: BTreeMap::new(),
             held: 0,
             on_way: ParkedBytes::new(bound),
             events_in,

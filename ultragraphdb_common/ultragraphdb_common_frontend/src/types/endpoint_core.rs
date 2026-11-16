@@ -4,24 +4,23 @@
  */
 
 use std::net::IpAddr;
-use std::rc::{Rc, Weak};
 
 use ultragraphdb_common_role::OpenRequests;
-use ultragraphdb_common_system::SystemHandle;
 
 use crate::traits::authorizer::Authorizer;
 use crate::types::endpoint_limits::EndpointLimits;
 use crate::types::one_frame_phases::OneFramePhases;
 use crate::types::role_links::RoleLinks;
+use crate::types::system_link::SystemLink;
 use crate::types::tenant_gate::TenantGate;
 use crate::types::throttle_handle::ThrottleHandle;
 
-/// What a client session shares on its endpoint core: the way to the owner, the way to the throttle, the connections to the
-/// other roles, the gate, the limits, the count of open requests a stop waits on and the phases of the one-frame writes it relays. The way to the owner is shared by an `Rc` on the core, so what outlives the core's sessions can hold it
-/// weakly and keep no owner from stopping.
+/// What a client session shares on its endpoint core: its link to the system group, the way to the throttle, the connections
+/// to the other roles, the gate, the limits, the count of open requests a stop waits on and the phases of the one-frame writes
+/// it relays.
 #[derive(Debug, Clone)]
 pub struct EndpointCore<A> {
-    owner: Rc<SystemHandle>,
+    system: SystemLink,
     logins: ThrottleHandle,
     links: RoleLinks,
     gate: TenantGate<A>,
@@ -31,18 +30,18 @@ pub struct EndpointCore<A> {
 }
 
 impl<A: Authorizer> EndpointCore<A> {
-    /// The core asking `owner`, counting its authentications at `logins`, reaching the other roles through `links`, each
-    /// request passing `gate`.
+    /// The core asking the system group through `system`, counting its authentications at `logins`, reaching the other roles
+    /// through `links`, each request passing `gate`.
     #[must_use]
     pub fn new(
-        owner: SystemHandle,
+        system: SystemLink,
         logins: ThrottleHandle,
         links: RoleLinks,
         gate: TenantGate<A>,
         limits: EndpointLimits,
     ) -> Self {
         Self {
-            owner: Rc::new(owner),
+            system,
             logins,
             links,
             gate,
@@ -69,15 +68,10 @@ impl<A: Authorizer> EndpointCore<A> {
 }
 
 impl<A> EndpointCore<A> {
-    /// The way to the owner.
+    /// The core's link to the system group.
     #[must_use]
-    pub fn owner(&self) -> &SystemHandle {
-        self.owner.as_ref()
-    }
-
-    /// The way to the owner while the core lasts, for what outlives its sessions.
-    pub(crate) fn owner_weak(&self) -> Weak<SystemHandle> {
-        Rc::downgrade(&self.owner)
+    pub fn system(&self) -> &SystemLink {
+        &self.system
     }
 
     /// The way to the throttle, which counts the failed authentications of every endpoint core (design D15).
@@ -127,6 +121,8 @@ impl<A> EndpointCore<A> {
 
     /// Logs the phases of the one-frame writes its sessions relayed, once they are due ([`OneFramePhases::report`]).
     pub fn report_phases(&self) {
-        self.phases.report(crate::types::client_session::now());
+        let now = crate::types::client_session::now();
+        self.phases.report(now);
+        self.system.round_trips().report(now);
     }
 }

@@ -7,15 +7,13 @@ use std::time::{Duration, Instant};
 
 use compio::runtime::spawn;
 use ultragraphdb_common_role::Answer;
-use ultragraphdb_common_system::DropStep;
-use ultragraphdb_core_ids::SessionToken;
 use ultragraphdb_protocol_wire::{
-    Action, Bind, BindKind, BodyBuilder, BodyView, Command, ConditionalWriteView, DirectWriteView,
-    DropCommandView, DropKind, ErrorCode, ErrorReply, FrameView, Header, WriteChange, xxh3_64,
+    Action, Bind, BindKind, BodyBuilder, BodyView, CheckKind, Command, ConditionalWriteView,
+    DirectWriteView, DropCommandView, DropKind, ErrorCode, ErrorReply, FrameView, Header,
+    WriteChange, xxh3_64,
 };
 
 use super::client_session_bind::{command_of, cross_partition, error_of};
-use super::client_session_requests::check_token;
 use super::client_session_writes::{changes_destination, operation_destination};
 use super::{ClientSession, DropRelay, OneFrame, now};
 use crate::traits::authorizer::Authorizer;
@@ -33,17 +31,16 @@ const PRINCIPAL_AT: usize = 56;
 const SESSION_AND_REQUEST: usize = 24;
 
 /// What a one-frame write says of itself, read alike from either command.
-struct OneFrameFacts<'t> {
+struct OneFrameFacts {
     session: [u8; 16],
     request: u64,
     tenant: u64,
-    token: Option<&'t SessionToken>,
     /// When the session took its frame.
     began: Instant,
 }
 
 impl<A: Authorizer + Clone> ClientSession<A> {
-    /// A DirectWrite or a ConditionalWrite: the gate, the tenant, its token, its session and its terms, and then relayed to its
+    /// A DirectWrite or a ConditionalWrite: the gate, the tenant, its session and its terms, and then relayed to its
     /// partition with `principal` filled and every other byte unchanged.
     pub(super) async fn one_frame(
         &mut self,
@@ -60,7 +57,6 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             session: write.session(),
             request: write.request(),
             tenant: write.tenant(),
-            token: write.token(),
             began: now(),
         };
         self.check_one_frame(&facts).await?;
@@ -100,7 +96,6 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             session: write.session(),
             request: write.request(),
             tenant: write.tenant(),
-            token: write.token(),
             began: now(),
         };
         self.check_one_frame(&facts).await?;
@@ -125,7 +120,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     fn routed(
         &mut self,
         stream: u64,
-        facts: &OneFrameFacts<'_>,
+        facts: &OneFrameFacts,
         checked: Result<Destination, ErrorReply>,
         bytes: &[u8],
     ) -> Result<Answer, ErrorReply> {
@@ -134,22 +129,23 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             Err(refusal) => {
                 let session = u128::from_be_bytes(facts.session);
                 if session != 0 {
-                    self.core.owner().commit_ended(session);
+                    self.core.system().ended(session.to_be_bytes());
                 }
                 Err(refusal)
             }
         }
     }
 
-    /// The gate, the tenant, the token, and the session's owner check.
-    async fn check_one_frame(&self, facts: &OneFrameFacts<'_>) -> Result<(), ErrorReply> {
-        let known = self.gate(Action::Write, facts.tenant).await?;
-        check_token(facts.token, known.open_epoch())?;
+    /// The gate, the tenant, and the session's owner check.
+    async fn check_one_frame(&self, facts: &OneFrameFacts) -> Result<(), ErrorReply> {
+        // A token ahead of the view goes with the write to its partition, which holds the commit until its close (`PROTOCOL.md`
+        // §4.8).
+        let _known = self.gate(Action::Write, facts.tenant).await?;
         let session = u128::from_be_bytes(facts.session);
         if session != 0 {
             self.core
-                .owner()
-                .begin_commit(session, self.principal)
+                .system()
+                .check(session.to_be_bytes(), self.principal, CheckKind::Marks)
                 .await?;
         }
         Ok(())
@@ -159,7 +155,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     fn route_one_frame(
         &mut self,
         stream: u64,
-        facts: &OneFrameFacts<'_>,
+        facts: &OneFrameFacts,
         destination: &Destination,
         bytes: &[u8],
     ) -> Result<Answer, ErrorReply> {
@@ -207,7 +203,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     fn place_one_frame(
         &self,
         destination: &Destination,
-        facts: &OneFrameFacts<'_>,
+        facts: &OneFrameFacts,
     ) -> Result<Option<u32>, ErrorReply> {
         let links = self.core.links();
         match destination {
@@ -346,7 +342,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         if let Some(one) = self.one_frames.remove(&stream)
             && one.session != 0
         {
-            self.core.owner().commit_ended(one.session);
+            self.core.system().ended(one.session.to_be_bytes());
         }
     }
 
@@ -374,8 +370,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         };
         if session != 0 {
             self.core
-                .owner()
-                .begin_commit(session, self.principal)
+                .system()
+                .check(session.to_be_bytes(), self.principal, CheckKind::Marks)
                 .await?;
         }
         // A Drop holds no transaction, and Bind's rule only asks its identity be not all zero.
@@ -394,11 +390,12 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             .map_err(|rule| ErrorReply::protocol(&rule))?;
         let sink = self.sink(RouteKey::Drop { stream });
         let opened = link.open(self.counted(frame), sink);
+        // A Drop of a graph or of a tenant's data calls for no catalog version (`PROTOCOL.md` §13.27).
         let step = match asked.kind() {
             DropKind::Predicate => asked
                 .target()
-                .map(|predicate| DropStep::Predicate(predicate.to_string())),
-            DropKind::Tenant => Some(DropStep::Everything),
+                .map(|predicate| (DropKind::Predicate, Some(predicate.to_string()))),
+            DropKind::Tenant => Some((DropKind::Tenant, None)),
             DropKind::Graph | DropKind::TenantData => None,
         };
         let _none = self.drops.insert(
@@ -459,11 +456,15 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             self.drop_catalog(stream, Ok(()));
             return;
         };
-        let tenant = dropping.tenant;
-        let owner = self.core.owner().clone();
+        let (tenant, principal) = (dropping.tenant, self.principal);
+        let system = self.core.system().clone();
         let events = self.events_in.clone();
         spawn(async move {
-            let outcome = owner.drop_catalog(tenant, step).await;
+            let (kind, target) = step;
+            let outcome = system
+                .drop_catalog(tenant, principal, kind, target)
+                .await
+                .map(drop);
             // A session gone has no one to tell; the resend builds the version.
             drop(events.unbounded_send(SessionEvent::DropCatalog { stream, outcome }));
         })
@@ -492,7 +493,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         if let Some(dropping) = self.drops.remove(&stream)
             && dropping.session != 0
         {
-            self.core.owner().commit_ended(dropping.session);
+            self.core.system().ended(dropping.session.to_be_bytes());
         }
     }
 }

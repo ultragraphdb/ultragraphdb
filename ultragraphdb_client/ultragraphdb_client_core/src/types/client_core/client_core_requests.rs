@@ -10,7 +10,7 @@ use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::Login;
 use ultragraphdb_protocol_wire::{
     Abort, Begin, BodyBuilder, Command, Commit, ConditionalWrite, Describe, DirectWrite,
-    DropCommand, Execute, Operation, Prepare, Read, Register, Write,
+    DropCommand, Execute, Operation, Prepare, Read, Register, Welcome, Write,
 };
 
 use crate::errors::client_error::ClientError;
@@ -190,9 +190,17 @@ impl<L: Login> ClientCore<L> {
         self.request(prepare, Expect::Prepare, now)
     }
 
-    /// Asks for `tenant`'s data dictionary, answered [`crate::Reply::Described`].
+    /// Asks for `tenant`'s data dictionary, answered [`crate::Reply::Described`] once its last frame arrived: an answer
+    /// larger than one frame continues in further frames on its stream, which starts with the Welcome's
+    /// `initial_credit` and is granted more as its frames are read (`PROTOCOL.md` §8.3, *Continuation*).
     pub fn describe(&mut self, tenant: u64, now: Instant) -> Result<Pending, ClientError> {
-        self.request(&Describe::request(tenant), Expect::Describe, now)
+        let credit = self.welcome().map_or(0, Welcome::initial_credit);
+        let pending = self.request(&Describe::request(tenant), Expect::Describe, now)?;
+        let stream = self.pending.get(&pending.id()).and_then(|p| p.stream);
+        if let Some(state) = stream.and_then(|stream| self.streams.get_mut(&stream)) {
+            state.credit = credit;
+        }
+        Ok(pending)
     }
 
     /// Queues a frame on a transaction's stream, a request without a reply.

@@ -74,10 +74,7 @@ impl TestServer {
                 }
             }
             Command::Prepare => self.prepare(stream, &view),
-            Command::Describe => {
-                let answer = Describe::new(0, self.version);
-                self.reply(stream, &answer, FLAG_LAST);
-            }
+            Command::Describe => self.describe(stream),
             Command::Commit => self.commit_view(stream, &view),
             Command::Drop => {
                 if let Ok(drop) = DropCommandView::from_frame(&view).and_then(|d| d.to_body()) {
@@ -128,6 +125,25 @@ impl TestServer {
             | Command::Ended
             | Command::Declare
             | Command::Defaults => {}
+        }
+    }
+
+    /// A Describe on `stream`, answered with [`TestServer::with_describe`]'s answer in as many frames as the client's
+    /// `max_frame` takes, the stream's credit holding back those past it.
+    fn describe(&mut self, stream: u64) {
+        let answer = self
+            .describe
+            .clone()
+            .unwrap_or_else(|| Describe::new(0, self.version));
+        let header = self.header(Command::Describe, stream, 0);
+        let Ok(frames) = answer.frames(header, self.max_frame) else {
+            return;
+        };
+        if let Some(connection) = self.connection.as_mut() {
+            for frame in frames {
+                // A stream already ended, as a cancel ends it, takes no frame.
+                drop(connection.outbound().push(stream, frame));
+            }
         }
     }
 

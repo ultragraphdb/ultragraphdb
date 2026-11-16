@@ -22,24 +22,18 @@ use ultragraphdb_protocol_wire::{
 use crate::types::report_asked::ReportAsked;
 use crate::types::system_handle::SystemHandle;
 
-/// What a frontend's role connections share on their core: the cluster, the way to the owner, and where each Join the owner
-/// registered is told.
+/// What the system group's role connections share on their core: the cluster and the way to the owner.
 #[derive(Debug, Clone)]
 pub struct SystemShared {
     cluster: RoleCluster,
     owner: SystemHandle,
-    joins: UnboundedSender<Join>,
 }
 
 impl SystemShared {
-    /// What the core's role connections share, each `Join` the owner registers sent on `joins`.
+    /// What the core's role connections share.
     #[must_use]
-    pub fn new(cluster: RoleCluster, owner: SystemHandle, joins: UnboundedSender<Join>) -> Self {
-        Self {
-            cluster,
-            owner,
-            joins,
-        }
+    pub fn new(cluster: RoleCluster, owner: SystemHandle) -> Self {
+        Self { cluster, owner }
     }
 }
 
@@ -96,8 +90,6 @@ impl SystemSession {
         let view = JoinView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
         let join = joined(&view);
         self.shared.owner.join(join.clone()).await?;
-        // A frontend that stopped taking joins is stopping.
-        let _told = self.shared.joins.unbounded_send(join.clone());
         built(&join, self.header(stream, Command::Join))
     }
 

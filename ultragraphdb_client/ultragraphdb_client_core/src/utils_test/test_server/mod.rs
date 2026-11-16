@@ -20,7 +20,7 @@ use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{
     BufferPool, FrameStep, Framer, Inbound, ReceivedFrame, ServerConnection, TransportErrorEnum,
 };
-use ultragraphdb_protocol_wire::{ErrorCode, MAX_FRAME_SIZE, RequestTerm, Welcome};
+use ultragraphdb_protocol_wire::{Describe, ErrorCode, MAX_FRAME_SIZE, RequestTerm, Welcome};
 
 use crate::utils_test::session_record::SessionRecord;
 use crate::utils_test::test_authenticator::TestAuthenticator;
@@ -32,7 +32,8 @@ use crate::utils_test::test_server::test_transaction::{
 /// which holds the handshake, the Authenticate exchange and its renewals by SCRAM-SHA-256 when the Welcome lists it,
 /// the frames' order, the stream rules, credit and cancel. The server answers each request with one fixed reply: a
 /// session for Register, a snapshot for Begin, [`TestServer::with_results`] Result frames for a read or an execute,
-/// a statement for Prepare, and a commit from its session table, which answers a retry from its record.
+/// a statement for Prepare, [`TestServer::with_describe`]'s answer for Describe in as many frames as the client's
+/// `max_frame` takes, and a commit from its session table, which answers a retry from its record.
 ///
 /// A test injects a fault by name before the request it hits: [`TestServer::drop_after_next_commit`],
 /// [`TestServer::lose_next_commit`], [`TestServer::answer_busy_retries`], [`TestServer::answer_busy_registers`],
@@ -46,6 +47,9 @@ pub struct TestServer {
     cluster: u64,
     welcome: Welcome,
     results: u32,
+    describe: Option<Describe>,
+    /// The largest frame the client takes, as its Hello states.
+    max_frame: usize,
     credential_life: Option<Duration>,
     connection: Option<ServerConnection<TestAuthenticator>>,
     framer: Framer,
@@ -85,6 +89,8 @@ impl TestServer {
             framer: Framer::from_client(cluster, welcome.max_frame() as usize),
             welcome,
             results: 3,
+            describe: None,
+            max_frame: MAX_FRAME_SIZE,
             credential_life: None,
             connection: None,
             pool: BufferPool::new(4, MAX_FRAME_SIZE),
@@ -118,6 +124,15 @@ impl TestServer {
     /// batch of no rows, as a read that matches nothing is answered.
     pub fn with_results(mut self, results: u32) -> Self {
         self.results = results;
+        self
+    }
+
+    /// The server answering each Describe with `describe`, whatever tenant it names, in as many frames as the client's
+    /// `max_frame` takes (`PROTOCOL.md` §8.3, *Continuation*), sent under the stream's credit; without it, an answer of
+    /// tenant 0 at the server's version holding nothing.
+    #[must_use]
+    pub fn with_describe(mut self, describe: Describe) -> Self {
+        self.describe = Some(describe);
         self
     }
 
@@ -382,7 +397,13 @@ impl TestServer {
             Err(_) => return self.close_unsent(),
         };
         match inbound {
-            Inbound::Welcomed { protocol, .. } => self.framer.set_protocol(protocol),
+            Inbound::Welcomed {
+                protocol,
+                max_frame,
+            } => {
+                self.framer.set_protocol(protocol);
+                self.max_frame = max_frame as usize; // lossless: a `usize` is at least 32 bits
+            }
             Inbound::Request { stream, command } => self.request(stream, command, &received),
             Inbound::Cancelled {
                 stream,

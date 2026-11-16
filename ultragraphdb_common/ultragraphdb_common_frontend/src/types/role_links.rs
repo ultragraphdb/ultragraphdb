@@ -5,13 +5,16 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
+use std::future::poll_fn;
 use std::rc::Rc;
+use std::task::{Poll, Waker};
+use std::time::Duration;
 
 use ultragraphdb_cluster_placement::{PartitionId, PlacementMap, TenantRun};
 use ultragraphdb_common_role::{RoleClient, RoleCluster};
 use ultragraphdb_core_ids::{Bucket, Tenant};
 use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_wire::{DEFAULT_TRANSACTION_MS, Join, RoleKind};
+use ultragraphdb_protocol_wire::{DEFAULT_TRANSACTION_MS, Join, MembersView, RoleKind};
 
 use crate::types::role_link::RoleLink;
 
@@ -23,6 +26,9 @@ struct Held {
     compute_turn: usize,
     partition_turn: usize,
     map: Option<PlacementMap>,
+    /// Whether a link was found closed since Members was last read for it, and the waker of the task reading it.
+    closed_found: bool,
+    reader: Option<Waker>,
 }
 
 /// What one endpoint core knows of the other roles: who joined, a connection to each, shared by its client and role sessions on
@@ -97,6 +103,19 @@ impl RoleLinks {
         let mut held = self.held.borrow_mut();
         if let Some(link) = held.open.get(address).filter(|link| !link.is_closed()) {
             return Some(link.clone());
+        }
+        // A connection found closed is a role connection that closed: Members is read again (design D9).
+        let reader = held
+            .open
+            .get(address)
+            .is_some_and(RoleLink::is_closed)
+            .then(|| {
+                held.closed_found = true;
+                held.reader.take()
+            })
+            .flatten();
+        if let Some(reader) = reader {
+            reader.wake();
         }
         let parsed = Address::parse(address).ok()?;
         let link = RoleLink::dial(
@@ -202,5 +221,55 @@ impl RoleLinks {
         let at = held.partition_turn % owners.len().max(1);
         held.partition_turn = held.partition_turn.wrapping_add(1);
         owners.get(at).copied()
+    }
+
+    /// What Members lists: the partitions each storage process holds and every compute process, in place of what was held
+    /// (design D9).
+    pub fn learned(&self, members: &MembersView<'_>) {
+        let mut held = self.held.borrow_mut();
+        held.partitions.clear();
+        let mut computes = Vec::new();
+        for at in 0..members.len() {
+            let (Some(member), Some(address)) = (members.member(at), members.address(at)) else {
+                continue;
+            };
+            match member.kind() {
+                RoleKind::Storage => {
+                    let _replaced = held
+                        .partitions
+                        .insert(member.partition(), address.to_string());
+                }
+                RoleKind::Compute => computes.push(address.to_string()),
+                // Members lists no frontend.
+                RoleKind::Frontend => {}
+            }
+        }
+        held.computes = computes;
+    }
+
+    /// Whether a role address holding `partition` is known.
+    #[must_use]
+    pub fn lists(&self, partition: u32) -> bool {
+        self.held.borrow().partitions.contains_key(&partition)
+    }
+
+    /// The cluster's deadline, `[cluster] join_deadline_ms`.
+    #[must_use]
+    pub fn deadline(&self) -> Duration {
+        self.cluster.deadline()
+    }
+
+    /// Waits until a link is found closed: the moment Members is read again (design D9). A dropped future leaves its waker,
+    /// which the next closed link wakes for nothing.
+    pub async fn closed_found(&self) {
+        poll_fn(|cx| {
+            let mut held = self.held.borrow_mut();
+            if std::mem::take(&mut held.closed_found) {
+                return Poll::Ready(());
+            }
+            held.reader = Some(cx.waker().clone());
+            Poll::Pending
+        })
+        .await;
     }
 }

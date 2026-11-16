@@ -181,6 +181,17 @@ impl<A: Authenticator> ServerConnection<A> {
         self.close(ErrorCode::Protocol, &refusal.to_string())
     }
 
+    /// The connection ended by `error` on stream 0, which no rule of its own decides: what its server cannot reach, as an
+    /// endpoint whose system group is lost answers an Authenticate with code 17 (`PROTOCOL.md` §11.12, *While the system
+    /// group cannot be reached*). The connection closes, as for [`ServerConnection::refuse_connection`].
+    ///
+    /// # Errors
+    ///
+    /// [`TransportError::frame_not_built`] when the Error cannot be built: the connection closes without it.
+    pub fn close_connection(&mut self, error: &ErrorReply) -> Result<Inbound, TransportError> {
+        self.close_with(error)
+    }
+
     /// The session's refusal of a request on `stream` by a body's rule or its own: `error` on the stream, flagged
     /// last, which ends it, and with a transaction's stream the transaction and its reads.
     ///

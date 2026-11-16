@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The frontend role: the client endpoint, authentication, the metadata group and the sequencer.
+//! The frontend role: the client endpoint and authentication, relayed to the system group.
 
 mod service;
 

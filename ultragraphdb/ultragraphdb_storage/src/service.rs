@@ -338,10 +338,7 @@ impl Hosted {
         let (handle, stopped) = group.into_parts();
         let server = Server::new(cluster.id(), "storage", Endpoint::Frontend)?
             .with_iterations(ROLE_ITERATIONS);
-        // The group's sessions tell no frontend of a Join here: its receiver is gone, so each Join is let go once registered.
-        let (joins, untold) = unbounded();
-        drop(untold);
-        let shared = SystemShared::new(cluster.clone(), handle, joins);
+        let shared = SystemShared::new(cluster.clone(), handle);
         let listener = listen(address).await?;
         let credentials = cluster.secret().credentials()?;
         let accepting = spawn(accept_system(listener, server, credentials, shared));

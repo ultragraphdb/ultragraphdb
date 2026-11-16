@@ -6,12 +6,13 @@
 use std::time::Duration;
 
 use ultragraphdb_common_role::Answer;
-use ultragraphdb_common_system::TenantFacts;
-use ultragraphdb_core_ids::{SessionToken, Version};
+use ultragraphdb_core_catalog::{CatalogContents, describe_of};
+use ultragraphdb_core_ids::Version;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
-    Action, Begin, BeginView, BodyBuilder, BodyView, Command, DescribeView, ErrorCode, ErrorReply,
-    FrameView, InstallView, MigrateView, PurgeView, QueryView, ReadLevel, Register,
+    Action, Begin, BeginView, BodyBuilder, BodyView, CATALOG_BYTES_MAX, Command, DescribeFrames,
+    DescribeView, ErrorCode, ErrorReply, FrameView, InstallView, MAX_FRAME_SIZE, MigrateView,
+    PurgeView, QueryView, ReadLevel, Register,
 };
 
 use super::{ClientSession, now};
@@ -19,6 +20,7 @@ use crate::traits::authorizer::Authorizer;
 use crate::types::bind_state::BindState;
 use crate::types::client_transaction::ClientTransaction;
 use crate::types::gate_scope::GateScope;
+use crate::types::view_facts::ViewFacts;
 
 fn protocol(rule: &ultragraphdb_error_protocol::ProtocolError) -> ErrorReply {
     ErrorReply::protocol(rule)
@@ -39,17 +41,6 @@ fn later_stage(command: &str, stage: &str) -> ErrorReply {
         ErrorCode::Refused,
         format!("{command} is served from stage {stage}"),
     )
-}
-
-/// A token above the sequencer's open epoch, which no commit can have carried: Error 1 on the request's stream, naming it.
-pub(super) fn check_token(token: Option<&SessionToken>, open: u64) -> Result<(), ErrorReply> {
-    match token.map(|token| token.epoch().get()) {
-        Some(epoch) if epoch > open => Err(ErrorReply::new(
-            ErrorCode::Protocol,
-            format!("a token of epoch {epoch}, above the sequencer's open epoch {open}"),
-        )),
-        Some(_) | None => Ok(()),
-    }
 }
 
 impl<A: Authorizer + Clone> ClientSession<A> {
@@ -146,41 +137,55 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 "the random source gave no bits",
             ));
         }
-        self.core
-            .owner()
-            .register_session(u128::from_be_bytes(session), self.principal)
-            .await?;
+        self.core.system().session(session, self.principal).await?;
         self.push_last(stream, &Register::new(session));
         Ok(Answer::Open)
     }
 
-    /// The gate on a request naming `tenant`, then whether the group holds it.
-    pub(super) async fn gate(
-        &self,
-        action: Action,
-        tenant: u64,
-    ) -> Result<TenantFacts, ErrorReply> {
+    /// The gate on a request naming `tenant`, then whether the core's view holds it, its current version read once when it is
+    /// first used (`PROTOCOL.md` §11.13, *The frontend's reads*). A view not yet answering is waited for within
+    /// `transaction_ms`.
+    pub(super) async fn gate(&self, action: Action, tenant: u64) -> Result<ViewFacts, ErrorReply> {
         self.core
             .gate()
             .check(self.principal, action.number(), GateScope::Tenant(tenant))?;
-        let facts = self.core.owner().tenant_facts(tenant).await?;
-        if !facts.known() {
+        let system = self.core.system();
+        let limit = Duration::from_millis(u64::from(self.core.limits().transaction_ms()));
+        system.answering(now() + limit).await?;
+        if !system.view().holds_tenant(tenant) {
             return Err(unknown_tenant(tenant));
         }
-        Ok(facts)
+        system.known(tenant).await?;
+        let view = system.view();
+        Ok(ViewFacts {
+            open_epoch: view.open_epoch(),
+            last_closed: view.latest_closed(),
+            current_version: view.current_version(tenant),
+        })
     }
 
     /// A transaction on `stream`, its reads' version chosen.
     async fn begin(&mut self, stream: u64, view: &FrameView<'_>) -> Result<Answer, ErrorReply> {
         let begin = BeginView::from_frame(view).map_err(|rule| protocol(&rule))?;
         let tenant = begin.tenant();
-        let facts = self.gate(Action::Read, tenant).await?;
-        check_token(begin.token(), facts.open_epoch())?;
+        let mut facts = self.gate(Action::Read, tenant).await?;
         let token_epoch = begin.token().map_or(0, |token| token.epoch().get());
+        let began = now();
+        let limit = u64::from(self.core.limits().transaction_ms());
+        let deadline_ms = match begin.deadline_ms() {
+            0 => limit,
+            asked => u64::from(asked),
+        };
+        if token_epoch > facts.open_epoch {
+            // A token ahead of the view waits for the close before its epoch, until the deadline (`PROTOCOL.md` §4.8).
+            let deadline = began + Duration::from_millis(deadline_ms);
+            self.core.system().token(token_epoch, deadline).await?;
+            facts = self.gate(Action::Read, tenant).await?;
+        }
         let named = (begin.read_version() != 0).then_some(begin.read_version());
         let snapshot = begin.read_only() && begin.level() == ReadLevel::Snapshot && named.is_none();
         let epoch = if snapshot {
-            facts.last_closed().max(token_epoch)
+            facts.last_closed.max(token_epoch)
         } else {
             token_epoch
         };
@@ -189,16 +194,10 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             (None, true) => bound_of(epoch)?,
             (None, false) => 0,
         };
-        if snapshot && epoch > facts.last_closed() {
+        if snapshot && epoch > facts.last_closed {
             // A snapshot read waits on the open epoch: its close comes early.
-            self.core.owner().close_request(epoch).await?;
+            self.core.system().close_request(epoch);
         }
-        let began = now();
-        let limit = u64::from(self.core.limits().transaction_ms());
-        let deadline_ms = match begin.deadline_ms() {
-            0 => limit,
-            asked => u64::from(asked),
-        };
         let identity = fresh_identity()?;
         let transaction = ClientTransaction {
             tenant,
@@ -208,7 +207,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             read_version,
             epoch,
             floor: token_epoch,
-            catalog: facts.current_version(),
+            catalog: facts.current_version,
             deadline: began + Duration::from_millis(deadline_ms),
             limit: (!begin.read_only()).then(|| began + Duration::from_millis(limit)),
             identity,
@@ -292,21 +291,77 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         Err(later_stage("a Migrate", "9.5"))
     }
 
-    /// What the metadata group says of a tenant, answered within the client's `max_frame`.
+    /// What the system group says of a tenant (`PROTOCOL.md` §8.3, §11.13, *The frontend's reads*): the catalog version a
+    /// client reads at the view's latest closed epoch, by a Catalog of `version` 0 naming it, and the default-entry records by
+    /// Defaults; answered across frames within the client's `max_frame`, under its credit.
     async fn describe(&mut self, stream: u64, view: &FrameView<'_>) -> Result<Answer, ErrorReply> {
         let asked = DescribeView::from_frame(view).map_err(|rule| protocol(&rule))?;
         let tenant = asked.tenant();
-        let _facts = self.gate(Action::Read, tenant).await?;
-        let answer = self.core.owner().describe(tenant).await?;
-        let header = self
-            .header(stream, Command::Describe)
-            .with_flags(ultragraphdb_protocol_wire::FLAG_LAST);
-        let frame = answer.frame(header).map_err(|_| self.past_frame())?;
-        // Lossless: a `usize` is at most 64 bits.
-        if frame.len() as u64 > u64::from(self.max_frame) {
-            return Err(self.past_frame());
+        let facts = self.gate(Action::Read, tenant).await?;
+        let closed = facts.last_closed;
+        let system = self.core.system();
+        let declarations = match system.catalog_at(tenant, closed).await {
+            Ok((version, bytes)) => CatalogContents::decode(tenant, version, &bytes)
+                .map_err(|error| ErrorReply::new(ErrorCode::Unavailable, error.to_string()))?
+                .into_declarations(),
+            // No version is in effect at the epoch: the initial catalog's, which declares nothing.
+            Err(refusal) if refusal.code() == ErrorCode::Refused && refusal.detail() == 0 => {
+                Vec::new()
+            }
+            Err(refusal) => return Err(refusal),
+        };
+        let recorded = system.defaults(tenant).await?;
+        let read_version = if closed == 0 { 0 } else { bound_of(closed)? };
+        let answer = describe_of(
+            tenant,
+            read_version,
+            &declarations,
+            recorded.iter().map(String::as_str),
+        );
+        let frames = answer
+            .frames(
+                self.header(stream, Command::Describe),
+                self.max_frame as usize,
+            ) // lossless: a `u32` fits a `usize` here
+            .map_err(|_| self.past_frame())?;
+        let mut bounded = DescribeFrames::new();
+        for frame in &frames {
+            let read = FrameView::validate(frame, self.cluster(), MAX_FRAME_SIZE)
+                .map_err(|rule| protocol(&rule))?;
+            if bounded.push(&read).is_err() {
+                return Err(ErrorReply::new(
+                    ErrorCode::TooLarge,
+                    format!("the answer passes catalog_bytes_max, {CATALOG_BYTES_MAX} bytes"),
+                )
+                .with_detail(CATALOG_BYTES_MAX as u64)); // lossless: a `usize` is at most 64 bits
+            }
         }
-        Ok(Answer::Reply(frame))
+        let credit = self.core.limits().initial_credit();
+        let _none = self.describes.insert(stream, (frames.into(), credit));
+        self.describe_credited(stream, 0);
+        Ok(Answer::Open)
+    }
+
+    /// The client granted a Describe's `stream` credit for `frames` more frames: as many as its credit allows leave
+    /// (`PROTOCOL.md` §8.3, *Continuation*; §11.3).
+    pub(super) fn describe_credited(&mut self, stream: u64, frames: u32) {
+        let mut ready = Vec::new();
+        if let Some((waiting, credit)) = self.describes.get_mut(&stream) {
+            *credit = credit.saturating_add(frames);
+            while *credit > 0 {
+                let Some(frame) = waiting.pop_front() else {
+                    break;
+                };
+                *credit -= 1;
+                ready.push(frame);
+            }
+            if waiting.is_empty() {
+                let _done = self.describes.remove(&stream);
+            }
+        }
+        for frame in ready {
+            self.push(stream, frame);
+        }
     }
 
     fn past_frame(&self) -> ErrorReply {

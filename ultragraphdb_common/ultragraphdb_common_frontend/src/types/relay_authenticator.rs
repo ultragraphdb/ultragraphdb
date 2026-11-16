@@ -1,0 +1,142 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
+use std::cell::RefCell;
+use std::fmt;
+use std::rc::Rc;
+
+use ultragraphdb_protocol_scram::{MECHANISM, ScramError, ScramRelay};
+use ultragraphdb_protocol_transport::{Authenticator, Credential, MechanismStep, ServerMechanism};
+
+/// Where a relayed exchange stands between the session that asks the system group and the machine that answers the client.
+#[derive(Default)]
+struct RelayState {
+    relay: Option<ScramRelay>,
+    name: Option<String>,
+    /// What the next step answers, prepared by the session before the machine runs it.
+    answer: Option<Result<MechanismStep, ScramError>>,
+}
+
+/// A client connection's authentication relayed to the system group (design D8; `PROTOCOL.md` §11.1): the connection's
+/// session reads each client message with [`ScramRelay`], asks the system group by Challenge and Verify, and prepares the
+/// server's message here before the connection's machine, which runs without waiting, takes it as the step's answer. It
+/// holds no key: a verifier never reaches the frontend. Shared by an `Rc` of a `RefCell` between the session and the
+/// machine on the connection's one task, a borrow lasting one call, never across a wait (Ultra rule 9). Its `Debug` holds
+/// whether an answer waits and the relay's own redacted form, never a message's text.
+#[derive(Clone, Default)]
+pub struct RelayAuthenticator(Rc<RefCell<RelayState>>);
+
+/// One relayed exchange, the transport's server mechanism: each step answers what the session prepared for it.
+pub struct RelayMechanism(Rc<RefCell<RelayState>>);
+
+impl RelayAuthenticator {
+    /// Reads the client-first-message `message` of a new exchange whose server nonce part is `nonce`: the name to ask
+    /// the system group for.
+    ///
+    /// # Errors
+    ///
+    /// What [`ScramRelay::first`] refuses; the step then fails the exchange.
+    pub fn first(&self, message: &[u8], nonce: &str) -> Result<String, ScramError> {
+        let mut relay = ScramRelay::new(nonce);
+        let mut state = self.0.borrow_mut();
+        state.answer = None;
+        state.name = None;
+        let name = relay.first(message);
+        state.relay = Some(relay);
+        let name = name?;
+        state.name = Some(name.clone());
+        Ok(name)
+    }
+
+    /// The name the exchange in hand authenticates as.
+    #[must_use]
+    pub fn name(&self) -> Option<String> {
+        self.0.borrow().name.clone()
+    }
+
+    /// The system group's Challenge answered `salt` and `iterations`: the server-first-message is the next step's answer.
+    pub fn challenged(&self, salt: &[u8], iterations: u32) {
+        let mut state = self.0.borrow_mut();
+        let answer = match state.relay.as_mut() {
+            Some(relay) => relay
+                .challenge(salt, iterations)
+                .map(MechanismStep::Continue),
+            None => Err(ScramError::out_of_step()),
+        };
+        state.answer = Some(answer);
+    }
+
+    /// Reads the client-final-message `message`: the AuthMessage and the ClientProof to send the system group in a Verify.
+    ///
+    /// # Errors
+    ///
+    /// What [`ScramRelay::last`] refuses; the step then fails the exchange.
+    pub fn last(&self, message: &[u8]) -> Result<(String, [u8; 32]), ScramError> {
+        let mut state = self.0.borrow_mut();
+        state.answer = None;
+        state
+            .relay
+            .as_mut()
+            .ok_or_else(ScramError::out_of_step)?
+            .last(message)
+    }
+
+    /// The system group's Verify held for `principal` with `signature`: the server-final-message is the next step's answer.
+    pub fn verified(&self, principal: u64, signature: &[u8; 32]) {
+        let mut state = self.0.borrow_mut();
+        let answer = match state.relay.as_mut() {
+            Some(relay) => relay
+                .finish(signature)
+                .map(|last| MechanismStep::Done(last, Credential::new(principal))),
+            None => Err(ScramError::out_of_step()),
+        };
+        state.answer = Some(answer);
+    }
+
+    /// The system group refused the proof, or a message could not be read: the next step fails the exchange, with the
+    /// authentication error that says nothing of why (`PROTOCOL.md` §11.1).
+    pub fn refused(&self) {
+        self.0.borrow_mut().answer = Some(Err(ScramError::proof()));
+    }
+}
+
+impl Authenticator for RelayAuthenticator {
+    type Mechanism = RelayMechanism;
+
+    /// An exchange of `SCRAM-SHA-256`; `None` for any other mechanism.
+    fn start(&mut self, mechanism: &str) -> Option<RelayMechanism> {
+        (mechanism == MECHANISM).then(|| RelayMechanism(Rc::clone(&self.0)))
+    }
+}
+
+impl ServerMechanism for RelayMechanism {
+    type Error = ScramError;
+
+    /// The answer the session prepared for this step; an exchange none was prepared for fails.
+    fn step(&mut self, _message: &[u8]) -> Result<MechanismStep, ScramError> {
+        self.0
+            .borrow_mut()
+            .answer
+            .take()
+            .unwrap_or_else(|| Err(ScramError::out_of_step()))
+    }
+}
+
+impl fmt::Debug for RelayAuthenticator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let state = self.0.borrow();
+        f.debug_struct("RelayAuthenticator")
+            .field("relay", &state.relay)
+            .field("named", &state.name.is_some())
+            .field("answer", &state.answer.as_ref().map(Result::is_ok))
+            .finish()
+    }
+}
+
+impl fmt::Debug for RelayMechanism {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("RelayMechanism").finish_non_exhaustive()
+    }
+}

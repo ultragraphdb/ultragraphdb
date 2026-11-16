@@ -19,9 +19,7 @@ use ultragraphdb_common_frontend::{
     iri_place, last_frame, partition_answer,
 };
 use ultragraphdb_common_role::{Answer, RoleClient};
-use ultragraphdb_core_ids::{
-    Bucket, Epoch, Sequence, SessionToken, SystemId, Tenant, TypePrefix, Version,
-};
+use ultragraphdb_core_ids::{Bucket, Epoch, Sequence, SystemId, Tenant, TypePrefix, Version};
 use ultragraphdb_core_terms::{EncodedTerm, SYSTEM_VOCABULARY, TermError};
 use ultragraphdb_protocol_scram::{ScramClient, system_nonce};
 use ultragraphdb_protocol_transport::{
@@ -29,13 +27,12 @@ use ultragraphdb_protocol_transport::{
 };
 use ultragraphdb_protocol_transport_compio::{Carrier, Connection};
 use ultragraphdb_protocol_wire::{
-    Abort, Action, AuthenticateView, Begin, BindView, BodyBuilder, BodyView, Cancel, ColumnType,
-    Command, Commit, CommitOperation, CommitView, ComputeReadView, ConditionalWrite, Declared,
-    DeclaredKind, DeclaredPredicate, DefaultEntry, Describe, DescribeView, DirectWrite,
-    DropCommand, ErrorCode, ErrorReply, Execute, FLAG_LAST, Header, Held, Hello, Join,
-    MAX_FRAME_FLOOR, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE, MAX_FRAME_SIZE_U32, Operation,
-    PatternSlot, Prepare, PrepareView, QuadPattern, Read, ReadLevel, ReferenceView, Report,
-    RequestTerm, RequestTermView, ResultBatch, ResultView, TenantRun, TermTable, Write,
+    Abort, Action, AuthenticateView, BindView, BodyBuilder, BodyView, Cancel, ColumnType, Command,
+    Commit, CommitOperation, CommitView, ComputeReadView, ConditionalWrite, Declared, DeclaredKind,
+    DeclaredPredicate, DefaultEntry, Describe, DescribeView, DirectWrite, DropCommand, ErrorCode,
+    ErrorReply, Execute, FLAG_LAST, Header, Held, Hello, Join, MAX_FRAME_SIZE, MAX_FRAME_SIZE_U32,
+    Operation, PatternSlot, Prepare, PrepareView, QuadPattern, Read, ReadLevel, ReferenceView,
+    Report, RequestTerm, RequestTermView, ResultBatch, ResultView, TenantRun, TermTable, Write,
     WriteChange, xxh3_64,
 };
 use ultragraphdb_store_sim::LogCapture;
@@ -1143,55 +1140,6 @@ fn a_one_frame_write_s_resend_is_decided_by_the_table_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
-#[when(
-    "the sequencer's open epoch is 30, and a Begin, a DirectWrite and a ConditionalWrite each carry a token of epoch 31"
-)]
-fn a_token_above_the_open_epoch_is_refused(w: &mut Steps) -> TestResult {
-    let options = Options::default();
-    run(w, options, |stage| async move {
-        let _whole = &stage;
-        let facts = stage
-            .owner
-            .tenant_facts(0)
-            .await
-            .map_err(|refusal| TestError::new(refusal.message().to_string()))?;
-        let above = facts.open_epoch() + 1_000_000;
-        let token = SessionToken::new(1, 1, Epoch::new(above)?);
-        let named = above.to_string();
-        let mut client = stage.ann().await?;
-        let begin = client
-            .send(&Begin::new(0, 0, false).with_token(token.clone()))
-            .await?;
-        let mut terms = TermTable::new();
-        let change = insert_into(&mut terms, OBJECT);
-        let direct = client
-            .send(
-                &DirectWrite::new(0, terms.clone(), vec![change.clone()]).with_token(token.clone()),
-            )
-            .await?;
-        let operation = CommitOperation::CounterAdd {
-            graph: None,
-            subject: 0,
-            predicate: 1,
-            delta: 1,
-        };
-        let conditional = client
-            .send(&ConditionalWrite::new(0, terms, vec![change], vec![operation]).with_token(token))
-            .await?;
-        for stream in [begin, direct, conditional] {
-            let got = client.got(stream).await?;
-            assert_eq!(got.code, Some(ErrorCode::Protocol));
-            assert!(got.message.contains(&named), "{}", got.message);
-        }
-        Ok(())
-    })
-}
-
-#[then("each is refused with Error 1 on its stream, the message naming epoch 31")]
-fn a_token_above_the_open_epoch_is_refused_held(w: &mut Steps) {
-    assert!(w.ran, "the scenario ran");
-}
-
 #[when("a DirectWrite writes subjects of partitions 1 and 2")]
 fn a_write_reaching_two_partitions_is_refused(w: &mut Steps) -> TestResult {
     let options = Options {
@@ -1800,33 +1748,6 @@ fn a_literal_at_a_node_slot_is_refused_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
-#[when("a tenant's Describe answer does not fit one frame within the client's `max_frame`")]
-fn a_describe_past_the_client_s_frame_is_refused(w: &mut Steps) -> TestResult {
-    let options = Options::default();
-    run(w, options, |stage| async move {
-        let _whole = &stage;
-        for at in 0..140 {
-            let long = format!("http://ex.org/{at}/{}", "a".repeat(3_900));
-            record_default(&stage, &long).await?;
-        }
-        let inner =
-            RoleClient::dial_taking(&stage.client, CLUSTER, "ann", "pw", MAX_FRAME_FLOOR_U32)
-                .await?;
-        let mut client = Client::over(inner);
-        let describe = client.send(&Describe::request(0)).await?;
-        assert_eq!(
-            client.refused(describe).await?,
-            (ErrorCode::TooLarge, MAX_FRAME_FLOOR as u64)
-        );
-        Ok(())
-    })
-}
-
-#[then("it is refused with code 6, `detail` that `max_frame`")]
-fn a_describe_past_the_client_s_frame_is_refused_held(w: &mut Steps) {
-    assert!(w.ran, "the scenario ran");
-}
-
 #[when(
     "a connection prepares a statement in tenant 1 and executes it in a transaction of tenant 0"
 )]
@@ -2340,21 +2261,36 @@ fn a_catalog_version_past_its_cap_is_refused_at_its_commit(w: &mut Steps) -> Tes
     let options = Options::default();
     run(w, options, |stage| async move {
         let _whole = &stage;
+        // A Declare is one frame (`PROTOCOL.md` §11.13), so one transaction adds at most a frame of declarations: the version it
+        // builds on holds 1,143 declarations of 14,000 bytes each, 16,002,000 bytes of IRIs, declared in the group itself, and the
+        // transaction's one Write of 64 more, 896,000 bytes within a frame, takes the version past `catalog_bytes_max`, 16,777,216
+        // bytes (`PROTOCOL.md` §11.9).
+        let base: Vec<Declared> = (0..1_143)
+            .map(|at| {
+                let long = format!("http://ex.org/base/{at}/{}", "a".repeat(14_000));
+                Declared::Predicate(DeclaredPredicate::new(long))
+            })
+            .collect();
+        let _version = stage
+            .owner
+            .declare(0, 0, base)
+            .await
+            .map_err(|refusal| TestError::new(refusal.message().to_string()))?;
+        until("the core's view holding version 1", || {
+            stage.system.view().current_version(0) == 1
+        })
+        .await?;
         let mut client = stage.ann().await?;
         let transaction = client.begin(0).await?;
-        // 19 Writes of 64 declarations of 14,000 bytes each declare 17,024,000 bytes of IRIs, past `catalog_bytes_max`,
-        // 16,777,216 bytes (`PROTOCOL.md` §11.9), each Write within a frame.
-        for frame in 0..19 {
-            let declared = (0..64)
-                .map(|at| {
-                    let long = format!("http://ex.org/{frame}/{at}/{}", "a".repeat(14_000));
-                    WriteChange::Declare(Declared::Predicate(DeclaredPredicate::new(long)))
-                })
-                .collect();
-            client
-                .on(transaction, &Write::new(TermTable::new(), declared))
-                .await?;
-        }
+        let declared = (0..64)
+            .map(|at| {
+                let long = format!("http://ex.org/added/{at}/{}", "a".repeat(14_000));
+                WriteChange::Declare(Declared::Predicate(DeclaredPredicate::new(long)))
+            })
+            .collect();
+        client
+            .on(transaction, &Write::new(TermTable::new(), declared))
+            .await?;
         client.commit(transaction).await?;
         let got = client.got(transaction).await?;
         assert_eq!(
@@ -2367,7 +2303,7 @@ fn a_catalog_version_past_its_cap_is_refused_at_its_commit(w: &mut Steps) -> Tes
             .tenant_facts(0)
             .await
             .map_err(|refusal| TestError::new(refusal.message().to_string()))?;
-        assert_eq!(facts.current_version(), 0, "the current version stays");
+        assert_eq!(facts.current_version(), 1, "the current version stays");
         Ok(())
     })
 }
@@ -2428,6 +2364,7 @@ fn a_resent_drop_builds_the_version_a_stopped_frontend_left(w: &mut Steps) -> Te
             )
             .await
             .map_err(TestError::new)?;
+        stage_2.read_members().await?;
         holding.set(false);
         let mut client_2 = stage_2.ann().await?;
         let resent = client_2.send(&drop_of).await?;

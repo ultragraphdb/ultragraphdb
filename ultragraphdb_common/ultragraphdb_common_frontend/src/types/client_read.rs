@@ -33,4 +33,7 @@ pub(crate) struct ClientRead {
     pub frames: u64,
     /// When its last frame arrived, or it was sent.
     pub last_frame: Instant,
+    /// Whether Members was read again for it, which a read finding no compute process left does once before it is refused
+    /// (design D9).
+    pub members_read: bool,
 }

@@ -44,10 +44,6 @@ Feature: The server's rules of a request
     When a statement's subject parameter is bound to a literal
     Then the execution is refused with code 11, `detail` the statement
 
-  Scenario: A Describe past the client's frame is refused
-    When a tenant's Describe answer does not fit one frame within the client's `max_frame`
-    Then it is refused with code 6, `detail` that `max_frame`
-
   Scenario: A statement prepared in another tenant is refused
     When a connection prepares a statement in tenant 1 and executes it in a transaction of tenant 0
     Then the execution is refused with code 10, `detail` the statement, and the transaction goes on
