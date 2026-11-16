@@ -15,6 +15,7 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_transactions_txn::{FrameChanges, FrameTerms};
 
+use crate::traits::core_clock::CoreClock;
 use crate::types::core_message::{CoreMessage, Pushes};
 use crate::types::parked_frame::ParkedFrame;
 use crate::types::partition_core::partition_core_one_frame::ONE_FRAME_ATTEMPTS;
@@ -36,7 +37,7 @@ fn with_changes<T>(
     run(&changes).map_err(|refusal| error_reply(&refusal))
 }
 
-impl<S: DurableStorage> PartitionCore<'_, S> {
+impl<S: DurableStorage, K: CoreClock> PartitionCore<'_, S, K> {
     /// Takes what a connection handed over.
     pub(super) fn take(&mut self, message: CoreMessage) {
         match message {

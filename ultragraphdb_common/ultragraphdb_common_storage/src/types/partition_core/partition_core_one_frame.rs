@@ -15,6 +15,7 @@ use ultragraphdb_store_apply::DropRequest;
 use ultragraphdb_transactions_commit::{CommitError, CommitErrorEnum, StoredReply};
 use ultragraphdb_transactions_txn::{FrameChanges, FrameTerms};
 
+use crate::traits::core_clock::CoreClock;
 use crate::types::commit_mark::CommitMark;
 use crate::types::core_message::Pushes;
 use crate::types::one_frame_view::OneFrameView;
@@ -49,7 +50,7 @@ fn identity_of((connection, stream): BoundKey) -> [u8; 16] {
     (u128::from(connection) << 64 | u128::from(stream)).to_be_bytes()
 }
 
-impl<S: DurableStorage> PartitionCore<'_, S> {
+impl<S: DurableStorage, K: CoreClock> PartitionCore<'_, S, K> {
     /// A DirectWrite or ConditionalWrite: a resend answered from the session table, else executed from its frame in one turn, its
     /// references' wait apart (`PROTOCOL.md` §6.6).
     pub(super) fn one_frame(&mut self, key: BoundKey, view: &FrameView<'_>) -> RequestStep {

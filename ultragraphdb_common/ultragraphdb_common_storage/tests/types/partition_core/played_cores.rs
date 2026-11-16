@@ -35,7 +35,7 @@ use ultragraphdb_protocol_wire::{
     MAX_FRAME_SIZE,
 };
 use ultragraphdb_store_apply::ChangesetApplier;
-use ultragraphdb_store_kv::{Durability, FjallStore, MokaListCache, ThreadExecutor};
+use ultragraphdb_store_kv::{MokaListCache, ThreadExecutor};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_quads::{QuadStore, iri_bucket};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -45,6 +45,7 @@ use ultragraphdb_transactions_commit::{CloseRequest, Pipeline, RoundBounds};
 use ultragraphdb_transactions_log::{CompioStorage, Wal, WalConfig};
 
 use crate::types::partition_core::played_answers::{Played, Sent};
+use crate::types::partition_core::store_template::empty_store;
 
 /// The cluster every frame names.
 pub(crate) const CLUSTER: u64 = 7;
@@ -456,8 +457,7 @@ fn open_partition(
     let blocks = RefillBlocks::new(leased, wanted);
     let owned = StoragePartition::owned(id, placement, Epoch::ZERO).context("the map's ranges")?;
     let store_dir = dir.join("store");
-    std::fs::create_dir_all(&store_dir)?;
-    let store = FjallStore::open(&store_dir, Durability::Log)?;
+    let store = empty_store(&store_dir)?;
     let cache = MokaListCache::new(CACHE_BYTES, |_: &[u8], list: &CachedList| list.weight());
     let lists = Lists::new(store, cache, ListsConfig::default());
     let quads =

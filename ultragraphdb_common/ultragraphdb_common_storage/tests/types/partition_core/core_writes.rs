@@ -235,6 +235,18 @@ impl Direct {
         self.played.nothing_for(quiet).await
     }
 
+    /// Waits until the core has taken everything sent it before and ended the turn that took it, its timers looked at on its clock:
+    /// a probe refused, then a second, which the core takes only in a later turn.
+    pub(crate) async fn turned(&self) -> TestResult {
+        self.played.settled(&self.inbox, self.connection).await?;
+        self.played.settled(&self.inbox, self.connection).await
+    }
+
+    /// Whether the core pushed anything that waits to be read now.
+    pub(crate) fn holds_push(&self) -> bool {
+        self.played.holds_push()
+    }
+
     /// The frame last pushed on `stream` left, and the stream holds credit for its next.
     pub(crate) fn ready(&self, stream: u64) -> TestResult {
         Ok(self.inbox.unbounded_send(CoreMessage::Ready {

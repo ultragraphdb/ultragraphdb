@@ -17,9 +17,11 @@
 //! its credit and the turn's budget. A partition's start and recovery, catalog versions installed, leases, reports and
 //! retention are control plane.
 
+mod traits;
 mod types;
 mod utils;
 
+pub use crate::traits::core_clock::CoreClock;
 pub use crate::types::commit_mark::CommitMark;
 pub use crate::types::commit_phase::CommitPhase;
 pub use crate::types::commit_phases::CommitPhases;

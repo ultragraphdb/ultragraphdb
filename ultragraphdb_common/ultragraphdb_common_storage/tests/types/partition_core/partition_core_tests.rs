@@ -21,6 +21,7 @@ use ultragraphdb_protocol_wire::{ErrorCode, Scan, ScanAt, ScanRange};
 use ultragraphdb_store_quads::{iri_bucket, term_key};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_tool_test::TestDir;
+use ultragraphdb_transactions_txn::TxnLimits;
 
 use crate::types::partition_core::core_harness::{
     CoreUnderTest, DUE, PARTITION, PRINCIPAL, Refused, Setup, TENANT, bind, commit, edges_write,
@@ -253,10 +254,10 @@ fn test_a_stop_answers_a_parked_write_as_unavailable() -> TestResult {
 }
 
 /// A transaction that passes its limit, 10 s from its Bind, is told so on its Bind stream: code 4, `detail` the limit in
-/// milliseconds (`PROTOCOL.md` §10).
+/// milliseconds (`PROTOCOL.md` §10). The core's clock is moved past the limit rather than the test waiting it out.
 #[test]
 fn test_a_transaction_past_its_limit_is_told_so() -> TestResult {
-    const LIMIT_MS: u64 = 10_000;
+    let limit = TxnLimits::default().read_write();
     on_core(
         "core-limit",
         Setup::default(),
@@ -264,14 +265,13 @@ fn test_a_transaction_past_its_limit_is_told_so() -> TestResult {
         async |core| {
             let mut client = core.dial().await?;
             let (stream, _) = bind(&mut client, 4).await?;
-            let wait = Duration::from_millis(LIMIT_MS) + DUE;
-            let told = compio::time::timeout(wait, client.next_frame())
-                .await
-                .context("the limit's Error")??;
+            core.clock.advance(limit + Duration::from_millis(1));
+            let told = next_frame(&mut client).await?;
             let told = refusal_of(&told)?.context("an Error")?;
+            let limit_ms = u64::try_from(limit.as_millis())?;
             assert_eq!(
                 (told.stream, told.code, told.detail),
-                (stream, ErrorCode::PastLimit, LIMIT_MS)
+                (stream, ErrorCode::PastLimit, limit_ms)
             );
             Ok(())
         },

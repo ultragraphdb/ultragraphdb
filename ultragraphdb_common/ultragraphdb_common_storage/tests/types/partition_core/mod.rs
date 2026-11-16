@@ -29,4 +29,8 @@ pub(crate) mod played_answers;
 #[cfg(test)]
 pub(crate) mod played_cores;
 #[cfg(test)]
+pub(crate) mod store_template;
+#[cfg(test)]
+pub(crate) mod test_clock;
+#[cfg(test)]
 pub(crate) mod yielding_session;

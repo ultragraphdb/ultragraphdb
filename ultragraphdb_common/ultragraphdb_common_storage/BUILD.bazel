@@ -26,17 +26,36 @@ rust_doc(
     visibility = ["//visibility:public"],
 )
 
-rust_test(
-    name = "ultragraphdb_common_storage_tests",
-    srcs = glob(
-        ["tests/**/*.rs"],
-        exclude = ["tests/bdd.rs"],
-    ),
-    crate_root = "tests/mod.rs",
-    tags = ["unit-test"],
-    visibility = ["//visibility:public"],
-    deps = [":ultragraphdb_common_storage"] + all_crate_deps(
-        normal = True,
-        normal_dev = True,
-    ),
-)
+# One rust_test tree, tests/mod.rs mirroring src/, run by two targets split by libtest's filter on the core's reads: 26 of
+# the 213 tests, among them those waiting out a Scan's stall and an epoch's deadline on the core's own clock, they take
+# about as long as the rest together (measured 2026-11-16), so Bazel runs the two beside each other.
+[
+    rust_test(
+        name = name,
+        srcs = glob(
+            ["tests/**/*.rs"],
+            exclude = ["tests/bdd.rs"],
+        ),
+        args = args,
+        crate_root = "tests/mod.rs",
+        tags = ["unit-test"],
+        visibility = ["//visibility:public"],
+        deps = [":ultragraphdb_common_storage"] + all_crate_deps(
+            normal = True,
+            normal_dev = True,
+        ),
+    )
+    for name, args in [
+        (
+            "ultragraphdb_common_storage_tests",
+            [
+                "--skip",
+                "types::partition_core::partition_core_reads_tests::",
+            ],
+        ),
+        (
+            "ultragraphdb_common_storage_reads",
+            ["types::partition_core::partition_core_reads_tests::"],
+        ),
+    ]
+]

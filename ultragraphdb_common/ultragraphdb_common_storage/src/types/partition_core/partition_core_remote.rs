@@ -20,6 +20,7 @@ use ultragraphdb_protocol_wire::{
     ReferenceView,
 };
 
+use crate::traits::core_clock::CoreClock;
 use crate::types::core_message::Pushes;
 use crate::types::partition_core::partition_core_frames::last;
 use crate::types::partition_core::{HomeAsking, PartitionCore, Peers, REMOTE_PER_TURN_MAX};
@@ -30,7 +31,7 @@ use ultragraphdb_transactions_log::DurableStorage;
 const OUTCOME_REFUSED: u16 = 7;
 const OUTCOME_WRONG_PARTITION: u16 = 26;
 
-impl<S: DurableStorage> PartitionCore<'_, S> {
+impl<S: DurableStorage, K: CoreClock> PartitionCore<'_, S, K> {
     /// What the partition sent beyond its process: registrations go out on their own tasks, a home's answers to the
     /// Reference that asked.
     pub(super) fn take_remote(&mut self) {

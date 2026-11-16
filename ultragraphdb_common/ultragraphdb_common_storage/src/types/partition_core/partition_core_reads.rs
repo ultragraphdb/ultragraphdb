@@ -14,6 +14,7 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_quads::{Page, PageEnd};
 
+use crate::traits::core_clock::CoreClock;
 use crate::types::core_message::Pushes;
 use crate::types::entries_fill::EntriesFill;
 use crate::types::open_scan::OpenScan;
@@ -45,7 +46,7 @@ fn as_unheld(identity: [u8; 16]) -> ErrorReply {
     ))
 }
 
-impl<'a, S: DurableStorage> PartitionCore<'a, S> {
+impl<'a, S: DurableStorage, K: CoreClock> PartitionCore<'a, S, K> {
     /// A Scan: everything in it checked at arrival, before any frame, and the core answers it from then on, each frame once the
     /// one before has left.
     pub(super) fn scan(

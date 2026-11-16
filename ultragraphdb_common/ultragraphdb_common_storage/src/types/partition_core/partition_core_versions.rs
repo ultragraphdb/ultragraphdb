@@ -8,10 +8,11 @@ use ultragraphdb_core_mapping::Declaration;
 use ultragraphdb_protocol_wire::{Report, RequestTerm};
 use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum};
 
+use crate::traits::core_clock::CoreClock;
 use crate::types::partition_core::{PartitionCore, SystemAsk};
 use ultragraphdb_transactions_log::DurableStorage;
 
-impl<S: DurableStorage> PartitionCore<'_, S> {
+impl<S: DurableStorage, K: CoreClock> PartitionCore<'_, S, K> {
     /// Takes the catalog version a close announced, behind any that wait: one at a time and in order, so a run again never lands
     /// behind the version after it (`PROTOCOL.md` §11.12).
     pub(super) fn install(&mut self, contents: CatalogContents) {

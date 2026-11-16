@@ -20,7 +20,9 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_store_quads::{StatementRecord, term_key};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-use crate::types::partition_core::core_rig::{PARTITION, PRINCIPAL, RigSetup, TENANT, with_core};
+use crate::types::partition_core::core_rig::{
+    DUE, PARTITION, PRINCIPAL, RigSetup, TENANT, with_core,
+};
 use crate::types::partition_core::core_writes::{
     Direct, alone, edges, ex, limited, ms, one_frame, plain, refusal, scanned, viewed,
 };
@@ -187,16 +189,25 @@ fn test_a_scan_of_an_epoch_not_closed_with_no_time_to_wait_is_refused() -> TestR
     })
 }
 
-/// A Scan naming an epoch its partition has not closed waits for it until its deadline, and then is refused.
+/// A Scan naming an epoch its partition has not closed waits for it until its deadline, and then is refused. The core's clock
+/// moves only as the test advances it: to half the deadline, to just short of it, and onto it.
 #[test]
 fn test_a_scan_waits_for_its_epoch_until_its_deadline() -> TestResult {
+    const DEADLINE_MS: u32 = 1_500;
     with_core("reads-deadline", RigSetup::default(), async |core| {
         let mut direct = Direct::open(&core.inbox, DIRECT, LARGE)?;
         let answer = direct
-            .request(1, &plain(ScanAt::Latest, 5, 1_500, &[forward()]))
+            .request(1, &plain(ScanAt::Latest, 5, DEADLINE_MS, &[forward()]))
             .await?;
         assert!(matches!(answer, Answer::Open), "{answer:?}");
-        direct.nothing_for(ms(750)).await?;
+        let deadline = ms(u64::from(DEADLINE_MS));
+        let short = ms(1);
+        for by in [deadline / 2, deadline / 2 - short] {
+            core.clock.advance(by);
+            direct.turned().await?;
+            assert!(!direct.holds_push(), "refused before its deadline");
+        }
+        core.clock.advance(short);
         let (stream, frame) = direct.pushed().await?;
         assert_eq!(stream, 1);
         let (code, detail, message) = error_of(&frame)?;
@@ -236,7 +247,9 @@ fn test_closed_names_the_latest_closed_epoch_of_its_own_partition_alone() -> Tes
             core.closes.send(PartitionMessage::Close(close))?;
         }
         let mut closed = 0;
-        for _ in 0..200 {
+        // Bounded by DUE, as every wait for what is due: the closes reach the core in its own time.
+        let poll = ms(5);
+        for _ in 0..DUE.as_millis() / poll.as_millis() {
             let answer = direct
                 .request(
                     1,
@@ -254,7 +267,7 @@ fn test_closed_names_the_latest_closed_epoch_of_its_own_partition_alone() -> Tes
             if closed == 2 {
                 break;
             }
-            compio::time::sleep(ms(5)).await;
+            compio::time::sleep(poll).await;
         }
         assert_eq!(closed, 2);
         let answer = direct
@@ -333,13 +346,16 @@ fn test_a_limit_counts_the_entries_of_every_frame_of_its_range() -> TestResult {
 }
 
 /// A Scan whose frame left with no credit for the next is refused as stalled once no frame could leave for its stall time, counted
-/// from when its last frame left (`PROTOCOL.md` §11.9).
+/// from when its last frame left (`PROTOCOL.md` §11.9). The core's clock moves only as the test advances it, and each advance
+/// follows the core's taking of what was sent before it, so the stall is measured against the test's time alone.
 #[test]
 fn test_a_stall_counts_from_when_the_last_frame_left() -> TestResult {
     let setup = RigSetup {
         stall_ms: 1_000,
         ..RigSetup::default()
     };
+    let stall = ms(setup.stall_ms);
+    let short = ms(1);
     with_core("reads-stall", setup, async |core| {
         let mut client = core.dial().await?;
         let _version = commit(&mut client, &large()).await?;
@@ -350,10 +366,20 @@ fn test_a_stall_counts_from_when_the_last_frame_left() -> TestResult {
         let (_, frame) = direct.pushed().await?;
         assert!(!entries_of(&frame)?.last);
         direct.left(1)?;
-        direct.nothing_for(ms(600)).await?;
+        direct.turned().await?;
+        core.clock.advance(ms(600));
+        direct.turned().await?;
+        assert!(!direct.holds_push(), "stalled 600 ms after its frame left");
         // The frame left only now: the stall counts from here.
         direct.left(1)?;
-        direct.nothing_for(ms(700)).await?;
+        direct.turned().await?;
+        // Past the stall since the first frame left, and just short of it since the second.
+        for by in [ms(700), stall - ms(700) - short] {
+            core.clock.advance(by);
+            direct.turned().await?;
+            assert!(!direct.holds_push(), "stalled before its stall time");
+        }
+        core.clock.advance(short);
         let (stream, stalled) = direct.pushed().await?;
         assert_eq!(stream, 1);
         let (code, detail, message) = error_of(&stalled)?;

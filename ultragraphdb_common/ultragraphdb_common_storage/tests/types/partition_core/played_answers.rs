@@ -77,11 +77,45 @@ impl Played {
         frame: &[u8],
     ) -> TestResult<Sent> {
         core.unbounded_send(self.message(connection, stream, frame)?)?;
+        let probe = self.probe(core, connection)?;
+        Ok(Sent { stream, probe })
+    }
+
+    /// A probe of `connection` handed to the core: its stream, on which the core pushes its refusal on taking it.
+    fn probe(&self, core: &UnboundedSender<CoreMessage>, connection: u64) -> TestResult<u64> {
         let probe = self.probes.get();
         self.probes.set(probe + 1);
         let abort = Abort.frame(Header::new(CLUSTER, Command::Abort).with_stream(probe))?;
         core.unbounded_send(self.message(connection, probe, &abort)?)?;
-        Ok(Sent { stream, probe })
+        Ok(probe)
+    }
+
+    /// Waits until the core has taken everything `connection` handed it before: a probe alone, refused on its taking. What else
+    /// was pushed meanwhile is kept, in order.
+    pub(crate) async fn settled(
+        &self,
+        core: &UnboundedSender<CoreMessage>,
+        connection: u64,
+    ) -> TestResult {
+        let probe = self.probe(core, connection)?;
+        let mut passed = VecDeque::new();
+        loop {
+            let (stream, push) = self.next_push("a probe's refusal").await?;
+            if stream == probe {
+                break;
+            }
+            passed.push_back((stream, push));
+        }
+        self.keep_ahead(passed);
+        Ok(())
+    }
+
+    /// Puts `passed` back ahead of what is still kept, in its order.
+    fn keep_ahead(&self, mut passed: VecDeque<(u64, Push)>) {
+        let mut kept = self.kept.borrow_mut();
+        while let Some(push) = passed.pop_back() {
+            kept.push_front(push);
+        }
     }
 
     /// `frame` as the request message a session sends its core, copied and counted in what the connection holds.
@@ -111,11 +145,7 @@ impl Played {
             }
         }
         // What came for other streams goes back ahead of what is still kept, in its order.
-        let mut kept = self.kept.borrow_mut();
-        while let Some(push) = passed.pop_back() {
-            kept.push_front(push);
-        }
-        drop(kept);
+        self.keep_ahead(passed);
         answer.map_or(Ok(Answer::Open), answered)
     }
 

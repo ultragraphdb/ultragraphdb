@@ -92,11 +92,14 @@ rust_test(
     ),
 )
 
-# The simulator's workload over several partitions, each seed run in full; one target per run, as the tests take seconds.
+# The simulator's workload over several partitions, each seed run in full by a test of its own. A run takes about two
+# seconds, its invariants checked after each of its 300 steps, so each seed is a target of its own, selected by libtest's
+# filter, and Bazel runs them beside each other. `workload_faults` runs what its file holds besides the seeds: the replay.
 [
     rust_test(
-        name = workload,
+        name = name,
         srcs = ["tests/{}.rs".format(workload)],
+        args = args,
         crate_root = "tests/{}.rs".format(workload),
         tags = ["unit-test"],
         deps = [":ultragraphdb_cluster_partition"] + all_crate_deps(
@@ -104,8 +107,39 @@ rust_test(
             normal_dev = True,
         ),
     )
-    for workload in [
-        "workload_faults",
-        "workload_seeds",
+    for workload, name, args in [
+        (
+            "workload_faults",
+            "workload_faults_{}".format(seed),
+            [
+                "--exact",
+                "test_seed_{}_with_faults_keeps_every_invariant".format(seed),
+            ],
+        )
+        for seed in range(100, 108)
+    ] + [
+        (
+            "workload_faults",
+            "workload_faults",
+            [
+                "--skip",
+                "test_seed_",
+            ],
+        ),
+    ] + [
+        (
+            "workload_seeds",
+            "workload_seeds_{}".format(seed),
+            [
+                "--exact",
+                "test_seed_{}_over_{}_partitions_keeps_every_invariant".format(seed, over),
+            ],
+        )
+        for seed, over in [
+            (1, "two"),
+            (2, "two"),
+            (3, "four"),
+            (4, "four"),
+        ]
     ]
 ]

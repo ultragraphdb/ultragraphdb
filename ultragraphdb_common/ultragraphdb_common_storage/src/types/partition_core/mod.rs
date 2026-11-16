@@ -40,6 +40,7 @@ use ultragraphdb_traits_catalog::DefaultEntry;
 use ultragraphdb_traits_store::Store;
 use ultragraphdb_transactions_log::{CompioStorage, DurableStorage, Wal};
 
+use crate::traits::core_clock::CoreClock;
 use crate::types::commit_mark::CommitMark;
 use crate::types::commit_phase::CommitPhase;
 use crate::types::commit_phases::CommitPhases;
@@ -55,7 +56,6 @@ use crate::types::timed_storage::TimedStorage;
 use crate::types::turn_budget::TURN_BYTES;
 use crate::utils::commit_body::commit_body;
 use crate::utils::error_reply::error_reply;
-use crate::utils::micros_since::micros_since;
 
 /// A partition of the storage role, over fjall.
 pub type StoragePartition =
@@ -252,11 +252,11 @@ impl Peers {
 
 /// One partition's core: the one task that owns its host. Connections hand it requests by message and it answers them,
 /// so nothing it holds is shared.
-pub struct PartitionCore<'a, S: DurableStorage = CompioStorage> {
+pub struct PartitionCore<'a, S: DurableStorage = CompioStorage, K: CoreClock = Instant> {
     host: StorageHost<'a, S>,
     id: PartitionId,
     cluster: u64,
-    clock: Instant,
+    clock: K,
     inbox: UnboundedReceiver<CoreMessage>,
     remote: Receiver<RemoteMessage>,
     own: Sender<PartitionMessage>,
@@ -297,7 +297,7 @@ pub struct PartitionCore<'a, S: DurableStorage = CompioStorage> {
     phases: CommitPhases,
 }
 
-impl std::fmt::Debug for PartitionCore<'_> {
+impl<S: DurableStorage, K: CoreClock> std::fmt::Debug for PartitionCore<'_, S, K> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PartitionCore")
             .field("id", &self.id)
@@ -342,11 +342,11 @@ impl CoreChannels {
 }
 
 /// What a core is made of.
-pub struct CoreParts<'a, S: DurableStorage = CompioStorage> {
+pub struct CoreParts<'a, S: DurableStorage = CompioStorage, K: CoreClock = Instant> {
     host: StorageHost<'a, S>,
     id: PartitionId,
     cluster: u64,
-    clock: Instant,
+    clock: K,
     channels: CoreChannels,
     peers: Peers,
     scan_stall_ms: u64,
@@ -356,15 +356,15 @@ pub struct CoreParts<'a, S: DurableStorage = CompioStorage> {
     role_phases: Option<RoleConnectionPhases>,
 }
 
-impl<'a, S: DurableStorage> CoreParts<'a, S> {
-    /// The core of partition `id`, hosted over `host`, every frame naming `cluster`, its time counted from `clock`, retaining what
+impl<'a, S: DurableStorage, K: CoreClock> CoreParts<'a, S, K> {
+    /// The core of partition `id`, hosted over `host`, every frame naming `cluster`, its time read from `clock`, retaining what
     /// `retention` says.
     #[must_use]
     pub fn new(
         host: StorageHost<'a, S>,
         id: PartitionId,
         cluster: u64,
-        clock: Instant,
+        clock: K,
         channels: CoreChannels,
         peers: Peers,
         retention: Retention,
@@ -414,10 +414,10 @@ impl<'a, S: DurableStorage> CoreParts<'a, S> {
     }
 }
 
-impl<'a, S: DurableStorage> PartitionCore<'a, S> {
+impl<'a, S: DurableStorage, K: CoreClock> PartitionCore<'a, S, K> {
     /// The core of `parts`.
     #[must_use]
-    pub fn new(parts: CoreParts<'a, S>) -> Self {
+    pub fn new(parts: CoreParts<'a, S, K>) -> Self {
         Self {
             host: parts.host,
             id: parts.id,
@@ -452,7 +452,7 @@ impl<'a, S: DurableStorage> PartitionCore<'a, S> {
 
     /// The microseconds since the core began.
     fn now_us(&self) -> u64 {
-        micros_since(self.clock)
+        self.clock.now_us()
     }
 
     /// Where the core stands now.

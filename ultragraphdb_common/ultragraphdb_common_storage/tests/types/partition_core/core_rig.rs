@@ -32,7 +32,7 @@ use ultragraphdb_core_ids::{Epoch, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_protocol_transport::{Address, Endpoint};
 use ultragraphdb_store_apply::ChangesetApplier;
-use ultragraphdb_store_kv::{Durability, FjallStore, MokaListCache, ThreadExecutor};
+use ultragraphdb_store_kv::{MokaListCache, ThreadExecutor};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_quads::QuadStore;
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -42,6 +42,8 @@ use ultragraphdb_transactions_commit::{CloseRequest, Pipeline, RoundBounds};
 use ultragraphdb_transactions_log::{CompioStorage, GatedStorage, SyncGate, Wal, WalConfig};
 
 use crate::types::partition_core::inbox_tap::{Tap, tap};
+use crate::types::partition_core::store_template::empty_store;
+use crate::types::partition_core::test_clock::TestClock;
 use crate::types::partition_core::yielding_session::Yielding;
 
 /// The cluster every frame names.
@@ -103,6 +105,8 @@ pub(crate) struct Rig {
     pub(crate) sync_gate: SyncGate,
     /// What stops the core, which the test's end sets.
     pub(crate) stopping: Stopping,
+    /// The core's clock, stopped: a timer of the core is due only once the test advances the clock there.
+    pub(crate) clock: TestClock,
 }
 
 impl Rig {
@@ -185,10 +189,10 @@ pub(crate) fn with_core_then(
         let frontend = Address::parse("tcp://127.0.0.1:1")?;
         let peers = Peers::new(cluster, frontend, "storage".to_string(), answers);
         let channels = CoreChannels::new(inbox, remote, own, closes, asks_tx, discards);
-        // The core's clock is the runtime's: its timer's first tick is now.
-        let clock = compio::time::interval(Duration::from_secs(1)).tick().await;
+        // The core's clock stands still but for the test's advances, so no timer of the core races the test.
+        let clock = TestClock::stopped();
         let retention = Retention::new(60_000);
-        let parts = CoreParts::new(host, id, CLUSTER, clock, channels, peers, retention)
+        let parts = CoreParts::new(host, id, CLUSTER, clock.clone(), channels, peers, retention)
             .with_scan_stall_ms(setup.stall_ms)
             .with_tenants([setup.tenant]);
         let stopping = Stopping::default();
@@ -201,6 +205,7 @@ pub(crate) fn with_core_then(
             log_io,
             sync_gate,
             stopping: stopping.clone(),
+            clock,
         };
         let tested = async {
             let outcome = test(rig).await;
@@ -267,8 +272,7 @@ fn open_partition(
 ) -> TestResult<StoragePartition> {
     let owned = StoragePartition::owned(id, placement, Epoch::ZERO).context("the map's ranges")?;
     let store_dir = dir.join("store");
-    std::fs::create_dir_all(&store_dir)?;
-    let store = FjallStore::open(&store_dir, Durability::Log)?;
+    let store = empty_store(&store_dir)?;
     let cache = MokaListCache::new(CACHE_BYTES, |_: &[u8], list: &CachedList| list.weight());
     let lists = Lists::new(store, cache, ListsConfig::default());
     let quads = QuadStore::open(lists, blocks, RandomSource::new(1))?.owning(owned);
