@@ -90,6 +90,8 @@ impl TargetFiles {
         };
         let mut target = Self::new(name);
         let mut at = 0;
+        // Each turn moves `at` past a name's line and its bytes, at least two bytes, or refuses: the bundle's end ends it
+        // (Ultra rule 2).
         while at < bundle.len() {
             let rest = bundle.get(at..).ok_or_else(|| wrong(at))?;
             let line_end = rest
@@ -102,6 +104,7 @@ impl TargetFiles {
                 .ok_or_else(|| wrong(at))?;
             let (key, length) = line.split_once(' ').ok_or_else(|| wrong(at))?;
             let length: usize = length.parse().map_err(|_| wrong(at))?;
+            // `at + line_end` indexes the line break, a byte of the bundle, so neither sum can overflow.
             let start = at + line_end + 1;
             let end = start.checked_add(length).ok_or_else(|| wrong(at))?;
             let bytes = bundle.get(start..end).ok_or_else(|| wrong(start))?;
@@ -109,6 +112,7 @@ impl TargetFiles {
                 return Err(wrong(end));
             }
             target.insert(key, key, bytes.to_vec());
+            // `end` indexes the closing line break, a byte of the bundle, so the sum cannot overflow.
             at = end + 1;
         }
         Ok(target)

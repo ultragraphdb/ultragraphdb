@@ -69,6 +69,8 @@ fn instance(files: &TargetFiles, key: &str, role: &'static str) -> Instance {
         }
     }
     let rendered = render(&merged);
+    // A file that does not parse is refused by the check of each file alone, naming why; an instance of one holds no
+    // settings for the checks across instances to read.
     let config = parsed
         .then(|| ServiceConfig::parse(rendered.as_bytes()).ok())
         .flatten();
@@ -80,7 +82,8 @@ fn instance(files: &TargetFiles, key: &str, role: &'static str) -> Instance {
     }
 }
 
-/// `merged` as canonical TOML: tables and keys in order, each value as the subset writes it.
+/// `merged` as canonical TOML: tables and keys in order, each value as the subset writes it. Writing to a `String` cannot
+/// fail, so each write's `fmt::Result` is bound and let go.
 fn render(merged: &BTreeMap<String, BTreeMap<String, TomlValue>>) -> String {
     let mut text = String::new();
     for (table, entries) in merged {
@@ -101,7 +104,7 @@ fn render(merged: &BTreeMap<String, BTreeMap<String, TomlValue>>) -> String {
     text
 }
 
-/// `text` as a basic string's contents.
+/// `text` as a basic string's contents. Writing to a `String` cannot fail.
 fn escaped(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for character in text.chars() {

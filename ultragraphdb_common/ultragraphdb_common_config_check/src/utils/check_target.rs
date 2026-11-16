@@ -77,6 +77,7 @@ fn file_defects(target: &str, key: &str, label: &str, bytes: &[u8]) -> Vec<Defec
 
 /// Every refusal of the settings `bytes` of the file `label`.
 fn settings_defects(label: &str, bytes: &[u8]) -> Vec<Defect> {
+    // Read for the lines alone: a document that does not parse is the one refusal `problems` gives, naming why.
     let document = TomlDocument::parse(bytes).ok();
     ServiceConfig::problems(bytes)
         .iter()
@@ -99,6 +100,7 @@ pub fn check_config_service(label: &str, bytes: &[u8]) -> Vec<Defect> {
     if !defects.is_empty() {
         return defects;
     }
+    // No refusal was found above, so the file parses; were it not to, nothing more could be read from it.
     let Ok(config) = ServiceConfig::parse(bytes) else {
         return defects;
     };
@@ -110,6 +112,7 @@ pub fn check_config_service(label: &str, bytes: &[u8]) -> Vec<Defect> {
         ("config.admin_key_file", table.admin_key_file()),
         ("config.targets_file", table.targets_file()),
     ];
+    // Read for the lines alone, as the file parsed above.
     let document = TomlDocument::parse(bytes).ok();
     for (setting, value) in required {
         if value.is_none() {

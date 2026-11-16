@@ -21,6 +21,7 @@ pub struct Defect {
 
 impl Defect {
     /// A defect of `found`, where `required` holds instead.
+    #[must_use]
     pub fn new(found: impl Into<String>, required: impl Into<String>) -> Self {
         Self {
             file: None,

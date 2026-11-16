@@ -35,7 +35,9 @@ impl Checking<'_> {
             .push(self.located(instance, setting, found, required));
     }
 
-    /// A defect of `setting` of `instance`, standing in the file that sets it: the instance's own, else its role's.
+    /// A defect of `setting` of `instance`, standing in the file that sets it: the instance's own, else its role's. A file
+    /// that does not parse names no line here, its refusal being a defect of its own; an instance's name always begins
+    /// with its role's, which [`instances`] holds it to.
     fn located(
         &self,
         instance: &str,
@@ -398,15 +400,15 @@ fn role_addresses<'a>(
         "frontend" => config
             .frontend()
             .role_address()
-            .map(|a| ("frontend.role_address", a)),
+            .map(|address| ("frontend.role_address", address)),
         "storage" => config
             .storage()
             .role_address()
-            .map(|a| ("storage.role_address", a)),
+            .map(|address| ("storage.role_address", address)),
         _ => config
             .compute()
             .role_address()
-            .map(|a| ("compute.role_address", a)),
+            .map(|address| ("compute.role_address", address)),
     };
     held.extend(own);
     held
@@ -522,10 +524,19 @@ fn frontend_address(checking: &mut Checking<'_>, held: &[Instance]) {
     }
 }
 
-/// Each storage instance's partitions.
+/// The most partitions of one storage instance the checks walk: one past the most a cluster holds, so a count past it still
+/// places a partition outside the cluster's, where a count of billions would otherwise be walked and held whole (Ultra rules
+/// 2 and 3).
+const PARTITIONS_WALKED_MAX: u32 = PlacementMap::PARTITIONS_MAX + 1;
+
+/// Each storage instance's partitions, at most [`PARTITIONS_WALKED_MAX`] of them.
 fn partitions_of(config: &ServiceConfig) -> Vec<u32> {
     let first = config.storage().partition_first().unwrap_or(1);
-    let count = config.storage().partition_count().unwrap_or(0);
+    let count = config
+        .storage()
+        .partition_count()
+        .unwrap_or(0)
+        .min(PARTITIONS_WALKED_MAX);
     (0..count).filter_map(|at| first.checked_add(at)).collect()
 }
 

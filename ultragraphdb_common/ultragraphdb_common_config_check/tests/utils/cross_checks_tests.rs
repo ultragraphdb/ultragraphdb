@@ -8,6 +8,7 @@
 
 use ultragraphdb_cluster_placement::PlacementMap;
 use ultragraphdb_common_config_check::{Defect, TargetFiles, check_target};
+use ultragraphdb_tool_bdd::TestResult;
 
 const FRONTEND: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\npartition_count = 2\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n[frontend]\nrole_address = \"tcp://10.0.0.1:7081\"\ndata_dir = \"/data\"\n[sequencer]\nepoch_ms_min = 2\nepoch_ms_max = 10\n";
 const STORAGE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nfrontend_address = \"tcp://frontend:7081\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[storage]\npartition_count = 1\ndata_dir = \"/data\"\n";
@@ -410,4 +411,21 @@ fn test_only_instances_the_active_revision_holds_are_compared() {
     let listing = checked(&with(valid(), "storage_2", &refused), Some(&valid()));
     says(&listing, &["storage.bogus"]);
     says_not(&listing, &["active revision"]);
+}
+
+/// A storage instance's partition count of billions is walked no further than one past the most a cluster holds: it is
+/// refused as placing a partition outside the cluster's, at once, where walking it whole would hold 2^32 partitions.
+#[test]
+fn test_a_partition_count_of_billions_is_walked_no_further_than_the_cluster_holds() -> TestResult {
+    let billions = format!("{STORAGE_1}partition_count = {}\n", u32::MAX);
+    let listing = checked(&with(valid(), "storage_1", &billions), None);
+    let past = PlacementMap::PARTITIONS_MAX + 1;
+    says(
+        &listing,
+        &[&format!(
+            "instance storage_1, setting storage.partition_count: partition {past} lies outside the cluster's 2;"
+        )],
+    );
+    says_not(&listing, &[&format!("partition {} ", past + 1)]);
+    Ok(())
 }

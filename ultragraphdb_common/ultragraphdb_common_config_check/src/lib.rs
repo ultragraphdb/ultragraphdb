@@ -9,6 +9,10 @@
 //! [`read_central`] reads a central file and every file it declares; [`check_target`] checks one target whole, every defect
 //! found and not the first; [`check_central`] does both over a folder. A [`Defect`] states on its own where it stands, which
 //! target, instance and setting, what was found and what is required, since this is the first thing an administrator meets.
+//!
+//! The crate is control plane alone (Ultra rule 3): a check runs once per revision uploaded, per start and per run of the
+//! CLI, and allocates as it reads. What bounds it is its input: a revision's bytes, which the config service bounds as it
+//! takes an upload, and the partitions a target can name, at most `PlacementMap::PARTITIONS_MAX` per storage instance.
 
 mod types;
 mod utils;
