@@ -1,0 +1,38 @@
+openspec/changes/stage-5-8-system-group/notes/group-3.md
+  s_21eff977e05256::t_e073fabfb80484 540-563
+  s_21eff977e05256::t_285c0bb8f55fde 520-522
+ultragraphdb_common/ultragraphdb_common_system/BUILD.bazel
+  s_21eff977e05256::t_cd317a91ff9b25 53-85
+ultragraphdb_common/ultragraphdb_common_system/tests/property/types/system_session/system_session_session_property_tests.rs
+  s_21eff977e05256::t_1b84275ed80de1 78-79,83-84,89-92
+  s_21eff977e05256::t_4df033c12a557a 286-287,293,295-296,300-303
+  s_21eff977e05256::t_b1b79ffb77ab46 74-77,80-82,85-88
+  s_21eff977e05256::t_6511d23b6d28dc 297-299
+  s_21eff977e05256::t_1de57b803e16fb 335
+ultragraphdb_common/ultragraphdb_common_system/tests/property/utils/mod.rs
+  s_21eff977e05256::t_e46214ebbfa3d6 124-127
+  s_21eff977e05256::t_df61a6465c2465 17
+  s_21eff977e05256::t_96cf9fb9a94419 24
+.bazelrc
+  s_21eff977e05256::t_ab735746b1f768 31-36
+AGENTS.md
+  s_21eff977e05256::t_3079795ba08580 426-427
+openspec/protocols/tdd-protocol.md
+  s_21eff977e05256::t_b938322a9fd812 190-192,196-197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "443a7f545328c384b343ba71462f8b7848aa66f6",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
