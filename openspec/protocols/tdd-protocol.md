@@ -189,7 +189,10 @@ tagged `property-test`, which is the tag `scripts/test.sh` selects for its prope
 to `true` and `HEGEL_DATABASE` to `disabled`, so a run is a function of its sources, Bazel caches it, and no run
 depends on the one before. `.bazelrc` sets `HEGEL_PHASES` to every phase but `shrink`, so a failing property reports its
 counterexample at once: Hegel shrinks a failure for up to 300 s, Bazel's timeout, which would read as a timeout with
-the assertion unprinted. The unit test target excludes `tests/property/**`. The manifest declares the tests as
+the assertion unprinted. A derandomized run tries one seed, always the same, so `make property-random`
+(`scripts/property_random.sh`) runs every property target's binary with fresh seeds and shrinking on, `PROPERTY_RUNS`
+times each (20 by default), outside Bazel's cache; it runs before a task group closes and at a stage's final
+verification. The unit test target excludes `tests/property/**`. The manifest declares the tests as
 `[[test]] property`. Generators SHALL be bounded so that the target runs in seconds: sizes and counts are drawn within
 the limits the specification states, never at them by brute force.
 

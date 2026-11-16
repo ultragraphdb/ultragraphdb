@@ -17,6 +17,7 @@ help:
 	@echo '    make format   	Formats all code according to cargo fmt style.'
 	@echo '    make update   	Update rust, pulls from git remote.'
 	@echo '    make test   	Tests across all crates.'
+	@echo '    make property-random	Runs every property test with fresh random seeds, uncached (PROPERTY_RUNS=20).'
 	@echo ''
 	@echo ' Local Kubernetes (Apple container, macOS on Apple silicon):'
 	@echo '    make cluster-local   	Creates the cluster, loads the images and deploys deploy/helm/ultragraphdb (CPUS=12 MEMORY=16g PARTITIONS=1).'
@@ -51,6 +52,10 @@ format:
 .PHONY: test
 test:
 	@source scripts/test.sh
+
+.PHONY: property-random
+property-random:
+	@source scripts/property_random.sh
 
 .PHONY: update
 update:
