@@ -3,14 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::time::Instant;
-
-use compio::runtime::spawn;
+use futures::channel::mpsc::UnboundedSender;
 use ultragraphdb_cluster_sequencer::Close;
-use ultragraphdb_common_role::{Answer, Push, RoleClient, RoleCluster, Session};
-use ultragraphdb_common_service::{Readiness, RoleKind as ServiceRole};
+use ultragraphdb_common_role::{Answer, Push, RoleCluster, Session};
 use ultragraphdb_core_ids::Tenant;
-use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
+use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, CatalogAnnouncement, CatalogView, CloseRequestView, Command,
     DefaultEntry, DefaultEntryView, EpochClose, ErrorCode, ErrorReply, FLAG_LAST, FrameView,
@@ -18,49 +15,27 @@ use ultragraphdb_protocol_wire::{
     RequestTermView, RoleKind, SubscribeView,
 };
 
-use crate::types::join_fan_out::JoinFanOut;
 use crate::types::owner_handle::OwnerHandle;
 use crate::types::report_asked::ReportAsked;
-use crate::types::role_links::RoleLinks;
 
-/// How long a failed connection back waits before the next.
-const RETRY: std::time::Duration = std::time::Duration::from_millis(100);
-
-/// What a frontend's role connections share on their core: the connections back, its readiness, and the way each other
-/// endpoint core hears of a role that joined.
+/// What a frontend's role connections share on their core: the cluster, the way to the owner, and where each Join the owner
+/// registered is told.
 #[derive(Debug, Clone)]
 pub struct RoleShared {
     cluster: RoleCluster,
     owner: OwnerHandle,
-    links: RoleLinks,
-    readiness: Readiness,
-    cores: JoinFanOut,
+    joins: UnboundedSender<Join>,
 }
 
 impl RoleShared {
-    /// What the core's role connections share.
+    /// What the core's role connections share, each `Join` the owner registers sent on `joins`.
     #[must_use]
-    pub fn new(
-        cluster: RoleCluster,
-        owner: OwnerHandle,
-        links: RoleLinks,
-        readiness: Readiness,
-    ) -> Self {
+    pub fn new(cluster: RoleCluster, owner: OwnerHandle, joins: UnboundedSender<Join>) -> Self {
         Self {
             cluster,
             owner,
-            links,
-            readiness,
-            cores: JoinFanOut::new(),
+            joins,
         }
-    }
-
-    /// What the core's role connections share, each `Join` they register also sent to the other endpoint cores over `cores`,
-    /// so every core routes to what joined (design D14).
-    #[must_use]
-    pub fn with_cores(mut self, cores: JoinFanOut) -> Self {
-        self.cores = cores;
-        self
     }
 }
 
@@ -92,14 +67,8 @@ impl RoleSession {
         let view = JoinView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
         let join = joined(&view);
         self.shared.owner.join(join.clone()).await?;
-        self.shared.links.joined(&join);
-        self.shared.cores.send(&join);
-        spawn(connect_back(
-            self.shared.clone(),
-            join.address().to_string(),
-            join.kind(),
-        ))
-        .detach();
+        // A frontend that stopped taking joins is stopping.
+        let _told = self.shared.joins.unbounded_send(join.clone());
         built(&join, self.header(stream, Command::Join))
     }
 
@@ -240,6 +209,7 @@ impl Session for RoleSession {
     /// The next close of this connection's subscription. Its cursor moves only once a close came back, and a wait dropped
     /// for a request that arrived first asks again, so a close is neither lost nor sent twice.
     async fn next_push(&mut self) -> (u64, Push) {
+        // At most two turns: one that does not return ends the subscription, and the next waits on none (Ultra rule 2).
         loop {
             let Some((stream, after)) = self.subscription else {
                 return std::future::pending().await;
@@ -348,41 +318,4 @@ fn built<B: BodyBuilder>(body: &B, header: Header) -> Result<Answer, ErrorReply>
 
 fn stopped() -> ErrorReply {
     ErrorReply::new(ErrorCode::Unavailable, "the frontend's owner stopped")
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a deadline in the shell, which no simulation replays"
-)]
-fn now() -> Instant {
-    Instant::now()
-}
-
-/// Connects back to the role that joined at `text`, retrying until the deadline; the first partition reached makes the
-/// frontend ready. A connection a later Join of the address brings replaces this one.
-/// Spawned detached: a future dropped at the runtime's end leaves no connection back.
-async fn connect_back(shared: RoleShared, text: String, kind: RoleKind) {
-    let Ok(address) = Address::parse(&text) else {
-        tracing::warn!(address = %text, "a role joined at an address that does not parse");
-        return;
-    };
-    let due = now() + shared.cluster.deadline();
-    let name = ServiceRole::Frontend.to_string();
-    loop {
-        let secret = shared.cluster.secret().password();
-        match RoleClient::dial(&address, shared.cluster.id(), &name, secret).await {
-            Ok(client) => {
-                shared.links.connected(text, client);
-                if kind == RoleKind::Storage {
-                    shared.readiness.set(true);
-                }
-                return;
-            }
-            Err(error) if now() >= due => {
-                tracing::warn!(address = %text, %error, "the frontend could not connect back");
-                return;
-            }
-            Err(_) => compio::time::sleep(RETRY).await,
-        }
-    }
 }

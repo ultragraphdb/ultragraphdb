@@ -14,13 +14,15 @@ use crate::types::one_frame_phases::OneFramePhases;
 use crate::types::owner_handle::OwnerHandle;
 use crate::types::role_links::RoleLinks;
 use crate::types::tenant_gate::TenantGate;
+use crate::types::throttle_handle::ThrottleHandle;
 
-/// What a client session shares on its endpoint core: the way to the owner, the connections to the other roles, the gate, the
-/// limits, the count of open requests a stop waits on and the phases of the one-frame writes it relays. The way to the owner is shared by an `Rc` on the core, so what outlives the core's sessions can hold it
+/// What a client session shares on its endpoint core: the way to the owner, the way to the throttle, the connections to the
+/// other roles, the gate, the limits, the count of open requests a stop waits on and the phases of the one-frame writes it relays. The way to the owner is shared by an `Rc` on the core, so what outlives the core's sessions can hold it
 /// weakly and keep no owner from stopping.
 #[derive(Debug, Clone)]
 pub struct EndpointCore<A> {
     owner: Rc<OwnerHandle>,
+    logins: ThrottleHandle,
     links: RoleLinks,
     gate: TenantGate<A>,
     limits: EndpointLimits,
@@ -29,16 +31,19 @@ pub struct EndpointCore<A> {
 }
 
 impl<A: Authorizer> EndpointCore<A> {
-    /// The core asking `owner`, reaching the other roles through `links`, each request passing `gate`.
+    /// The core asking `owner`, counting its authentications at `logins`, reaching the other roles through `links`, each
+    /// request passing `gate`.
     #[must_use]
     pub fn new(
         owner: OwnerHandle,
+        logins: ThrottleHandle,
         links: RoleLinks,
         gate: TenantGate<A>,
         limits: EndpointLimits,
     ) -> Self {
         Self {
             owner: Rc::new(owner),
+            logins,
             links,
             gate,
             limits,
@@ -75,6 +80,12 @@ impl<A> EndpointCore<A> {
         Rc::downgrade(&self.owner)
     }
 
+    /// The way to the throttle, which counts the failed authentications of every endpoint core (design D15).
+    #[must_use]
+    pub fn logins(&self) -> &ThrottleHandle {
+        &self.logins
+    }
+
     /// The connections to the other roles.
     #[must_use]
     pub fn links(&self) -> &RoleLinks {
@@ -94,10 +105,10 @@ impl<A> EndpointCore<A> {
     }
 
     /// Whether a connection accepted from `peer` may go on: one with no address, over a Unix socket, always; one from a banned
-    /// source not, as its owner says (design D15). The frontend asks before TLS or any frame.
+    /// source not, as its throttle says (design D15). The frontend asks before TLS or any frame.
     pub async fn admits(&self, peer: Option<IpAddr>) -> bool {
         match peer {
-            Some(peer) => self.owner.admits(peer).await,
+            Some(peer) => self.logins.admits(peer).await,
             None => true,
         }
     }

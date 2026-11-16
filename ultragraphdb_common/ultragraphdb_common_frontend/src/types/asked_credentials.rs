@@ -9,7 +9,9 @@ use std::rc::Rc;
 use ultragraphdb_protocol_scram::{Credentials, ScramVerifier};
 
 /// The verifier the owner gave for the name a connection is authenticating as, held for that exchange alone: the
-/// connection's session fills it and the connection's machine reads it, without waiting.
+/// connection's session fills it and the connection's machine reads it, without waiting. Shared by an `Rc` of a
+/// `RefCell` between those two on the connection's one task, a borrow lasting one assignment or one read, never across a
+/// wait (Ultra rule 9).
 #[derive(Debug, Clone, Default)]
 pub struct AskedCredentials(Rc<RefCell<Option<(String, u64, ScramVerifier)>>>);
 

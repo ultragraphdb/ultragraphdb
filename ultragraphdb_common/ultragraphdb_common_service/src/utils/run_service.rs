@@ -327,7 +327,8 @@ pub fn role_runtime(config: &ServiceConfig) -> Result<(Runtime, CpuBinding), Rol
         .build()
         .map_err(|error| RoleError::unavailable(format!("the runtime: {error}")))?;
     tracing::info!(
-        "the role's first runtime on the {} driver",
+        core = 0_usize,
+        "a runtime on the {} driver",
         driver_name(runtime.driver_type())
     );
     let binding = match (pin_cores, asked, thread_allowed()) {

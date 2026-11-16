@@ -2125,9 +2125,8 @@ fn a_direct_write_is_relayed_with_its_principal(w: &mut Steps) -> TestResult {
         // The principal the frontend holds for `ann`, in place of the scenario's 9.
         let (principal, _) = stage
             .owner
-            .verifier("ann".to_string(), None)
+            .verifier("ann".to_string())
             .await
-            .0
             .context("ann's principal")?;
         let mut client = stage.ann().await?;
         let write = direct_write_of(&stage)?;

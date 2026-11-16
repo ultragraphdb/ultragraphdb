@@ -37,6 +37,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
         mut inbox: UnboundedReceiver<Asked>,
         clock: impl Fn() -> ClockReading,
     ) -> Result<(), RoleError> {
+        // An event loop: it ends once every handle is gone, or at a failure, which stops the owner (Ultra rule 2).
         loop {
             if self.waiting.is_empty() {
                 let wait = self
@@ -175,6 +176,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     pub(super) fn learn_missed(&mut self) -> Result<bool, RoleError> {
         let mut learned = false;
         let mut after = self.metadata.state().last_learned();
+        // Each turn moves `after` to the next durable close, so it ends at the sequencer's last (Ultra rule 2).
         while let Some(close) = self
             .sequencer
             .close_after(after)

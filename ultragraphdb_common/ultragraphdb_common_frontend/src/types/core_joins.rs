@@ -23,6 +23,7 @@ impl CoreJoins {
     /// Applies every join to `links`, the core's own, until the fan-out is dropped. A future dropped at its wait applies no more,
     /// and leaves `links` as the joins before it left them.
     pub async fn follow(mut self, links: RoleLinks) {
+        // An event loop: it ends once the fan-out is dropped, as the frontend stops (Ultra rule 2).
         while let Some(join) = self.joined.next().await {
             links.joined(&join);
         }

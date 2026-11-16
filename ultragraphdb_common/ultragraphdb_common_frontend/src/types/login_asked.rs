@@ -7,20 +7,17 @@ use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 use futures::channel::oneshot::Sender;
-use ultragraphdb_protocol_scram::ScramVerifier;
 
-/// What a login asks the owner, or tells it, each with where its answer goes: the owner holds the failed authentications of every
-/// endpoint core (design D15).
+/// What a login asks the throttle, or tells it, each with where its answer goes: the first endpoint core holds the failed
+/// authentications of every endpoint core (design D15).
 #[derive(Debug)]
 pub enum LoginAsked {
-    /// The principal holding `name` and its verifier, and how long the attempt from `source` waits first (design D15).
-    Verifier {
-        /// The SASLprep-prepared name.
-        name: String,
-        /// Where the attempt comes from; a Unix socket's peer has no address and waits nothing.
-        source: Option<IpAddr>,
+    /// How long an attempt from `source` waits before its exchange (design D15).
+    Delay {
+        /// Where the attempt comes from.
+        source: IpAddr,
         /// Its answer.
-        reply: Sender<(Option<(u64, ScramVerifier)>, Duration)>,
+        reply: Sender<Duration>,
     },
     /// Whether a connection from `source` may go on at `at`: not while its source is banned.
     Admit {

@@ -11,9 +11,9 @@ use compio::runtime::spawn;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
-    AskedCredentials, ClientSession, CoreJoins, EndpointCore, EndpointLimits, EveryAuthenticated,
-    JoinFanOut, LoginLimits, OwnerHandle, OwnerStart, RoleLinks, RoleSession, RoleShared,
-    TenantGate, start_owner,
+    AskedCredentials, AuthThrottle, ClientSession, CoreJoins, EndpointCore, EndpointLimits,
+    EveryAuthenticated, JoinFanOut, JoinedRoles, LoginLimits, OwnerHandle, OwnerStart, RoleLinks,
+    RoleSession, RoleShared, TenantGate, ThrottleHandle, start_owner,
 };
 use ultragraphdb_common_role::{
     ConnectionBound, OpenRequests, ROLE_ITERATIONS, RoleCluster, RoleCredentials, Server,
@@ -89,8 +89,9 @@ pub(crate) async fn frontend_role(
         None => JoinFanOut::new(),
     };
     let listening = readiness.clone();
-    let shared = RoleShared::new(cluster.clone(), handle.clone(), links.clone(), readiness)
-        .with_cores(cores);
+    let (joined, joins) = JoinedRoles::new(cluster.clone(), links.clone(), readiness);
+    spawn(joined.with_cores(cores).follow()).detach();
+    let shared = RoleShared::new(cluster.clone(), handle.clone(), joins);
     let mut reporting = None;
     let mut accepting = vec![spawn(accept_roles(
         listen(role_address).await?,
@@ -128,17 +129,19 @@ pub(crate) async fn frontend_role(
 }
 
 /// What every endpoint core serves its clients with: its handle of the client socket, the server, the transport's security, the
-/// limits and the count of open requests a stop waits on.
+/// limits, the count of open requests a stop waits on and the way to the throttle.
 struct Clients {
     listener: CoreListener,
     server: Server,
     security: EndpointSecurity,
     limits: EndpointLimits,
     open: OpenRequests,
+    logins: ThrottleHandle,
 }
 
 impl Clients {
-    /// The endpoint at `address`, bound once for every core.
+    /// The endpoint at `address`, bound once for every core, and the throttle the first core holds for every core, run on this
+    /// core's runtime (design D15).
     async fn bind(
         config: &ServiceConfig,
         address: &str,
@@ -151,6 +154,8 @@ impl Clients {
             .security()
             .map_err(|error| RoleError::configuration(error.to_string()))?;
         let limits = endpoint_limits(config);
+        let (logins, throttling) = AuthThrottle::new(login_limits(config)).serve();
+        spawn(throttling).detach();
         Ok(Self {
             listener: CoreListener::bind(address).await?,
             server: client_server(cluster, config.endpoint(), unknown_secret)?
@@ -158,6 +163,7 @@ impl Clients {
             security,
             limits,
             open: open.clone(),
+            logins,
         })
     }
 
@@ -169,6 +175,7 @@ impl Clients {
             security: self.security.clone(),
             limits: self.limits,
             open: self.open.clone(),
+            logins: self.logins.clone(),
         })
     }
 
@@ -181,6 +188,7 @@ impl Clients {
     ) -> EndpointCore<EveryAuthenticated> {
         EndpointCore::new(
             owner,
+            self.logins.clone(),
             links,
             TenantGate::new(EveryAuthenticated),
             self.limits,
@@ -379,8 +387,7 @@ fn owner_start(config: &ServiceConfig) -> Result<OwnerStart, RoleError> {
             .with_catalog_check_ms(ms)
             .map_err(|error| refused(&error))?;
     }
-    let owner =
-        OwnerStart::new(metadata, sequencer, partition_count).with_logins(login_limits(config));
+    let owner = OwnerStart::new(metadata, sequencer, partition_count);
     Ok(match table.bootstrap_secret_file() {
         Some(file) => owner.with_bootstrap_file(file),
         None => owner,

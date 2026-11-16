@@ -4,6 +4,7 @@
  */
 
 use futures::StreamExt;
+use futures::future::join;
 use ultragraphdb_common_role::{Answer, ParkedBytes, Push, Session};
 use ultragraphdb_protocol_scram::{MECHANISM, ScramServer};
 use ultragraphdb_protocol_transport::ReceivedFrame;
@@ -18,15 +19,19 @@ use crate::types::route_key::RouteKey;
 use crate::types::session_event::SessionEvent;
 
 impl<A: Authorizer + Clone> Session for ClientSession<A> {
-    /// Asks the owner for the name's verifier by message, and waits as long as the owner says the failures of its source call for
-    /// (design D15).
-    /// A future dropped at the owner's answer or at its delay leaves the credentials unanswered, which fails the exchange.
+    /// Asks the owner for the name's verifier and the throttle how long the failures of its source call for, both by message, and
+    /// waits that long (design D15).
+    /// A future dropped at the answers or at the delay leaves the credentials unanswered, which fails the exchange.
     async fn authenticating(&mut self, first: &[u8]) {
         // A malformed message asks for nothing, and the machine refuses it.
         let Ok(name) = ScramServer::name_in(first) else {
             return;
         };
-        let (held, delay) = self.core.owner().verifier(name.clone(), self.peer).await;
+        let (held, delay) = join(
+            self.core.owner().verifier(name.clone()),
+            self.core.logins().delay(self.peer),
+        )
+        .await;
         if !delay.is_zero() {
             compio::time::sleep(delay).await;
         }
@@ -37,14 +42,14 @@ impl<A: Authorizer + Clone> Session for ClientSession<A> {
     fn authenticated(&mut self, principal: u64) {
         self.principal = principal;
         if let Some(peer) = self.peer {
-            self.core.owner().login_outcome(peer, true);
+            self.core.logins().outcome(peer, true);
         }
         self.audit_authentication("accepted");
     }
 
     fn authentication_refused(&mut self) {
         if let Some(peer) = self.peer {
-            self.core.owner().login_outcome(peer, false);
+            self.core.logins().outcome(peer, false);
         }
         self.audit_authentication("refused");
     }
@@ -70,6 +75,7 @@ impl<A: Authorizer + Clone> Session for ClientSession<A> {
     /// Takes what reaches the session from outside, one event at a time, and its timers; a wait dropped for a request that arrived
     /// first loses nothing, since an event is taken whole.
     async fn next_push(&mut self) -> (u64, Push) {
+        // An event loop: it ends with a push, or when the connection drops the wait (Ultra rule 2).
         loop {
             self.recount();
             if let Some(pushed) = self.out.pop_front() {

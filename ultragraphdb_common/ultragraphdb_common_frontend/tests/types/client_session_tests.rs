@@ -10,9 +10,9 @@ use compio::runtime::{Runtime, spawn};
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
-    AskedCredentials, ClientSession, EndpointCore, EndpointLimits, EveryAuthenticated, LoginLimits,
-    OwnerHandle, OwnerStart, RoleDouble, RoleLinks, TenantGate, batch_frame, empty_batch,
-    last_frame, partition_answer, start_owner,
+    AskedCredentials, AuthThrottle, ClientSession, EndpointCore, EndpointLimits,
+    EveryAuthenticated, LoginLimits, OwnerHandle, OwnerStart, RoleDouble, RoleLinks, TenantGate,
+    batch_frame, empty_batch, last_frame, partition_answer, start_owner,
 };
 use ultragraphdb_common_role::{
     Answer, OpenRequests, RoleClient, RoleCluster, RoleSecret, Server, listen, serve_connection,
@@ -38,12 +38,16 @@ fn directory(name: &str) -> PathBuf {
 /// A client endpoint over `owner` at a free port; its address.
 async fn endpoint(owner: OwnerHandle) -> TestResult<Address> {
     let limits = EndpointLimits::new(1 << 22, Duration::from_secs(30));
-    endpoint_within(owner, limits).await
+    endpoint_within(owner, LoginLimits::default(), limits).await
 }
 
-/// A client endpoint over `owner` of `limits` at a free port, each connection admitted by the owner first as the frontend
-/// admits it; its address.
-async fn endpoint_within(owner: OwnerHandle, limits: EndpointLimits) -> TestResult<Address> {
+/// A client endpoint over `owner` of `limits` at a free port, each connection admitted by a throttle of `logins` first as the
+/// frontend admits it; its address.
+async fn endpoint_within(
+    owner: OwnerHandle,
+    logins: LoginLimits,
+    limits: EndpointLimits,
+) -> TestResult<Address> {
     let port = std::net::TcpListener::bind("127.0.0.1:0")?
         .local_addr()?
         .port();
@@ -57,8 +61,11 @@ async fn endpoint_within(owner: OwnerHandle, limits: EndpointLimits) -> TestResu
         RoleSecret::read(&file.display().to_string())?,
         Duration::from_secs(1),
     );
+    let (throttle, throttling) = AuthThrottle::new(logins).serve();
+    spawn(throttling).detach();
     let core = EndpointCore::new(
         owner,
+        throttle,
         RoleLinks::new(cluster, "frontend".to_string()),
         TenantGate::new(EveryAuthenticated),
         limits,
@@ -163,15 +170,15 @@ fn test_a_source_past_its_failures_is_banned_until_its_ban_ends() -> TestResult 
     }
     let ban = Duration::from_millis(500);
     Runtime::new()?.block_on(async {
-        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1)
-            .with_logins(LoginLimits::new(1, 1, ban));
+        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
         let principals = vec![(
             "alice".to_string(),
             ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
         )];
         let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
         let limits = EndpointLimits::new(1 << 22, Duration::from_secs(30));
-        let address = endpoint_within(owner.handle().clone(), limits).await?;
+        let address =
+            endpoint_within(owner.handle().clone(), LoginLimits::new(1, 1, ban), limits).await?;
         for _ in 0..2 {
             let refused = RoleClient::dial(&address, CLUSTER, "alice", "wrong")
                 .await
@@ -188,7 +195,7 @@ fn test_a_source_past_its_failures_is_banned_until_its_ban_ends() -> TestResult 
                 "{refused}"
             );
         }
-        // The outcome is told to the owner without an answer: the ban holds once the owner has counted the second failure.
+        // The outcome is told to the throttle without an answer: the ban holds once it has counted the second failure.
         let mut closed = None;
         for _ in 0..100 {
             // A wrong password while the ban is not yet held counts once more, and a right one would forget the failures.
@@ -231,8 +238,11 @@ async fn counted_endpoint(
     links: RoleLinks,
     open: OpenRequests,
 ) -> TestResult<Address> {
+    let (throttle, throttling) = AuthThrottle::new(LoginLimits::default()).serve();
+    spawn(throttling).detach();
     let core = EndpointCore::new(
         owner,
+        throttle,
         links,
         TenantGate::new(EveryAuthenticated),
         EndpointLimits::new(1 << 22, Duration::from_secs(30)),

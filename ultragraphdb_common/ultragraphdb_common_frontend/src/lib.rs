@@ -9,6 +9,11 @@
 //! [`ultragraphdb_traits_log::OrderedLog`]. Endpoint cores hold no copy of what it decides: they ask it through an
 //! [`OwnerHandle`], so an eviction takes effect for the next commit on any core. A turn of the owner answers everything
 //! its log's next sync makes durable, so the asks of a turn share one sync.
+//!
+//! Planes (Ultra rule 3): a [`ClientSession`]'s requests, the asks of the owner on a commit's path and the
+//! [`RoleLinks`] they relay through carry frames, the data plane; a frame sent is the `Vec` the wire's builders return,
+//! and each ask allocates its reply's channel. Authentication and its throttle, joining, the owner's start and its
+//! snapshots, and the building of a catalog version are control plane.
 
 mod traits;
 mod types;
@@ -26,6 +31,7 @@ pub use crate::types::endpoint_limits::EndpointLimits;
 pub use crate::types::every_authenticated::EveryAuthenticated;
 pub use crate::types::gate_scope::GateScope;
 pub use crate::types::join_fan_out::JoinFanOut;
+pub use crate::types::joined_roles::JoinedRoles;
 pub use crate::types::login_limits::LoginLimits;
 pub use crate::types::membership::Membership;
 pub use crate::types::one_frame_phases::{ONE_FRAME_PHASES, OneFramePhases};
@@ -38,6 +44,7 @@ pub use crate::types::role_links::RoleLinks;
 pub use crate::types::role_session::{RoleSession, RoleShared};
 pub use crate::types::tenant_facts::TenantFacts;
 pub use crate::types::tenant_gate::TenantGate;
+pub use crate::types::throttle_handle::ThrottleHandle;
 pub use crate::utils::iri_place::{IriPlace, iri_place};
 pub use crate::utils::owner_thread::{OwnerThread, start_owner};
 pub use crate::utils::term_rules::{check_change, check_operation, check_table};

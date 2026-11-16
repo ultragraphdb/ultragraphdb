@@ -7,15 +7,13 @@ use std::num::NonZeroU32;
 use std::time::Duration;
 
 use compio::runtime::{Runtime, spawn};
+use futures::channel::mpsc::unbounded;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
-use ultragraphdb_common_frontend::{
-    OwnerHandle, OwnerStart, RoleLinks, RoleSession, RoleShared, start_owner,
-};
+use ultragraphdb_common_frontend::{OwnerHandle, OwnerStart, RoleSession, RoleShared, start_owner};
 use ultragraphdb_common_role::{
     ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server, listen, serve_connection,
 };
-use ultragraphdb_common_service::Readiness;
 use ultragraphdb_common_service_config::ServiceConfig;
 use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError, TransportErrorEnum};
@@ -25,7 +23,6 @@ use ultragraphdb_protocol_wire::{
     EpochCloseView, ErrorCode, ErrorReplyView, Join, Lease, Members, MembersView, Placement,
     Report, ReportView, RequestTerm, Subscribe,
 };
-use ultragraphdb_store_sim::LogCapture;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_log::{FaultMode, SimStorage};
 
@@ -76,8 +73,7 @@ fn test_a_subscription_past_the_closes_held_ends_with_an_error() -> TestResult {
         std::fs::write(&file, "a role secret")?;
         let secret = RoleSecret::read(&file.display().to_string())?;
         let cluster = RoleCluster::new(CLUSTER, secret.clone(), Duration::from_secs(1));
-        let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
-        let shared = RoleShared::new(cluster, handle, links, Readiness::default());
+        let shared = shared_of(cluster, handle);
         let server =
             Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
         let credentials = secret.credentials()?;
@@ -111,6 +107,12 @@ fn test_a_subscription_past_the_closes_held_ends_with_an_error() -> TestResult {
         );
         Ok(())
     })
+}
+
+/// What the role sessions over `owner` of `cluster` share, the joins they tell taken by no one.
+fn shared_of(cluster: RoleCluster, owner: OwnerHandle) -> RoleShared {
+    let (joins, _joined) = unbounded();
+    RoleShared::new(cluster, owner, joins)
 }
 
 /// The role cluster whose secret is in a file under `data`.
@@ -149,14 +151,9 @@ fn free_port() -> TestResult<u16> {
         .port())
 }
 
-/// A role endpoint over `owner` of `cluster`, ready as `readiness` says: its address.
-async fn role_endpoint(
-    owner: OwnerHandle,
-    cluster: &RoleCluster,
-    readiness: Readiness,
-) -> TestResult<Address> {
-    let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
-    let shared = RoleShared::new(cluster.clone(), owner, links, readiness);
+/// A role endpoint over `owner` of `cluster`: its address.
+async fn role_endpoint(owner: OwnerHandle, cluster: &RoleCluster) -> TestResult<Address> {
+    let shared = shared_of(cluster.clone(), owner);
     let listener = listen(&format!("tcp://127.0.0.1:{}", free_port()?)).await?;
     let address = listener.local_address()?;
     serve_roles(listener, Endpoint::Frontend, shared, cluster)?;
@@ -195,7 +192,7 @@ fn test_a_members_request_is_answered_with_the_owners_members() -> TestResult {
             .map_err(|refusal| TestError::new(refusal.message().to_string()))?;
         let held = handle.members().await.context("the members")?;
         let cluster = cluster_under(&data)?;
-        let address = role_endpoint(handle, &cluster, Readiness::default()).await?;
+        let address = role_endpoint(handle, &cluster).await?;
         let password = cluster.secret().password();
         let mut compute = RoleClient::dial(&address, CLUSTER, "compute", password).await?;
         let answered = compute.request(&Members::new()).await?;
@@ -218,7 +215,7 @@ fn test_a_subscription_takes_the_closes_and_a_cancel_ends_it() -> TestResult {
             .await
             .map_err(|refusal| TestError::new(refusal.message().to_string()))?;
         let cluster = cluster_under(&data)?;
-        let address = role_endpoint(handle, &cluster, Readiness::default()).await?;
+        let address = role_endpoint(handle, &cluster).await?;
         let password = cluster.secret().password();
         let mut storage = RoleClient::dial(&address, CLUSTER, "storage", password).await?;
         storage.send_only(&Subscribe::new(0)).await?;
@@ -252,82 +249,6 @@ fn test_a_subscription_takes_the_closes_and_a_cancel_ends_it() -> TestResult {
     })
 }
 
-/// A storage process joining is connected back to, the frontend retrying while its address refuses, and the first partition
-/// reached makes the frontend ready.
-#[test]
-fn test_a_storage_join_is_connected_back_and_makes_the_frontend_ready() -> TestResult {
-    let data = directory("connect-back");
-    Runtime::new()?.block_on(async {
-        let owner = owner_under(&data).await?;
-        let handle = owner.handle().clone();
-        let cluster = cluster_under(&data)?;
-        let readiness = Readiness::default();
-        let address = role_endpoint(handle.clone(), &cluster, readiness.clone()).await?;
-        let password = cluster.secret().password();
-        let mut storage = RoleClient::dial(&address, CLUSTER, "storage", password).await?;
-        let port = free_port()?;
-        let joined = format!("tcp://127.0.0.1:{port}");
-        drop(
-            storage
-                .request(&Join::storage(joined.clone(), vec![1]))
-                .await?,
-        );
-        // Two of the retries refused before the address listens, well inside the deadline.
-        compio::time::sleep(Duration::from_millis(250)).await;
-        assert!(!readiness.is_ready(), "not ready while the address refuses");
-        let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
-        let shared = RoleShared::new(cluster.clone(), handle, links, Readiness::default());
-        serve_roles(
-            listen(&joined).await?,
-            Endpoint::Partition,
-            shared,
-            &cluster,
-        )?;
-        for _ in 0..5_000 {
-            if readiness.is_ready() {
-                return Ok(());
-            }
-            compio::time::sleep(Duration::from_millis(1)).await;
-        }
-        Err(TestError::new("the frontend did not become ready"))
-    })
-}
-
-/// A joined role whose address refuses past the deadline is given up, and the log says so.
-#[test]
-fn test_a_role_refusing_past_the_deadline_is_given_up() -> TestResult {
-    let data = directory("given-up");
-    let capture = LogCapture::new();
-    let readiness = Readiness::default();
-    capture.capture(|| -> TestResult {
-        Runtime::new()?.block_on(async {
-            let owner = owner_under(&data).await?;
-            let cluster = cluster_under(&data)?;
-            let address =
-                role_endpoint(owner.handle().clone(), &cluster, readiness.clone()).await?;
-            let password = cluster.secret().password();
-            let mut storage = RoleClient::dial(&address, CLUSTER, "storage", password).await?;
-            let joined = format!("tcp://127.0.0.1:{}", free_port()?);
-            drop(storage.request(&Join::storage(joined, vec![1])).await?);
-            let given_up = || {
-                capture
-                    .events()
-                    .iter()
-                    .any(|event| event.to_string().contains("could not connect back"))
-            };
-            for _ in 0..5_000 {
-                if given_up() {
-                    return Ok(());
-                }
-                compio::time::sleep(Duration::from_millis(1)).await;
-            }
-            Err(TestError::new("the frontend did not give up"))
-        })
-    })?;
-    assert!(!readiness.is_ready());
-    Ok(())
-}
-
 /// What a refused request was refused with.
 fn refusal_code(refused: &TransportError) -> Option<ErrorCode> {
     if let TransportErrorEnum::Refused { code, .. } = &refused.0 {
@@ -340,8 +261,7 @@ fn refusal_code(refused: &TransportError) -> Option<ErrorCode> {
 /// A session served where a partition's commands arrive hosts none of them: a Closed request there is refused as
 /// unavailable.
 async fn refused_where_partitions_arrive(cluster: &RoleCluster, handle: OwnerHandle) -> TestResult {
-    let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
-    let shared = RoleShared::new(cluster.clone(), handle, links, Readiness::default());
+    let shared = shared_of(cluster.clone(), handle);
     let listener = listen(&format!("tcp://127.0.0.1:{}", free_port()?)).await?;
     let elsewhere = listener.local_address()?;
     serve_roles(listener, Endpoint::Partition, shared, cluster)?;
@@ -369,7 +289,7 @@ fn test_the_role_commands_are_answered_from_the_owner() -> TestResult {
         let owner = owner_under(&data).await?;
         let handle = owner.handle().clone();
         let cluster = cluster_under(&data)?;
-        let address = role_endpoint(handle.clone(), &cluster, Readiness::default()).await?;
+        let address = role_endpoint(handle.clone(), &cluster).await?;
         let password = cluster.secret().password();
         let mut storage = RoleClient::dial(&address, CLUSTER, "storage", password).await?;
         // A frame holds the connection's one buffer until it is dropped, so each answer is read and dropped in turn.
@@ -442,7 +362,7 @@ fn test_a_report_of_each_kind_is_answered() -> TestResult {
     Runtime::new()?.block_on(async {
         let owner = owner_under(&data).await?;
         let cluster = cluster_under(&data)?;
-        let address = role_endpoint(owner.handle().clone(), &cluster, Readiness::default()).await?;
+        let address = role_endpoint(owner.handle().clone(), &cluster).await?;
         let password = cluster.secret().password();
         let mut storage = RoleClient::dial(&address, CLUSTER, "storage", password).await?;
         let blank = RequestTerm::BlankNode("b".to_string());
@@ -488,19 +408,14 @@ fn test_a_subscription_takes_announcements_and_evictions() -> TestResult {
         .await?;
         let handle = owner.handle().clone();
         let cluster = cluster_under(&data)?;
-        let address = role_endpoint(handle.clone(), &cluster, Readiness::default()).await?;
+        let address = role_endpoint(handle.clone(), &cluster).await?;
         let password = cluster.secret().password();
         let mut storage = RoleClient::dial(&address, CLUSTER, "storage", password).await?;
         storage.send_only(&Subscribe::new(0)).await?;
         let heard = |refusal: ultragraphdb_protocol_wire::ErrorReply| {
             TestError::new(refusal.message().to_string())
         };
-        let ann = handle
-            .verifier("ann".to_string(), None)
-            .await
-            .0
-            .context("ann")?
-            .0;
+        let ann = handle.verifier("ann".to_string()).await.context("ann")?.0;
         handle.register_session(1, ann).await.map_err(heard)?;
         handle.register_session(2, ann).await.map_err(heard)?;
         let _version = handle
@@ -544,7 +459,7 @@ fn test_members_after_the_owner_stopped_is_unavailable() -> TestResult {
         let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
         let (handle, run) = running(owner, &clock);
         let cluster = cluster_under(&data)?;
-        let address = role_endpoint(handle.clone(), &cluster, Readiness::default()).await?;
+        let address = role_endpoint(handle.clone(), &cluster).await?;
         // The next operation is the write of the next close's round, which stops the owner.
         storage.fail_at(storage.trace().len(), FaultMode::Before);
         clock.advance(EPOCH_US);

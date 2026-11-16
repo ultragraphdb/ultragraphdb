@@ -96,7 +96,7 @@ fn answer_now(asked: Asked, answering: &mut SyncReads<'_>) -> Option<Asked> {
         | Asked::CloseRequest { .. }
         | Asked::Subscribe { .. }
         | Asked::NextClose { .. }
-        | Asked::Login(_)
+        | Asked::Verifier { .. }
         | Asked::RegisterSession { .. }
         | Asked::Map { .. }
         | Asked::SchemaId { .. }

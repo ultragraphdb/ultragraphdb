@@ -3,7 +3,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 #
 
-load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@crates//:defs.bzl", "all_crate_deps", "lint_config")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("@rules_rust//rust:defs.bzl", "rust_doc")
@@ -11,7 +11,9 @@ load("@rules_rust//rust:defs.bzl", "rust_doc")
 rust_library(
     name = "ultragraphdb_protocol_wire",
     srcs = glob(["src/**/*.rs"]),
-    aliases = aliases(),
+    # No `aliases`: `aliases()` maps every dependency the manifest names, its dev-dependencies too, and each key is an
+    # edge of this target, which would close a cycle through ultragraphdb_core_catalog, a dev-dependency that depends on
+    # this crate. The library renames no dependency, so it needs none.
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
     tags = ["ultragraphdb_protocol_wire"],

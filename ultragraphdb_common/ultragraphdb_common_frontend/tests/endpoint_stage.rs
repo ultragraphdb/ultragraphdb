@@ -18,10 +18,10 @@ use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
-    AskedCredentials, Authorizer, ClientSession, DoubleFrame, EndpointCore, EndpointLimits,
-    EveryAuthenticated, IriPlace, OwnerHandle, OwnerStart, OwnerThread, RoleDouble, RoleLinks,
-    RoleSession, RoleShared, TenantGate, batch_frame, empty_batch, iri_place, partition_answer,
-    start_owner,
+    AskedCredentials, AuthThrottle, Authorizer, ClientSession, DoubleFrame, EndpointCore,
+    EndpointLimits, EveryAuthenticated, IriPlace, JoinedRoles, LoginLimits, OwnerHandle,
+    OwnerStart, OwnerThread, RoleDouble, RoleLinks, RoleSession, RoleShared, TenantGate,
+    batch_frame, empty_batch, iri_place, partition_answer, start_owner,
 };
 use ultragraphdb_common_role::{
     Answer, ConnectionBound, ParkedBytes, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret,
@@ -161,8 +161,11 @@ impl Stage {
         let role_address = role.local_address()?;
         let client_address = client.local_address()?;
         let accepting_roles = accept_roles(role, &cluster, &owner, &links)?;
+        let (throttle, throttling) = AuthThrottle::new(LoginLimits::default()).serve();
+        spawn(throttling).detach();
         let core = EndpointCore::new(
             owner.clone(),
+            throttle,
             links.clone(),
             TenantGate::new(authorizer),
             options.limits,
@@ -518,12 +521,9 @@ fn accept_roles(
     let roles =
         Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
     let credentials = cluster.secret().credentials()?;
-    let shared = RoleShared::new(
-        cluster.clone(),
-        owner.clone(),
-        links.clone(),
-        Readiness::default(),
-    );
+    let (joined, joins) = JoinedRoles::new(cluster.clone(), links.clone(), Readiness::default());
+    spawn(joined.follow()).detach();
+    let shared = RoleShared::new(cluster.clone(), owner.clone(), joins);
     Ok(spawn(async move {
         while let Ok(carrier) = listener.accept().await {
             let (roles, credentials) = (roles.clone(), credentials.clone());
