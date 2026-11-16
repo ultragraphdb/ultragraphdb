@@ -4,24 +4,44 @@
  */
 
 use ultragraphdb_protocol_scram::{ScramServer, ScramVerifier};
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::hidden::hides;
-use crate::utils::rfc7677::{CLIENT_FIRST, ITERATIONS, NAME, SERVER_NONCE, verifier};
+use crate::utils::rfc7677::{CLIENT_FIRST, CLIENT_NONCE, ITERATIONS, NAME, SERVER_NONCE, verifier};
 
 const SECRET: [u8; 32] = *b"the server's secret of 32 bytes.";
 
+/// `Ok` when `printed` holds `expected`.
+fn holds(printed: &str, expected: &str) -> TestResult {
+    printed
+        .contains(expected)
+        .then_some(())
+        .context(&format!("{printed} holds {expected}"))
+}
+
 /// A server's `Debug`, compact or pretty, before and after it holds a verifier, a known name's or one an unknown name
-/// took from the secret, holds neither the secret nor a key; it holds the principal it found.
+/// took from the secret, holds neither the secret nor a key, nor a nonce or the text of a message, the
+/// client-first-message-bare or either server-first-message, which it prints as their lengths; it holds the principal
+/// it found.
 #[test]
 fn test_a_server_never_prints_its_secret_or_a_key() -> TestResult {
     let known = verifier()?;
     let unknown = ScramVerifier::unknown(&SECRET, NAME, ITERATIONS);
     let fresh = ScramServer::new(SERVER_NONCE, SECRET).with_iterations(ITERATIONS);
     let mut found = fresh.clone();
-    let _found_first: Vec<u8> = found.first(CLIENT_FIRST, |_| Some((42, known.clone())))?;
+    let found_first = String::from_utf8(found.first(CLIENT_FIRST, |_| Some((42, known.clone())))?)?;
     let mut refused = fresh.clone();
-    let _refused_first: Vec<u8> = refused.first(CLIENT_FIRST, |_| None)?;
+    let refused_first = String::from_utf8(refused.first(CLIENT_FIRST, |_| None)?)?;
+    let bare = std::str::from_utf8(CLIENT_FIRST)?
+        .strip_prefix("n,,")
+        .context("the client-first-message after its GS2 header")?;
+    let texts = [
+        SERVER_NONCE,
+        CLIENT_NONCE,
+        bare,
+        found_first.as_str(),
+        refused_first.as_str(),
+    ];
     for server in [&fresh, &found, &refused] {
         for shown in [format!("{server:?}"), format!("{server:#?}")] {
             hides(&shown, &SECRET)?;
@@ -29,7 +49,20 @@ fn test_a_server_never_prints_its_secret_or_a_key() -> TestResult {
                 hides(&shown, verifier.stored_key())?;
                 hides(&shown, verifier.server_key())?;
             }
+            for text in texts {
+                hides(&shown, text.as_bytes())?;
+            }
         }
+        holds(
+            &format!("{server:?}"),
+            &format!("nonce: <{} bytes>", SERVER_NONCE.len()),
+        )?;
+    }
+    for (server, server_first) in [(&found, &found_first), (&refused, &refused_first)] {
+        holds(
+            &format!("{server:?}"),
+            &format!("server_first: <{} bytes>", server_first.len()),
+        )?;
     }
     let printed = format!("{found:?}");
     assert!(printed.contains("Some((Some(42)"), "{printed}");

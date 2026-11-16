@@ -14,7 +14,8 @@ use crate::utils::message::{attribute, decode, encode, escape, server_error, val
 /// The GS2 header of a client without channel binding.
 const GS2_HEADER: &str = "n,,";
 
-/// Where a client's exchange stands. Its `Debug` never holds the server signature it expects.
+/// Where a client's exchange stands. Its `Debug` holds the length of the client-first-message-bare, never its text or
+/// the server signature it expects.
 #[derive(Clone, PartialEq, Eq)]
 enum ClientState {
     Initial,
@@ -25,8 +26,8 @@ enum ClientState {
 
 /// The client's side of SCRAM-SHA-256 (RFC 5802 §5): the client-first-message, the client-final-message answering
 /// the server's challenge with the proof, and the check of the server's signature. The client's nonce is the caller's,
-/// printable ASCII without a comma, drawn from a source the caller trusts. Its `Debug` holds the name, the nonce and
-/// where the exchange stands, never the password or the server signature it expects.
+/// printable ASCII without a comma, drawn from a source the caller trusts. Its `Debug` holds the name, the nonce's
+/// length and where the exchange stands, never the nonce, the password or the server signature it expects.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ScramClient {
     name: String,

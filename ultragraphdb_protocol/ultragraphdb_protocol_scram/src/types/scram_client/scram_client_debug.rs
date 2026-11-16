@@ -12,7 +12,7 @@ impl fmt::Debug for ScramClient {
         f.debug_struct("ScramClient")
             .field("name", &self.name)
             .field("password", &format_args!("<redacted>"))
-            .field("nonce", &self.nonce)
+            .field("nonce", &format_args!("<{} bytes>", self.nonce.len()))
             .field("state", &self.state)
             .finish()
     }
@@ -24,7 +24,10 @@ impl fmt::Debug for ClientState {
             Self::Initial => f.write_str("Initial"),
             Self::First { client_first_bare } => f
                 .debug_struct("First")
-                .field("client_first_bare", client_first_bare)
+                .field(
+                    "client_first_bare",
+                    &format_args!("<{} bytes>", client_first_bare.len()),
+                )
                 .finish(),
             Self::Final { .. } => f
                 .debug_struct("Final")

@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod challenge_view_debug_tests;
+#[cfg(test)]
 mod challenge_view_tests;

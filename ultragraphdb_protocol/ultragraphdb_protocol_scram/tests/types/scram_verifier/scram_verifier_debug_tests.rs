@@ -8,7 +8,8 @@ use ultragraphdb_tool_bdd::TestResult;
 use crate::utils::hidden::hides;
 use crate::utils::rfc7677::verifier;
 
-/// A verifier's `Debug`, compact or pretty, holds neither key; it holds the salt and the iteration count.
+/// A verifier's `Debug`, compact or pretty, holds neither key nor the salt; it holds the salt's length and the iteration
+/// count.
 #[test]
 fn test_a_verifier_never_prints_its_keys() -> TestResult {
     let verifier = verifier()?;
@@ -16,9 +17,10 @@ fn test_a_verifier_never_prints_its_keys() -> TestResult {
     for shown in [&printed, &format!("{verifier:#?}")] {
         hides(shown, verifier.stored_key())?;
         hides(shown, verifier.server_key())?;
+        hides(shown, verifier.salt())?;
     }
     assert!(
-        printed.contains(&format!("salt: {:?}", verifier.salt())),
+        printed.contains(&format!("salt: <{} bytes>", verifier.salt().len())),
         "{printed}"
     );
     assert!(

@@ -4,9 +4,11 @@
  */
 
 mod challenge_view_body_view;
+mod challenge_view_debug;
 
-/// The body of a received Challenge frame, read in place; see [`crate::Challenge`] for its layout.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The body of a received Challenge frame, read in place; see [`crate::Challenge`] for its layout. Its `Debug`, as the
+/// body's, holds the salt's length, never the salt.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ChallengeView<'a> {
     name: &'a str,
     iterations: u32,

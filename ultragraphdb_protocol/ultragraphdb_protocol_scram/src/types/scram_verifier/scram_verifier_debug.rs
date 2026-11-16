@@ -10,7 +10,7 @@ use crate::types::scram_verifier::ScramVerifier;
 impl fmt::Debug for ScramVerifier {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ScramVerifier")
-            .field("salt", &self.salt)
+            .field("salt", &format_args!("<{} bytes>", self.salt.len()))
             .field("iterations", &self.iterations)
             .field("stored_key", &format_args!("<redacted>"))
             .field("server_key", &format_args!("<redacted>"))

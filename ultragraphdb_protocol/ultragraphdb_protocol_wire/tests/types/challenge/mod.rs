@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod challenge_debug_tests;
+#[cfg(test)]
 pub mod challenge_tests;

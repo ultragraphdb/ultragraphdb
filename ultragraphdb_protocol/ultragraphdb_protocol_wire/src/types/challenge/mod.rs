@@ -4,9 +4,12 @@
  */
 
 mod challenge_body_builder;
+mod challenge_debug;
 
 /// The first half of verifying a principal's SCRAM-SHA-256 proof (`PROTOCOL.md` §13.8): a frontend asks the metadata
 /// group's host for the principal's salt and iteration count. Sent with `iterations` 0 and no salt, answered with both.
+/// Its `Debug` holds the name, the iteration count and the salt's length, never the salt, which the
+/// server-first-message carries.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
@@ -16,7 +19,7 @@ mod challenge_body_builder;
 /// |---|---|
 /// | 0 | the principal's name, UTF-8, prepared with SASLprep |
 /// | 1 | the salt; empty in a request, not empty in a reply |
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Challenge {
     name: String,
     iterations: u32,

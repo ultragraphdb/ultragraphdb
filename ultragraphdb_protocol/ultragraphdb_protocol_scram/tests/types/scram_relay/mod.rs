@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod scram_relay_debug_tests;
+#[cfg(test)]
 mod scram_relay_tests;

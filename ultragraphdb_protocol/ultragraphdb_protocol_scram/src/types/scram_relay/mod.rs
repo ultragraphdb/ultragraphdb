@@ -3,13 +3,16 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod scram_relay_debug;
+
 use crate::errors::scram_error::ScramError;
 use crate::utils::crypto::prepare;
 use crate::utils::message::{attribute, decode, encode, unescape, valid_nonce};
 
 /// What a relay has read and built of an exchange once its server-first-message is built: the channel binding the
-/// client-final-message must carry, the two messages the AuthMessage opens with, and the exchange's nonce.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// client-final-message must carry, the two messages the AuthMessage opens with, and the exchange's nonce. Its `Debug`
+/// holds the length of each, never its text.
+#[derive(Clone, PartialEq, Eq)]
 struct Exchange {
     binding: String,
     client_first_bare: String,
@@ -17,8 +20,8 @@ struct Exchange {
     server_first: String,
 }
 
-/// Where a relay's exchange stands.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Where a relay's exchange stands. Its `Debug` holds the length of each message and nonce it keeps, never its text.
+#[derive(Clone, PartialEq, Eq)]
 enum RelayState {
     Initial,
     Read {
@@ -39,8 +42,9 @@ enum RelayState {
 /// client-first-message for the name to ask for, builds the server-first-message from the salt and iteration count it
 /// is handed, reads the client-final-message into the AuthMessage and the ClientProof to have checked, and builds the
 /// server-final-message from the ServerSignature it is handed. The keys stay with whoever checks the proof:
-/// [`crate::ScramVerifier::sign`], in the system group (`PROTOCOL.md` §13.8, §13.9).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// [`crate::ScramVerifier::sign`], in the system group (`PROTOCOL.md` §13.8, §13.9). Its `Debug` holds where the
+/// exchange stands and the length of each message and nonce it keeps, never their text.
+#[derive(Clone, PartialEq, Eq)]
 pub struct ScramRelay {
     nonce: String,
     state: RelayState,

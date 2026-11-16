@@ -11,7 +11,7 @@ use crate::utils::crypto::{hmac, prepare, salted, same, sha256};
 
 /// What a server stores of a password (RFC 5802 §3): the salt, the iteration count, `StoredKey`, the SHA-256 of the
 /// client key, and `ServerKey`. A password cannot be read back from it, and a stolen verifier does not log in. Its
-/// `Debug` holds the salt and the iteration count, never the keys.
+/// `Debug` holds the salt's length and the iteration count, never the salt or the keys.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ScramVerifier {
     salt: Vec<u8>,
