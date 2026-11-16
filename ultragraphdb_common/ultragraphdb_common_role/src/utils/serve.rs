@@ -258,6 +258,7 @@ where
         }
         reader.read_frame(pool).await
     });
+    // An event loop: a frame read, a transport error or the machine closing at a deadline ends it (Ultra rule 2).
     loop {
         let wait = machine
             .next_deadline()

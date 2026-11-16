@@ -23,6 +23,7 @@ pub async fn finish_open<T>(
 ) -> usize {
     drop(accepting);
     tracing::info!(open = open.count(), "stopped accepting");
+    // Rounded down, so the looks and their pauses take no longer than `limit`.
     let looks = limit.as_millis() / POLL.as_millis();
     for _ in 0..looks {
         if open.count() == 0 {

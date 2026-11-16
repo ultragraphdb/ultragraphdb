@@ -6,14 +6,16 @@
 //! The settings every role binary runs on: [`ServiceConfig`], one type per table of the settings file and one field
 //! per setting, so a table and key name one field and a field names one table and key.
 //!
-//! The file is optional. With none named the settings come from the environment alone, and an
-//! `ULTRAGRAPHDB_<TABLE>_<KEY>` variable overrides the file's value either way. A setting neither names is absent:
-//! the crate invents no default, and a role refuses a setting it requires through
-//! [`ServiceConfigError::missing`]. Every table, key and variable is taken or refused, so a misspelling stops the start.
+//! The settings are the bytes of one file, which [`ServiceConfig::parse`] reads: a role's come from the config service,
+//! and the config service's own from the file it is started with. A setting the file does not name is absent: the crate
+//! invents no default, and a role refuses a setting it requires through [`ServiceConfigError::missing`]. A table
+//! whose presence means something requires its settings itself: a `[system]` table, which makes a storage instance the
+//! system group's host, is refused without `role_address` or `data_dir`, so [`SystemTable`] holds both. Every table and
+//! key is taken or refused, so a misspelling stops the start.
 //!
 //! The crate checks a value's kind and that it fits its field. A setting's bound belongs to the constructor of the domain
-//! type it configures, the one place each bound is stated. The environment is passed in as data, and a role reads its
-//! settings once, at start.
+//! type it configures, the one place each bound is stated. A role reads its settings once, at start: the crate is
+//! control plane alone (Ultra rule 3), and allocates as it reads.
 
 mod errors;
 mod types;
@@ -33,4 +35,5 @@ pub use crate::types::runtime_table::RuntimeTable;
 pub use crate::types::sequencer_table::SequencerTable;
 pub use crate::types::service_config::ServiceConfig;
 pub use crate::types::storage_table::StorageTable;
+pub use crate::types::system_table::SystemTable;
 pub use crate::utils::partition_address::partition_address;

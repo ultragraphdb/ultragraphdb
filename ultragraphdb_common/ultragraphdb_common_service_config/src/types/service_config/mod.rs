@@ -16,6 +16,7 @@ use crate::types::runtime_table::RuntimeTable;
 use crate::types::sequencer_table::SequencerTable;
 use crate::types::settings_reader::SettingsReader;
 use crate::types::storage_table::StorageTable;
+use crate::types::system_table::SystemTable;
 
 /// The settings of one role's start: one type per table of the settings file, one field per setting.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -31,6 +32,7 @@ pub struct ServiceConfig {
     runtime: RuntimeTable,
     sequencer: SequencerTable,
     storage: StorageTable,
+    system: Option<SystemTable>,
 }
 
 impl ServiceConfig {
@@ -39,7 +41,8 @@ impl ServiceConfig {
     ///
     /// # Errors
     ///
-    /// The TOML refused; a table no type mirrors; a key no field takes; a value of the wrong kind, or outside its field.
+    /// The TOML refused; a table no type mirrors; a key no field takes; a value of the wrong kind, or outside its field; a
+    /// `[system]` table lacking `role_address` or `data_dir`, as [`ServiceConfigError::missing`].
     pub fn parse(bytes: &[u8]) -> Result<Self, ServiceConfigError> {
         let mut reader = SettingsReader::new(bytes)?;
         let config = Self::read(&mut reader)?;
@@ -47,8 +50,8 @@ impl ServiceConfig {
         Ok(config)
     }
 
-    /// Every refusal of a file holding `bytes`, not the first alone: an unknown table or key, or a value of the wrong
-    /// kind. A document that does not parse is its one refusal.
+    /// Every refusal of a file holding `bytes`, not the first alone: an unknown table or key, a value of the wrong kind,
+    /// or a setting its table requires. A document that does not parse is its one refusal.
     #[must_use]
     pub fn problems(bytes: &[u8]) -> Vec<ServiceConfigError> {
         let mut reader = match SettingsReader::collecting(bytes) {
@@ -73,6 +76,7 @@ impl ServiceConfig {
             runtime: RuntimeTable::read(reader)?,
             sequencer: SequencerTable::read(reader)?,
             storage: StorageTable::read(reader)?,
+            system: SystemTable::read(reader)?,
         })
     }
 
@@ -140,5 +144,11 @@ impl ServiceConfig {
     #[must_use]
     pub fn storage(&self) -> &StorageTable {
         &self.storage
+    }
+
+    /// The `[system]` table, which a storage instance hosting the system group holds; `None` when the settings hold none.
+    #[must_use]
+    pub fn system(&self) -> Option<&SystemTable> {
+        self.system.as_ref()
     }
 }

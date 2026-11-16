@@ -8,7 +8,7 @@ use ultragraphdb_tool_toml::{TomlDocument, TomlError, TomlErrorEnum};
 use crate::errors::service_config_error::{ServiceConfigError, ServiceConfigErrorEnum};
 
 /// The tables a settings file may hold, each mirrored by one type.
-const TABLES: [&str; 11] = [
+const TABLES: [&str; 12] = [
     "admin",
     "cluster",
     "compute",
@@ -20,6 +20,7 @@ const TABLES: [&str; 11] = [
     "runtime",
     "sequencer",
     "storage",
+    "system",
 ];
 
 /// One reading of settings: each taken from the document, so that [`SettingsReader::finish`] can refuse whatever no read
@@ -63,6 +64,14 @@ impl SettingsReader {
         })
     }
 
+    /// Whether the settings hold the table `table`, a header with no key in it included.
+    pub(crate) fn holds(&self, table: &str) -> bool {
+        self.document
+            .tables()
+            .iter()
+            .any(|held| held.name() == table)
+    }
+
     /// `error`, or, when collecting, its record and an absent value.
     fn refuse<T>(&mut self, error: ServiceConfigError) -> Result<Option<T>, ServiceConfigError> {
         match self.collected.as_mut() {
@@ -99,6 +108,22 @@ impl SettingsReader {
         key: &str,
     ) -> Result<Option<String>, ServiceConfigError> {
         self.read(|document| document.string(table, key))
+    }
+
+    /// The string setting `key` of `table`, which its table requires: its absence is refused as
+    /// [`ServiceConfigError::missing`].
+    pub(crate) fn required_string(
+        &mut self,
+        table: &str,
+        key: &str,
+    ) -> Result<Option<String>, ServiceConfigError> {
+        match self.document.string(table, key) {
+            Ok(value) => Ok(Some(value)),
+            Err(TomlError(TomlErrorEnum::Missing { .. })) => {
+                self.refuse(ServiceConfigError::missing(table, key))
+            }
+            Err(error) => self.refuse(error.into()),
+        }
     }
 
     /// The boolean setting `key` of `table`.

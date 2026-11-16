@@ -39,3 +39,21 @@ path = "fuzz_targets/scram_client.rs"
 test = false
 doc = false
 bench = false
+
+# Any bytes as a client-first-message, read by the endpoint's half of a server's exchange: refused as the server
+# refuses it, or the name the server looks up and the server-first-message it builds.
+[[bin]]
+name = "scram_relay_first"
+path = "fuzz_targets/scram_relay_first.rs"
+test = false
+doc = false
+bench = false
+
+# Any bytes as a client-final-message after RFC 7677's first two messages, read by the endpoint's half: refused as the
+# server refuses it, or the AuthMessage and proof whose signature decides the server's answer.
+[[bin]]
+name = "scram_relay_last"
+path = "fuzz_targets/scram_relay_last.rs"
+test = false
+doc = false
+bench = false

@@ -8,7 +8,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use compio::runtime::Runtime;
-use ultragraphdb_common_role::{RoleCluster, RoleSecret, frontend_address, retry_until};
+use ultragraphdb_common_role::{
+    RoleCluster, RoleSecret, frontend_address, retry_until, system_address,
+};
 use ultragraphdb_common_service::{RoleIdentity, RoleStart, Stopping};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::TransportError;
@@ -52,6 +54,82 @@ fn test_the_frontend_address_is_the_setting() -> TestResult {
     Ok(())
 }
 
+/// The settings of a start as `role` (`frontend`, `compute` or `storage`), `cluster` the lines of their `[cluster]`
+/// table.
+fn start_as(role: &str, cluster: &str) -> TestResult<RoleStart> {
+    let text = format!("[observability]\naddress = \"tcp://127.0.0.1:1\"\n[cluster]\n{cluster}");
+    Ok(RoleStart::from_settings(
+        text.as_bytes(),
+        RoleIdentity::new("ci", role, 1),
+    )?)
+}
+
+/// C2.8: the system group's address is the one the settings name, on either carrier, for a frontend, a compute and a
+/// storage instance alike.
+#[test]
+fn test_the_system_address_is_the_setting_for_every_role() -> TestResult {
+    for role in ["frontend", "compute", "storage"] {
+        for address in ["tcp://storage-0:7100", "unix:///run/ultragraph/system.sock"] {
+            let start = start_as(role, &format!("system_address = \"{address}\"\n"))?;
+            assert_eq!(system_address(&start)?.to_string(), address);
+        }
+    }
+    Ok(())
+}
+
+/// The system group's address absent is refused as a configuration error naming `cluster.system_address`.
+#[test]
+fn test_an_absent_system_address_is_refused_naming_it() -> TestResult {
+    let absent = system_address(&start("frontend_address = \"tcp://127.0.0.1:7081\"\n")?)
+        .err()
+        .context("a refusal")?;
+    assert_eq!(absent.exit_code(), RoleError::EX_CONFIG);
+    assert!(
+        absent.to_string().contains("cluster.system_address"),
+        "{absent}"
+    );
+    Ok(())
+}
+
+/// C2.7: a `cluster.system_address` that is no address is refused as a configuration error naming the setting and the
+/// text it holds.
+#[test]
+fn test_a_system_address_that_is_no_address_is_refused_naming_it() -> TestResult {
+    for text in [
+        "storage-0:7100",
+        "http://storage-0:7100",
+        "tcp://storage-0",
+        "unix://run/system.sock",
+    ] {
+        let refused = system_address(&start(&format!("system_address = \"{text}\"\n"))?)
+            .err()
+            .context("a refusal")?;
+        assert_eq!(refused.exit_code(), RoleError::EX_CONFIG);
+        let message = refused.to_string();
+        assert!(message.contains("cluster.system_address"), "{message}");
+        assert!(message.contains(text), "{message}");
+    }
+    Ok(())
+}
+
+/// C2.9: with `cluster.frontend_address` and `cluster.system_address` both named, each function gives its own: the old
+/// leaves in group 7.
+#[test]
+fn test_the_frontend_and_system_addresses_are_each_their_own() -> TestResult {
+    let start = start(
+        "frontend_address = \"tcp://frontend-0:7081\"\nsystem_address = \"unix:///run/ultragraph/system.sock\"\n",
+    )?;
+    assert_eq!(
+        frontend_address(&start)?.to_string(),
+        "tcp://frontend-0:7081"
+    );
+    assert_eq!(
+        system_address(&start)?.to_string(),
+        "unix:///run/ultragraph/system.sock"
+    );
+    Ok(())
+}
+
 /// An attempt is made again until it succeeds within the deadline.
 #[test]
 fn test_a_join_is_tried_again_until_it_succeeds() -> TestResult {
@@ -73,6 +151,31 @@ fn test_a_join_is_tried_again_until_it_succeeds() -> TestResult {
         },
     ))?;
     assert_eq!(joined, Some(3));
+    Ok(())
+}
+
+/// A deadline past what the clock can name, as `join_deadline_ms` may state, never passes: the join goes on until it
+/// succeeds, and nothing panics.
+#[test]
+fn test_a_deadline_past_the_clock_never_passes() -> TestResult {
+    let tried = Cell::new(0);
+    let joined = Runtime::new()?.block_on(retry_until(
+        &cluster(Duration::MAX)?,
+        "storage",
+        &Stopping::default(),
+        || {
+            tried.set(tried.get() + 1);
+            let now = tried.get();
+            async move {
+                if now < 2 {
+                    Err(TransportError::authentication("not yet"))
+                } else {
+                    Ok(now)
+                }
+            }
+        },
+    ))?;
+    assert_eq!(joined, Some(2));
     Ok(())
 }
 

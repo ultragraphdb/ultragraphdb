@@ -17,3 +17,4 @@ pub mod sequencer_table;
 pub mod service_config;
 pub(crate) mod settings_reader;
 pub mod storage_table;
+pub mod system_table;

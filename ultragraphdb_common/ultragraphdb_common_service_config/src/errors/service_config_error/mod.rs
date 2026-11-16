@@ -29,7 +29,7 @@ pub enum ServiceConfigErrorEnum {
         /// The largest value the field holds.
         max: u64,
     },
-    /// A setting a role requires is absent.
+    /// A setting a role requires is absent, or one its table requires: a `[system]` table names both its settings.
     Missing {
         /// The setting, `table.key`.
         setting: String,
@@ -51,6 +51,7 @@ pub struct ServiceConfigError(pub ServiceConfigErrorEnum);
 
 impl ServiceConfigError {
     /// The refusal of the table `table`, which no type mirrors.
+    #[must_use]
     pub fn unknown_table(table: impl Into<String>) -> Self {
         Self(ServiceConfigErrorEnum::UnknownTable {
             table: table.into(),
@@ -67,7 +68,7 @@ impl ServiceConfigError {
         })
     }
 
-    /// The refusal of a start lacking `table.key`, which the role requires.
+    /// The refusal of a start lacking `table.key`, which the role, or the table it belongs to, requires.
     #[must_use]
     pub fn missing(table: &str, key: &str) -> Self {
         Self(ServiceConfigErrorEnum::Missing {

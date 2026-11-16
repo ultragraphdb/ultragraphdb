@@ -41,6 +41,23 @@ pub fn frontend_address(start: &RoleStart) -> Result<Address, RoleError> {
         .map_err(|error| RoleError::configuration(format!("the address {frontend}: {error}")))
 }
 
+/// The system group's role address the settings of `start` name, which every role dials.
+///
+/// # Errors
+///
+/// [`RoleError::configuration`] naming `cluster.system_address` when it is absent or does not parse.
+pub fn system_address(start: &RoleStart) -> Result<Address, RoleError> {
+    let system = required(
+        start.config().cluster().system_address(),
+        "cluster.system_address",
+    )?;
+    Address::parse(system).map_err(|error| {
+        RoleError::configuration(format!(
+            "the setting cluster.system_address holds {system}: {error}"
+        ))
+    })
+}
+
 /// Runs `attempt` until it succeeds, until the service stops, which gives `None`, or until the cluster's deadline.
 ///
 /// A future dropped at an attempt drops that attempt's future, leaving what it leaves; one dropped at a pause leaves
@@ -59,15 +76,16 @@ where
     A: FnMut() -> F,
     F: Future<Output = Result<T, TransportError>>,
 {
-    let due = now() + cluster.deadline();
+    // A deadline past what the clock can name never passes: `join_deadline_ms` is a setting, so no sum of it may panic.
+    let due = now().checked_add(cluster.deadline());
     let mut attempts = 0u32;
     while !stopping.is_stopping() {
-        attempts += 1;
+        attempts = attempts.saturating_add(1);
         match attempt().await {
             Ok(done) => return Ok(Some(done)),
             Err(error) => {
                 tracing::warn!(role, %error, "joining was refused or failed");
-                if now() >= due {
+                if due.is_some_and(|due| now() >= due) {
                     return Err(RoleError::unavailable(format!(
                         "the frontend did not take this {role} within {} ms, after {attempts} attempts: {error}",
                         cluster.deadline().as_millis()

@@ -299,3 +299,59 @@ fn test_the_remaining_settings_reach_their_fields() -> TestResult {
     assert_eq!(c.storage().held_bytes(), Some(29));
     Ok(())
 }
+
+/// C2.10: a file of the settings in use, holding none of this stage's new ones, reads every setting as written, and the
+/// new read as absent: `[frontend]` and `cluster.frontend_address` stay until group 7's switch (design D2).
+#[test]
+fn test_the_settings_in_use_read_as_before_with_none_of_the_new() -> TestResult {
+    for text in [EVERY_SETTING, THE_REST] {
+        let c = ServiceConfig::parse(text.as_bytes())?;
+        assert_eq!(c.system(), None);
+        assert_eq!(c.cluster().system_address(), None);
+    }
+    let c = ServiceConfig::parse(EVERY_SETTING.as_bytes())?;
+    assert_eq!(c.cluster().frontend_address(), Some("tcp://f:1"));
+    assert_eq!(c.frontend().role_address(), Some("tcp://f:4"));
+    assert_eq!(c.frontend().data_dir(), Some("/f"));
+    assert_eq!(c.metadata().sessions_max(), Some(15));
+    assert_eq!(c.sequencer().epoch_ms_max(), Some(18));
+    Ok(())
+}
+
+/// The `[metadata]` and `[sequencer]` tables of a storage instance's file.
+const MOVED_TABLES: &str = r#"
+[metadata]
+block_size_max = 31
+sessions_max = 32
+snapshot_rounds = 33
+bootstrap_secret_file = "/run/bootstrap"
+catalog_check_ms = 34
+[sequencer]
+epoch_ms_min = 35
+epoch_ms_max = 36
+"#;
+
+/// C2.11: `[metadata]` and `[sequencer]` read as written in a storage instance's file, with a `[system]` table and
+/// without one. The settings read every table for any file, whatever role reads it: no role refuses a table here, and
+/// the config service's System check, which refuses the two tables on an instance not hosting, is group 7's.
+#[test]
+fn test_the_moved_tables_read_in_a_storage_file_with_and_without_a_system_table() -> TestResult {
+    let storage =
+        "[storage]\nrole_address = \"tcp://storage-0:7200\"\ndata_dir = \"/data/storage\"\n";
+    let system = "[system]\nrole_address = \"tcp://storage-0:7100\"\ndata_dir = \"/data/system\"\n";
+    for text in [
+        format!("{storage}{MOVED_TABLES}"),
+        format!("{storage}{system}{MOVED_TABLES}"),
+    ] {
+        let c = ServiceConfig::parse(text.as_bytes())?;
+        assert_eq!(c.metadata().block_size_max(), Some(31));
+        assert_eq!(c.metadata().sessions_max(), Some(32));
+        assert_eq!(c.metadata().snapshot_rounds(), Some(33));
+        assert_eq!(c.metadata().bootstrap_secret_file(), Some("/run/bootstrap"));
+        assert_eq!(c.metadata().catalog_check_ms(), Some(34));
+        assert_eq!(c.sequencer().epoch_ms_min(), Some(35));
+        assert_eq!(c.sequencer().epoch_ms_max(), Some(36));
+        assert_eq!(c.system().is_some(), text.contains("[system]"));
+    }
+    Ok(())
+}

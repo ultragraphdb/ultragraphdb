@@ -41,20 +41,20 @@ setting, a constructor or a public item another group's crates still name (desig
 
 ## 1b. The exchange in two halves → `ultragraphdb_protocol_scram`
 
-- [ ] 1b.1 Ultra Style lift of `protocol_scram`, in its own commit
-- [ ] 1b.2 Scenarios: system-group ("A client's proof is checked in the system group") and client-endpoint ("Connections authenticate against the metadata group's principals"), the parts the two halves decide without a connection, as Gherkin
-- [ ] 1b.3 Phases 1 to 3: `ScramRelay`, the endpoint's half, holding no key: the name from a client-first-message, the server-first-message from a salt and an iteration count it is handed, the AuthMessage and the ClientProof from a client-final-message, the server-final-message from a ServerSignature it is handed; on `ScramVerifier` the group's half: the ServerSignature for an AuthMessage and a proof that holds, nothing for one that does not, and the verifier of an unknown name from the secret, as `ScramServer` derives it in private today; `ScramServer`'s surface unchanged (design D8)
-- [ ] 1b.4 Phase 4: the two halves; `ScramServer` expressed over them where that removes a second copy of a rule
-- [ ] 1b.5 Property tests, written in phase 2: over drawn names, passwords, salts, iteration counts and nonces, the two halves accept exactly the exchanges `ScramServer` accepts and build its two messages byte for byte; a drawn wrong proof and an unknown name are refused alike; no message the relay builds holds a byte run equal to the stored key or the server key
-- [ ] 1b.6 Phase 5: fuzz targets and seeds for the relay's two readers; `scripts/mutants.sh ultragraphdb_protocol_scram --diff <base>`
+- [x] 1b.1 Ultra Style lift of `protocol_scram`, in its own commit
+- [x] 1b.2 Scenarios: system-group ("A client's proof is checked in the system group") and client-endpoint ("Connections authenticate against the metadata group's principals"), the parts the two halves decide without a connection, as Gherkin
+- [x] 1b.3 Phases 1 to 3: `ScramRelay`, the endpoint's half, holding no key: the name from a client-first-message, the server-first-message from a salt and an iteration count it is handed, the AuthMessage and the ClientProof from a client-final-message, the server-final-message from a ServerSignature it is handed; on `ScramVerifier` the group's half: the ServerSignature for an AuthMessage and a proof that holds, nothing for one that does not, and the verifier of an unknown name from the secret, as `ScramServer` derives it in private today; `ScramServer`'s surface unchanged (design D8)
+- [x] 1b.4 Phase 4: the two halves; `ScramServer` expressed over them where that removes a second copy of a rule
+- [x] 1b.5 Property tests, written in phase 2: over drawn names, passwords, salts, iteration counts and nonces, the two halves accept exactly the exchanges `ScramServer` accepts and build its two messages byte for byte; a drawn wrong proof and an unknown name are refused alike; no message the relay builds holds a byte run equal to the stored key or the server key
+- [x] 1b.6 Phase 5: fuzz targets and seeds for the relay's two readers; `scripts/mutants.sh ultragraphdb_protocol_scram --diff <base>`
 
 ## 2. The new settings, beside the old → `ultragraphdb_common_service_config`, `ultragraphdb_common_role`
 
-- [ ] 2.1 Ultra Style lift of the two crates, each in its own commit
-- [ ] 2.2 Scenarios: system-group ("A system table without its directory stops the start"); role-binaries ("Configuration is explicit and validated at start", a storage instance's `[system]`, `[metadata]` and `[sequencer]` tables), as Gherkin
-- [ ] 2.3 Phases 1 to 4: `SystemTable` (`role_address`, `data_dir`); `cluster.system_address`; the `[metadata]` and `[sequencer]` tables read from a storage instance's settings; `common_role::system_address`; each beside the setting in use, none removed (design D2), so the frontend, storage and compute binaries build unchanged
-- [ ] 2.4 Property tests, written in phase 2: a drawn settings file holding the new table and setting reads back as drawn; a `[system]` table lacking either setting is refused naming it; a file of the settings in use reads as it did
-- [ ] 2.5 Phase 5: `scripts/mutants.sh` over the two crates
+- [x] 2.1 Ultra Style lift of the two crates, each in its own commit
+- [x] 2.2 Scenarios: system-group ("A system table without its directory stops the start"); role-binaries ("Configuration is explicit and validated at start", a storage instance's `[system]`, `[metadata]` and `[sequencer]` tables), as Gherkin
+- [x] 2.3 Phases 1 to 4: `SystemTable` (`role_address`, `data_dir`); `cluster.system_address`; the `[metadata]` and `[sequencer]` tables read from a storage instance's settings; `common_role::system_address`; each beside the setting in use, none removed (design D2), so the frontend, storage and compute binaries build unchanged
+- [x] 2.4 Property tests, written in phase 2: a drawn settings file holding the new table and setting reads back as drawn; a `[system]` table lacking either setting is refused naming it; a file of the settings in use reads as it did
+- [x] 2.5 Phase 5: `scripts/mutants.sh` over the two crates
 
 ## 3. The system group → `ultragraphdb_common_system` (new), `ultragraphdb_common_frontend`, `ultragraphdb_core_catalog`, `ultragraphdb_cluster_metadata`
 

@@ -12,6 +12,7 @@ pub struct ClusterTable {
     id: Option<u64>,
     role_secret_file: Option<String>,
     frontend_address: Option<String>,
+    system_address: Option<String>,
     partition_count: Option<u32>,
     join_deadline_ms: Option<u64>,
 }
@@ -22,6 +23,7 @@ impl ClusterTable {
             id: reader.u64("cluster", "id")?,
             role_secret_file: reader.string("cluster", "role_secret_file")?,
             frontend_address: reader.string("cluster", "frontend_address")?,
+            system_address: reader.string("cluster", "system_address")?,
             partition_count: reader.u32("cluster", "partition_count")?,
             join_deadline_ms: reader.u64("cluster", "join_deadline_ms")?,
         })
@@ -43,6 +45,12 @@ impl ClusterTable {
     #[must_use]
     pub fn frontend_address(&self) -> Option<&str> {
         self.frontend_address.as_deref()
+    }
+
+    /// `system_address`: the system group's role address, which every role dials.
+    #[must_use]
+    pub fn system_address(&self) -> Option<&str> {
+        self.system_address.as_deref()
     }
 
     /// `partition_count`: the partitions the frontend forms the placement over.

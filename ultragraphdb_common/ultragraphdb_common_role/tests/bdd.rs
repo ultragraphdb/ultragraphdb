@@ -3,7 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The wire protocol's scenarios of a role connection's handshake.
+//! The wire protocol's scenarios of a role connection's handshake, and the system group's scenario of a role's start on
+//! its settings (`features/system-group/`).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -16,6 +17,8 @@ use ultragraphdb_common_role::{
     Answer, ROLE_ITERATIONS, RoleClient, RoleCredentials, RoleSecret, Server, Session, listen,
     serve_connection,
 };
+use ultragraphdb_common_service::{RoleIdentity, RoleStart};
+use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame};
 use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply, MAX_FRAME_SIZE, ROLE_MAX_STREAMS};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -26,11 +29,12 @@ const PASSWORD: &str = "s3cret";
 /// How long a step waits on the server: far past what a handshake on this host takes.
 const WAIT: Duration = Duration::from_secs(5);
 
-/// What the connection's two sides announced.
+/// What the connection's two sides announced, and a role's start on its settings.
 #[derive(Debug, Default, World)]
 struct Steps {
     welcome: Option<(u32, u32)>,
     hello: u32,
+    start: Option<Result<RoleStart, RoleError>>,
 }
 
 /// Holds what the peer's Hello stated, and serves nothing.
@@ -120,6 +124,30 @@ fn its_limits(w: &mut Steps) -> TestResult {
     assert_eq!(max_frame as usize, MAX_FRAME_SIZE);
     assert_eq!(max_streams, ROLE_MAX_STREAMS);
     assert_eq!(w.hello as usize, MAX_FRAME_SIZE);
+    Ok(())
+}
+
+#[when("a storage instance's `[system]` table names `role_address` and no `data_dir`")]
+fn a_system_table_without_its_directory(w: &mut Steps) {
+    let text = "[observability]\naddress = \"tcp://127.0.0.1:1\"\n\
+                [storage]\nrole_address = \"tcp://storage-0:7200\"\ndata_dir = \"/data/storage\"\n\
+                [system]\nrole_address = \"tcp://storage-0:7100\"\n";
+    w.start = Some(RoleStart::from_settings(
+        text.as_bytes(),
+        RoleIdentity::new("ci", "storage", 1),
+    ));
+}
+
+/// The start every role binary makes on its settings refuses them with the error whose code the process exits with;
+/// the storage binary's exit itself is bound over the built binary (group 4 of the change).
+#[then("the process exits with code 78 and an error naming `system.data_dir`")]
+fn exits_naming_the_directory(w: &mut Steps) -> TestResult {
+    let refused = match w.start.take().context("a start")? {
+        Ok(start) => return Err(TestError::new(format!("started as {start:?}"))),
+        Err(error) => error,
+    };
+    assert_eq!(refused.exit_code(), 78);
+    assert!(refused.to_string().contains("system.data_dir"), "{refused}");
     Ok(())
 }
 

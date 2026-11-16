@@ -4,4 +4,8 @@
  */
 
 #[cfg(test)]
+mod cluster_table_tests;
+#[cfg(test)]
 mod service_config;
+#[cfg(test)]
+mod system_table_tests;
