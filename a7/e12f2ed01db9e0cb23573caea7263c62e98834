@@ -1,0 +1,25 @@
+scripts/property_random.sh
+  s_21eff977e05256::t_62c5ea6d14b1a5 1-57
+AGENTS.md
+  s_21eff977e05256::t_901df62af824d9 427-428
+makefile
+  s_21eff977e05256::t_82fea3974b87fe 20,56-59
+openspec/protocols/tdd-protocol.md
+  s_21eff977e05256::t_e278943c9f0b4f 192-195
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a7e12f2ed01db9e0cb23573caea7263c62e98834",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
