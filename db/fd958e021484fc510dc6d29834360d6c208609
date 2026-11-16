@@ -1,0 +1,71 @@
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_relay/scram_relay_debug_tests.rs
+  s_21eff977e05256::t_4fb15a0f71bc0f 1-90
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_relay/scram_relay_debug.rs
+  s_21eff977e05256::t_70b8a29f5d0be5 1-61
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_client/scram_client_debug_tests.rs
+  s_21eff977e05256::t_069cb2b6a4a355 9,21-23,29-34,39,44-45,48-51,53-57
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_client/mod.rs
+  s_21eff977e05256::t_df76431809fdb5 17-18,29-30
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_client/scram_client_debug.rs
+  s_21eff977e05256::t_5c0988561265c3 15,27-30
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_relay/mod.rs
+  s_21eff977e05256::t_1a2460581f18d4 6-7,13-15,23-24,45-47
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_server/mod.rs
+  s_21eff977e05256::t_5d0015a77131cd 18-19
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_verifier/mod.rs
+  s_21eff977e05256::t_3717647ff9151b 14
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_verifier/scram_verifier_debug.rs
+  s_21eff977e05256::t_13d7e487d80fb2 13
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_authenticator/scram_authenticator_debug_tests.rs
+  s_21eff977e05256::t_3104283ab237fb 7,11,30-31,40-47,59-61,66-74
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_relay/mod.rs
+  s_21eff977e05256::t_5af6b9fe13f31b 6-7
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_server/scram_server_debug_tests.rs
+  s_21eff977e05256::t_e85ac607f22929 7,10,14-21,23-25,32,34-44,52-54,56-65
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_verifier/scram_verifier_debug_tests.rs
+  s_21eff977e05256::t_553dee25411497 11-12,20,23
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/challenge/challenge_debug.rs
+  s_21eff977e05256::t_42b046ba44a16c 1-18
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/challenge/mod.rs
+  s_21eff977e05256::t_bd1c0095e76da7 7,11-12,22
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/challenge_view/challenge_view_debug.rs
+  s_21eff977e05256::t_405c951fa95e32 1-18
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/challenge_view/mod.rs
+  s_21eff977e05256::t_aad42586a1608a 7,9-11
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/verify/mod.rs
+  s_21eff977e05256::t_e2adae38e0b7e6 11-12
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/verify/verify_debug.rs
+  s_21eff977e05256::t_fe15667536a0e2 14-17
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/verify_view/mod.rs
+  s_21eff977e05256::t_ca12e1e7a06362 10
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/verify_view/verify_view_debug.rs
+  s_21eff977e05256::t_3c6ed3911173f4 14-17
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/challenge/challenge_debug_tests.rs
+  s_21eff977e05256::t_98481e49f04358 1-34
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/challenge/mod.rs
+  s_21eff977e05256::t_36656c9cd7248b 6-7
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/challenge_view/challenge_view_debug_tests.rs
+  s_21eff977e05256::t_4955308d76d540 1-36
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/challenge_view/mod.rs
+  s_21eff977e05256::t_87369aa07cf274 6-7
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/verify/verify_debug_tests.rs
+  s_21eff977e05256::t_f48e3cc0d734e3 7,11-12,21,23-28
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/verify_view/verify_view_debug_tests.rs
+  s_21eff977e05256::t_93ec52104b6c11 7,9,13-14,23,26-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dbfd958e021484fc510dc6d29834360d6c208609",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
