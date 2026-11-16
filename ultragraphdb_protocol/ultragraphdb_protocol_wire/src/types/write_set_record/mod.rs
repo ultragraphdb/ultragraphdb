@@ -4,14 +4,20 @@
  */
 
 use ultragraphdb_core_body::write_sections_into;
+use ultragraphdb_error_protocol::ProtocolError;
 
+use crate::types::command::Command;
 use crate::types::operation_result::OperationResult;
 use crate::types::record_kind::RecordKind;
 use crate::types::record_operation::RecordOperation;
 use crate::types::record_registration::RecordRegistration;
 use crate::types::term_table::TermTable;
+use crate::utils::constants::RECORD_FIXED_SIZE;
 use crate::utils::key_value_writer::write_entries;
 use crate::utils::results::encode_results;
+
+/// The offset of the fixed part's `catalog`, a little-endian u64 (`PROTOCOL.md` §12.2).
+const CATALOG_OFFSET: usize = 16;
 
 /// One entry of a write-set record's key-value sections: a key and its value, `None` for a removal.
 pub type OwnedEntry = (Vec<u8>, Option<Vec<u8>>);
@@ -138,6 +144,29 @@ impl WriteSetRecord {
     /// Sets the tenant's catalog version the entry was validated against.
     pub fn set_catalog(&mut self, catalog: u64) {
         self.catalog = catalog;
+    }
+
+    /// Writes `catalog` into the `catalog` field of `record`, a record's bytes, in place: the commit step names the version
+    /// in effect at the round's epoch in the record of a Drop that executed against none (`PROTOCOL.md` §12.1, §12.2).
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::body_too_short`] for fewer bytes than the fixed part's, writing nothing.
+    pub fn stamp_catalog(record: &mut [u8], catalog: u64) -> Result<(), ProtocolError> {
+        let len = record.len();
+        let fixed = record
+            .get_mut(..RECORD_FIXED_SIZE)
+            .ok_or(ProtocolError::body_too_short(
+                Command::Round.number(),
+                len,
+                RECORD_FIXED_SIZE,
+            ))?;
+        fixed
+            .iter_mut()
+            .skip(CATALOG_OFFSET)
+            .zip(catalog.to_le_bytes())
+            .for_each(|(out, byte)| *out = byte);
+        Ok(())
     }
 
     /// Sets the version the transaction read at.

@@ -377,6 +377,10 @@ schema-changes, "A partition checks the catalog version a Drop names"; D 14.
 | C4.14 | version 4 taking effect at exactly the round's epoch | a Drop of kind 4 naming `catalog` 4; naming 3 | committed; code 2, kind 5 |
 | C4.15 | version 4 in effect at the round's epoch | a Drop of kind 1 with `catalog` 0; of kind 2 | not checked; committed |
 | C4.16 | version 4 in effect at the round's epoch | a Drop of kind 1 with `catalog` 0 naming a predicate the tenant does not hold; of kind 2 naming a graph it does not hold | not checked; committed, nothing removed |
+| C4.17 | the commit step, a transaction waiting behind a Drop | a Drop of kind 1 naming a predicate the tenant does not hold; of kind 2 naming a graph it does not hold | the Drop is the last of its round; the transaction commits in the next round |
+| C4.18 | a partition, a Drop and a write handed over in one turn | the Drop of kind 1 removing a predicate; finding none; of kind 2 finding no graph | in each, the Drop's round holds it alone and the write takes the next round |
+| C4.19 | version 4 in effect | a transaction whose record names an operation, an entity delete (operation 8) | checked as a transaction, code 2, kind 5 when it executed against another version; not reachable before stage 6.6 brings operation 8, which the record decoder refuses until then |
+| C4.20 | version 1 in effect | a transaction under version 1 and a Drop of kind 1 removing a predicate, its command naming `catalog` 0, committed in one round | both commit; every record of the round names version 1, the Drop's stamped at the round; the round replays into a store holding what the first apply left |
 
 ## 5. The frontend without books, `ultragraphdb_common_frontend`
 

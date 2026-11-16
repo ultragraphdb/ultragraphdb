@@ -287,6 +287,8 @@ pub struct Driver<'a> {
     pub out: StepOutput<Prepared>,
     /// The rounds the step asked to append, in order.
     pub appended: Vec<RoundRecord>,
+    /// The bodies of the rounds the step asked to append, in order, beside `appended`.
+    pub bodies: Vec<Vec<u8>>,
     /// The syncs completed.
     pub syncs: usize,
     /// Every reply, in order.
@@ -309,6 +311,7 @@ impl<'a> Driver<'a> {
             step: CommitStep::new(bounds, watermark),
             out: StepOutput::new(),
             appended: Vec::new(),
+            bodies: Vec::new(),
             syncs: 0,
             replies: Vec::new(),
             released: Vec::new(),
@@ -319,8 +322,9 @@ impl<'a> Driver<'a> {
 
     fn run(&mut self, input: Input<Prepared>) -> TestResult {
         self.step.step(input, self.now_us, &mut self.out);
-        if let Some((record, _)) = self.out.append() {
+        if let Some((record, body)) = self.out.append() {
             self.appended.push(record);
+            self.bodies.push(body.to_vec());
         }
         let round: Vec<_> = self
             .out

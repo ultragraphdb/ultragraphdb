@@ -732,3 +732,31 @@ fn test_a_drop_is_a_drop_command_even_when_it_finds_nothing_to_remove() -> TestR
     assert!(!commit.is_drop_command());
     Ok(())
 }
+
+/// A catalog stamped into a Drop's record is the catalog the record names after, its operation and its session unchanged:
+/// the commit step names the version in effect at the round there.
+#[test]
+fn test_a_stamped_catalog_is_the_one_its_record_names() -> TestResult {
+    let applier = applier()?;
+    crate::utils::fixture::store(&applier, vec![insert("a", "knows", "b")])?;
+    let mut drop = Prepared::drop(
+        &applier,
+        (TENANT, 0),
+        ultragraphdb_store_apply::DropRequest::Data,
+        1,
+        2,
+        0,
+        TxnBuffers::new(),
+    )?;
+    let before = WriteSetRecordView::new(drop.record())?;
+    let (operation, session, request) = (before.operation(0), before.session(), before.request());
+    let stamped = before.catalog() + 4;
+    drop.stamp_catalog(stamped)?;
+    let after = WriteSetRecordView::new(drop.record())?;
+    assert_eq!(after.catalog(), stamped);
+    assert_eq!(
+        (after.operation(0), after.session(), after.request()),
+        (operation, session, request)
+    );
+    Ok(())
+}

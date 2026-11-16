@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_core_ids::{Epoch, SessionToken};
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_transactions_txn::ReadSet;
 
 /// What the commit step decides a read-write transaction by: its read set, sealed, which the resolver checks against
@@ -63,12 +64,24 @@ pub trait Proposal {
     }
 
     /// Whether the proposal is a Drop command (`PROTOCOL.md` §6.5), whatever it found to remove; one that found something
-    /// is also [`Proposal::is_drop`]. A Drop executed against no catalog version, so the step checks it against none as it
-    /// checks a transaction (§11.13, *Transactions against a version*): one of a predicate or a graph is checked against
+    /// is also [`Proposal::is_drop`]. Its round closes after it either way, as every Drop's does (§6.5, §12.2). A Drop
+    /// executed against no catalog version, so the step checks it against none as it checks a transaction (§11.13,
+    /// *Transactions against a version*): one of a predicate or a graph is checked against
     /// no version, even when it found nothing and its record names no operation; one of a tenant's data or of everything
     /// in it, against the version it names. None by default.
     fn is_drop_command(&self) -> bool {
         false
+    }
+
+    /// Writes `catalog` into the record's `catalog` in place: the step names there the version in effect at the round's
+    /// epoch for a Drop command whose record names another (`PROTOCOL.md` §12.1, §12.2). By default the record is left as
+    /// it is: only a Drop command is stamped.
+    ///
+    /// # Errors
+    ///
+    /// The wire's refusal of a record shorter than its fixed part.
+    fn stamp_catalog(&mut self, _catalog: u64) -> Result<(), ProtocolError> {
+        Ok(())
     }
 
     /// Whether the proposal is a frame holding what it does, a one-frame write or a Drop, so a resend of it reaches the

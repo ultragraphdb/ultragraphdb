@@ -526,7 +526,8 @@ impl<P: Proposal> CommitStep<P> {
                         self.waiting.push_front(set_aside);
                     }
                 }
-                let drop = proposal.is_drop() || ends;
+                // Every Drop is the last of its round, one that found nothing to remove included (`PROTOCOL.md` §6.5).
+                let drop = proposal.is_drop() || proposal.is_drop_command() || ends;
                 for (key, value) in proposal.dictionary() {
                     let _previous: Option<Vec<u8>> =
                         self.dictionary.insert(key.to_vec(), value.to_vec());
@@ -633,6 +634,21 @@ impl<P: Proposal> CommitStep<P> {
         if let Err(refusal) = self.validate(proposal, &record) {
             return Decided::Refused(refusal);
         }
+        // Each tenant's records of a round name the one catalog version in effect at it (`PROTOCOL.md` §12.1, §12.2): a
+        // Drop of a predicate or a graph, checked against none, takes it here. A Drop of a tenant's data or of everything
+        // in it, and a transaction, passed only naming it.
+        let in_effect = self.catalog_version(record.tenant());
+        let record = if proposal.is_drop_command() && record.catalog() != in_effect {
+            let stamped = proposal
+                .stamp_catalog(in_effect)
+                .and_then(|()| WriteSetRecordView::new(proposal.record()));
+            match stamped {
+                Ok(record) => record,
+                Err(cause) => return Decided::Refused(CommitError::malformed(cause)),
+            }
+        } else {
+            record
+        };
         let takes_effect = match record.operation(0) {
             Some(RecordOperation::CatalogTakesEffect(version)) => Some((record.tenant(), version)),
             Some(_) | None => None,
@@ -695,12 +711,12 @@ impl<P: Proposal> CommitStep<P> {
     }
 
     /// The resolver's checks of `proposal`, the catalog version's placed after the reads' and before a drop's. A
-    /// transaction is checked against the version it executed against; a Drop of a tenant's data or of everything in it
-    /// against the version it names; a Drop of a predicate or a graph against none, one that found nothing, whose record
-    /// names no operation, included (`PROTOCOL.md` §6.5).
+    /// transaction is checked against the version it executed against, whatever operations its record names (§11.13,
+    /// *Transactions against a version*); a Drop of a tenant's data or of everything in it against the version it names;
+    /// a Drop of a predicate or a graph against none, one that found nothing, whose record names no operation, included
+    /// (`PROTOCOL.md` §6.5).
     fn validate(&self, proposal: &P, record: &WriteSetRecordView<'_>) -> Result<(), CommitError> {
         let stale = (record.kind() == RecordKind::Transaction
-            && record.operation_count() == 0
             && !proposal.is_drop_command()
             && record.catalog() != self.catalog_version(record.tenant()))
             || self.drop_stale(record);

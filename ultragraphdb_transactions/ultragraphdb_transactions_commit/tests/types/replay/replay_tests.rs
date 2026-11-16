@@ -1018,3 +1018,62 @@ fn test_a_log_reading_past_the_position_asked_refuses_recovery_naming_the_gap() 
     assert_eq!(position(&replica)?, 0, "nothing replayed");
     Ok(())
 }
+
+/// C4.20 through recovery: with version 1 in effect, a transaction executed against it and a Drop of a predicate holding
+/// data, whose command names `catalog` 0, committed in one round, are logged as a round that replays (`PROTOCOL.md` §12.1:
+/// each tenant's records name the one catalog version in effect at the round), into a store holding what the first apply
+/// left.
+#[test]
+fn test_a_round_holding_a_transaction_and_a_drop_under_a_version_replays() -> TestResult {
+    use ultragraphdb_cluster_sequencer::CatalogVersion;
+    use ultragraphdb_core_ids::Tenant;
+    use ultragraphdb_transactions_commit::CloseRequest;
+    let in_effect = 1;
+    let original = applier()?;
+    let (_storage, log) = wal()?;
+    let pipe: Pipe<'_> = Pipeline::new(&original, log, unbounded())?;
+    let delivered = pipe.delivered();
+    let mut pipe = pipe.with_partition(
+        0,
+        delivered,
+        CloseRequest::default(),
+        &[CatalogVersion::new(Tenant::new(TENANT), in_effect)],
+    );
+    let mut setup = begin(&original)?.with_catalog(in_effect);
+    write(&mut setup, vec![insert("a", "p", "b")])?;
+    pipe.commit(1, prepare(setup)?, 0)?;
+    block_on(pipe.sync(0))?;
+    pipe.hold_rounds(0)?;
+    let mut txn = begin(&original)?.with_catalog(in_effect);
+    write(&mut txn, vec![insert("x", "knows", "y")])?;
+    pipe.commit(2, prepare(txn)?, 0)?;
+    let drop = Prepared::drop(
+        &original,
+        (TENANT, 0),
+        DropRequest::Predicate(crate::utils::fixture::ex("p").as_ref()),
+        0,
+        0,
+        0,
+        TxnBuffers::new(),
+    )?;
+    pipe.commit(3, drop, 0)?;
+    pipe.release_rounds(0)?;
+    block_on(pipe.sync(0))?;
+    for reply in pipe.replies_mut().drain(..) {
+        assert!(reply.outcome().is_ok(), "{reply:?}");
+    }
+    let mut written = pipe.into_log();
+    let replica = applier_over(sim_store())?;
+    let replayed = replay(&replica, &mut written)?;
+    assert_eq!(
+        replayed.rounds(),
+        2,
+        "the setup's round, then the transaction's and the Drop's"
+    );
+    assert_eq!(
+        original.quads().store().contents(),
+        replica.quads().store().contents(),
+        "the replayed store holds every key and value the first apply left"
+    );
+    Ok(())
+}

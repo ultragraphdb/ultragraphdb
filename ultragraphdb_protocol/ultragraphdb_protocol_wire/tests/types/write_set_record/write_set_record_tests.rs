@@ -342,3 +342,41 @@ fn test_a_builds_catalog_and_its_operations_version_are_apart() -> TestResult {
     );
     Ok(())
 }
+
+/// A catalog stamped into a record's bytes is the record the encoder writes with that catalog: the field alone changes,
+/// and the record reads back with it.
+#[test]
+fn test_a_stamped_catalog_is_the_record_encoded_with_it() -> TestResult {
+    let mut record = WriteSetRecord::transaction(7);
+    record.set_catalog(0);
+    record.push_operation(RecordOperation::DropTenantData);
+    let mut bytes = record.encode();
+    let stamped = 4;
+    WriteSetRecord::stamp_catalog(&mut bytes, stamped)?;
+    record.set_catalog(stamped);
+    assert_eq!(bytes, record.encode());
+    assert_eq!(WriteSetRecordView::new(&bytes)?.catalog(), stamped);
+    Ok(())
+}
+
+/// Bytes shorter than the fixed part are refused as a body too short for a record, and left as they were.
+#[test]
+fn test_a_catalog_stamp_into_fewer_bytes_than_the_fixed_part_is_refused() -> TestResult {
+    use ultragraphdb_protocol_wire::{Command, RECORD_FIXED_SIZE};
+    let full = WriteSetRecord::transaction(7).encode();
+    let mut short = full
+        .get(..RECORD_FIXED_SIZE - 1)
+        .context("one byte short of the fixed part")?
+        .to_vec();
+    let before = short.clone();
+    assert_eq!(
+        WriteSetRecord::stamp_catalog(&mut short, 4),
+        Err(ultragraphdb_error_protocol::ProtocolError::body_too_short(
+            Command::Round.number(),
+            before.len(),
+            RECORD_FIXED_SIZE
+        ))
+    );
+    assert_eq!(short, before);
+    Ok(())
+}

@@ -6,7 +6,8 @@
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::{Epoch, SessionToken, SystemId};
 use ultragraphdb_core_keys::Keyspace;
-use ultragraphdb_protocol_wire::OperationResult;
+use ultragraphdb_error_protocol::ProtocolError;
+use ultragraphdb_protocol_wire::{OperationResult, WriteSetRecord};
 use ultragraphdb_store_apply::{
     BuildEnd, ChangesetApplier, ChangesetError, DropRequest, Executed, Operation, OperationOutcome,
 };
@@ -237,12 +238,23 @@ impl Prepared {
         Ok((proposal, refusals))
     }
 
+    /// Writes `catalog` into its record's `catalog` in place: the commit step names there the version in effect at the
+    /// round's epoch, which a Drop of a predicate or a graph executed against none (`PROTOCOL.md` §12.1, §12.2).
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::body_too_short`] for a record shorter than its fixed part, which no proposal holds.
+    pub fn stamp_catalog(&mut self, catalog: u64) -> Result<(), ProtocolError> {
+        WriteSetRecord::stamp_catalog(&mut self.record, catalog)
+    }
+
     /// The end of a build the proposal is, `None` for any other: its round holds nothing else.
     pub fn build_end(&self) -> Option<BuildEnd> {
         self.executed.build_end()
     }
 
-    /// Whether the proposal is a drop: its round closes after it.
+    /// Whether the proposal is a drop that found something to remove, a write of its key ranges. Its round closes after
+    /// it, as it does after every Drop command ([`Prepared::is_drop_command`]).
     pub fn is_drop(&self) -> bool {
         self.executed.is_drop()
     }

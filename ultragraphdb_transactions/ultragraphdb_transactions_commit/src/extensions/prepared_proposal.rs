@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_core_ids::{Epoch, SessionToken};
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_transactions_txn::{Prepared, ReadSet};
 
 use crate::traits::proposal::Proposal;
@@ -48,6 +49,10 @@ impl Proposal for Prepared {
 
     fn is_one_frame(&self) -> bool {
         Prepared::is_one_frame(self)
+    }
+
+    fn stamp_catalog(&mut self, catalog: u64) -> Result<(), ProtocolError> {
+        Prepared::stamp_catalog(self, catalog)
     }
 
     fn ends_build(&self) -> bool {

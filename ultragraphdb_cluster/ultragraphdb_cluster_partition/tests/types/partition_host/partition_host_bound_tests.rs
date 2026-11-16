@@ -669,3 +669,51 @@ fn test_a_drop_of_a_predicate_or_a_graph_finding_nothing_is_not_checked() -> Tes
     }
     Ok(())
 }
+
+/// C4.18: a Drop handed over with a write behind it, both in one turn, is the last of its round whether it removes
+/// something or finds nothing to remove (`PROTOCOL.md` §6.5; §12.2): the write lands in the next round, and the log holds the
+/// two rounds of one decision each.
+#[test]
+fn test_a_drop_finding_nothing_closes_its_round_as_one_removing_something() -> TestResult {
+    use ultragraphdb_traits_log::{OrderedLog, Position};
+    let (a, knows, _) = names(1)?;
+    let held = crate::utils::cluster::ex(&knows);
+    let predicate = crate::utils::cluster::ex("no-such-predicate");
+    let graph = crate::utils::cluster::ex("no-such-graph");
+    for drop in [
+        DropRequest::Predicate(held.as_ref()),
+        DropRequest::Predicate(predicate.as_ref()),
+        DropRequest::Graph(oxrdf::GraphNameRef::NamedNode(graph.as_ref())),
+    ] {
+        on_hosts(1, |hosts| {
+            written(hosts)?;
+            let host = first(hosts)?;
+            host.hold_rounds(0)?;
+            let tickets = [
+                host.commit_drop((TENANT, 1), drop, 0, (0, 0), 0)?,
+                host.submit(changeset(vec![insert_literal(&a, "other", "v")]), 0)?,
+            ];
+            host.release_rounds(0)?;
+            let ended = turn_all(hosts, 3, 0)?;
+            for ticket in tickets {
+                let version = version_of(&ended, ticket)?;
+                assert!(version > 0, "{drop:?}: ticket {ticket} committed");
+            }
+            let (_, mut log) = hosts.pop().context("partition 1")?.into_parts();
+            let rounds = block_on(log.read(Position::new(1), u32::MAX))??;
+            let last: Vec<u32> = rounds
+                .iter()
+                .rev()
+                .take(tickets.len())
+                .map(|r| r.transactions())
+                .collect();
+            assert_eq!(
+                last,
+                vec![1; tickets.len()],
+                "{drop:?}: the Drop's round closed after it, the write in the next"
+            );
+            Ok(())
+        })?;
+    }
+    Ok(())
+}

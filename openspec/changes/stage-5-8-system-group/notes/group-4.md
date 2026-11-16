@@ -286,6 +286,14 @@ No entry was added to `.cargo/mutants.toml`.
    the catalog (§11.13, *Transactions against a version*), so the fix keys on the command, not on an empty record as
    proposed above. Kinds 3 and 4 always name their operation and keep D14's check against the version they name. Tests:
    C4.16.
+   **Fixed 2026-11-16: a Drop finding nothing did not close its round.** `CommitStep`'s round decision closed the round
+   after `Proposal::is_drop`, false for a Drop finding nothing, so a transaction behind it shared its round, against
+   §6.5 ("the last transaction of its round") and §12.2 ("the last record of its round"), which hold for every Drop.
+   The round now closes after every Drop command (`is_drop() || is_drop_command()`). Replay decides nothing here: it
+   replays the rounds as the log delimits them. Tests: C4.17, C4.18. In the same change the transaction check no longer
+   asks that a record name no operation: §11.13, *Transactions against a version*, checks every read-write transaction,
+   and §12.2 gives a transaction deleting an entity operation 8. Unreachable today, since the record decoder refuses a
+   kind-1 record naming anything but one drop, so no test can fail first (C4.19).
 2. **"A write to the metadata log fails" has no means over the process.** system-group, "The hosting process starts the
    group first and stops it last", and C4.5 ask a failed write of the group's log; the binary has no fault injection, and a
    file of the log cannot be made to fail a write once open. The scenario is not bound; the code path is
@@ -301,6 +309,21 @@ No entry was added to `.cargo/mutants.toml`.
    Some(Registered)": the registry answered 14 where the model (`PROTOCOL.md` §11.5, §13.23) registers. Bazel's
    derandomized run does not draw it. Group 3's code or model; recorded for its owner, the shrunk case to become a unit
    test before a fix (`tdd-protocol.md`).
+
+6. **A Drop of a predicate or a graph names `catalog` 0 in its record, and its round may not read back (C4.20).** P §12.1:
+   "each tenant's records name the one catalog version in effect at it", and refuses a round whose records of one
+   tenant name more than one (`FieldValue` `"catalog"`), as `RoundView` does; P §12.2 gives an entry-kind-1 record's
+   `catalog` as the version in effect at the round's epoch, for a Drop "every field". `Prepared::drop` wrote the Drop
+   command's `catalog` into the record, 0 for kinds 1 and 2 (P §6.5), so with version 1 in effect a transaction (record
+   `catalog` 1) and a Drop of kind 1 committed in one round were logged, and replay refused the round.
+   **Fixed 2026-11-16.** The commit step writes the version in effect at the round into the record of a Drop command
+   whose record names another, once it has passed its checks and before it takes a version
+   (`WriteSetRecord::stamp_catalog`, `Prepared::stamp_catalog`, `Proposal::stamp_catalog`). Kinds 1 and 2 stay checked
+   against no version (C4.15); kinds 3 and 4 pass D14's check only naming the version in effect, so their records are
+   not changed; a transaction's record names it once checked. A build's end is alone in its round
+   (`CommitStep`, `ends_build`), so no other record shares its round's catalog. Replay reads the stamped bytes and applies the Drop as logged. Tests: C4.20, at the commit
+   step and through recovery; before the fix they failed with `catalog of command 17 holds 0, which the command does not
+   define` and `the round at position 2 is malformed: catalog of command 17 holds 0, …`.
 
 ## Not done or not verified
 

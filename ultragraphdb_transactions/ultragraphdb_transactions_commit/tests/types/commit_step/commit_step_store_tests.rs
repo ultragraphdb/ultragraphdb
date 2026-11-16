@@ -310,6 +310,119 @@ fn test_a_round_closes_after_a_drop() -> TestResult {
     Ok(())
 }
 
+/// C4.17: a Drop of a predicate or a graph that finds nothing to remove closes its round as a drop removing something does
+/// (`PROTOCOL.md` §6.5, "the last transaction of its round"; §12.2, "the last record of its round"): the transaction
+/// waiting after it is decided in the next round, and each of the three takes a round of its own.
+#[test]
+fn test_a_round_closes_after_a_drop_that_finds_nothing() -> TestResult {
+    use ultragraphdb_store_apply::DropRequest;
+    let predicate = crate::utils::fixture::ex("no-such-predicate");
+    let graph = crate::utils::fixture::ex("no-such-graph");
+    for drop in [
+        DropRequest::Predicate(predicate.as_ref()),
+        DropRequest::Graph(oxrdf::GraphNameRef::NamedNode(graph.as_ref())),
+    ] {
+        let applier = applier()?;
+        let _version: u64 = setup(&applier, vec![insert("w", "knows", "y")])?;
+        let mut driver = Driver::new(&applier, unbounded());
+        let mut first = begin(&applier)?;
+        write(&mut first, vec![insert("x", "knows", "y")])?;
+        driver.submit(1, prepare(first)?)?;
+        let prepared = ultragraphdb_transactions_txn::Prepared::drop(
+            &applier,
+            (crate::utils::fixture::TENANT, 0),
+            drop,
+            0,
+            0,
+            0,
+            TxnBuffers::new(),
+        )
+        .context("the drop prepares")?;
+        driver.submit(2, prepared)?;
+        let mut after = begin(&applier)?;
+        write(&mut after, vec![insert("z", "knows", "y")])?;
+        driver.submit(3, prepare(after)?)?;
+        let tickets = [1, 2, 3];
+        for _ in tickets {
+            driver.sync()?;
+        }
+        let counts: Vec<u32> = driver.appended.iter().map(|r| r.transactions()).collect();
+        assert_eq!(
+            counts,
+            vec![1; tickets.len()],
+            "{drop:?}: one decision a round, the drop's round closed after it"
+        );
+        for ticket in tickets {
+            let outcome = driver.reply(ticket).context("decided")?.outcome().clone();
+            assert!(outcome.is_ok(), "{drop:?}, ticket {ticket}: {outcome:?}");
+        }
+        assert_eq!(held(&applier, "z", "knows")?.len(), 1);
+    }
+    Ok(())
+}
+
+/// C4.20 at the commit step: with version 1 in effect, a transaction executed against it and a Drop of a predicate holding
+/// data, whose command names `catalog` 0, are decided in one round, and every record of the round names the version in
+/// effect (`PROTOCOL.md` §12.1, "each tenant's records name the one catalog version in effect at it"; §12.2), so the round
+/// reads back. The Drop is checked against no version (§6.5) and commits.
+#[test]
+fn test_a_drop_of_a_predicate_names_the_version_in_effect_in_its_round() -> TestResult {
+    use ultragraphdb_cluster_sequencer::CatalogVersion;
+    use ultragraphdb_core_ids::Tenant;
+    use ultragraphdb_protocol_wire::{RoundHeader, RoundView};
+    use ultragraphdb_store_apply::DropRequest;
+    use ultragraphdb_transactions_commit::CommitStep;
+    let in_effect = 1;
+    let applier = applier()?;
+    let _version: u64 = setup(&applier, vec![insert("a", "p", "b")])?;
+    let mut driver = Driver::new(&applier, unbounded());
+    driver.step =
+        CommitStep::new(unbounded(), applier.quads().lists().applied_ts()).with_catalog(&[
+            CatalogVersion::new(Tenant::new(crate::utils::fixture::TENANT), in_effect),
+        ]);
+    // The first transaction's round is in flight while the next two arrive, so those two share the next round.
+    let mut first = begin(&applier)?.with_catalog(in_effect);
+    write(&mut first, vec![insert("x", "knows", "y")])?;
+    driver.submit(1, prepare(first)?)?;
+    let mut txn = begin(&applier)?.with_catalog(in_effect);
+    write(&mut txn, vec![insert("z", "knows", "y")])?;
+    driver.submit(2, prepare(txn)?)?;
+    let drop = ultragraphdb_transactions_txn::Prepared::drop(
+        &applier,
+        (crate::utils::fixture::TENANT, 0),
+        DropRequest::Predicate(crate::utils::fixture::ex("p").as_ref()),
+        0,
+        0,
+        0,
+        TxnBuffers::new(),
+    )
+    .context("the drop prepares")?;
+    driver.submit(3, drop)?;
+    driver.sync()?;
+    driver.sync()?;
+    for ticket in [1, 2, 3] {
+        let outcome = driver.reply(ticket).context("decided")?.outcome().clone();
+        assert!(outcome.is_ok(), "ticket {ticket}: {outcome:?}");
+    }
+    let round = *driver.appended.get(1).context("the second round")?;
+    let body = driver.bodies.get(1).context("its body")?;
+    assert_eq!(round.transactions(), 2, "the transaction and the Drop");
+    let header = RoundHeader::new(
+        2,
+        0,
+        0,
+        round.first_version(),
+        round.transactions(),
+        std::num::NonZeroU32::MIN,
+    );
+    let view = RoundView::from_body(header, body)
+        .map_err(|e| ultragraphdb_tool_bdd::TestError::new(e.to_string()))?;
+    let catalogs: Vec<u64> = view.records().iter().map(|r| r.catalog()).collect();
+    assert_eq!(catalogs, vec![in_effect; view.records().len()]);
+    assert!(held(&applier, "a", "p")?.is_empty(), "the Drop removed `p`");
+    Ok(())
+}
+
 /// A Drop of a tenant's data is decided against the catalog version in effect at its round, 0 here: one naming version 1 is
 /// refused with a conflict of kind Catalog, code 2, kind 5 (`PROTOCOL.md` §6.5), and removes nothing; one naming 0 commits.
 #[test]
