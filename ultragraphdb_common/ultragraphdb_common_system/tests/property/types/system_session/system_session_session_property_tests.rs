@@ -6,10 +6,13 @@
 //! What a `SystemSession` decides of a role connection over drawn inputs: laws L3.29 (a version read across frames), L3.33, L3.34
 //! and L3.35 of `notes/laws.md`.
 
+use std::future::Future;
 use std::num::NonZeroU32;
+use std::pin::pin;
 use std::time::Duration;
 
 use compio::runtime::{Runtime, spawn};
+use futures::future::poll_immediate;
 use hegel::TestCase;
 use hegel::generators as gs;
 use ultragraphdb_cluster_metadata::MetadataConfig;
@@ -52,15 +55,33 @@ fn with_served<T>(
     })
 }
 
-/// A task moving `clock` on by an epoch every millisecond, for an answer waiting on closes; dropping it stops it.
-fn ticking(clock: &Clock) -> compio::runtime::JoinHandle<()> {
-    let clock = clock.clone();
-    spawn(async move {
-        for _ in 0..5_000 {
-            clock.advance(EPOCH_US);
-            compio::time::sleep(Duration::from_millis(1)).await;
+/// The most closes [`closing`] makes before it gives up: a bound on a hang, past what any law here waits for.
+const CLOSES_MAX: u32 = 1_000;
+
+/// What `asked` answers, the clock moved on by an epoch each time the group has answered all it can without a close, and
+/// that close delivered before `asked` is polled again: the closes it waits on, made by the test and not by real time. The
+/// group answers a `LatestClose` as it takes it, keeping one that comes during a sync for the next turn, so the second of
+/// two, sent once the first is answered, is answered once a turn after every ask `asked` sent has ended. `None` when the
+/// group stops, or past [`CLOSES_MAX`] closes.
+async fn closing<T>(
+    handle: &SystemHandle,
+    clock: &Clock,
+    asked: impl Future<Output = T>,
+) -> Option<T> {
+    let mut asked = pin!(asked);
+    for _ in 0..CLOSES_MAX {
+        if let Some(answer) = poll_immediate(asked.as_mut()).await {
+            return Some(answer);
         }
-    })
+        let _taken = handle.latest_close().await.ok()?;
+        let after = handle.latest_close().await.ok()?;
+        if let Some(answer) = poll_immediate(asked.as_mut()).await {
+            return Some(answer);
+        }
+        clock.advance(EPOCH_US);
+        let _closed = handle.next_close(after).await.ok()?;
+    }
+    None
 }
 
 /// The next frame on `client` within 5 s.
@@ -101,13 +122,13 @@ fn test_a_version_reads_back_whole_at_any_max_frame(tc: TestCase) {
             .max_value(MAX_FRAME_SIZE_U32),
     );
     let read = with_served(start_of(8, 50), async |handle, address, password, clock| {
-        let ticked = ticking(clock);
         let declared = vec![Declared::Predicate(DeclaredPredicate::new(format!(
             "http://ex.org/{}",
             "v".repeat(length)
         )))];
-        let (version, _) = handle.declare_version(0, 0, declared).await.ok()?;
-        drop(ticked);
+        let (version, _) = closing(handle, clock, handle.declare_version(0, 0, declared))
+            .await?
+            .ok()?;
         let committed = handle.catalog(0, version).await.ok()?.bytes().to_vec();
         let mut storage = dialled(address, password, "storage", max_frame).await?;
         storage

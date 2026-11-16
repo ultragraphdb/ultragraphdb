@@ -7,10 +7,12 @@
 //! the system group: each `When` runs its scenario and checks what its `Then` states, and the `Then` holds that it ran.
 
 use std::num::NonZeroU32;
+use std::pin::pin;
 use std::time::Duration;
 
 use compio::runtime::spawn;
 use cucumber::{then, when};
+use futures::future::poll_immediate;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_role::RoleClient;
@@ -28,7 +30,7 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::Steps;
-use crate::bdd_stage::{Clock, EPOCH_US, Stage, heard, next_frame, recovered, refused, start_of};
+use crate::bdd_stage::{Stage, heard, next_frame, recovered, refused, start_of};
 use crate::system_steps::run;
 
 /// The length of the encoding of a version of tenant 0 numbered `version` holding one predicate of an IRI of `length` bytes, by
@@ -83,31 +85,23 @@ async fn catalog_read(
     Err(TestError::new("the answer took more than 64 frames"))
 }
 
-/// A task moving `clock` on by an epoch every millisecond, for an answer waiting on closes; dropping it stops it.
-fn ticking(clock: &Clock) -> compio::runtime::JoinHandle<()> {
-    let clock = clock.clone();
-    spawn(async move {
-        for _ in 0..5_000 {
-            clock.advance(EPOCH_US);
-            compio::time::sleep(Duration::from_millis(1)).await;
-        }
-    })
-}
-
 #[when(
     "version 3 of `t1` is current, a first write of `score` records its default entry, and a client offers version 4 built on version 3"
 )]
 fn default_no_version(w: &mut Steps) -> TestResult {
     run(w, || async {
         let stage = Stage::new(41, &start_of(1, 8)?.with_tenants(vec![1])).await?;
-        let ticked = ticking(&stage.clock);
         for (built_on, iri) in [
             (0, "http://ex.org/a"),
             (1, "http://ex.org/b"),
             (2, "http://ex.org/c"),
         ] {
             let declared = vec![Declared::Predicate(DeclaredPredicate::new(iri))];
-            let _version = heard(stage.handle.declare_version(1, built_on, declared).await)?;
+            let _version = heard(
+                stage
+                    .closing(stage.handle.declare_version(1, built_on, declared))
+                    .await?,
+            )?;
         }
         let schema = heard(stage.handle.schema_id(1).await)?;
         assert!(!heard(
@@ -129,11 +123,14 @@ fn default_no_version(w: &mut Steps) -> TestResult {
         let declared = vec![Declared::Predicate(DeclaredPredicate::new(
             "http://ex.org/d",
         ))];
-        let (version, _) = heard(stage.handle.declare_version(1, 3, declared).await)?;
+        let (version, _) = heard(
+            stage
+                .closing(stage.handle.declare_version(1, 3, declared))
+                .await?,
+        )?;
         assert_eq!(version, 4);
         let recorded = heard(stage.handle.defaults(1).await)?;
         assert_eq!(recorded.predicates(), ["http://ex.org/score".to_string()]);
-        drop(ticked);
         let _ended = stage.stop().await?;
         Ok(())
     })
@@ -192,14 +189,11 @@ fn past_cap_held(w: &mut Steps) {
 fn past_one_frame(w: &mut Steps) -> TestResult {
     run(w, || async {
         let stage = Stage::new(43, &start_of(1, 8)?).await?;
-        let ticked = ticking(&stage.clock);
         let (version, _) = heard(
             stage
-                .handle
-                .declare_version(0, 0, declaring(523_001)?)
-                .await,
+                .closing(stage.handle.declare_version(0, 0, declaring(523_001)?))
+                .await?,
         )?;
-        drop(ticked);
         let committed = heard(stage.handle.catalog(0, version).await)?;
         let mut storage = stage.dial_taking("storage", MAX_FRAME_FLOOR_U32).await?;
         let (read, frames) = catalog_read(&mut storage, &Catalog::request(0, version)).await?;
@@ -229,14 +223,11 @@ fn at_cap(w: &mut Steps) -> TestResult {
     run(w, || async {
         let start = start_of(1, 8)?;
         let stage = Stage::new(44, &start).await?;
-        let ticked = ticking(&stage.clock);
         let (version, _) = heard(
             stage
-                .handle
-                .declare_version(0, 0, declaring(16_777_216)?)
-                .await,
+                .closing(stage.handle.declare_version(0, 0, declaring(16_777_216)?))
+                .await?,
         )?;
-        drop(ticked);
         let committed = heard(stage.handle.catalog(0, version).await)?
             .bytes()
             .to_vec();
@@ -505,24 +496,28 @@ fn crash_before_close(w: &mut Steps) -> TestResult {
         while closed < 38 {
             closed = stage.close_after(closed).await?;
         }
-        let declaring = {
+        let mut declaring = pin!({
             let handle = stage.handle.clone();
-            spawn(async move {
+            async move {
                 let declared = vec![Declared::Predicate(DeclaredPredicate::new(
                     "http://ex.org/p",
                 ))];
                 handle.declare_version(0, 0, declared).await
-            })
-        };
+            }
+        });
+        // Polled once, the Declare is sent before the lease, so the group takes it first, whichever of its turns takes either.
+        if let Some(early) = poll_immediate(declaring.as_mut()).await {
+            return Err(TestError::new(format!(
+                "answered before the group ran: {early:?}"
+            )));
+        }
         // A lease is answered once durable, so its sync makes the version appended before it durable too.
         let _leased = heard(stage.handle.lease(1, 1, 8).await)?;
         let pending = heard(stage.handle.catalog(0, 0).await)?;
         assert_eq!((pending.version(), pending.epoch()), (1, 0));
         assert_eq!(heard(stage.handle.latest_close().await)?, 38);
         let (storage, clock) = stage.kill();
-        let lost = declaring
-            .await
-            .map_err(|error| TestError::new(format!("{error:?}")))?;
+        let lost = declaring.await;
         assert!(lost.is_err(), "the Commit's reply was lost with the host");
         storage.power_loss();
         let restarted = recovered(&storage, &start, &clock).await?;

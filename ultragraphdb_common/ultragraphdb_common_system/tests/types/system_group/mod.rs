@@ -21,10 +21,12 @@ mod system_group_syncing_tests;
 mod system_group_turn_tests;
 
 use std::cell::Cell;
+use std::future::Future;
+use std::pin::{Pin, pin};
 use std::rc::Rc;
-use std::time::Duration;
 
 use compio::runtime::{JoinHandle, spawn};
+use futures::future::poll_immediate;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::{ClockReading, SequencerConfig};
 use ultragraphdb_common_system::{SystemGroup, SystemHandle, SystemStart, system_run};
@@ -67,18 +69,70 @@ impl TestClock {
     }
 }
 
-/// The most turns of the clock a [`ticking`] task makes: 5 s of them.
-const TICKS_MAX: u32 = 5_000;
+/// The most closes a wait on the owner makes before it fails: a bound on a hang, past what any test here waits for.
+const CLOSES_MAX: u32 = 1_000;
 
-/// A task moving the clock on by an epoch every millisecond, for an answer that waits on closes; dropping it stops it.
-pub(crate) fn ticking(clock: &TestClock) -> JoinHandle<()> {
-    let clock = clock.clone();
-    spawn(async move {
-        for _ in 0..TICKS_MAX {
-            clock.advance(EPOCH_US);
-            compio::time::sleep(Duration::from_millis(1)).await;
+/// The latest close, read once the owner has ended a turn that began after every ask sent before this one: whatever of those
+/// asks a turn answers without a close is answered. The owner answers a `LatestClose` as it takes it, keeping one that comes
+/// during a sync for the next turn, so the second, sent once the first is answered, is taken in a turn after the first's.
+pub(crate) async fn turned(handle: &SystemHandle) -> TestResult<u64> {
+    let _taken = heard(handle.latest_close().await)?;
+    heard(handle.latest_close().await)
+}
+
+/// What `asked` answers, the clock moved on by an epoch each time the owner has answered all it can without a close, and
+/// that close delivered before `asked` is polled again: the closes it waits on, made by the test and not by real time.
+pub(crate) async fn closing<T>(
+    handle: &SystemHandle,
+    clock: &TestClock,
+    asked: impl Future<Output = T>,
+) -> TestResult<T> {
+    let mut asked = pin!(asked);
+    for _ in 0..CLOSES_MAX {
+        if let Some(answer) = poll_immediate(asked.as_mut()).await {
+            return Ok(answer);
         }
-    })
+        let after = turned(handle).await?;
+        if let Some(answer) = poll_immediate(asked.as_mut()).await {
+            return Ok(answer);
+        }
+        let _closed = closed_after(handle, clock, after).await?;
+    }
+    Err(TestError::new(format!(
+        "not answered within {CLOSES_MAX} closes"
+    )))
+}
+
+/// `asked` polled once, which sends its ask: the owner, not run by that poll, has answered nothing of it yet.
+pub(crate) async fn sent<F: Future<Output: std::fmt::Debug>>(asked: Pin<&mut F>) -> TestResult {
+    match poll_immediate(asked).await {
+        None => Ok(()),
+        Some(answer) => Err(TestError::new(format!(
+            "answered before the owner ran: {answer:?}"
+        ))),
+    }
+}
+
+/// The first `Some` that `read` answers, read again after each close the clock is moved on to.
+pub(crate) async fn closed_until<T, Read, Answer>(
+    handle: &SystemHandle,
+    clock: &TestClock,
+    mut read: Read,
+) -> TestResult<T>
+where
+    Read: FnMut() -> Answer,
+    Answer: Future<Output = TestResult<Option<T>>>,
+{
+    for _ in 0..CLOSES_MAX {
+        if let Some(found) = read().await? {
+            return Ok(found);
+        }
+        let after = heard(handle.latest_close().await)?;
+        let _closed = closed_after(handle, clock, after).await?;
+    }
+    Err(TestError::new(format!(
+        "never came to hold within {CLOSES_MAX} closes"
+    )))
 }
 
 /// The settings of an owner placing one partition, epochs of 1 to 5 ms.

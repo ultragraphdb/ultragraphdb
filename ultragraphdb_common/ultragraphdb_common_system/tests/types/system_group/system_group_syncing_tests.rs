@@ -247,18 +247,19 @@ fn test_what_arrives_while_a_sync_is_held_is_answered_after_it_in_order() -> Tes
     Runtime::new()?.block_on(async {
         let (handle, run, alice) =
             gated_group(&storage, &clock, (&metadata, &sequencer), 4).await?;
-        let ticking = super::ticking(&clock);
         let predicate = "http://ex.org/p";
         let _version = heard(
-            handle
-                .declare_version(
+            super::closing(
+                &handle,
+                &clock,
+                handle.declare_version(
                     0,
                     0,
                     vec![Declared::Predicate(DeclaredPredicate::new(predicate))],
-                )
-                .await,
+                ),
+            )
+            .await?,
         )?;
-        drop(ticking);
         sequencer.hold();
         clock.advance(EPOCH_US);
         sequencer.until_waiting().await?;

@@ -13,23 +13,26 @@ mod system_session_session_tests;
 #[cfg(test)]
 mod system_session_tests;
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::time::Duration;
 
 use compio::runtime::{JoinHandle, spawn};
 use futures::channel::mpsc::unbounded;
 use ultragraphdb_common_role::{
-    ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server, listen, serve_connection,
+    ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server, serve_connection,
 };
 use ultragraphdb_common_system::{SystemHandle, SystemSession, SystemShared, SystemStart};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{
     Address, Endpoint, ReceivedFrame, TransportError, TransportErrorEnum,
 };
+use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::{BodyView, Command, ErrorCode, ErrorReplyView};
 use ultragraphdb_tool_bdd::{TestError, TestResult};
 use ultragraphdb_transactions_log::SimStorage;
 
-use crate::types::system_group::{CLUSTER, SimOwner, TestClock, recovered, running};
+use crate::types::system_group::{CLUSTER, SimOwner, TestClock, heard, recovered, running};
 
 /// The role secret every connection here authenticates with.
 const SECRET: &str = "a role secret";
@@ -40,6 +43,9 @@ pub(crate) const WAITED: Duration = Duration::from_secs(5);
 /// How long a test watches for a frame it expects not to come.
 pub(crate) const WATCHED: Duration = Duration::from_millis(100);
 
+/// How many millisecond polls a wait on a connection's end takes before it fails.
+const POLLS_MAX: u32 = 5_000;
+
 /// A group served at a role address: the address, the cluster's role settings, the way to the group, its clock and its run.
 pub(crate) struct Served {
     pub(crate) address: Address,
@@ -49,6 +55,8 @@ pub(crate) struct Served {
     pub(crate) run: JoinHandle<Result<(), RoleError>>,
     /// The task accepting role connections, whose sessions hold a way to the group: dropped, it accepts no more.
     accepting: JoinHandle<()>,
+    /// How many connections' servers have ended, each session dropped and its end sent to the group.
+    ended: Rc<Cell<u32>>,
 }
 
 impl Served {
@@ -65,6 +73,20 @@ impl Served {
         run.await
             .map_err(|error| TestError::new(format!("the group's run: {error:?}")))??;
         Ok(())
+    }
+
+    /// Once `count` connections' servers have ended, and the group has taken the end each session sent it: a server reads its
+    /// connection's close in its own time, so the clock the group takes the end at is the one it reads then.
+    pub(crate) async fn ended(&self, count: u32) -> TestResult {
+        for _ in 0..POLLS_MAX {
+            if self.ended.get() >= count {
+                // Sent after each end, so taken after it.
+                let _latest = heard(self.handle.latest_close().await)?;
+                return Ok(());
+            }
+            compio::time::sleep(Duration::from_millis(1)).await;
+        }
+        Err(TestError::new(format!("{count} connections never ended")))
     }
 
     /// A connection dialled as `role`, stating `max_frame` in its Hello.
@@ -114,20 +136,24 @@ where
     let cluster = cluster_named(name)?;
     let (joins, _joined) = unbounded();
     let shared = SystemShared::new(cluster.clone(), handle.clone(), joins);
-    let port = std::net::TcpListener::bind("127.0.0.1:0")?
-        .local_addr()?
-        .port();
-    let listener = listen(&format!("tcp://127.0.0.1:{port}")).await?;
+    // Bound at port 0 and read back, so no other process takes the port between a choice and the bind.
+    let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
     let address = listener.local_address()?;
     let server =
         Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
     let credentials = cluster.secret().credentials()?;
+    let ended = Rc::new(Cell::new(0));
+    let counted = ended.clone();
     let accepting = spawn(async move {
         while let Ok(carrier) = listener.accept().await {
             let (server, credentials) = (server.clone(), credentials.clone());
             let session = SystemSession::new(shared.clone());
-            spawn(async move { serve_connection(carrier, &server, credentials, session).await })
-                .detach();
+            let counted = counted.clone();
+            spawn(async move {
+                serve_connection(carrier, &server, credentials, session).await;
+                counted.set(counted.get() + 1);
+            })
+            .detach();
         }
     });
     Ok(Served {
@@ -137,6 +163,7 @@ where
         clock,
         run,
         accepting,
+        ended,
     })
 }
 

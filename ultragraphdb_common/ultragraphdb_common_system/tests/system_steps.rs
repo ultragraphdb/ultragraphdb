@@ -1031,24 +1031,18 @@ fn no_stored_key_held(w: &mut Steps) {
 
 /// Versions 1 to 3 of tenant 0, each built on the one before, a close assigning each its epoch.
 async fn three_versions(stage: &Stage) -> TestResult {
-    let ticking = {
-        let clock = stage.clock.clone();
-        spawn(async move {
-            for _ in 0..5_000 {
-                clock.advance(EPOCH_US);
-                compio::time::sleep(Duration::from_millis(1)).await;
-            }
-        })
-    };
     for (built_on, iri) in [
         (0, "http://ex.org/a"),
         (1, "http://ex.org/b"),
         (2, "http://ex.org/c"),
     ] {
         let declared = vec![Declared::Predicate(DeclaredPredicate::new(iri))];
-        let _version = heard(stage.handle.declare_version(0, built_on, declared).await)?;
+        let _version = heard(
+            stage
+                .closing(stage.handle.declare_version(0, built_on, declared))
+                .await?,
+        )?;
     }
-    drop(ticking);
     Ok(())
 }
 

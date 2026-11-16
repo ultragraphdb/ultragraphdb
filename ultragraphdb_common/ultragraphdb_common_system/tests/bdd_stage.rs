@@ -7,15 +7,18 @@
 //! the scenario moves, and served at a role address over the TCP loopback, one `SystemSession` per connection.
 
 use std::cell::Cell;
+use std::future::Future;
+use std::pin::pin;
 use std::rc::Rc;
 use std::time::Duration;
 
 use compio::runtime::{JoinHandle, spawn};
 use futures::channel::mpsc::unbounded;
+use futures::future::poll_immediate;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::{ClockReading, SequencerConfig};
 use ultragraphdb_common_role::{
-    ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server, listen, serve_connection,
+    ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server, serve_connection,
 };
 use ultragraphdb_common_system::{
     SystemGroup, SystemHandle, SystemSession, SystemShared, SystemStart, system_run,
@@ -23,6 +26,7 @@ use ultragraphdb_common_system::{
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame};
+use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::{BodyView, ErrorCode, ErrorReply, ErrorReplyView};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_log::{SimStorage, Wal, WalConfig};
@@ -40,6 +44,9 @@ pub(crate) const HOLD_US: u64 = 2 * T_MS * 1_000;
 
 /// How long a scenario waits for a frame it expects.
 pub(crate) const WAITED: Duration = Duration::from_secs(5);
+
+/// The most closes a wait on the group makes before it fails: a bound on a hang, past what any scenario waits for.
+const CLOSES_MAX: u32 = 1_000;
 
 /// The group over the simulated storage.
 pub(crate) type SimGroup = SystemGroup<Wal<SimStorage>, Wal<SimStorage>>;
@@ -134,10 +141,8 @@ impl Stage {
         let cluster = RoleCluster::new(CLUSTER, secret, Duration::from_secs(1));
         let (joins, _joined) = unbounded();
         let shared = SystemShared::new(cluster.clone(), handle.clone(), joins);
-        let port = std::net::TcpListener::bind("127.0.0.1:0")?
-            .local_addr()?
-            .port();
-        let listener = listen(&format!("tcp://127.0.0.1:{port}")).await?;
+        // Bound at port 0 and read back, so no other process takes the port between a choice and the bind.
+        let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
         let address = listener.local_address()?;
         let server =
             Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
@@ -235,6 +240,28 @@ impl Stage {
     pub(crate) async fn close_after(&self, after: u64) -> TestResult<u64> {
         self.clock.advance(EPOCH_US);
         Ok(heard(self.handle.next_close(after).await)?.epoch().get())
+    }
+
+    /// What `asked` answers, the clock moved on by an epoch each time the group has answered all it can without a close, and
+    /// that close delivered before `asked` is polled again: the closes it waits on, made by the scenario and not by real
+    /// time. The group answers a `LatestClose` as it takes it, keeping one that comes during a sync for the next turn, so
+    /// the second of two, sent once the first is answered, is answered once a turn after every ask `asked` sent has ended.
+    pub(crate) async fn closing<T>(&self, asked: impl Future<Output = T>) -> TestResult<T> {
+        let mut asked = pin!(asked);
+        for _ in 0..CLOSES_MAX {
+            if let Some(answer) = poll_immediate(asked.as_mut()).await {
+                return Ok(answer);
+            }
+            let _taken = heard(self.handle.latest_close().await)?;
+            let after = heard(self.handle.latest_close().await)?;
+            if let Some(answer) = poll_immediate(asked.as_mut()).await {
+                return Ok(answer);
+            }
+            let _closed = self.close_after(after).await?;
+        }
+        Err(TestError::new(format!(
+            "not answered within {CLOSES_MAX} closes"
+        )))
     }
 }
 

@@ -3,9 +3,10 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::pin::pin;
 use std::time::Duration;
 
-use compio::runtime::{Runtime, spawn};
+use compio::runtime::Runtime;
 use futures::FutureExt;
 use oxrdf::NamedNode;
 use ultragraphdb_cluster_metadata::{MetadataConfig, MetadataState};
@@ -18,7 +19,9 @@ use ultragraphdb_store_sim::LogCapture;
 use ultragraphdb_tool_bdd::{TestError, TestResult};
 use ultragraphdb_transactions_log::SimStorage;
 
-use super::{TestClock, ended, heard, recovered, refused, running, starting, ticking};
+use super::{
+    TestClock, closed_until, closing, ended, heard, recovered, refused, running, sent, starting,
+};
 
 const P: &str = "http://ex.org/p";
 const Q: &str = "http://ex.org/q";
@@ -35,20 +38,17 @@ fn single(iri: &str) -> Declared {
     Declared::Predicate(DeclaredPredicate::new(iri).with_single(true))
 }
 
-/// The version of tenant 0 above `after`, once its epoch is assigned: its number.
-async fn assigned(handle: &SystemHandle, after: u64) -> TestResult<u64> {
-    for _ in 0..POLLS_MAX {
-        if let Ok(held) = handle.catalog(0, 0).await
-            && held.version() > after
-            && held.epoch() != 0
-        {
-            return Ok(held.version());
-        }
-        compio::time::sleep(Duration::from_millis(1)).await;
-    }
-    Err(TestError::new(format!(
-        "no version above {after} was assigned its epoch"
-    )))
+/// The version of tenant 0 above `after`, once a close has assigned its epoch: its number.
+async fn assigned(handle: &SystemHandle, clock: &TestClock, after: u64) -> TestResult<u64> {
+    closed_until(handle, clock, || async {
+        Ok(handle
+            .catalog(0, 0)
+            .await
+            .ok()
+            .filter(|held| held.version() > after && held.epoch() != 0)
+            .map(|held| held.version()))
+    })
+    .await
 }
 
 /// Partition 1's report that its data refuses `version` of tenant 0, `p` not holding of the term at fault.
@@ -62,9 +62,16 @@ fn refusing(version: u64) -> ReportAsked {
 }
 
 /// `p` and `q` declared on tenant 0 and in effect: the version holding them.
-async fn both_declared(handle: &SystemHandle) -> TestResult<u64> {
-    let _first = heard(handle.declare(0, 0, vec![plain(P), plain(Q)]).await)?;
-    assigned(handle, 0).await
+async fn both_declared(handle: &SystemHandle, clock: &TestClock) -> TestResult<u64> {
+    let _first = heard(
+        closing(
+            handle,
+            clock,
+            handle.declare(0, 0, vec![plain(P), plain(Q)]),
+        )
+        .await?,
+    )?;
+    assigned(handle, clock, 0).await
 }
 
 /// Whether `capture` holds an event saying `words`.
@@ -86,11 +93,10 @@ fn test_a_refused_tightening_is_withdrawn_and_its_commit_told() -> TestResult {
         Runtime::new()?.block_on(async {
             let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
             let (handle, run) = running(owner, &clock);
-            let _ticking = ticking(&clock);
-            let held = both_declared(&handle).await?;
+            let held = both_declared(&handle, &clock).await?;
             let (answer, reported) =
                 futures::join!(handle.declare(0, held, vec![single(P)]), async {
-                    let tightening = assigned(&handle, held).await?;
+                    let tightening = assigned(&handle, &clock, held).await?;
                     heard(handle.report(refusing(tightening)).await)
                 });
             reported?;
@@ -130,20 +136,17 @@ fn test_a_restarted_owner_withdraws_a_tightening_no_commit_waits_on() -> TestRes
         let start = starting(MetadataConfig::new())?;
         let owner = recovered(&storage, &start, &clock).await?;
         let (handle, run) = running(owner, &clock);
-        let ticker = ticking(&clock);
-        let held = both_declared(&handle).await?;
+        let held = both_declared(&handle, &clock).await?;
         // The Commit is sent and its wait given up at once, as a process stopped after it would.
         let sent = handle.declare(0, held, vec![single(P)]).now_or_never();
         assert!(sent.is_none(), "the tightening waits on its check");
-        let tightening = assigned(&handle, held).await?;
-        drop(ticker);
+        let tightening = assigned(&handle, &clock, held).await?;
         drop(handle);
         ended(run).await??;
         let restarted = recovered(&storage, &start, &clock).await?;
         let (again, rerun) = running(restarted, &clock);
-        let _ticking = ticking(&clock);
         heard(again.report(refusing(tightening)).await)?;
-        let restoring = assigned(&again, tightening).await?;
+        let restoring = assigned(&again, &clock, tightening).await?;
         assert_eq!(restoring, tightening + 1);
         drop(again);
         ended(rerun).await??;
@@ -164,25 +167,22 @@ fn test_a_restoring_version_waits_for_room_among_the_pending() -> TestResult {
             let start = starting(MetadataConfig::new())?.with_tenants(tenants);
             let owner = recovered(&storage, &start, &clock).await?;
             let (handle, run) = running(owner, &clock);
-            let ticker = ticking(&clock);
-            let held = both_declared(&handle).await?;
+            let held = both_declared(&handle, &clock).await?;
             let (answer, filled) =
                 futures::join!(handle.declare(0, held, vec![single(P)]), async {
-                    let tightening = assigned(&handle, held).await?;
-                    drop(ticker);
+                    let tightening = assigned(&handle, &clock, held).await?;
                     // The report and the offers filling the pending versions are sent in one poll, so one turn takes them all.
-                    let asking = handle.clone();
-                    let offers = spawn(async move {
-                        let tenants = 1..=MetadataState::PENDING_MAX as u64;
-                        futures::join!(
-                            asking.report(refusing(tightening)),
-                            futures::future::join_all(tenants.map(|tenant| asking.declare(
-                                tenant,
-                                0,
-                                vec![plain(P)]
-                            )))
-                        )
-                    });
+                    let tenants = 1..=MetadataState::PENDING_MAX as u64;
+                    let mut offers = pin!(futures::future::join(
+                        handle.report(refusing(tightening)),
+                        futures::future::join_all(tenants.map(|tenant| handle.declare(
+                            tenant,
+                            0,
+                            vec![plain(P)]
+                        )))
+                    ));
+                    sent(offers.as_mut()).await?;
+                    // The clock stays put while the restoring version waits: no close announces the offers before then.
                     let mut waited = false;
                     for _ in 0..POLLS_MAX {
                         waited = logged(&capture, "a restoring version waits");
@@ -192,15 +192,12 @@ fn test_a_restoring_version_waits_for_room_among_the_pending() -> TestResult {
                         compio::time::sleep(Duration::from_millis(1)).await;
                     }
                     assert!(waited, "the restoring version waits");
-                    let resumed = ticking(&clock);
-                    let (reported, offered) = offers
-                        .await
-                        .map_err(|error| TestError::new(format!("the offers: {error:?}")))?;
+                    let (reported, offered) = closing(&handle, &clock, offers).await?;
                     heard(reported)?;
                     assert!(offered.iter().all(Result::is_ok), "every offer stands");
-                    Ok::<_, TestError>(resumed)
+                    Ok::<_, TestError>(())
                 });
-            let _ticker = filled?;
+            filled?;
             assert_eq!(refused(answer)?.code(), ErrorCode::Refused);
             drop(handle);
             ended(run).await??;
@@ -225,11 +222,10 @@ fn test_a_restoring_version_returns_what_the_withdrawn_one_changed() -> TestResu
     Runtime::new()?.block_on(async {
         let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
         let (handle, run) = running(owner, &clock);
-        let _ticking = ticking(&clock);
-        let held = both_declared(&handle).await?;
+        let held = both_declared(&handle, &clock).await?;
         let (answer, reported) =
             futures::join!(handle.declare(0, held, vec![single(P), plain(R)]), async {
-                let tightening = assigned(&handle, held).await?;
+                let tightening = assigned(&handle, &clock, held).await?;
                 heard(handle.report(refusing(tightening)).await)
             });
         reported?;
@@ -255,10 +251,9 @@ fn test_a_restoring_version_keeps_a_drop_built_during_the_check() -> TestResult 
     Runtime::new()?.block_on(async {
         let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
         let (handle, run) = running(owner, &clock);
-        let _ticking = ticking(&clock);
-        let held = both_declared(&handle).await?;
+        let held = both_declared(&handle, &clock).await?;
         let (answer, reported) = futures::join!(handle.declare(0, held, vec![single(P)]), async {
-            let tightening = assigned(&handle, held).await?;
+            let tightening = assigned(&handle, &clock, held).await?;
             let dropped = heard(
                 handle
                     .drop_version(0, DropStep::Predicate(Q.to_string()))

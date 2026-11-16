@@ -16,7 +16,8 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_log::SimStorage;
 
 use super::{
-    SimOwner, TestClock, closed_after, ended, heard, recovered, refused, running, starting, ticking,
+    SimOwner, TestClock, closed_after, closed_until, closing, ended, heard, recovered, refused,
+    running, starting,
 };
 
 const NICK: &str = "http://ex.org/nick";
@@ -160,8 +161,14 @@ fn test_a_catalog_request_at_an_epoch_answers_what_a_client_reads_there() -> Tes
 #[test]
 fn test_a_catalog_request_at_an_epoch_never_answers_a_version_being_checked() -> TestResult {
     with_group(304, |handle, clock| async move {
-        let ticked = ticking(&clock);
-        let (base, _) = heard(handle.declare_version(0, 0, vec![predicate(NICK)]).await)?;
+        let (base, _) = heard(
+            closing(
+                &handle,
+                &clock,
+                handle.declare_version(0, 0, vec![predicate(NICK)]),
+            )
+            .await?,
+        )?;
         let single = Declared::Predicate(DeclaredPredicate::new(NICK).with_single(true));
         let checked = {
             let handle = handle.clone();
@@ -169,11 +176,11 @@ fn test_a_catalog_request_at_an_epoch_never_answers_a_version_being_checked() ->
                 async move { handle.declare_version(0, base, vec![single]).await },
             )
         };
-        let tightened = loop_until(&handle, |catalog| {
+        let tightened = loop_until(&handle, &clock, |catalog| {
             catalog.version() == base + 1 && catalog.epoch() != 0
         })
         .await?;
-        let closed = closed_after(&handle, &clock, tightened).await?;
+        let closed = closed_past(&handle, &clock, tightened).await?;
         assert_eq!(
             heard(handle.catalog_at(0, closed).await)?.version(),
             base,
@@ -190,12 +197,11 @@ fn test_a_catalog_request_at_an_epoch_never_answers_a_version_being_checked() ->
             .await
             .map_err(|error| TestError::new(format!("{error:?}")))?;
         assert_eq!(refused(told)?.code(), ErrorCode::Refused);
-        let restoring = loop_until(&handle, |catalog| {
+        let restoring = loop_until(&handle, &clock, |catalog| {
             catalog.version() == base + 2 && catalog.epoch() != 0
         })
         .await?;
-        let after = closed_after(&handle, &clock, restoring).await?;
-        drop(ticked);
+        let after = closed_past(&handle, &clock, restoring).await?;
         assert_eq!(
             heard(handle.catalog_at(0, after).await)?.version(),
             base + 2
@@ -343,17 +349,21 @@ fn predicate(iri: &str) -> Declared {
 /// How many millisecond polls a wait takes before it fails.
 const POLLS_MAX: u32 = 5_000;
 
-/// Tenant 0's current version once `holds` of it, read each millisecond: its effective epoch.
+/// Tenant 0's current version once `holds` of it, read again after each close: its effective epoch.
 async fn loop_until(
     handle: &SystemHandle,
+    clock: &TestClock,
     holds: impl Fn(&ultragraphdb_protocol_wire::Catalog) -> bool,
 ) -> TestResult<u64> {
-    for _ in 0..POLLS_MAX {
+    closed_until(handle, clock, || async {
         let catalog = heard(handle.catalog(0, 0).await)?;
-        if holds(&catalog) {
-            return Ok(catalog.epoch());
-        }
-        compio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    Err(TestError::new("the catalog never came to hold"))
+        Ok(holds(&catalog).then_some(catalog.epoch()))
+    })
+    .await
+}
+
+/// The first close past `epoch`, the clock moved on an epoch at a time until it is delivered: its epoch.
+async fn closed_past(handle: &SystemHandle, clock: &TestClock, epoch: u64) -> TestResult<u64> {
+    let close = heard(closing(handle, clock, handle.next_close(epoch)).await?)?;
+    Ok(close.epoch().get())
 }

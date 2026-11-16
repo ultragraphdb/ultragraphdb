@@ -20,7 +20,7 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_log::SimStorage;
 
 use super::{Served, group_with, next_frame, refusal_code, serving, watched};
-use crate::types::system_group::{heard, principal, starting, ticking};
+use crate::types::system_group::{closed_after, heard, principal, starting};
 
 /// A group of one partition, `transaction_ms` 50, holding `alice`, `bob` and `ann` (`ann`'s password `pw`), served at a role
 /// address.
@@ -33,6 +33,28 @@ async fn served(name: &str, seed: u64) -> TestResult<Served> {
         Ok(owner)
     })
     .await
+}
+
+/// How many millisecond polls a wait on the group takes before it fails.
+const POLLS_MAX: u32 = 5_000;
+
+/// Tenant 0's current version once it is `version`, read each millisecond: what a connection sends reaches the group in its
+/// own time, and the clock does not move meanwhile.
+async fn version_current(group: &Served, version: u64) -> TestResult {
+    for _ in 0..POLLS_MAX {
+        if group
+            .handle
+            .catalog(0, 0)
+            .await
+            .is_ok_and(|held| held.version() == version)
+        {
+            return Ok(());
+        }
+        compio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+    Err(TestError::new(format!(
+        "version {version} was never current"
+    )))
 }
 
 /// The outcomes of a Check of `checks` sent on `client`, its reply checked against the request as its requester checks it.
@@ -313,9 +335,14 @@ fn test_a_declare_is_answered_on_its_stream() -> TestResult {
             "http://ex.org/p",
         ))];
         let sent = Declare::declarations(0, 0, alice, declared);
-        let ticked = ticking(&group.clock);
-        let reply = frontend.request(&sent).await?;
-        drop(ticked);
+        let (reply, closed) = futures::join!(frontend.request(&sent), async {
+            // The Declare reaches the group over the connection: once its version is pending, one close assigns its epoch.
+            let before = heard(group.handle.latest_close().await)?;
+            version_current(&group, 1).await?;
+            closed_after(&group.handle, &group.clock, before).await
+        });
+        let _closed = closed?;
+        let reply = reply?;
         let view = reply.view()?;
         let declare = DeclareView::from_frame(&view)?;
         assert_eq!(

@@ -11,7 +11,7 @@ use futures::channel::mpsc::unbounded;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_role::{
-    ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server, listen, serve_connection,
+    ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server, serve_connection,
 };
 use ultragraphdb_common_service_config::ServiceConfig;
 use ultragraphdb_common_system::{
@@ -79,10 +79,8 @@ fn test_a_subscription_past_the_closes_held_ends_with_an_error() -> TestResult {
         let server =
             Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
         let credentials = secret.credentials()?;
-        let port = std::net::TcpListener::bind("127.0.0.1:0")?
-            .local_addr()?
-            .port();
-        let listener = listen(&format!("tcp://127.0.0.1:{port}")).await?;
+        // Bound at port 0 and read back, so no other process takes the port between a choice and the bind.
+        let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
         let address = listener.local_address()?;
         spawn(async move {
             while let Ok(carrier) = listener.accept().await {
@@ -146,17 +144,16 @@ fn serve_roles(
     Ok(())
 }
 
-/// A free port on the loopback address, which nothing listens on until a test binds it.
-fn free_port() -> TestResult<u16> {
-    Ok(std::net::TcpListener::bind("127.0.0.1:0")?
-        .local_addr()?
-        .port())
+/// A listener at a port of the loopback address the system chooses as it binds, so no other process takes the port between a
+/// choice and the bind.
+async fn loopback() -> TestResult<Listener> {
+    Ok(Listener::bind(&Address::any_port("127.0.0.1")?).await?)
 }
 
 /// A role endpoint over `owner` of `cluster`: its address.
 async fn role_endpoint(owner: SystemHandle, cluster: &RoleCluster) -> TestResult<Address> {
     let shared = shared_of(cluster.clone(), owner);
-    let listener = listen(&format!("tcp://127.0.0.1:{}", free_port()?)).await?;
+    let listener = loopback().await?;
     let address = listener.local_address()?;
     serve_roles(listener, Endpoint::Frontend, shared, cluster)?;
     Ok(address)
@@ -267,7 +264,7 @@ async fn refused_where_partitions_arrive(
     handle: SystemHandle,
 ) -> TestResult {
     let shared = shared_of(cluster.clone(), handle);
-    let listener = listen(&format!("tcp://127.0.0.1:{}", free_port()?)).await?;
+    let listener = loopback().await?;
     let elsewhere = listener.local_address()?;
     serve_roles(listener, Endpoint::Partition, shared, cluster)?;
     let password = cluster.secret().password();

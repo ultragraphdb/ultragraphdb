@@ -3,9 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::pin::pin;
 use std::time::Duration;
 
 use compio::runtime::Runtime;
+use futures::future::poll_immediate;
 use oxrdf::NamedNode;
 use ultragraphdb_cluster_metadata::{MetadataCommand, MetadataConfig, MetadataState};
 use ultragraphdb_common_system::{DropStep, ReportAsked, SystemHandle};
@@ -19,7 +21,10 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_log::SimStorage;
 
-use super::{TestClock, ended, heard, recovered, refused, running, starting, ticking};
+use super::{
+    TestClock, closed_until, closing, ended, heard, recovered, refused, running, sent, starting,
+    turned,
+};
 
 const P: &str = "http://ex.org/p";
 const Q: &str = "http://ex.org/q";
@@ -36,37 +41,35 @@ const VERSION_BITS: u32 = 22;
 /// How many millisecond polls a wait on the owner takes before it fails.
 const POLLS_MAX: u32 = 5_000;
 
-/// Partition 1's report that its data bears out the version of `tenant` above `after`, sent once that version's epoch is assigned.
-async fn pass(handle: &SystemHandle, tenant: u64, after: u64) -> TestResult {
-    for _ in 0..POLLS_MAX {
-        if let Ok(held) = handle.catalog(tenant, 0).await
-            && held.version() > after
-            && held.epoch() != 0
-        {
-            let report = ReportAsked::new(Tenant::new(tenant), held.version(), 1, None);
-            return heard(handle.report(report).await);
-        }
-        compio::time::sleep(Duration::from_millis(1)).await;
-    }
-    Err(TestError::new(format!(
-        "no version above {after} was assigned its epoch"
-    )))
+/// Partition 1's report that its data bears out the version of `tenant` above `after`, sent once a close has assigned that
+/// version's epoch.
+async fn pass(handle: &SystemHandle, clock: &TestClock, tenant: u64, after: u64) -> TestResult {
+    let version = closed_until(handle, clock, || async {
+        Ok(handle
+            .catalog(tenant, 0)
+            .await
+            .ok()
+            .filter(|held| held.version() > after && held.epoch() != 0)
+            .map(|held| held.version()))
+    })
+    .await?;
+    let report = ReportAsked::new(Tenant::new(tenant), version, 1, None);
+    heard(handle.report(report).await)
 }
 
 /// `declared` committed on `built_on`, partition 1 bearing it out: the version's epoch, once it is in effect at a close.
 async fn settled(
     handle: &SystemHandle,
+    clock: &TestClock,
     tenant: u64,
     built_on: u64,
     declared: Vec<Declared>,
 ) -> TestResult<u64> {
-    let (answer, passed) = futures::join!(
-        handle.declare(tenant, built_on, declared),
-        pass(handle, tenant, built_on)
-    );
-    passed?;
-    let epoch = heard(answer)? >> VERSION_BITS;
-    let _closed = heard(handle.next_close(epoch).await)?;
+    let mut answer = pin!(handle.declare(tenant, built_on, declared));
+    sent(answer.as_mut()).await?;
+    pass(handle, clock, tenant, built_on).await?;
+    let epoch = heard(closing(handle, clock, answer).await?)? >> VERSION_BITS;
+    let _closed = heard(closing(handle, clock, handle.next_close(epoch)).await?)?;
     Ok(epoch)
 }
 
@@ -84,7 +87,6 @@ fn test_a_version_built_on_one_not_current_is_stale() -> TestResult {
     Runtime::new()?.block_on(async {
         let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
         let (handle, run) = running(owner, &clock);
-        let _ticking = ticking(&clock);
         let far = 99;
         let stale = refused(handle.declare(0, far, vec![predicate(P)]).await)?;
         assert_eq!(stale.code(), ErrorCode::Conflict);
@@ -94,10 +96,15 @@ fn test_a_version_built_on_one_not_current_is_stale() -> TestResult {
             stale.message()
         );
         // Both offers are sent before the owner's run is polled again, so one turn takes them in this order.
-        let (first, second) = futures::join!(
-            handle.declare(0, 0, vec![predicate(P)]),
-            handle.declare(0, 0, vec![predicate(Q)])
-        );
+        let (first, second) = closing(
+            &handle,
+            &clock,
+            futures::future::join(
+                handle.declare(0, 0, vec![predicate(P)]),
+                handle.declare(0, 0, vec![predicate(Q)]),
+            ),
+        )
+        .await?;
         assert!(heard(first)? > 0);
         let behind = refused(second)?;
         assert_eq!(
@@ -129,11 +136,14 @@ fn test_an_offer_past_the_pending_versions_held_is_refused() -> TestResult {
         let start = starting(MetadataConfig::new())?.with_tenants(tenants.clone().collect());
         let owner = recovered(&storage, &start, &clock).await?;
         let (handle, run) = running(owner, &clock);
-        let _ticking = ticking(&clock);
-        let answers = futures::future::join_all(
-            tenants.map(|tenant| handle.declare(tenant, 0, vec![predicate(P)])),
+        let answers = closing(
+            &handle,
+            &clock,
+            futures::future::join_all(
+                tenants.map(|tenant| handle.declare(tenant, 0, vec![predicate(P)])),
+            ),
         )
-        .await;
+        .await?;
         let (last, held) = answers.split_last().context("the answers")?;
         assert!(
             held.iter().all(Result::is_ok),
@@ -162,16 +172,15 @@ fn test_drops_leave_what_they_do_not_name() -> TestResult {
     Runtime::new()?.block_on(async {
         let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
         let (handle, run) = running(owner, &clock);
-        let _ticking = ticking(&clock);
         let animal = Declared::EntityType(DeclaredEntityType::new(ANIMAL, None, false));
-        let _effective = settled(&handle, 0, 0, vec![animal, predicate(P)]).await?;
+        let _effective = settled(&handle, &clock, 0, 0, vec![animal, predicate(P)]).await?;
         heard(
             handle
                 .drop_catalog(0, DropStep::Predicate(P.to_string()))
                 .await,
         )?;
         let after_predicate = heard(handle.catalog(0, 0).await)?.version();
-        let described = loop_until_described(&handle, |describe| {
+        let described = loop_until_described(&handle, &clock, |describe| {
             describe.predicates().is_empty() && describe.entity_types().len() == 1
         })
         .await?;
@@ -197,19 +206,16 @@ fn test_drops_leave_what_they_do_not_name() -> TestResult {
     })
 }
 
-/// Describe of tenant 0 once `holds` of it, read each millisecond.
+/// Describe of tenant 0 once `holds` of it, read again after each close.
 async fn loop_until_described(
     handle: &SystemHandle,
+    clock: &TestClock,
     holds: impl Fn(&Describe) -> bool,
 ) -> TestResult<Describe> {
-    for _ in 0..POLLS_MAX {
-        let describe = described(handle).await?;
-        if holds(&describe) {
-            return Ok(describe);
-        }
-        compio::time::sleep(Duration::from_millis(1)).await;
-    }
-    Err(TestError::new("Describe never came to hold"))
+    closed_until(handle, clock, || async {
+        Ok(Some(described(handle).await?).filter(|describe| holds(describe)))
+    })
+    .await
 }
 
 /// A default entry is recorded once: a second record of it, in the same turn or later, finds it held. A predicate past what a
@@ -269,20 +275,19 @@ fn test_every_kind_of_declaration_reaches_describe() -> TestResult {
     Runtime::new()?.block_on(async {
         let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
         let (handle, run) = running(owner, &clock);
-        let _ticking = ticking(&clock);
         let not_iri = "not an IRI";
         let refusal = refused(handle.declare(0, 0, vec![predicate(not_iri)]).await)?;
         assert_eq!(refusal.code(), ErrorCode::Refused);
         assert!(refusal.message().contains(not_iri), "{}", refusal.message());
         let options = vec![("m".to_string(), "16".to_string())];
-        let _effective = settled(&handle, 0, 0, every_kind(&options)).await?;
+        let _effective = settled(&handle, &clock, 0, 0, every_kind(&options)).await?;
         let version = heard(handle.catalog(0, 0).await)?.version();
         let replaced = vec![Declared::Relation(DeclaredRelation::new(
             OWNS,
             vec![OWNER_ROLE.to_string()],
         ))];
-        let _replaced = settled(&handle, 0, version, replaced).await?;
-        let describe = loop_until_described(&handle, |describe| {
+        let _replaced = settled(&handle, &clock, 0, version, replaced).await?;
+        let describe = loop_until_described(&handle, &clock, |describe| {
             describe
                 .relations()
                 .first()
@@ -349,9 +354,22 @@ fn test_a_declare_builds_on_the_current_version_alone() -> TestResult {
                 .map_err(|error| TestError::new(format!("{error:?}")))?,
         )?;
         assert_eq!(answered, (1, (close + 1) << VERSION_BITS));
-        let _ticking = ticking(&clock);
-        let (two, _) = heard(handle.declare_version(0, 1, vec![predicate(Q)]).await)?;
-        let (three, _) = heard(handle.declare_version(0, two, vec![predicate(EDGE)]).await)?;
+        let (two, _) = heard(
+            closing(
+                &handle,
+                &clock,
+                handle.declare_version(0, 1, vec![predicate(Q)]),
+            )
+            .await?,
+        )?;
+        let (three, _) = heard(
+            closing(
+                &handle,
+                &clock,
+                handle.declare_version(0, two, vec![predicate(EDGE)]),
+            )
+            .await?,
+        )?;
         assert_eq!((two, three), (2, 3), "numbered without gap");
         for stale in [2, 4, 0] {
             let refusal = refused(handle.declare_version(0, stale, vec![predicate(P)]).await)?;
@@ -474,13 +492,21 @@ fn test_a_declare_whose_asker_left_changes_nothing() -> TestResult {
     })
 }
 
+/// The effective epoch of tenant 0's `version`, `None` while it is unassigned.
+async fn epoch_of(handle: &SystemHandle, version: u64) -> TestResult<Option<u64>> {
+    Ok(handle
+        .catalog(0, version)
+        .await
+        .ok()
+        .map(|held| held.epoch())
+        .filter(|epoch| *epoch != 0))
+}
+
 /// The effective epoch of tenant 0's `version`, once assigned, read each millisecond.
 async fn loop_until_epoch(handle: &SystemHandle, version: u64) -> TestResult<u64> {
     for _ in 0..POLLS_MAX {
-        if let Ok(held) = handle.catalog(0, version).await
-            && held.epoch() != 0
-        {
-            return Ok(held.epoch());
+        if let Some(epoch) = epoch_of(handle, version).await? {
+            return Ok(epoch);
         }
         compio::time::sleep(Duration::from_millis(1)).await;
     }
@@ -498,8 +524,14 @@ fn test_a_drop_that_changes_nothing_builds_no_version() -> TestResult {
     Runtime::new()?.block_on(async {
         let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
         let (handle, run) = running(owner, &clock);
-        let _ticking = ticking(&clock);
-        let (one, _) = heard(handle.declare_version(0, 0, vec![predicate(P)]).await)?;
+        let (one, _) = heard(
+            closing(
+                &handle,
+                &clock,
+                handle.declare_version(0, 0, vec![predicate(P)]),
+            )
+            .await?,
+        )?;
         for step in [DropStep::Predicate(Q.to_string()), DropStep::Kept] {
             assert_eq!(
                 heard(handle.drop_version(0, step.clone()).await)?,
@@ -524,11 +556,13 @@ fn test_a_drop_of_everything_removes_the_default_entries() -> TestResult {
         let start = starting(MetadataConfig::new())?.with_tenants(vec![1]);
         let owner = recovered(&storage, &start, &clock).await?;
         let (handle, run) = running(owner, &clock);
-        let _ticking = ticking(&clock);
         let (one, _) = heard(
-            handle
-                .declare_version(0, 0, vec![predicate(P), predicate(Q)])
-                .await,
+            closing(
+                &handle,
+                &clock,
+                handle.declare_version(0, 0, vec![predicate(P), predicate(Q)]),
+            )
+            .await?,
         )?;
         for tenant in [0, 1] {
             assert!(!heard(
@@ -610,36 +644,37 @@ fn test_a_silent_partition_withdraws_a_tightening_at_the_wait() -> TestResult {
         );
         let owner = recovered(&storage, &start, &clock).await?;
         let (handle, run) = running(owner, &clock);
-        let ticked = ticking(&clock);
-        let (one, _) = heard(handle.declare_version(0, 0, vec![predicate(P)]).await)?;
-        let single = Declared::Predicate(DeclaredPredicate::new(P).with_single(true));
-        let checked = {
-            let handle = handle.clone();
-            compio::runtime::spawn(
-                async move { handle.declare_version(0, one, vec![single]).await },
+        let (one, _) = heard(
+            closing(
+                &handle,
+                &clock,
+                handle.declare_version(0, 0, vec![predicate(P)]),
             )
-        };
-        let _epoch = loop_until_epoch(&handle, one + 1).await?;
-        drop(ticked);
-        // A turn of the group sees the epoch assigned, and its wait begins there.
-        let _latest = heard(handle.latest_close().await)?;
-        heard(
-            handle
-                .report(ReportAsked::new(Tenant::new(0), one + 1, 1, None))
-                .await,
+            .await?,
         )?;
-        clock.advance(CHECK_MS * 1_000 - 1);
-        let _latest = heard(handle.latest_close().await)?;
-        compio::time::sleep(Duration::from_millis(10)).await;
-        assert!(
-            !checked.is_finished(),
-            "still waiting one tick before the wait ends"
-        );
-        clock.advance(1);
-        let _latest = heard(handle.latest_close().await)?;
-        let told = checked
-            .await
-            .map_err(|error| TestError::new(format!("{error:?}")))?;
+        let single = Declared::Predicate(DeclaredPredicate::new(P).with_single(true));
+        let told = {
+            let mut checked = pin!(handle.declare_version(0, one, vec![single]));
+            sent(checked.as_mut()).await?;
+            // The clock stays where the close assigning the epoch left it: every turn of the group from that close on reads
+            // it, so the first to see the epoch assigned begins the wait there.
+            let _epoch = closed_until(&handle, &clock, || epoch_of(&handle, one + 1)).await?;
+            heard(
+                handle
+                    .report(ReportAsked::new(Tenant::new(0), one + 1, 1, None))
+                    .await,
+            )?;
+            clock.advance(CHECK_MS * 1_000 - 1);
+            // A turn has run its checks at this reading and ended, and a withdrawal would have told the Commit in it.
+            let _latest = turned(&handle).await?;
+            assert!(
+                poll_immediate(checked.as_mut()).await.is_none(),
+                "still waiting one tick before the wait ends"
+            );
+            clock.advance(1);
+            let _latest = heard(handle.latest_close().await)?;
+            checked.await
+        };
         let refusal = refused(told)?;
         assert_eq!((refusal.code(), refusal.detail()), (ErrorCode::TimedOut, 2));
         drop(handle);
@@ -671,11 +706,13 @@ fn test_declarations_replace_what_they_name_in_place() -> TestResult {
     Runtime::new()?.block_on(async {
         let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
         let (handle, run) = running(owner, &clock);
-        let _ticking = ticking(&clock);
         let (one, _) = heard(
-            handle
-                .declare_version(0, 0, vec![predicate(P), predicate(Q)])
-                .await,
+            closing(
+                &handle,
+                &clock,
+                handle.declare_version(0, 0, vec![predicate(P), predicate(Q)]),
+            )
+            .await?,
         )?;
         // Uniqueness and a count index neither tighten nor loosen, so no check holds the version.
         let unique_p = DeclaredPredicate::new(P).with_unique(true);
@@ -685,7 +722,8 @@ fn test_declarations_replace_what_they_name_in_place() -> TestResult {
             Declared::Predicate(unique_p),
             Declared::Predicate(counted_r),
         ];
-        let (two, _) = heard(handle.declare_version(0, one, declared).await)?;
+        let (two, _) =
+            heard(closing(&handle, &clock, handle.declare_version(0, one, declared)).await?)?;
         let expected = vec![
             Declaration::Predicate(PredicateDeclaration::new(NamedNode::new(P)?).with_unique(true)),
             declared_plain(Q)?,
@@ -717,7 +755,6 @@ fn test_a_declare_is_refused_for_its_predicates_first() -> TestResult {
     Runtime::new()?.block_on(async {
         let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
         let (handle, run) = running(owner, &clock);
-        let _ticking = ticking(&clock);
         let bad_type = Declared::EntityType(DeclaredEntityType::new(NOT_A_TYPE, None, false));
         let bad_relation = Declared::Relation(DeclaredRelation::new(NOT_A_RELATION, Vec::new()));
         let refusal = refused(
@@ -732,7 +769,7 @@ fn test_a_declare_is_refused_for_its_predicates_first() -> TestResult {
             refusal.message()
         );
         let single_q = Declared::Predicate(DeclaredPredicate::new(Q).with_single(true));
-        let _effective = settled(&handle, 0, 0, vec![single_q]).await?;
+        let _effective = settled(&handle, &clock, 0, 0, vec![single_q]).await?;
         let version = heard(handle.catalog(0, 0).await)?.version();
         let single_p = Declared::Predicate(DeclaredPredicate::new(P).with_single(true));
         let declared = vec![single_p, predicate(Q), bad_relation.clone()];

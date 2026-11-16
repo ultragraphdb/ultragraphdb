@@ -24,7 +24,7 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_log::SimStorage;
 
 use super::{Served, error_in, group_with, next_frame, refusal_code, serving, watched};
-use crate::types::system_group::{EPOCH_US, heard, principal, starting};
+use crate::types::system_group::{EPOCH_US, closing, heard, principal, starting};
 
 /// A group of one partition, epochs of 1 to 5 ms, `transaction_ms` 50, served at a role address.
 async fn served(name: &str, seed: u64) -> TestResult<Served> {
@@ -339,10 +339,15 @@ fn test_a_catalog_version_past_one_frame_travels_in_several() -> TestResult {
     Runtime::new()?.block_on(async {
         let group = served("catalog-frames", 507).await?;
         let length = iri_length_for(523_001)?;
-        let ticking = crate::types::system_group::ticking(&group.clock);
         let declared = Declared::Predicate(DeclaredPredicate::new(iri_of(length)));
-        let (version, _) = heard(group.handle.declare_version(0, 0, vec![declared]).await)?;
-        drop(ticking);
+        let (version, _) = heard(
+            closing(
+                &group.handle,
+                &group.clock,
+                group.handle.declare_version(0, 0, vec![declared]),
+            )
+            .await?,
+        )?;
         let committed = heard(group.handle.catalog(0, version).await)?;
         assert_eq!(committed.bytes().len(), 523_001);
         let mut storage = group.dial_taking("storage", MAX_FRAME_FLOOR_U32).await?;
@@ -366,21 +371,28 @@ fn test_a_catalog_version_past_one_frame_travels_in_several() -> TestResult {
 fn test_a_catalog_request_naming_an_epoch_is_answered_at_it() -> TestResult {
     Runtime::new()?.block_on(async {
         let group = served("catalog-at", 508).await?;
-        let ticking = crate::types::system_group::ticking(&group.clock);
         let (version, commit_version) = heard(
-            group
-                .handle
-                .declare_version(
+            closing(
+                &group.handle,
+                &group.clock,
+                group.handle.declare_version(
                     0,
                     0,
                     vec![Declared::Predicate(DeclaredPredicate::new(
                         "http://ex.org/p",
                     ))],
-                )
-                .await,
+                ),
+            )
+            .await?,
         )?;
-        let _closed = heard(group.handle.next_close(commit_version >> 22).await)?;
-        drop(ticking);
+        let _closed = heard(
+            closing(
+                &group.handle,
+                &group.clock,
+                group.handle.next_close(commit_version >> 22),
+            )
+            .await?,
+        )?;
         let latest = heard(group.handle.latest_close().await)?;
         let mut frontend = group.dial("frontend").await?;
         let (read, _) = catalog_read(&mut frontend, &Catalog::request_at(0, latest)).await?;
@@ -420,7 +432,7 @@ fn test_a_closed_connections_marks_hold_for_twice_the_limit() -> TestResult {
         drop(first);
         // The session of the connection closed is dropped once its server reads the close, and the group takes the close at
         // the clock's reading then, which this test does not move meanwhile.
-        compio::time::sleep(std::time::Duration::from_millis(100)).await;
+        group.ended(1).await?;
         group.clock.advance(100_000 - 1);
         assert_eq!(
             checked(&mut second, &[(1, alice, CheckKind::Asks)]).await?,
