@@ -1,0 +1,44 @@
+ultragraphdb_core/ultragraphdb_core_catalog/tests/types/catalog_contents/catalog_contents_tests.rs
+  s_21eff977e05256::t_8bffc40c091e7b 28-40
+  s_21eff977e05256::t_573eecf02d5062 27
+ultragraphdb_common/ultragraphdb_common_system/src/types/system_group/system_group_check.rs
+  s_21eff977e05256::t_f41410020b7765 126-131
+ultragraphdb_core/ultragraphdb_core_catalog/src/types/catalog_contents/mod.rs
+  s_21eff977e05256::t_3a75f2eb184a5e 49-54
+ultragraphdb_core/ultragraphdb_core_catalog/src/utils/catalog_codec.rs
+  s_21eff977e05256::t_025c4ceaef1755 127-141,184
+  s_21eff977e05256::t_fc38878593e081 144,154,156,161,164,166-167,172,175-176,180-181
+ultragraphdb_core/ultragraphdb_core_catalog/src/types/catalog_contents/catalog_contents_codec.rs
+  s_21eff977e05256::t_20234e1a320bfc 27
+  s_21eff977e05256::t_ab9e453ee4fe5d 73-75,77,79,81,84-85,87-90
+  s_21eff977e05256::t_143249fc147f07 76,78,83
+ultragraphdb_common/ultragraphdb_common_system/src/utils/declarations.rs
+  s_21eff977e05256::t_c3e4004c4851c0 6-7
+  s_21eff977e05256::t_1ccdb89e64fbf2 289-292
+  s_21eff977e05256::t_071b8020da2a20 58
+  s_21eff977e05256::t_1fecbbbf1757b9 85-89,92-115,117-122,126-156,160-169,171-173,179-180,184-204,207-208,211-212,215
+  s_21eff977e05256::t_a61e0ecad86dda 237-271,274,278-288,293-295
+  s_21eff977e05256::t_569d8378934671 298
+ultragraphdb_common/ultragraphdb_common_system/src/types/system_group/system_group_catalog.rs
+  s_21eff977e05256::t_e4b7278cfb0464 21,137,219,223,228,282
+ultragraphdb_common/ultragraphdb_common_system/tests/types/system_group/system_group_catalog_tests.rs
+  s_21eff977e05256::t_d86203e6fcdf7c 9,12,14,650-762
+ultragraphdb_common/ultragraphdb_common_system/tests/types/system_group/system_group_check_tests.rs
+  s_21eff977e05256::t_95f9da997ad66d 10,12-13,15,211-288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1410fa7e9eb37e727926b418d494fdd759e09e65",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
