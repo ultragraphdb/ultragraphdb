@@ -3,8 +3,8 @@
 Base commit `4c0e4a61`. This file records task 7.1, the Ultra Style lift of `ultragraphdb_common_config_check`, and tasks
 7.2 (the config-service part), 7.3 and 7.4: the checks System, System address, Data and Fixed; the old settings and
 `common_role::frontend_address` removed; the profiles, the chart's profile, `scripts/bench_cluster.sh` and every test and
-harness that writes settings brought to the system group's settings. Task 7.5 and the rest of 7.2 are not this run's
-(*Left for 7.5*). Counts are those Bazel's test logs report.
+harness that writes settings brought to the system group's settings. Task 7.5 and the rest of 7.2 follow in their own
+section, *Task 7.5 and the role-binaries part of task 7.2*. Counts are those Bazel's test logs report.
 
 ## Task 7.1: the audit against `openspec/protocols/ULTRA_STYLE.md`
 
@@ -308,3 +308,137 @@ Two commits. The lift first: its patch, taken before task 7.4 touched the same f
 (`src/lib.rs`, `src/types/defect.rs`, `src/types/target_files.rs`, `src/utils/check_target.rs`, `src/utils/cross_checks.rs`,
 `src/utils/merge.rs`, `tests/utils/cross_checks_tests.rs`); then the rest. `Cargo.lock` takes `hegeltest` among
 `ultragraphdb_common_config_check`'s dependencies.
+
+## Task 7.5 and the role-binaries part of task 7.2
+
+Base commit `cb78363a`, the switch. Counts are those the test logs report; times are Bazel's for a run with
+`--nocache_test_results`.
+
+### What was built
+
+- **The start order** (design D10; role-binaries, "The supervisor starts, stops and reports the roles"). `ultragraphdb_supervisor`
+  starts the config service, then storage, compute and the frontend (`START_ORDER`), waiting on each one's `/ready` before the
+  next starts. It waited on the frontend's `/health` first and its `/ready` last; the frontend is now started last and its
+  `/ready` is the last wait. The stop order is unchanged. Its help says so.
+- **The bootstrap password drawn for the hosting storage instance.** The supervisor draws `metadata.bootstrap_secret_file`
+  only for an instance holding `[system]`, and only while no `meta/` stands under its `system.data_dir` (`first_start` takes
+  the directory, no longer an `Option`). Task 7.4 had already moved the test from `frontend.data_dir` to `system.data_dir`; an
+  instance without `[system]` drew the password since `first_start(None)` held.
+- **The development profile's `[system]` table and `/data/system`.** Task 7.4 did both (`profiles/dev/storage.toml`); nothing
+  left.
+- **The chart** (design D11; kubernetes-deployment). `templates/frontend.yaml`: the frontend a Deployment of one replica,
+  `Recreate`, with no volume, no claim, no role port and the read key and role secret alone mounted; the headless Service
+  `frontend` removed, since nothing dials the frontend but clients at `frontend-client`. `templates/storage.yaml`: the Service
+  and the pod declare `system` on 7081, the pod mounts the bootstrap secret, its comment says it hosts the group. `values.yaml`,
+  `templates/secrets.yaml` and `templates/compute.yaml`: comments that named the frontend as the books' host. The `kube`
+  profile already named `tcp://storage-0.storage.ultragraphdb.svc.cluster.local:7081` (task 7.4).
+- **`scripts/cluster_local.sh`.** `WORKLOADS` in the start order with the frontend a Deployment; `up` over a cluster whose
+  frontend is still a StatefulSet fails, naming `make cluster-local-down`, since no data written before the change is read
+  after it (D11) and an apply would run the new Deployment beside the old StatefulSet, both behind `frontend-client`.
+- **`bazel/oci_images`**: nothing names the old layout (`/data` and `/run/ultragraph` alone); unchanged.
+- **`AGENTS.md`**: the supervisor's row and *Local Kubernetes*.
+
+Decision taken here, within the design: the frontend's Deployment uses `Recreate`, as compute's does, so a rollout never runs
+two frontends while the config service holds one frontend instance (D11 and the Non-Goals say one frontend until stage 5.9). A
+`RollingUpdate` would shorten a rollout's gap; it is the user's to choose.
+
+### Scenarios bound (role-binaries)
+
+| Scenario | Feature | Change |
+|---|---|---|
+| The start order reaches readiness | `supervisor_tests/features/role_binaries/supervisor.feature` | text of this change; the log's order: config `/ready`, storage started and `/ready`, compute started and `/ready`, the frontend started and `/ready` |
+| The data layout matches a node's | same | text of this change; `system/meta`, `system/seq`, `storage/p1/r1` exist, and `/data` holds exactly the first components of the profile's `data_dir` settings (`config`, `storage`, `system`), which the frontend's file names none of |
+| A signal during the start stops what was started | same | not a spec scenario; its When named the old order ("while the frontend waits for its partition"), now "while storage waits for its partition": storage's `/ready` never answers (`block_size_max = 1` refuses its first lease), and neither compute nor the frontend is started |
+| The development container uses Unix sockets | `features/role_binaries/images.feature`, `image_bdd` | text of this change; the system group's socket read from the host's `[system] role_address`, the exact set of sockets the container adds (system, compute, each partition), and the frontend's file naming no `role_address` |
+| The same frames cross TCP, and the other scenarios of the requirement | unchanged | bound since stage 5.5; pass under the new order |
+| The frontend's /health answers once its listener is bound | `frontend_tests/features/role_binaries/role_binaries.feature` | text of this change ("its client address"); holds `CLIENT_ADDRESS`, `/health` 503 while held, a TCP connection to it once 200 |
+| A frontend without the system group's address stops the start | same | replaces "A frontend without its role address": the frontend requires `cluster.system_address` (`common_role::system_address`), exit 78 naming it |
+
+`images.rs`' `start_development` read `bootstrap_secret_file` from `dev/frontend.toml`, which since the switch names none, so
+every development-container scenario of `image_bdd` failed at `cb78363a` with "bootstrap_secret_file in the profile" (read from
+the code, not run: task 7.4's gate did not run `image_bdd`). It reads the host's `dev/storage.toml` now.
+
+**Left for task 8.1**, in `frontend_tests/features/role_binaries/role_binaries.feature`, both failing with "Connection refused"
+at the system group's address, since the frontend they start hosts nothing and no storage process runs:
+
+- "Epoch closes reach storage in order" is wire-protocol's ("Roles exchange role commands"), whose text this change modifies to
+  "the system group's sequencer closes epochs 1 to 5"; the frontend takes no part, so its home is a suite over a hosting
+  storage process (`storage_tests`' `system_bdd`).
+- "The frontend answers a partition's lease and its placement" is in no specification of this change or of `openspec/specs/`;
+  the group's answers to Lease and Placement are system-group's and `common_system`'s (`features/client-endpoint/owner.feature`,
+  "A lease is answered from a rising mark"). To be removed or moved; the user's call.
+
+**kubernetes-deployment, not bound as Gherkin: a decision is needed.** No kubernetes-deployment scenario has ever been bound
+as Gherkin: stage 5.7's group 5 checked them by hand on the local `container` cluster
+(`openspec/changes/archive/2026-11-09-batch-commits-through-the-roles/notes/group-5.md`, §5.4). A hermetic target cannot render
+the chart, as no Bazel toolchain provides `helm` (`MODULE.bazel`); a target driving `container`, `helm` and `kubectl` would be
+neither hermetic nor near the 10 s bound. The ways I see: a `rules_helm` toolchain and a test crate checking the rendered
+objects (the pod specs, the mounts, the ports, the absence of secrets), which covers "A pod runs unprivileged", "The frontend's
+pod holds no bootstrap secret" and "No secret is in the repository" and leaves the cluster scenarios; or the cluster scenarios
+bound over the built binaries, as task 8.2 plans for two of them; or the hand-run record of 5.7. What was checked here instead:
+`helm lint` (Helm 4.2.2) passes; `helm template` renders the frontend a Deployment with no claim and no volume but its Secrets,
+mounting the read key and the role secret alone; the storage StatefulSet with 7081 on its Service and pod and the bootstrap
+secret among its mounts; and, into the namespace `graphs` under `example.internal` with `partitions=2`, every
+`cluster.system_address` and `system.role_address` naming `storage-0.storage.graphs.svc.example.internal:7081` and both
+partition counts 2. Not run: `make cluster-local` (an `-c opt` build of five images for both architectures, which would hold
+Bazel from the agent working beside this one); the chart has not been installed on a cluster since the change.
+
+### Phases
+
+Phase 1: no public surface changes; the supervisor and the chart are a binary's wiring and deployment. No law, so no property
+target (`tdd-protocol.md`, "A group without a law writes no property target").
+
+Phase 2, the scenarios above against the supervisor at `cb78363a` (logs kept outside the repository):
+
+| Target | Phase 2 | Failing for |
+|---|---|---|
+| `supervisor_tests:bdd` | 28 scenarios: 26 passed, 2 failed, 21.5 s | the start order and the signal during the start, each at "started instance=frontend" before storage's readiness |
+| `frontend_tests:bdd` | 20 scenarios: 18 passed, 2 failed, 14.0 s | the two scenarios left for 8.1 alone; the two rebound ones passed at once, the behaviour being task 7.4's |
+| `supervisor_tests:image_bdd` | 7 scenarios: 6 passed, 1 failed | the Unix-socket scenario, its new Then matching no step until the binding took its text |
+
+"The data layout matches a node's" passed at once under its new text: the layout is task 7.4's profile. Its old text was the
+one failing (group 7's gate, item 8).
+
+Phase 3, the inputs: the start-order binding asserts the order of eight log lines, which no earlier order satisfies; the data
+layout compares the set under `/data` with the profile's settings, so a frontend directory, a stray `meta/` or `seq/` at the
+top, or a missing one fails it; the socket set is compared exactly; the held client address is distinct from the observability
+address `/health` is read on.
+
+Phase 4: the code above.
+
+### Corner cases
+
+| Case | Test |
+|---|---|
+| Storage never ready: nothing after it starts, and a signal stops what started | "A signal during the start stops what was started" |
+| The password drawn once, for the host, before its first start | "A bootstrap password removed after the first start stays removed"; the image scenarios, which read it from the host's file |
+| The frontend holding no data directory and no socket | "The data layout matches a node's"; "The development container uses Unix sockets" |
+| The frontend's one required setting absent | "A frontend without the system group's address stops the start" |
+| The client address held a moment, and past the bound | "The frontend's /health answers once its listener is bound"; "A port held past the bound ends the start" (task 7.4) |
+| The chart into another namespace and domain, two partitions | `helm template` by hand (above); no test |
+| A cluster of the old layout | the script's refusal; not run |
+
+### The gate
+
+`make build` passes. `bazel test //... --test_tag_filters=-integration_test`: 176 of 176 pass (10 executed, the rest cached,
+the other agent's changes in the tree). Clippy through the aspect over the supervisor and the two test targets: clean.
+
+The integration targets, once each, `--nocache_test_results`:
+
+| Target | Result | Time |
+|---|---|---|
+| `supervisor_tests:bdd` | **passes**, 28 scenarios, 56 steps | 20.6 s |
+| `supervisor_tests:image_bdd` (Docker 29.8.2) | **passes**, 7 scenarios, 14 steps | 17.0 s |
+| `frontend_tests:bdd` | 18 of 20: the two scenarios left for 8.1 | 13.2 s |
+| `config_tests:bdd` | **passes**, 44 scenarios, 88 steps | 3.6 s |
+
+### Found wanting
+
+1. **kubernetes-deployment has no place to run as Gherkin** (above). Task 7.2 stays open for it.
+2. **Three targets past the 10 s bound**: `supervisor_tests:bdd` 20.6 s, `image_bdd` 17.0 s, `frontend_tests:bdd` 13.2 s, as
+   before this task (22 s and 57 s at task 7.4's gate). Each starts its processes per scenario at declared ports and is
+   `exclusive`, so a split by feature file brings each target under the bound and shortens no run. Not split here.
+3. **`start_three_hosts`** (`images.rs`) still starts the frontend's container before storage's. The roles retry, so it
+   passes, and "The same frames cross TCP" states no order; left as it is.
+4. **`values.yaml`'s header** says the objects' fixed names are those "the role addresses of the `kube` profile name"; the
+   frontend's is named by none now. Left.

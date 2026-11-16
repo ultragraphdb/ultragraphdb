@@ -181,10 +181,16 @@ fn frontend_graph(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("the frontend binary receives settings with no `frontend.role_address`")]
-fn no_frontend_address(w: &mut Steps) -> TestResult {
+#[when("the frontend binary receives settings with no `cluster.system_address`")]
+fn no_system_address(w: &mut Steps) -> TestResult {
     let mut settings = frontend_holding()?;
-    settings.retain(|(name, _)| name != "frontend.role_address");
+    let before = settings.len();
+    settings.retain(|(name, _)| name != "cluster.system_address");
+    assert_eq!(
+        settings.len() + 1,
+        before,
+        "the frontend's settings named the address once"
+    );
     let log = scratch("frontend-no-address.log");
     let util = services()?;
     let pid = util.start_service_from_config(role(
@@ -198,10 +204,10 @@ fn no_frontend_address(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("it exits with code 78 and an error naming `frontend.role_address`")]
-fn names_frontend_address(w: &mut Steps) -> TestResult {
+#[then("it exits with code 78 and an error naming `cluster.system_address`")]
+fn names_system_address(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 78)?;
-    assert!(w.log.contains("frontend.role_address"), "{}", w.log);
+    assert!(w.log.contains("cluster.system_address"), "{}", w.log);
     Ok(())
 }
 
@@ -293,16 +299,17 @@ fn took_the_port(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "the frontend starts while another process holds its role address, which lets it go within the bound"
+    "the frontend starts while another process holds its client address, which lets it go within the bound"
 )]
-fn role_port_held_a_moment(w: &mut Steps) -> TestResult {
-    let log = scratch("frontend-role-port-a-moment.log");
-    let held = std::net::TcpListener::bind(SYSTEM_ROLE_ADDRESS)?;
+fn client_port_held_a_moment(w: &mut Steps) -> TestResult {
+    let log = scratch("frontend-client-port-a-moment.log");
+    // The frontend's one listener beside its observability: since the switch it listens at no role address (design D2).
+    let held = std::net::TcpListener::bind(CLIENT_ADDRESS)?;
     let _pid = start_frontend(w, &frontend_holding()?, &log)?;
     let mut retried = false;
     for _ in 0..START_SECONDS * 100 {
         w.log = std::fs::read_to_string(&log).unwrap_or_default();
-        retried = retries_of(&w.log, SYSTEM_ROLE_ADDRESS) > 0;
+        retried = retries_of(&w.log, CLIENT_ADDRESS) > 0;
         if retried {
             break;
         }
@@ -310,10 +317,10 @@ fn role_port_held_a_moment(w: &mut Steps) -> TestResult {
     }
     assert!(
         retried,
-        "a retry of the role address in the log, {START_SECONDS} s on: {}",
+        "a retry of the client address in the log, {START_SECONDS} s on: {}",
         w.log
     );
-    // The observability address is bound, the role address is not.
+    // The observability address is bound, the client address is not.
     w.status = http_status(FRONTEND_OBSERVABILITY, "/health")?;
     drop(held);
     until_answering(FRONTEND_OBSERVABILITY, "/health")?;
@@ -322,11 +329,11 @@ fn role_port_held_a_moment(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "`/health` answers 503 while the address is held, and once it answers 200 a role connection to the address is accepted at once"
+    "`/health` answers 503 while the address is held, and once it answers 200 a client connection to the address is accepted at once"
 )]
 fn health_after_binding(w: &mut Steps) -> TestResult {
     assert_eq!(w.status, 503, "{}", w.log);
-    let _connected = Runtime::new()?.block_on(as_storage())?;
+    let _connected = std::net::TcpStream::connect(CLIENT_ADDRESS)?;
     w.roles = None;
     Ok(())
 }

@@ -221,7 +221,7 @@ fn starts_all(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the config service answers first, every role's `/ready` answers, the frontend's last, and no role waited on one that was waiting on it"
+    "the config service answers first, storage's `/ready` answers before compute and the frontend are started, the frontend's answers last, and no role waited on one that was waiting on it"
 )]
 fn start_order(w: &mut Steps) -> TestResult {
     for address in [
@@ -232,16 +232,17 @@ fn start_order(w: &mut Steps) -> TestResult {
         assert_eq!(http_status(address, "/ready")?, 200, "{address}");
     }
     assert_eq!(http_status(CONFIG_ADDRESS, "/ready")?, 200);
+    // Storage hosts the system group and depends on no other role, so it is ready before compute starts; compute and the
+    // frontend each wait on a role already ready, so none waited on one waiting on it (design D10).
     in_order(
         &w.log,
         &[
             "answering instance=config path=/ready",
-            "started instance=frontend",
-            "answering instance=frontend path=/health",
             "started instance=storage",
             "answering instance=storage path=/ready",
             "started instance=compute",
             "answering instance=compute path=/ready",
+            "started instance=frontend",
             "answering instance=frontend path=/ready",
             EVERY_ROLE_READY,
         ],
@@ -416,11 +417,11 @@ fn stopped_on_0(w: &mut Steps) -> TestResult {
     )
 }
 
-#[when("the supervisor receives SIGTERM while the frontend waits for its partition")]
+#[when("the supervisor receives SIGTERM while storage waits for its partition")]
 fn terminated_in_the_start(w: &mut Steps) -> TestResult {
     write_profile(w)?;
-    // The system group, in the storage process hosting it, refuses every Lease of storage's block size, so storage leases
-    // nothing and the start waits on it until its deadline.
+    // The system group, in the storage process hosting it, refuses every Lease of storage's block size, so its partition
+    // leases nothing, never joins, and storage's `/ready`, which the start waits on, never answers before its deadline.
     let settings = w.root.join("profile").join("storage.toml");
     let text = std::fs::read_to_string(&settings)?;
     std::fs::write(
@@ -428,7 +429,6 @@ fn terminated_in_the_start(w: &mut Steps) -> TestResult {
         text.replace("[metadata]\n", "[metadata]\nblock_size_max = 1\n"),
     )?;
     start_supervisor(w, on_profile(w))?;
-    until_answering(FRONTEND_OBSERVABILITY, "/health")?;
     until_answering(STORAGE_OBSERVABILITY, "/health")?;
     let (_, pid) = w.running.as_ref().context("a running supervisor")?;
     signal(*pid, "TERM")?;
@@ -438,11 +438,13 @@ fn terminated_in_the_start(w: &mut Steps) -> TestResult {
 #[then("it starts nothing more, stops what it started, and exits 0")]
 fn stopped_what_it_started(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 0)?;
-    assert!(!w.log.contains("started instance=compute"), "{}", w.log);
+    for later in ["compute", "frontend"] {
+        let started = format!("started instance={later}");
+        assert!(!w.log.contains(&started), "{started}: {}", w.log);
+    }
     in_order(
         &w.log,
         &[
-            "stopped instance=frontend code=0",
             "stopped instance=storage code=0",
             "stopped instance=config code=0",
         ],
@@ -505,13 +507,39 @@ fn container_started(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "`/data` holds `meta/`, `seq/` and `storage/p1/r1/`, the paths a cluster node uses for the same roles"
+    "`/data` holds `system/meta/`, `system/seq/` and `storage/p1/r1/`, the paths a cluster's hosting storage node uses, and no directory of the frontend's"
 )]
-fn data_layout(w: &mut Steps) {
+fn data_layout(w: &mut Steps) -> TestResult {
     let data = w.root.join("data");
-    for path in ["meta", "seq", "storage/p1/r1"] {
+    for path in ["system/meta", "system/seq", "storage/p1/r1"] {
         assert!(data.join(path).is_dir(), "{path}");
     }
+    // What stands under `/data` is what the profile's data directories name, the config service's, storage's and the system
+    // group's, and nothing else: the frontend's file names none, so nothing of it is there.
+    let mut named = std::collections::BTreeSet::new();
+    for file in [
+        "dev.toml",
+        "profile/frontend.toml",
+        "profile/storage.toml",
+        "profile/compute.toml",
+    ] {
+        let text = std::fs::read_to_string(w.root.join(file))?;
+        named.extend(
+            text.lines()
+                .filter_map(|line| {
+                    let (key, value) = line.split_once('=')?;
+                    let directory = Path::new(value.trim().trim_matches('"'));
+                    let below = directory.strip_prefix(&data).ok()?;
+                    (key.trim() == "data_dir").then(|| below.components().next())?
+                })
+                .map(|first| first.as_os_str().to_os_string()),
+        );
+    }
+    let held: std::collections::BTreeSet<_> = std::fs::read_dir(&data)?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect::<Result<_, _>>()?;
+    assert_eq!(held, named, "under {}", data.display());
+    Ok(())
 }
 
 /// What the secrets of the scenario's data directory hold.
@@ -946,7 +974,7 @@ fn development_started(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend and compute connect through `unix:///run/ultragraph/<role>.sock`, each partition through `unix:///run/ultragraph/storage-p<partition>.sock`, and a write and a read through the frontend succeed"
+    "the system group listens at `unix:///run/ultragraph/system.sock`, compute at `unix:///run/ultragraph/compute.sock` and each partition at `unix:///run/ultragraph/storage-p<partition>.sock`, the frontend listens at no role address, and a write and a read through the frontend succeed"
 )]
 fn development_unix(w: &mut Steps) -> TestResult {
     images::development_over_unix(&w.containers)

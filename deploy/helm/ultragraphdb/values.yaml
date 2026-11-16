@@ -10,14 +10,14 @@ images:
   bench: ultragraphdb/client_bench:local
 imagePullPolicy: IfNotPresent
 
-# The partitions the storage instance holds and the frontend places across, one core each.
+# The partitions the storage instance holds and the system group places across, one core each.
 partitions: 1
 
 # The cluster's DNS domain, which the role addresses end in.
 clusterDomain: cluster.local
 
-# The volume of each data directory: the config service's, the frontend's and the storage instance's. An empty class takes
-# the cluster's default.
+# The volume of each data directory: the config service's and the storage instance's, which holds the system group's beside
+# its partitions'. An empty class takes the cluster's default.
 persistence:
   storageClassName: ""
   size: 1Gi

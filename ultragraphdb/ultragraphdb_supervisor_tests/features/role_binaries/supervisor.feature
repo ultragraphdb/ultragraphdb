@@ -2,11 +2,11 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: The supervisor starts, stops and reports the roles
-  openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md
+  openspec/changes/stage-5-8-system-group/specs/role-binaries/spec.md
 
   Scenario: The start order reaches readiness
     When the supervisor starts the config service and the three roles
-    Then the config service answers first, every role's `/ready` answers, the frontend's last, and no role waited on one that was waiting on it
+    Then the config service answers first, storage's `/ready` answers before compute and the frontend are started, the frontend's answers last, and no role waited on one that was waiting on it
 
   Scenario: A failing role ends the container with its code
     When the storage process exits with code 74 while the others run
@@ -37,7 +37,7 @@ Feature: The supervisor starts, stops and reports the roles
     Then the supervisor stops the frontend and compute and exits with code 0
 
   Scenario: A signal during the start stops what was started
-    When the supervisor receives SIGTERM while the frontend waits for its partition
+    When the supervisor receives SIGTERM while storage waits for its partition
     Then it starts nothing more, stops what it started, and exits 0
 
   Scenario: A variable naming a setting stays out of a role's environment
@@ -50,7 +50,7 @@ Feature: The supervisor starts, stops and reports the roles
 
   Scenario: The data layout matches a node's
     When the development container has started
-    Then `/data` holds `meta/`, `seq/` and `storage/p1/r1/`, the paths a cluster node uses for the same roles
+    Then `/data` holds `system/meta/`, `system/seq/` and `storage/p1/r1/`, the paths a cluster's hosting storage node uses, and no directory of the frontend's
 
   Scenario: The first start draws the keys and a restart keeps them
     When the development container starts, stops and starts again over one data directory

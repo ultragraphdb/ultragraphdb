@@ -16,7 +16,7 @@ use compio::runtime::Runtime;
 use rustix::process::{Pid, Signal, kill_process};
 use ultragraphdb_common_config_check::{Instance, TargetFiles, check_config_service, instances};
 use ultragraphdb_common_service::{PARENT_PID, stop_with_parent};
-use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig, SystemTable};
+use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig};
 use ultragraphdb_common_telemetry::{LogFormat, TelemetryConfig, init};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_transport_http_client::{HttpClient, HttpUrl, read_key};
@@ -42,21 +42,27 @@ const DRAWING: &str = ".drawing";
 /// The name the config service goes by in the log.
 const CONFIG: &str = "config";
 
+/// The order the roles start in, each ready before the next starts: storage hosts the system group and depends on no other
+/// role, compute reads from storage, and the frontend's readiness asks for a partition answering (design D10).
+const START_ORDER: [&str; 3] = ["storage", "compute", "frontend"];
+
 /// The order the processes stop in: the frontend takes no more work, compute drains, storage flushes, and the settings go last.
 const STOP_ORDER: [&str; 4] = ["frontend", "compute", "storage", CONFIG];
 
 const HELP: &str = "ultragraphdb_supervisor --config <file>
 
-Runs the development container: the config service, the frontend, storage and compute, each its own process, started in that
-order, each waited on over HTTP. It restarts nothing. SIGTERM and SIGINT stop them in the shutdown order: the frontend, compute,
-storage, the config service. SIGHUP and SIGQUIT do the same, as SIGTERM, since a closed terminal reaches the supervisor alone.
+Runs the development container: the config service, storage, compute and the frontend, each its own process, started in that
+order, each waited on over HTTP until it is ready before the next starts. It restarts nothing. SIGTERM and SIGINT stop them in
+the shutdown order: the frontend, compute, storage, the config service. SIGHUP and SIGQUIT do the same, as SIGTERM, since a
+closed terminal reaches the supervisor alone.
 ULTRAGRAPHDB_PARENT_PID names a process to end with: once it is not this one's parent, the supervisor stops as on SIGTERM. The
 supervisor sets the variable to its own process for everything it starts, so killed outright it takes each of them with it, each
 stopping as on SIGTERM; at PID 1 its death ends the container.
 
 <file> is the config service's own settings file, over clear text, as the shipped profiles name it. The binaries stand beside this
 one. The config service's two keys and the role secret are drawn at random where the settings name them, if nothing is there,
-and the bootstrap administrator's password too before the cluster's first start, which reads it once.
+and the bootstrap administrator's password too before the first start of the storage instance hosting the system group, which
+reads it once.
 
 Exit codes:
   128 plus the signal's number  a role a signal killed
@@ -231,10 +237,10 @@ fn tcp_host_port(address: &str) -> Option<String> {
 }
 
 /// Whether the storage instance hosting the system group over `data_dir`, its `system.data_dir`, has yet to create the cluster:
-/// its metadata group's log, `meta/` under it, is not there. The bootstrap administrator's password is read at that start alone, and the operator removes it afterwards, so it is
-/// drawn before that start and never again.
-fn first_start(data_dir: Option<&str>) -> bool {
-    data_dir.is_none_or(|directory| !Path::new(directory).join("meta").exists())
+/// its metadata group's log, `meta/` under it, is not there. The bootstrap administrator's password is read at that start alone,
+/// and the operator removes it afterwards, so it is drawn before that start and never again.
+fn first_start(data_dir: &str) -> bool {
+    !Path::new(data_dir).join("meta").exists()
 }
 
 /// Draws the secret `file` holds when nothing is there; what is there is kept, so a restart holds what the first start drew. The
@@ -306,9 +312,10 @@ async fn supervise(start: &Start, signals: &Signals) -> Result<u8, RoleError> {
 }
 
 impl Supervised<'_> {
-    /// The start order: the config service; the frontend, once it holds its settings; storage; compute; then the frontend's
-    /// readiness, which a storage partition answering it decides. No role waits on one waiting on it, since storage and compute
-    /// retry their joins until their own deadlines.
+    /// The start order (design D10): the config service; storage, which hosts the system group and depends on no other role;
+    /// compute; the frontend; each waited on until its `/ready` answers before the next starts. No role waits on one waiting
+    /// on it, and compute and the frontend retry dialling the system group until their own deadlines, so neither needs the
+    /// order to hold.
     ///
     /// A future dropped at a wait leaves the roles started so far running, each held in `processes`.
     async fn start_all(&mut self) -> Result<(), Interrupt> {
@@ -322,37 +329,28 @@ impl Supervised<'_> {
         let every = instances(&files);
         one_role_secret(&every).map_err(Interrupt::Refused)?;
         for config in every.iter().filter_map(Instance::config) {
-            let secrets = [
-                config.cluster().role_secret_file(),
+            // The password is the hosting storage instance's alone, read at its first start (design D2, D11).
+            let bootstrap = config.system().and_then(|system| {
                 config
                     .metadata()
                     .bootstrap_secret_file()
-                    .filter(|_| first_start(config.system().map(SystemTable::data_dir))),
-            ];
-            for file in secrets.into_iter().flatten() {
+                    .filter(|_| first_start(system.data_dir()))
+            });
+            for file in [config.cluster().role_secret_file(), bootstrap]
+                .into_iter()
+                .flatten()
+            {
                 draw_secret(file).map_err(Interrupt::Refused)?;
             }
         }
-        for (role, path) in [
-            ("frontend", "/health"),
-            ("storage", "/ready"),
-            ("compute", "/ready"),
-        ] {
+        for role in START_ORDER {
             for instance in every.iter().filter(|instance| instance.role() == role) {
                 let observed = observability(&target, instance).map_err(Interrupt::Refused)?;
                 let variables = self.role_variables(&target, instance.name());
                 self.spawn(instance.name(), instance.role(), &[], &variables)?;
-                self.until_answering(instance.name(), &observed, path)
+                self.until_answering(instance.name(), &observed, "/ready")
                     .await?;
             }
-        }
-        for instance in every
-            .iter()
-            .filter(|instance| instance.role() == "frontend")
-        {
-            let observed = observability(&target, instance).map_err(Interrupt::Refused)?;
-            self.until_answering(instance.name(), &observed, "/ready")
-                .await?;
         }
         Ok(())
     }

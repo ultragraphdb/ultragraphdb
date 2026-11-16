@@ -38,7 +38,8 @@ IMAGES=(
   "//ultragraphdb/ultragraphdb_compute:ultragraphdb_compute_multiarch ultragraphdb/compute:local"
   "//ultragraphdb_tool/ultragraphdb_tool_bench:client_bench_multiarch ultragraphdb/client_bench:local"
 )
-WORKLOADS=(statefulset/config statefulset/frontend statefulset/storage deployment/compute)
+# In the start order (design D10): storage hosts the system group, which compute and the frontend dial.
+WORKLOADS=(statefulset/config statefulset/storage deployment/compute deployment/frontend)
 
 fail() {
   echo "cluster_local.sh: $*" >&2
@@ -192,6 +193,11 @@ up() {
     echo "The cluster ${CLUSTER} exists: deploying onto it"
   else
     create_cluster "${cpus}" "${memory}"
+  fi
+  # The frontend ran as a StatefulSet holding the books before stage 5.8; no data written before then is read after (design
+  # D11), so such a cluster starts over rather than run two frontends beside a storage volume of the old layout.
+  if [ "${existed}" = true ] && kube -n "${NAMESPACE}" get statefulset/frontend </dev/null >/dev/null 2>&1; then
+    fail "the cluster ${CLUSTER} runs the layout before the system group moved to storage (the frontend a StatefulSet): run make cluster-local-down, then make cluster-local"
   fi
   install_seccomp
   forget_node_images

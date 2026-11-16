@@ -395,6 +395,16 @@ fn setting<'a>(text: &'a str, key: &str) -> TestResult<&'a str> {
         .ok_or_else(|| TestError::new(format!("{key} in the profile")))
 }
 
+/// The value of `key` in the table `table` of `text`, a TOML profile file.
+fn table_setting<'a>(text: &'a str, table: &str, key: &str) -> TestResult<&'a str> {
+    let header = format!("[{table}]");
+    let (_, rest) = text
+        .split_once(&header)
+        .ok_or_else(|| TestError::new(format!("{header} in the profile")))?;
+    let within = rest.split("\n[").next().unwrap_or_default();
+    setting(within, key)
+}
+
 /// The profile file `file` as shipped.
 fn profile(file: &str) -> TestResult<String> {
     Ok(std::fs::read_to_string(Path::new(PROFILES).join(file))?)
@@ -426,7 +436,8 @@ pub(crate) fn start_development(c: &mut Containers, seccomp: Seccomp) -> TestRes
     until_every_role_ready(c, &container, 1)?;
     c.endpoint = published(&container, ENDPOINT_PORT)?;
     c.cluster = setting(&profile("dev/frontend.toml")?, "id")?.parse()?;
-    let secret = setting(&profile("dev/frontend.toml")?, "bootstrap_secret_file")?.to_string();
+    // The bootstrap administrator's password is the system group's host's to read (design D2, D11).
+    let secret = setting(&profile("dev/storage.toml")?, "bootstrap_secret_file")?.to_string();
     let copied = scratch(&format!("{container}-bootstrap.secret"));
     act(&[
         "cp",
@@ -480,12 +491,18 @@ pub(crate) fn development_over_unix(c: &Containers) -> TestResult {
         (0o700, nonroot, nonroot),
         "the sockets' directory: its mode, user and group"
     );
-    // The system group's socket, in the storage process hosting it, which every role dials (design D2).
-    let system = setting(&profile("dev/frontend.toml")?, "system_address")?.to_string();
-    let compute = setting(&profile("dev/compute.toml")?, "role_address")?.to_string();
+    // The system group listens at its host's `system.role_address`, which every role dials (design D2); the frontend's file
+    // names no role address, so the frontend adds no socket.
     let storage = profile("dev/storage.toml")?;
+    let system = table_setting(&storage, "system", "role_address")?.to_string();
+    let compute =
+        table_setting(&profile("dev/compute.toml")?, "compute", "role_address")?.to_string();
     assert_eq!(system, "unix:///run/ultragraph/system.sock");
     assert_eq!(compute, "unix:///run/ultragraph/compute.sock");
+    assert!(
+        !profile("dev/frontend.toml")?.contains("role_address"),
+        "the frontend names a role address"
+    );
     let first: u32 = setting(&storage, "partition_first")?.parse()?;
     let count: u32 = setting(&storage, "partition_count")?.parse()?;
     let mut expected: BTreeSet<String> = [&system, &compute]

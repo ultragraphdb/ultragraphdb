@@ -4,7 +4,8 @@
 # Each needs an image in a container: the `image_bdd` target runs them in Docker, and `bdd` leaves out the tag.
 @image
 Feature: The role-binaries scenarios that need an image
-  openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md
+  openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md, and for the modified "The development
+  container uses Unix sockets", openspec/changes/stage-5-8-system-group/specs/role-binaries/spec.md
 
   Scenario: A role image holds its binary alone
     When the storage image is built
@@ -12,7 +13,7 @@ Feature: The role-binaries scenarios that need an image
 
   Scenario: The development container uses Unix sockets
     When the development image starts with its default profile
-    Then the frontend and compute connect through `unix:///run/ultragraph/<role>.sock`, each partition through `unix:///run/ultragraph/storage-p<partition>.sock`, and a write and a read through the frontend succeed
+    Then the system group listens at `unix:///run/ultragraph/system.sock`, compute at `unix:///run/ultragraph/compute.sock` and each partition at `unix:///run/ultragraph/storage-p<partition>.sock`, the frontend listens at no role address, and a write and a read through the frontend succeed
 
   Scenario: The same frames cross TCP
     When the three roles run in three containers configured with `tcp://` addresses

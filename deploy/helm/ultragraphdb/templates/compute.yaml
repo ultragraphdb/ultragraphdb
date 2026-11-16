@@ -1,5 +1,5 @@
 {{- /*
-Compute: no data directory, so a Deployment. Its role address, which it binds and announces to the frontend, is
+Compute: no data directory, so a Deployment. Its role address, which it binds and announces to the system group, is
 `compute.compute.<namespace>.svc.<domain>`: the pod's `hostname` under the headless Service `compute` as its `subdomain`. One
 replica, replaced by `Recreate`, so no two pods hold that name at once.
 */ -}}

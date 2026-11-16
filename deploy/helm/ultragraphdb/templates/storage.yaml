@@ -1,8 +1,10 @@
 {{- /*
 The storage instance `storage`, one partition: a StatefulSet of one replica per instance, as an instance's name comes from its
-environment and a StatefulSet's ordinal names no instance. Its role address is its pod's name under the headless Service
-`storage`, so a restart on another IP keeps the address the frontend holds. A pod recovering its log answers /health and not
-/ready until the replay ends: the startup probe waits for /health alone, so a long replay keeps the pod alive and unready.
+environment and a StatefulSet's ordinal names no instance. It hosts the system group (design D11): the group's logs live on its
+volume under /data/system, it listens for role connections at port 7081, and it alone mounts the bootstrap secret, which the
+group reads at the cluster's first start. Its role addresses are its pod's name under the headless Service `storage`, so a
+restart on another IP keeps the addresses every role dials. A pod recovering its logs answers /health and not /ready until the
+replay ends: the startup probe waits for /health alone, so a long replay keeps the pod alive and unready.
 */ -}}
 apiVersion: v1
 kind: Service
@@ -17,6 +19,8 @@ spec:
   selector:
     {{- include "ultragraphdb.selector" (dict "name" "storage") | nindent 4 }}
   ports:
+    - name: system
+      port: 7081
     - name: role
       port: 7100
     - name: observability
@@ -50,6 +54,7 @@ spec:
           env:
             {{- include "ultragraphdb.bootstrap" (dict "name" "storage" "root" .) | nindent 12 }}
           ports:
+            - {name: system, containerPort: 7081}
             - {name: role, containerPort: 7100}
             - {name: observability, containerPort: 8083}
           {{- include "ultragraphdb.containerSecurity" . | nindent 10 }}
@@ -66,4 +71,5 @@ spec:
             sources:
               - secret: {name: ultragraphdb-read-key, optional: true}
               - secret: {name: ultragraphdb-role-secret, optional: true}
+              - secret: {name: ultragraphdb-bootstrap-secret, optional: true}
   {{- include "ultragraphdb.dataClaim" . | nindent 2 }}
