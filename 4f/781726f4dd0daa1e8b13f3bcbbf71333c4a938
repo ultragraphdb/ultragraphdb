@@ -1,0 +1,66 @@
+ultragraphdb_common/ultragraphdb_common_system/tests/types/system_group/system_group_catalog_tests.rs
+  s_21eff977e05256::t_5e8d0e03ae65de 6,10
+  s_21eff977e05256::t_eaa61a1f45899d 44-57,63,68-72
+  s_21eff977e05256::t_e4d04a56e14a4e 527-534
+  s_21eff977e05256::t_857f268056428c 495-504,508-509
+  s_21eff977e05256::t_3fe56e7599d3ed 560-565
+  s_21eff977e05256::t_2bdb2bdadc2369 99-107
+  s_21eff977e05256::t_8af0b49705b0b9 209,212,215-218
+  s_21eff977e05256::t_949a37639887b8 357-372
+  s_21eff977e05256::t_4563714811218c 647-651,653,655-677
+  s_21eff977e05256::t_09b4ba74786196 139-144,146
+  s_21eff977e05256::t_1a37ceaa2d3100 725
+  s_21eff977e05256::t_22f5ff654f93e2 283,289-290
+  s_21eff977e05256::t_313a21a53a18f6 710-715
+  s_21eff977e05256::t_829e6f260a94f5 176,183
+  s_21eff977e05256::t_5ad5ff1b49b5a7 24-27
+  s_21eff977e05256::t_9528361afe0c54 726,772
+ultragraphdb_common/ultragraphdb_common_system/tests/types/system_group/mod.rs
+  s_21eff977e05256::t_6d9bcdc8c7c82d 24,29
+  s_21eff977e05256::t_cf68facd3e6e4b 25
+  s_21eff977e05256::t_95c40fa374883b 72-73,75-97,99-105,116-135
+  s_21eff977e05256::t_5e9432149026dd 106-115
+ultragraphdb_common/ultragraphdb_common_system/tests/types/system_group/system_group_check_tests.rs
+  s_21eff977e05256::t_ebc60d374b1551 170,173
+  s_21eff977e05256::t_1b10de3d76da64 184
+  s_21eff977e05256::t_7f4f9231dce53e 6,9,22-24,41-51,65-74,96,99,139,143,149,175-183,185,195,198,200,225,228,254,256
+ultragraphdb_common/ultragraphdb_common_system/tests/books_steps.rs
+  s_21eff977e05256::t_8e5d53e640f866 499,501,506-513
+  s_21eff977e05256::t_e2f31aed92d956 10
+  s_21eff977e05256::t_37f5d7671f57f7 520
+  s_21eff977e05256::t_90ffc7be13317a 15,33,100-104,126-130,194-195,228-229
+ultragraphdb_common/ultragraphdb_common_system/tests/bdd_stage.rs
+  s_21eff977e05256::t_9feb0504fd23d3 10-11,17,21,29,48-50,144-145,244-265
+ultragraphdb_common/ultragraphdb_common_system/tests/property/types/system_session/system_session_session_property_tests.rs
+  s_21eff977e05256::t_59be520b1b9b93 9,11,15,58-74,76-84,129-131
+ultragraphdb_common/ultragraphdb_common_system/tests/system_steps.rs
+  s_21eff977e05256::t_5a4d0a6959938a 1040-1044
+ultragraphdb_common/ultragraphdb_common_system/tests/types/system_group/system_group_reads_tests.rs
+  s_21eff977e05256::t_7eaa6e56d4f024 19-20,164-171,179,183,200,204,352,355,358,360-368
+ultragraphdb_common/ultragraphdb_common_system/tests/types/system_group/system_group_syncing_tests.rs
+  s_21eff977e05256::t_c0441645e888e9 252-255,259-261
+ultragraphdb_common/ultragraphdb_common_system/tests/types/system_session/mod.rs
+  s_21eff977e05256::t_3ec2f8bec95065 16-17,23,30,35,46-48,58-59,78-91,139-140,145-146,151-156,166
+ultragraphdb_common/ultragraphdb_common_system/tests/types/system_session/system_session_frontend_tests.rs
+  s_21eff977e05256::t_66f09070f1c38e 23,38-59,338-345
+ultragraphdb_common/ultragraphdb_common_system/tests/types/system_session/system_session_session_tests.rs
+  s_21eff977e05256::t_a261eec95814fe 27,343-350,375-378,384-394,435
+ultragraphdb_common/ultragraphdb_common_system/tests/types/system_session/system_session_tests.rs
+  s_21eff977e05256::t_70cd13f89b7e95 14,82-83,147-150,156,267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4f781726f4dd0daa1e8b13f3bcbbf71333c4a938",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
