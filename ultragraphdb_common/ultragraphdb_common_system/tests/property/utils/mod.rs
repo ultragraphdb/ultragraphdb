@@ -14,13 +14,14 @@ use futures::channel::mpsc::unbounded;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::{ClockReading, SequencerConfig};
 use ultragraphdb_common_role::{
-    ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server, listen, serve_connection,
+    ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server, serve_connection,
 };
 use ultragraphdb_common_system::{
     SystemGroup, SystemHandle, SystemSession, SystemShared, SystemStart,
 };
 use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_protocol_transport::{Address, Endpoint};
+use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_transactions_log::{SimStorage, Wal, WalConfig};
 
 pub(crate) const CLUSTER: u64 = 7;
@@ -120,12 +121,10 @@ pub(crate) async fn served(handle: &SystemHandle) -> Option<(Address, String, Jo
     let cluster = RoleCluster::new(CLUSTER, secret, Duration::from_secs(1));
     let (joins, _joined) = unbounded();
     let shared = SystemShared::new(cluster.clone(), handle.clone(), joins);
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .ok()?
-        .local_addr()
-        .ok()?
-        .port();
-    let listener = listen(&format!("tcp://127.0.0.1:{port}")).await.ok()?;
+    // Bound at port 0 and read back, so no other process takes the port between a choice and the bind.
+    let listener = Listener::bind(&Address::any_port("127.0.0.1").ok()?)
+        .await
+        .ok()?;
     let address = listener.local_address().ok()?;
     let server = Server::new(CLUSTER, "frontend", Endpoint::Frontend)
         .ok()?

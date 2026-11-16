@@ -517,7 +517,9 @@ Every case has a test; C3.24's frame of as many checks as `max_frame` holds is c
 ### Laws L3.1 to L3.35
 
 The property tests are Hegel state machines (`#[hegel::state_machine]`, `hegel::stateful::machine`, hegeltest 0.52.6 offers the
-stateful API) where the law is one, and drawn properties otherwise, all under `tests/property/`, target `property`.
+stateful API) where the law is one, and drawn properties otherwise, all under `tests/property/`, in two targets over the one
+tree split by libtest's filter: `property_catalog` runs `system_group_catalog_property_tests` (2 tests, 3.7 s alone), `property`
+the other 9 (0.7 s alone).
 
 | Laws | Test |
 |---|---|
@@ -534,6 +536,30 @@ stateful API) where the law is one, and drawn properties otherwise, all under `t
 | L3.35 | `test_the_endpoint_table_by_role`, over the 13 commands the table names that a role client can build; `UnknownCommand` for a number §3 lacks is the transport's refusal, which its own tests hold |
 
 Every law has a test.
+
+#### The target that timed out at 300 s
+
+`make test` reported `common_system:property` as TIMEOUT in 300 s. The timeout is Hegel's: once a case fails, its engine
+(hegeltest-c 0.51.5, `MAX_SHRINKING_SECONDS = 300`) shrinks for up to 300 s, so a failing law shows as Bazel's timeout instead
+of its assertion. Reproduced on 2026-11-16 with a failing variant of the session tests: the libtest run failed in 60 s, two
+shrinks were stopped at 300 s each, and Bazel reported TIMEOUT. The tree as it stands passes 11 of 11, alone in 3.7 s, in the
+property phase in 3.8 s, and in 64 runs in parallel, 16 of them beside 40 busy loops, none failed.
+
+Three causes of a failure that load alone brings were removed in `tests/property/`, no assertion changed:
+
+- L3.35 judged a command served when no Error came within 200 ms of real time, so a refusal answered later than that read as
+  served. A served command is now followed by a Members request on the same connection, which takes its requests in order: a
+  refusal comes before the Members reply, an answer does not. A refused command's Error is read as its first frame. Both
+  branches were seen failing against a table altered each way.
+- L3.33 read each command's reply within 200 ms and left out any reply later than that. Each command is now followed by the
+  same Members request, and every frame through its reply is inspected.
+- `served` chose a port by binding port 0, dropping the socket and listening at that port again, so another process could take
+  it between the two; the group now listens at port 0 through `Address::any_port` and reads its port back.
+
+`test_a_version_past_the_cap_is_refused` is 3.7 s of the 3.7 s: each of its 3 cases declares an IRI of 16 MiB, which the group
+parses with oxrdf about four times a Declare (`declarations::tightens`, `declarations::merged`, and `version_bytes`, whose
+encoding decodes the IRI again), about 1.2 s a case in a fastbuild. The law needs a version past the cap, so it keeps its size and
+its 3 cases, in a target of its own.
 
 ### Phase 5: fuzzing
 

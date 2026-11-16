@@ -50,21 +50,39 @@ rust_test(
 )
 
 # The property tests, Hegel's, under `tests/property/`, mirroring `src/`. Derandomized and without an example database,
-# so a run is a function of its sources and Bazel may cache it.
-rust_test(
-    name = "property",
-    srcs = glob(["tests/property/**/*.rs"]),
-    crate_root = "tests/property/mod.rs",
-    env = {
-        "HEGEL_DATABASE": "disabled",
-        "HEGEL_DERANDOMIZE": "true",
-    },
-    tags = ["property-test"],
-    deps = [":ultragraphdb_common_system"] + all_crate_deps(
-        normal = True,
-        normal_dev = True,
-    ),
-)
+# so a run is a function of its sources and Bazel may cache it. Two targets over the one tree, split by libtest's filter
+# on the catalog's test file: its version past the cap, 16 MiB declared three times, takes about 3.7 s, the other nine
+# tests under 1 s together, and Bazel runs the two beside each other.
+[
+    rust_test(
+        name = name,
+        srcs = glob(["tests/property/**/*.rs"]),
+        args = args,
+        crate_root = "tests/property/mod.rs",
+        env = {
+            "HEGEL_DATABASE": "disabled",
+            "HEGEL_DERANDOMIZE": "true",
+        },
+        tags = ["property-test"],
+        deps = [":ultragraphdb_common_system"] + all_crate_deps(
+            normal = True,
+            normal_dev = True,
+        ),
+    )
+    for name, args in [
+        (
+            "property",
+            [
+                "--skip",
+                "types::system_group::system_group_catalog_property_tests::",
+            ],
+        ),
+        (
+            "property_catalog",
+            ["types::system_group::system_group_catalog_property_tests::"],
+        ),
+    ]
+]
 
 # cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
 rust_test(

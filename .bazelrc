@@ -28,6 +28,12 @@ build --show_timestamps
 # Show failing logs. A test runs once: a failure on any run is a failure, since a test that fails intermittently is a race to find.
 test --test_output=errors
 
+# A property test that fails reports its counterexample at once, unshrunk: Hegel shrinks a failure for up to 300 s, as
+# long as Bazel's timeout, so a shrinking law reads as a timeout with its assertion unprinted. To shrink a failure, run
+# its target again with shrinking on, which a later --test_env overrides this one with:
+#   bazel test //<package>:property --test_env=HEGEL_PHASES=explicit,reuse,generate,target,shrink
+test --test_env=HEGEL_PHASES=explicit,reuse,generate,target
+
 # Integer overflow panics in every build, release included: a wrapped offset, length or epoch written to disk is
 # corruption, and a stop is not. Cargo's [profile.release] says the same; Bazel reads no Cargo profile, and a binary's
 # release_flags reach only its own crate, so the flag goes to every target here.

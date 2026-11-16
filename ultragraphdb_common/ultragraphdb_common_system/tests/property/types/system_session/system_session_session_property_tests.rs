@@ -71,6 +71,25 @@ async fn next(client: &mut RoleClient) -> Option<ultragraphdb_protocol_transport
         .ok()
 }
 
+/// Each frame `client` receives after a Members request it sends now, through that request's reply, handed to `each` and
+/// dropped, since a frame holds the client's one buffer. A connection takes its requests in order, answering or refusing each
+/// before it reads the next, so what its earlier requests were answered with at once comes first; `None` when the connection
+/// ends, or 5 s pass, before the reply.
+async fn through_members(
+    client: &mut RoleClient,
+    mut each: impl FnMut(&ultragraphdb_protocol_transport::ReceivedFrame),
+) -> Option<()> {
+    client.send_only(&Members::new()).await.ok()?;
+    let barrier = client.last_stream();
+    loop {
+        let frame = next(client).await?;
+        each(&frame);
+        if frame.view().ok()?.header().stream() == barrier {
+            return Some(());
+        }
+    }
+}
+
 /// L3.29: a version of a drawn size up to 1 MiB, read with Catalog at a drawn `max_frame` from the floor to 1 MiB, comes back
 /// across as many frames as it takes, its bytes those committed. The cap itself is the unit and BDD tests' boundary.
 #[hegel::test(test_cases = 12)]
@@ -264,19 +283,24 @@ fn test_the_endpoint_table_by_role(tc: TestCase) {
         let mut client = dialled(address, password, role, MAX_FRAME_SIZE_U32).await?;
         send(&mut client, command).await?;
         let rule = ProtocolError::command_not_served(command.number()).to_string();
-        let answered = compio::time::timeout(Duration::from_millis(200), client.next_frame()).await;
-        let not_served = match answered {
-            Ok(Ok(frame)) => {
-                let view = frame.view().ok()?;
+        let not_served = |frame: &ultragraphdb_protocol_transport::ReceivedFrame| {
+            frame.view().is_ok_and(|view| {
                 view.command() == Command::Error
                     && view.header().stream() == 0
                     && ErrorReplyView::from_frame(&view).is_ok_and(|error| {
                         error.code() == ErrorCode::Protocol && error.message().contains(&rule)
                     })
-            }
-            Ok(Err(_)) | Err(_) => false,
+            })
         };
-        Some(not_served)
+        if table_has(role, command) {
+            // Served: a Members sent after it is answered once it was, and a refusal of it would come first.
+            let mut refused = false;
+            through_members(&mut client, |frame| refused |= not_served(frame)).await?;
+            Some(refused)
+        } else {
+            // Refused: the Error is the first frame, and the connection closes; nothing more is sent to it.
+            Some(not_served(&next(&mut client).await?))
+        }
     });
     assert_eq!(
         refused,
@@ -308,11 +332,7 @@ fn test_no_reply_holds_a_key(tc: TestCase) {
         let mut replies = Vec::new();
         for command in &commands {
             send(&mut frontend, *command).await?;
-            if let Ok(Ok(frame)) =
-                compio::time::timeout(Duration::from_millis(200), frontend.next_frame()).await
-            {
-                replies.push(frame.bytes().to_vec());
-            }
+            through_members(&mut frontend, |frame| replies.push(frame.bytes().to_vec())).await?;
         }
         Some(replies)
     });

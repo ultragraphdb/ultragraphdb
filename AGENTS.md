@@ -423,7 +423,8 @@ Property tests are Hegel's (`hegeltest`), from roadmap stage 5.8 on wherever a c
 `tests/property/`, rooted at `tests/property/mod.rs` and mirroring `src/`, each file named `<source
 file>_property_tests.rs`, declared as `[[test]] property`, and run by one `rust_test` named `property`, tagged
 `property-test`, with `HEGEL_DERANDOMIZE = "true"` and `HEGEL_DATABASE = "disabled"` in its `env`, so a run is a
-function of its sources. The unit test target's glob excludes `tests/property/**`. The crate takes `hegeltest = {
+function of its sources. `.bazelrc` sets `HEGEL_PHASES` without `shrink` for every test, so a failing law reports its
+counterexample in seconds; a later `--test_env=HEGEL_PHASES=explicit,reuse,generate,target,shrink` shrinks it. The unit test target's glob excludes `tests/property/**`. The crate takes `hegeltest = {
 workspace = true, features = ["static-engine"] }` among its dev-dependencies: the engine is then compiled into the test
 binary, and the sandbox loads and fetches nothing. A property test asserts and returns nothing, since `#[hegel::test]`
 refuses a return type: the one exception to tests returning `TestResult`, with no `unwrap`, `expect` or `panic!` all the
