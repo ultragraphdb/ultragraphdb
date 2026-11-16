@@ -124,10 +124,24 @@ fn list(iri: &str, what: &'static str, len: usize) -> Result<(), CatalogError> {
 /// [`CatalogError::too_large`] for a string or list past its width, which [`check_lengths`] refuses first for every
 /// declaration the catalog takes.
 pub fn encode(declaration: &Declaration) -> Result<Vec<u8>, CatalogError> {
-    let mut w = vec![FORMAT, kind_of(declaration)];
+    let mut w = Vec::new();
+    encode_into(&mut w, declaration)?;
+    // Paired with the load's decode: what is written reads back as the declaration it was written from.
+    debug_assert!(decode(&[], &w).is_ok_and(|read| read == *declaration));
+    Ok(w)
+}
+
+/// The stored value of `declaration`, written after what `w` holds, as [`encode`] returns it. A version's contents write
+/// each entry so and read the whole version back, which reads each entry with [`decode`] (`CatalogContents::encode`).
+///
+/// # Errors
+///
+/// As [`encode`]; on an error `w` holds part of the value.
+pub(crate) fn encode_into(w: &mut Vec<u8>, declaration: &Declaration) -> Result<(), CatalogError> {
+    w.extend_from_slice(&[FORMAT, kind_of(declaration)]);
     match declaration {
         Declaration::Predicate(p) => {
-            string(&mut w, p.predicate().as_str())?;
+            string(w, p.predicate().as_str())?;
             w.push(match p.kind() {
                 PredicateKind::Edge => 0,
                 PredicateKind::Property => 1,
@@ -137,39 +151,37 @@ pub fn encode(declaration: &Declaration) -> Result<Vec<u8>, CatalogError> {
                 Cardinality::Single => 0,
                 Cardinality::Multi => 1,
             });
-            optional(&mut w, p.datatype().map(NamedNode::as_str))?;
+            optional(w, p.datatype().map(NamedNode::as_str))?;
             w.push(u8::from(p.unique()));
-            write_list(&mut w, p.tokenizers().iter().map(String::as_str))?;
+            write_list(w, p.tokenizers().iter().map(String::as_str))?;
             w.push(u8::from(p.count_index()));
             match p.vector_index() {
                 Some(spec) => {
                     w.push(1);
-                    string(&mut w, spec.factory())?;
+                    string(w, spec.factory())?;
                     let dimension = spec.dimension().map_or(0, NonZeroU16::get);
                     w.extend_from_slice(&dimension.to_be_bytes());
-                    count(&mut w, spec.options().len())?;
+                    count(w, spec.options().len())?;
                     for (k, v) in spec.options() {
-                        string(&mut w, k)?;
-                        string(&mut w, v)?;
+                        string(w, k)?;
+                        string(w, v)?;
                     }
                 }
                 None => w.push(0),
             }
-            write_list(&mut w, p.domains().iter().map(NamedNode::as_str))?;
+            write_list(w, p.domains().iter().map(NamedNode::as_str))?;
         }
         Declaration::EntityType(t) => {
-            string(&mut w, t.iri().as_str())?;
-            optional(&mut w, t.parent().map(NamedNode::as_str))?;
+            string(w, t.iri().as_str())?;
+            optional(w, t.parent().map(NamedNode::as_str))?;
             w.push(u8::from(t.is_abstract()));
         }
         Declaration::Relation(r) => {
-            string(&mut w, r.iri().as_str())?;
-            write_list(&mut w, r.roles().iter().map(NamedNode::as_str))?;
+            string(w, r.iri().as_str())?;
+            write_list(w, r.roles().iter().map(NamedNode::as_str))?;
         }
     }
-    // Paired with the load's decode: what is written reads back as the declaration it was written from.
-    debug_assert!(decode(&[], &w).is_ok_and(|read| read == *declaration));
-    Ok(w)
+    Ok(())
 }
 
 /// The declaration stored as `bytes` under `key`, refused, naming the key, when it cannot be read.

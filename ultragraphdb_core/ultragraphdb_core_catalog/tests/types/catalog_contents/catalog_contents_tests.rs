@@ -25,6 +25,20 @@ fn test_contents_read_back_what_they_were_made_of() -> TestResult {
 }
 
 #[test]
+fn test_contents_give_up_their_declarations_in_order() -> TestResult {
+    let declared = vec![
+        knows(),
+        Declaration::Predicate(PredicateDeclaration::new(NamedNode::new(
+            "http://ex.org/name",
+        )?)),
+    ];
+    let contents = CatalogContents::new(3, 7, declared.clone());
+    assert_eq!(contents.declarations(), declared.as_slice());
+    assert_eq!(contents.into_declarations(), declared);
+    Ok(())
+}
+
+#[test]
 fn test_empty_contents_declare_nothing() -> TestResult {
     let contents = CatalogContents::new(0, 1, Vec::new());
     assert!(contents.declarations().is_empty());

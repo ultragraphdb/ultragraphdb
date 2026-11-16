@@ -18,7 +18,7 @@ use crate::types::system_asked::DropStep;
 use crate::types::system_group::system_group_answer::refused_or_stop;
 use crate::types::system_group::system_group_reads::unknown_tenant;
 use crate::types::system_group::{Durable, SystemGroup};
-use crate::utils::declarations::{merged, tightens, version_bytes};
+use crate::utils::declarations::{built, version_bytes};
 
 /// The kind a Catalog conflict names (`PROTOCOL.md` §9.4).
 const CONFLICT_CATALOG: u64 = 5;
@@ -134,8 +134,7 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
         declared: &[Declared],
     ) -> Result<(bool, Vec<u8>), ErrorReply> {
         let held = self.contents(tenant, current)?;
-        let tightening = tightens(&held, declared)?;
-        let next = merged(held, declared)?;
+        let (tightening, next) = built(held, declared)?;
         Ok((tightening, version_bytes(tenant, current + 1, next)?))
     }
 
@@ -217,16 +216,16 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
             Ok(held) => held,
             Err(refusal) => return Ok(Err(refusal)),
         };
+        let held_count = held.len();
         let next: Vec<Declaration> = match step {
             DropStep::Everything => Vec::new(),
             DropStep::Predicate(predicate) => held
-                .iter()
+                .into_iter()
                 .filter(|declaration| !declares(declaration, predicate))
-                .cloned()
                 .collect(),
             DropStep::Kept => return Ok(Ok(None)),
         };
-        if next.len() == held.len() {
+        if next.len() == held_count {
             return Ok(Ok(None));
         }
         let bytes = match version_bytes(tenant, current + 1, next) {
@@ -280,7 +279,7 @@ fn decoded(
         ));
     };
     CatalogContents::decode(tenant, version, bytes)
-        .map(|contents| contents.declarations().to_vec())
+        .map(CatalogContents::into_declarations)
         .map_err(|error| ErrorReply::new(ErrorCode::Unavailable, error.to_string()))
 }
 

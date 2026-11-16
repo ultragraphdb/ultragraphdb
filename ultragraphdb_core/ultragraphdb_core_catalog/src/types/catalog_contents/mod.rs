@@ -46,4 +46,10 @@ impl CatalogContents {
     pub fn declarations(&self) -> &[Declaration] {
         &self.declarations
     }
+
+    /// Every declaration the version makes, taken from it without a copy.
+    #[must_use]
+    pub fn into_declarations(self) -> Vec<Declaration> {
+        self.declarations
+    }
 }

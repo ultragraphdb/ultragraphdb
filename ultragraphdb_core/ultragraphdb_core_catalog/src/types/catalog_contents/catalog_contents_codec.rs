@@ -24,7 +24,7 @@ use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 
 use crate::errors::catalog_error::{CatalogError, CatalogErrorEnum};
 use crate::types::catalog_contents::CatalogContents;
-use crate::utils::catalog_codec::{check_lengths, decode, encode};
+use crate::utils::catalog_codec::{check_lengths, decode, encode_into};
 
 /// The contents' format byte.
 pub(crate) const CONTENTS_FORMAT: u8 = 1;
@@ -70,15 +70,24 @@ impl CatalogContents {
         debug_assert_eq!(w.len(), HEADER_LEN);
         for declaration in &self.declarations {
             check_lengths(declaration)?;
-            let entry = encode(declaration)?;
-            let len = u32::try_from(entry.len()).map_err(|_| {
+            // The entry is written in place after its length, which is filled once the entry's end is known.
+            let at = w.len();
+            w.extend_from_slice(&[0; 4]);
+            let start = w.len();
+            encode_into(&mut w, declaration)?;
+            let entry = w.len().saturating_sub(start);
+            let len = u32::try_from(entry).map_err(|_| {
                 // Lossless: a `usize` holds 32 bits on every target the repository builds for.
-                CatalogError::too_large("", "declaration bytes", entry.len(), u32::MAX as usize)
+                CatalogError::too_large("", "declaration bytes", entry, u32::MAX as usize)
             })?;
-            w.extend_from_slice(&len.to_be_bytes());
-            w.extend_from_slice(&entry);
+            if let Some(field) = w.get_mut(at..start) {
+                field.copy_from_slice(&len.to_be_bytes());
+            }
         }
-        // Paired with the load: what the group is given reads back as these contents.
+        // Paired with the load: every partition and the frontend decode the version with this decoder, and one that does not
+        // decode stops its tenant's load, so every debug build reads back what it encodes before the group is given it. The
+        // decode reads each declaration with the entry decoder, so the entries are written without the entry encoder's own
+        // read-back, which would read each IRI a second time.
         debug_assert!(Self::decode(self.tenant, self.version, &w).is_ok_and(|read| read == *self));
         Ok(w)
     }

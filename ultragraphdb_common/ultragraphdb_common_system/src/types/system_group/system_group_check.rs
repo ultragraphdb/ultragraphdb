@@ -123,7 +123,12 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
         let unheld = |refusal: ErrorReply| RoleError::software(refusal.message().to_string());
         let before = self.contents(number, version - 1).map_err(unheld)?;
         let withdrawn = self.contents(number, version).map_err(unheld)?;
-        let held = self.contents(number, current).map_err(unheld)?;
+        // The version withdrawn is most often the current one, whose declarations are then copied rather than decoded again.
+        let held = if current == version {
+            withdrawn.clone()
+        } else {
+            self.contents(number, current).map_err(unheld)?
+        };
         let next = restored(&before, &withdrawn, held);
         let bytes = version_bytes(number, current + 1, next).map_err(unheld)?;
         match self

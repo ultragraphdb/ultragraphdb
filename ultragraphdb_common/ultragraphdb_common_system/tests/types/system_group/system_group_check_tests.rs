@@ -7,9 +7,12 @@ use std::time::Duration;
 
 use compio::runtime::{Runtime, spawn};
 use futures::FutureExt;
+use oxrdf::NamedNode;
 use ultragraphdb_cluster_metadata::{MetadataConfig, MetadataState};
-use ultragraphdb_common_system::{ReportAsked, SystemHandle};
+use ultragraphdb_common_system::{DropStep, ReportAsked, SystemHandle};
+use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::Tenant;
+use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
 use ultragraphdb_protocol_wire::{Declared, DeclaredPredicate, ErrorCode};
 use ultragraphdb_store_sim::LogCapture;
 use ultragraphdb_tool_bdd::{TestError, TestResult};
@@ -203,5 +206,83 @@ fn test_a_restoring_version_waits_for_room_among_the_pending() -> TestResult {
             ended(run).await??;
             Ok(())
         })
+    })
+}
+
+/// The declarations version `version` of tenant 0 holds, in their order.
+async fn held_in(handle: &SystemHandle, version: u64) -> TestResult<Vec<Declaration>> {
+    let catalog = heard(handle.catalog(0, version).await)?;
+    Ok(CatalogContents::decode(0, version, catalog.bytes())?.into_declarations())
+}
+
+/// The version restoring a refused tightening holds what the version before it held: the predicate it tightened returned, and the
+/// predicate it added gone.
+#[test]
+fn test_a_restoring_version_returns_what_the_withdrawn_one_changed() -> TestResult {
+    const R: &str = "http://ex.org/r";
+    let clock = TestClock::new();
+    let storage = SimStorage::new(11);
+    Runtime::new()?.block_on(async {
+        let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
+        let (handle, run) = running(owner, &clock);
+        let _ticking = ticking(&clock);
+        let held = both_declared(&handle).await?;
+        let (answer, reported) =
+            futures::join!(handle.declare(0, held, vec![single(P), plain(R)]), async {
+                let tightening = assigned(&handle, held).await?;
+                heard(handle.report(refusing(tightening)).await)
+            });
+        reported?;
+        let _refusal = refused(answer)?;
+        let restoring = heard(handle.catalog(0, 0).await)?.version();
+        assert_eq!(restoring, held + 2);
+        assert_eq!(
+            held_in(&handle, restoring).await?,
+            held_in(&handle, held).await?
+        );
+        drop(handle);
+        ended(run).await??;
+        Ok(())
+    })
+}
+
+/// A restoring version is built on the current version, a Drop's taken while the check ran: what the Drop removed stays removed,
+/// and what the withdrawn version changed returns.
+#[test]
+fn test_a_restoring_version_keeps_a_drop_built_during_the_check() -> TestResult {
+    let clock = TestClock::new();
+    let storage = SimStorage::new(12);
+    Runtime::new()?.block_on(async {
+        let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
+        let (handle, run) = running(owner, &clock);
+        let _ticking = ticking(&clock);
+        let held = both_declared(&handle).await?;
+        let (answer, reported) = futures::join!(handle.declare(0, held, vec![single(P)]), async {
+            let tightening = assigned(&handle, held).await?;
+            let dropped = heard(
+                handle
+                    .drop_version(0, DropStep::Predicate(Q.to_string()))
+                    .await,
+            )?;
+            assert_eq!(
+                dropped,
+                tightening + 1,
+                "a Drop's version is built while the check runs"
+            );
+            heard(handle.report(refusing(tightening)).await)
+        });
+        reported?;
+        let _refusal = refused(answer)?;
+        let restoring = heard(handle.catalog(0, 0).await)?.version();
+        assert_eq!(
+            restoring,
+            held + 3,
+            "the tightening, the Drop's version, then the restoring one"
+        );
+        let plain_p = Declaration::Predicate(PredicateDeclaration::new(NamedNode::new(P)?));
+        assert_eq!(held_in(&handle, restoring).await?, vec![plain_p]);
+        drop(handle);
+        ended(run).await??;
+        Ok(())
     })
 }

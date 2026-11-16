@@ -6,9 +6,12 @@
 use std::time::Duration;
 
 use compio::runtime::Runtime;
+use oxrdf::NamedNode;
 use ultragraphdb_cluster_metadata::{MetadataCommand, MetadataConfig, MetadataState};
 use ultragraphdb_common_system::{DropStep, ReportAsked, SystemHandle};
+use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::Tenant;
+use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
 use ultragraphdb_protocol_wire::{
     Declared, DeclaredEntityType, DeclaredKind, DeclaredPredicate, DeclaredRelation, Describe,
     ErrorCode,
@@ -639,6 +642,119 @@ fn test_a_silent_partition_withdraws_a_tightening_at_the_wait() -> TestResult {
             .map_err(|error| TestError::new(format!("{error:?}")))?;
         let refusal = refused(told)?;
         assert_eq!((refusal.code(), refusal.detail()), (ErrorCode::TimedOut, 2));
+        drop(handle);
+        ended(run).await??;
+        Ok(())
+    })
+}
+
+/// The declarations version `version` of tenant 0 holds, in their order.
+async fn held_in(handle: &SystemHandle, version: u64) -> TestResult<Vec<Declaration>> {
+    let catalog = heard(handle.catalog(0, version).await)?;
+    Ok(CatalogContents::decode(0, version, catalog.bytes())?.into_declarations())
+}
+
+/// A predicate declared with nothing but its IRI.
+fn declared_plain(iri: &str) -> TestResult<Declaration> {
+    Ok(Declaration::Predicate(PredicateDeclaration::new(
+        NamedNode::new(iri)?,
+    )))
+}
+
+/// A Declare's declarations land in order: one of a name held replaces it where it stands, one of a new name is appended, and a
+/// later one of the same name replaces the earlier in its place.
+#[test]
+fn test_declarations_replace_what_they_name_in_place() -> TestResult {
+    const R: &str = "http://ex.org/r";
+    let clock = TestClock::new();
+    let storage = SimStorage::new(38);
+    Runtime::new()?.block_on(async {
+        let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
+        let (handle, run) = running(owner, &clock);
+        let _ticking = ticking(&clock);
+        let (one, _) = heard(
+            handle
+                .declare_version(0, 0, vec![predicate(P), predicate(Q)])
+                .await,
+        )?;
+        // Uniqueness and a count index neither tighten nor loosen, so no check holds the version.
+        let unique_p = DeclaredPredicate::new(P).with_unique(true);
+        let counted_r = DeclaredPredicate::new(R).with_count_index(true);
+        let declared = vec![
+            predicate(R),
+            Declared::Predicate(unique_p),
+            Declared::Predicate(counted_r),
+        ];
+        let (two, _) = heard(handle.declare_version(0, one, declared).await)?;
+        let expected = vec![
+            Declaration::Predicate(PredicateDeclaration::new(NamedNode::new(P)?).with_unique(true)),
+            declared_plain(Q)?,
+            Declaration::Predicate(
+                PredicateDeclaration::new(NamedNode::new(R)?).with_count_index(true),
+            ),
+        ];
+        assert_eq!(held_in(&handle, two).await?, expected);
+        assert_eq!(
+            held_in(&handle, one).await?,
+            vec![declared_plain(P)?, declared_plain(Q)?],
+            "the version built on stays as it was"
+        );
+        drop(handle);
+        ended(run).await??;
+        Ok(())
+    })
+}
+
+/// A Declare's refusal names its predicates first: the first predicate naming no IRI, though a type before it names none; then
+/// a tightening with a loosening, though a relation after them names no IRI; and only then a type or relation naming none.
+#[test]
+fn test_a_declare_is_refused_for_its_predicates_first() -> TestResult {
+    const NOT_A_TYPE: &str = "not a type";
+    const NOT_A_PREDICATE: &str = "not a predicate";
+    const NOT_A_RELATION: &str = "not a relation";
+    let clock = TestClock::new();
+    let storage = SimStorage::new(39);
+    Runtime::new()?.block_on(async {
+        let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
+        let (handle, run) = running(owner, &clock);
+        let _ticking = ticking(&clock);
+        let bad_type = Declared::EntityType(DeclaredEntityType::new(NOT_A_TYPE, None, false));
+        let bad_relation = Declared::Relation(DeclaredRelation::new(NOT_A_RELATION, Vec::new()));
+        let refusal = refused(
+            handle
+                .declare(0, 0, vec![bad_type.clone(), predicate(NOT_A_PREDICATE)])
+                .await,
+        )?;
+        assert_eq!(refusal.code(), ErrorCode::Refused);
+        assert!(
+            refusal.message().contains(NOT_A_PREDICATE),
+            "{}",
+            refusal.message()
+        );
+        let single_q = Declared::Predicate(DeclaredPredicate::new(Q).with_single(true));
+        let _effective = settled(&handle, 0, 0, vec![single_q]).await?;
+        let version = heard(handle.catalog(0, 0).await)?.version();
+        let single_p = Declared::Predicate(DeclaredPredicate::new(P).with_single(true));
+        let declared = vec![single_p, predicate(Q), bad_relation.clone()];
+        let refusal = refused(handle.declare(0, version, declared).await)?;
+        assert_eq!((refusal.code(), refusal.detail()), (ErrorCode::Refused, 1));
+        assert!(refusal.message().contains(Q), "{}", refusal.message());
+        let refusal = refused(
+            handle
+                .declare(0, version, vec![bad_relation, predicate(P), bad_type])
+                .await,
+        )?;
+        assert_eq!(refusal.code(), ErrorCode::Refused);
+        assert!(
+            refusal.message().contains(NOT_A_RELATION),
+            "{}",
+            refusal.message()
+        );
+        assert_eq!(
+            heard(handle.catalog(0, 0).await)?.version(),
+            version,
+            "nothing committed"
+        );
         drop(handle);
         ended(run).await??;
         Ok(())
