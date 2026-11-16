@@ -1,0 +1,52 @@
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/types/commit_step/commit_step_round.rs
+  s_21eff977e05256::t_c934a10425e853 529-530
+  s_21eff977e05256::t_e4099df9239a2c 714-717
+  s_21eff977e05256::t_816c449cc63196 637-651
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/commit_step/commit_step_store_tests.rs
+  s_21eff977e05256::t_110fe5ce5b0c2a 364-425
+  s_21eff977e05256::t_33924421790d71 313-363
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/traits/proposal.rs
+  s_21eff977e05256::t_8cf1a7cd7f08b1 76-84
+  s_21eff977e05256::t_dd706d310ba7fd 67-69
+  s_21eff977e05256::t_bcb70033a72632 7,85-86
+openspec/changes/stage-5-8-system-group/notes/group-4.md
+  s_21eff977e05256::t_60527194b47a81 313-323
+  s_21eff977e05256::t_8843c6e237b096 289-296
+  s_21eff977e05256::t_68cb10c9805dbd 324-327
+ultragraphdb_transactions/ultragraphdb_transactions_txn/src/types/prepared/mod.rs
+  s_21eff977e05256::t_ab97b9f18f28c8 256-257
+  s_21eff977e05256::t_5e1f929e2437d9 241-250
+  s_21eff977e05256::t_8408159878d0c3 9-10
+ultragraphdb_cluster/ultragraphdb_cluster_partition/tests/types/partition_host/partition_host_bound_tests.rs
+  s_21eff977e05256::t_24337f9b06dabb 672-719
+openspec/changes/stage-5-8-system-group/notes/corner-cases.md
+  s_21eff977e05256::t_a2047935f1b429 380-383
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/write_set_record/mod.rs
+  s_21eff977e05256::t_6e34213a6b4eec 7,9,15,19-21,149-171
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/write_set_record/write_set_record_tests.rs
+  s_21eff977e05256::t_7224d7e645eee1 345-382
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/extensions/prepared_proposal.rs
+  s_21eff977e05256::t_0fb7fed4818ad8 7,54-57
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/utils/fixture.rs
+  s_21eff977e05256::t_3a5ea41524a1a2 290-291,314,325,327
+ultragraphdb_transactions/ultragraphdb_transactions_txn/tests/types/prepared/prepared_tests.rs
+  s_21eff977e05256::t_cdde50260ddaf7 735-762
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/replay/replay_tests.rs
+  s_21eff977e05256::t_4816e1ea35555e 1021-1079
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c08aac11feffb01b3b5a875ccbdeb5043270c2ca",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
