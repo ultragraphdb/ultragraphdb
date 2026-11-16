@@ -15,6 +15,13 @@
 //! [`ScramVerifier`] is what a server stores of a password: its salt, its iteration count and the two keys derived
 //! from it, never the password. A name no principal holds is answered with a verifier derived from the server's
 //! secret, so the exchange fails as a wrong password's does, after the same work.
+//!
+//! [`ScramServer`] runs a whole exchange over the verifier it holds. Across two processes the exchange runs in two
+//! halves: [`ScramRelay`], the endpoint's, which reads and builds the messages and holds no key, and
+//! [`ScramVerifier::sign`], the half holding the verifier, which checks the proof and gives the ServerSignature.
+//!
+//! Control plane (Ultra Style rule 3): an exchange runs once per connection's authentication, so its messages are
+//! built and read in memory allocated per message.
 
 // Arithmetic on decoded wire input is checked: an overflow here would be a malformed input
 // accepted with a wrapped value, so it is refused instead (user decision 2026-11-12; the lint is not in the
@@ -32,6 +39,7 @@ pub use crate::types::scram_authenticator::ScramAuthenticator;
 pub use crate::types::scram_client::ScramClient;
 pub use crate::types::scram_exchange::ScramExchange;
 pub use crate::types::scram_login::ScramLogin;
+pub use crate::types::scram_relay::ScramRelay;
 pub use crate::types::scram_server::ScramServer;
 pub use crate::types::scram_verifier::ScramVerifier;
 pub use crate::utils::constants::{

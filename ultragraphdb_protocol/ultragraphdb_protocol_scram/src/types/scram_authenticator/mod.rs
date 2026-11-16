@@ -23,6 +23,7 @@ pub struct ScramAuthenticator<C, N> {
 impl<C, N> ScramAuthenticator<C, N> {
     /// The authenticator over `credentials`, its server nonces from `nonces` and its unknown names' verifiers from
     /// `secret`, at [`crate::DEFAULT_ITERATIONS`].
+    #[must_use]
     pub fn new(credentials: C, nonces: N, secret: [u8; 32]) -> Self {
         Self {
             credentials,
@@ -34,6 +35,7 @@ impl<C, N> ScramAuthenticator<C, N> {
 
     /// The authenticator answering unknown names with verifiers of `iterations`, the count its credentials hold
     /// ([`ScramServer::with_iterations`]).
+    #[must_use]
     pub fn with_iterations(mut self, iterations: u32) -> Self {
         self.iterations = iterations;
         self

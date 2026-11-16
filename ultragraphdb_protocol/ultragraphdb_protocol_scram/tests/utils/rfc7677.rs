@@ -24,6 +24,15 @@ pub const SERVER_FIRST: &[u8] =
 pub const CLIENT_FINAL: &[u8] = b"c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,\
 p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=";
 pub const SERVER_FINAL: &[u8] = b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=";
+/// The AuthMessage, RFC 5802 §3's `client-first-message-bare + "," + server-first-message + "," +
+/// client-final-message-without-proof`, of RFC 7677 §3's three messages above.
+pub const AUTH_MESSAGE: &str = "n=user,r=rOprNGfwEbeRWgbNEkqO,\
+r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096,\
+c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0";
+/// The ClientProof of RFC 7677 §3's client-final-message, in base64 as it is sent.
+pub const CLIENT_PROOF: &str = "dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=";
+/// The ServerSignature of RFC 7677 §3's server-final-message, in base64 as it is sent.
+pub const SERVER_SIGNATURE: &str = "6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=";
 
 pub const SECRET: [u8; 32] = [7; 32];
 

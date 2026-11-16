@@ -10,6 +10,8 @@ mod scram_client;
 #[cfg(test)]
 mod scram_login;
 #[cfg(test)]
+mod scram_relay;
+#[cfg(test)]
 mod scram_server;
 #[cfg(test)]
 mod scram_verifier;

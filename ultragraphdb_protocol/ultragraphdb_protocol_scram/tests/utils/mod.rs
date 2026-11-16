@@ -6,6 +6,8 @@
 #[cfg(test)]
 mod constants_tests;
 #[cfg(test)]
+pub mod halves;
+#[cfg(test)]
 mod nonce_tests;
 #[cfg(test)]
 pub mod rfc7677;

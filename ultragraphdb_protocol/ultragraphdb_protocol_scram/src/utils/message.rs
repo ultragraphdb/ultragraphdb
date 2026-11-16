@@ -53,7 +53,7 @@ pub(crate) fn unescape(name: &str) -> Result<String, ScramError> {
 pub(crate) fn attribute(part: Option<&str>, key: char) -> Option<&str> {
     let part = part?;
     let mut chars = part.chars();
-    (chars.next() == Some(key) && chars.next() == Some('=')).then(|| &part[2..])
+    (chars.next() == Some(key) && chars.next() == Some('=')).then_some(chars.as_str())
 }
 
 /// The server's error `e=`, when `message` is one.

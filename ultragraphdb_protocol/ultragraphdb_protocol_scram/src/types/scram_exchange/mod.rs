@@ -18,6 +18,7 @@ pub struct ScramExchange<C> {
 
 impl<C> ScramExchange<C> {
     /// The exchange of `server` over `credentials`.
+    #[must_use]
     pub fn new(server: ScramServer, credentials: C) -> Self {
         Self {
             server,

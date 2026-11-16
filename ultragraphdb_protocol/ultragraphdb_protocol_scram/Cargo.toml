@@ -29,8 +29,22 @@ stringprep = { workspace = true }
 subtle = { workspace = true }
 
 [dev-dependencies]
+ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
+# External crates
+cucumber = { workspace = true }
+futures = { workspace = true }
+hegeltest = { workspace = true, features = ["static-engine"] }
 
 [[test]]
 name = "unit"
 path = "tests/mod.rs"
+
+[[test]]
+name = "property"
+path = "tests/property/mod.rs"
+
+[[test]]
+name = "bdd"
+path = "tests/bdd.rs"
+harness = false

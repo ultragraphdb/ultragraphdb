@@ -94,6 +94,7 @@ impl ScramError {
     }
 
     /// A [`ScramErrorEnum::Server`] for the server's `reason`.
+    #[must_use]
     pub fn server(reason: impl Into<String>) -> Self {
         Self(ScramErrorEnum::Server {
             reason: reason.into(),
@@ -107,6 +108,7 @@ impl ScramError {
     }
 
     /// A [`ScramErrorEnum::Random`] for the random source's `reason`.
+    #[must_use]
     pub fn random(reason: impl Into<String>) -> Self {
         Self(ScramErrorEnum::Random {
             reason: reason.into(),

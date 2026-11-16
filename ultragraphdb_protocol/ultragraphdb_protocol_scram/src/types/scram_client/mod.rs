@@ -34,9 +34,12 @@ pub struct ScramClient {
 }
 
 impl ScramClient {
-    /// The exchange of `name` with `password`, both prepared with SASLprep, and the client's `nonce`; refused as
-    /// [`ScramError::prepare`] for a name or password SASLprep refuses and [`ScramError::malformed`] for a nonce
-    /// that is empty or not printable ASCII without a comma.
+    /// The exchange of `name` with `password`, both prepared with SASLprep, and the client's `nonce`.
+    ///
+    /// # Errors
+    ///
+    /// [`ScramError::prepare`] for a name or password SASLprep refuses and [`ScramError::malformed`] for a nonce that
+    /// is empty or not printable ASCII without a comma.
     pub fn new(name: &str, password: &str, nonce: &str) -> Result<Self, ScramError> {
         let (name, password) = (prepare(name)?, prepare(password)?);
         if !valid_nonce(nonce) {
@@ -51,6 +54,10 @@ impl ScramClient {
     }
 
     /// The client-first-message: `n,,n=<name>,r=<nonce>`, the name's `=` and `,` escaped.
+    ///
+    /// # Errors
+    ///
+    /// [`ScramError::out_of_step`] once the message was built.
     pub fn first_message(&mut self) -> Result<Vec<u8>, ScramError> {
         if self.state != ClientState::Initial {
             return Err(ScramError::out_of_step());
@@ -62,9 +69,13 @@ impl ScramClient {
     }
 
     /// The client-final-message answering `server_first`: the channel binding `biws`, the server's nonce, and the
-    /// proof. Refused as [`ScramError::malformed`], [`ScramError::nonce`] when the server's nonce does not extend the
-    /// client's, [`ScramError::iterations`] outside [`crate::MIN_ITERATIONS`] to [`crate::MAX_ITERATIONS`], refused
-    /// before a key is derived, or [`ScramError::out_of_step`].
+    /// proof.
+    ///
+    /// # Errors
+    ///
+    /// [`ScramError::malformed`], [`ScramError::server`] for the server's `e=`, [`ScramError::nonce`] when the
+    /// server's nonce does not extend the client's, [`ScramError::iterations`] outside [`crate::MIN_ITERATIONS`] to
+    /// [`crate::MAX_ITERATIONS`], refused before a key is derived, or [`ScramError::out_of_step`].
     pub fn final_message(&mut self, server_first: &[u8]) -> Result<Vec<u8>, ScramError> {
         let ClientState::First { client_first_bare } = &self.state else {
             return Err(ScramError::out_of_step());
@@ -105,7 +116,11 @@ impl ScramClient {
     }
 
     /// The server-final-message checked: its signature the one the password's server key gives, compared in constant
-    /// time; refused as [`ScramError::server_signature`], [`ScramError::server`] for its `e=`, or
+    /// time.
+    ///
+    /// # Errors
+    ///
+    /// [`ScramError::server_signature`], [`ScramError::server`] for its `e=`, [`ScramError::malformed`], or
     /// [`ScramError::out_of_step`].
     pub fn verify(&mut self, server_final: &[u8]) -> Result<(), ScramError> {
         let ClientState::Final { server_signature } = &self.state else {

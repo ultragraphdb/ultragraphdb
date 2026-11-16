@@ -6,13 +6,19 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use ultragraphdb_protocol_scram::{NONCE_BYTES, ScramClient, system_nonce};
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[test]
 fn test_a_system_nonce_is_its_random_bytes_in_base64_and_a_valid_nonce() -> TestResult {
     let nonce = system_nonce()?;
     assert_eq!(nonce.len(), 24);
-    assert_eq!(STANDARD.decode(&nonce)?.len(), NONCE_BYTES);
+    assert_eq!(
+        STANDARD
+            .decode(&nonce)
+            .context("the nonce in base64")?
+            .len(),
+        NONCE_BYTES
+    );
     assert!(!nonce.contains(','));
     assert!(ScramClient::new("user", "pencil", &nonce).is_ok());
     Ok(())
@@ -30,7 +36,11 @@ fn test_system_nonces_differ() -> TestResult {
 #[test]
 fn test_every_byte_of_a_system_nonce_is_drawn() -> TestResult {
     let drawn = (0..64)
-        .map(|_| Ok(STANDARD.decode(system_nonce()?)?))
+        .map(|_| {
+            STANDARD
+                .decode(system_nonce()?)
+                .context("a nonce in base64")
+        })
         .collect::<TestResult<Vec<Vec<u8>>>>()?;
     for at in 0..NONCE_BYTES {
         assert!(
