@@ -1,0 +1,23 @@
+ultragraphdb_common/ultragraphdb_common_frontend/tests/tightening_steps.rs
+  s_21eff977e05256::t_d95dc5832cb3ff 339-345
+ultragraphdb_common/ultragraphdb_common_system/src/types/system_handle.rs
+  s_21eff977e05256::t_b6ad3cf3fda93b 6-7,47-63,285-287,291,296-297,328-329,333-338,397-404
+ultragraphdb_common/ultragraphdb_common_system/src/types/system_session/system_session_frontend.rs
+  s_21eff977e05256::t_766b1af8f56dfe 69-72,74,130,132-134,140,142,146-147,190-191,210-213,215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "89c0bf27482dbcbe531372e7cd24d8fe9f46cea2",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
