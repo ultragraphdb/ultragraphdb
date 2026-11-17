@@ -1,0 +1,39 @@
+ultragraphdb/ultragraphdb_tests/tests/cluster.rs
+  s_21eff977e05256::t_12729a01ac3209 497-507
+  s_21eff977e05256::t_6f2cd380da7c2f 99-100,113,143-148,321,324,337-339,580,589-593
+ultragraphdb/ultragraphdb_tests/features/kubernetes-deployment/pods.feature
+  s_21eff977e05256::t_f24046410a5d76 1-33
+ultragraphdb/ultragraphdb_tests/tests/kubernetes_steps.rs
+  s_21eff977e05256::t_0b861bdee5616a 1-365
+  s_21eff977e05256::t_a04d3361f92791 366-407
+AGENTS.md
+  s_21eff977e05256::t_2db99c59e62e98 269
+openspec/changes/stage-5-8-system-group/notes/group-7.md
+  s_21eff977e05256::t_4f4465e6e9fbc0 445-569
+openspec/changes/stage-5-8-system-group/tasks.md
+  s_21eff977e05256::t_70b20a391afea7 98,108
+ultragraphdb/ultragraphdb_frontend_tests/tests/bdd.rs
+  s_21eff977e05256::t_452cf4c4721516 24-26
+ultragraphdb/ultragraphdb_storage_tests/features/system/role_commands.feature
+  s_21eff977e05256::t_7b2a627ab2daaf 1-12
+ultragraphdb/ultragraphdb_storage_tests/tests/system_bdd.rs
+  s_21eff977e05256::t_02280c0677b760 24-25,89,654-687
+ultragraphdb/ultragraphdb_tests/tests/bdd.rs
+  s_21eff977e05256::t_ac517d81f37ae1 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cf3e323b25d9b59a3842271ed144fc3ebc41c131",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
