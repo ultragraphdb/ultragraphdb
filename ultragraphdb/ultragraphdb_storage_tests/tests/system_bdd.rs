@@ -8,6 +8,8 @@
 //! settings are served by the config double, which serves them as they stand, so these scenarios do not wait for the
 //! config service's checks of group 7. One scenario runs at a time: the binaries listen at their declared ports.
 
+mod system_books_steps;
+
 use std::path::Path;
 use std::process::ExitStatus;
 use std::time::Duration;
@@ -36,15 +38,15 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 const ROOT_PATH: &str = "ultragraphdb/ultragraphdb_storage_tests";
 
 /// The system group's role address, which the hosting instance listens at and every instance dials.
-const SYSTEM_ADDRESS: &str = "127.0.0.1:17400";
+pub(crate) const SYSTEM_ADDRESS: &str = "127.0.0.1:17400";
 
 /// The first instance's partitions listen from this port, and its `/health` and `/ready` at [`FIRST_OBSERVED`].
-const FIRST_PORT: u32 = 17_200;
-const FIRST_OBSERVED: &str = "127.0.0.1:18101";
+pub(crate) const FIRST_PORT: u32 = 17_200;
+pub(crate) const FIRST_OBSERVED: &str = "127.0.0.1:18101";
 
 /// The second instance's partitions listen from this port, and its `/health` and `/ready` at [`SECOND_OBSERVED`].
-const SECOND_PORT: u32 = 17_300;
-const SECOND_OBSERVED: &str = "127.0.0.1:18103";
+pub(crate) const SECOND_PORT: u32 = 17_300;
+pub(crate) const SECOND_OBSERVED: &str = "127.0.0.1:18103";
 
 /// How long a refused instance retries, in a scenario that waits it out.
 const SHORT_DEADLINE_MS: &str = "800";
@@ -54,7 +56,7 @@ const SHORT_DEADLINE_MS: &str = "800";
 const ROUNDS: u32 = 200;
 
 /// The addresses these scenarios hold, and what holds each.
-const OWN_ADDRESSES: [(&str, &str); 9] = [
+const OWN_ADDRESSES: [(&str, &str); 10] = [
     (SYSTEM_ADDRESS, "the system group's role address"),
     (
         "127.0.0.1:17200",
@@ -63,15 +65,16 @@ const OWN_ADDRESSES: [(&str, &str); 9] = [
     ("127.0.0.1:17201", "the first instance's second partition"),
     ("127.0.0.1:17202", "the first instance's third partition"),
     ("127.0.0.1:17203", "the first instance's fourth partition"),
+    ("127.0.0.1:17204", "the first instance's fifth partition"),
     ("127.0.0.1:17300", "the second instance's first partition"),
     ("127.0.0.1:17301", "the second instance's second partition"),
     (FIRST_OBSERVED, "the first instance's observability"),
     (SECOND_OBSERVED, "the second instance's observability"),
 ];
 
-const TENANT: u64 = 0;
+pub(crate) const TENANT: u64 = 0;
 
-fn services() -> TestResult<ServiceUtil> {
+pub(crate) fn services() -> TestResult<ServiceUtil> {
     Ok(ServiceUtil::new(
         ROOT_PATH,
         vec![CONFIG_BINARY, STORAGE_BINARY],
@@ -79,19 +82,25 @@ fn services() -> TestResult<ServiceUtil> {
 }
 
 #[derive(Debug, Default, World)]
-struct Steps {
-    roles: Option<ServiceUtil>,
-    exited: Option<ExitStatus>,
-    logs: Vec<String>,
-    data: String,
+pub(crate) struct Steps {
+    pub(crate) roles: Option<ServiceUtil>,
+    pub(crate) exited: Option<ExitStatus>,
+    pub(crate) logs: Vec<String>,
+    pub(crate) data: String,
     placements: Vec<Vec<(u32, u32, u32)>>,
     status: u16,
-    epochs: Vec<u64>,
+    pub(crate) epochs: Vec<u64>,
+    /// What the system group held, as read before and after its host's restart.
+    pub(crate) books: Vec<String>,
+    /// Block leases' starts and ends.
+    pub(crate) leases: Vec<(u64, u64)>,
+    /// The log positions reads of the system group were answered at.
+    pub(crate) positions: Vec<(u64, u64)>,
 }
 
 /// The settings of an instance of `count` partitions from `first`, at ports from `port`, observed at `observed`, dialling
 /// the system group at [`SYSTEM_ADDRESS`] and hosting none.
-fn instance(
+pub(crate) fn instance(
     first: u32,
     count: u32,
     port: u32,
@@ -117,7 +126,7 @@ fn instance(
 }
 
 /// As [`instance`], hosting the system group over `partitions` partitions, its logs under `system`.
-fn hosting(
+pub(crate) fn hosting(
     (first, count, port, observed): (u32, u32, u32, &str),
     partitions: u32,
     system: &str,
@@ -137,7 +146,7 @@ fn hosting(
 }
 
 /// Starts the storage binary on `settings`, its log in `log`, waiting on `observed`'s `/ready`: its pid.
-fn started(
+pub(crate) fn started(
     util: &ServiceUtil,
     settings: &[(String, String)],
     log: &Path,
@@ -178,7 +187,7 @@ fn placement() -> TestResult<Vec<(u32, u32, u32)>> {
 }
 
 /// A subject of `partitions` partitions that `partition` homes.
-fn subject_of(partition: u32, partitions: u32) -> TestResult<String> {
+pub(crate) fn subject_of(partition: u32, partitions: u32) -> TestResult<String> {
     let map = PlacementMap::even(partitions, NodeId::new(1))?;
     (0..100_000)
         .map(|at| format!("http://ex.org/s{at}"))
@@ -190,7 +199,7 @@ fn subject_of(partition: u32, partitions: u32) -> TestResult<String> {
 }
 
 /// A Write of `subject` `<p>` `object`, the object an IRI.
-fn edge_write(subject: &str, object: &str) -> Write {
+pub(crate) fn edge_write(subject: &str, object: &str) -> Write {
     let mut table = TermTable::new();
     let s = table.iri(subject);
     let p = table.iri("http://ex.org/p");
@@ -207,7 +216,11 @@ fn edge_write(subject: &str, object: &str) -> Write {
 }
 
 /// Commits `write` in a transaction bound to `partition` on `client`, through no session: its commit version.
-async fn commit_on(client: &mut RoleClient, partition: u32, write: &Write) -> TestResult<u64> {
+pub(crate) async fn commit_on(
+    client: &mut RoleClient,
+    partition: u32,
+    write: &Write,
+) -> TestResult<u64> {
     let bind = Bind::new(partition, BindKind::Transaction, TENANT, 0, 1, [7; 16]);
     drop(client.request(&bind).await?);
     let stream = client.last_stream();
@@ -250,7 +263,7 @@ fn refused_at(partition: u32, frame: &ReceivedFrame) -> TestResult {
 }
 
 /// The rounds the last recovery in `log` says its partition replayed.
-fn rounds_replayed(log: &str) -> TestResult<u64> {
+pub(crate) fn rounds_replayed(log: &str) -> TestResult<u64> {
     log.lines()
         .rev()
         .filter(|line| line.contains("recovered") && line.contains("partition="))
@@ -686,7 +699,8 @@ fn closes_in_order(w: &mut Steps) {
 }
 
 fn main() -> TestResult {
-    // Which of the `@system` features this target runs, by their second tag: `hosting` or `partitions` (`BUILD.bazel`).
+    // Which of the `@system` features this target runs, by their second tag: `hosting`, `partitions` or `books`
+    // (`BUILD.bazel`).
     let group =
         std::env::var("SYSTEM_FEATURES").context("SYSTEM_FEATURES names the features' tag")?;
     start_double()?;

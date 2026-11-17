@@ -6,6 +6,7 @@
 //! The storage binary as a process, bound to `features/`, with no container. One scenario runs at a time: the binaries listen
 //! at their declared ports.
 
+mod drop_steps;
 mod one_frame_steps;
 mod parked_steps;
 mod played_frontend;
@@ -67,6 +68,7 @@ struct Steps {
     registered: Option<ReferenceRegistration>,
     code: Option<u8>,
     config_pid: u32,
+    drops: drop_steps::DropSteps,
     exited: Option<ExitStatus>,
     /// The system group's role address, which Members are read at.
     system: String,
@@ -1287,6 +1289,8 @@ fn named_back(w: &mut Steps) -> TestResult {
 }
 
 fn main() -> TestResult {
+    // The tag of the features this target runs alone, when it runs one group of them; unset, every feature but those.
+    let own = std::env::var("BDD_FEATURES").ok();
     start_double()?;
     futures::executor::block_on(
         Steps::cucumber()
@@ -1299,10 +1303,18 @@ fn main() -> TestResult {
                 .boxed_local()
             })
             .fail_on_skipped()
-            // The features tagged `@system` are `system_bdd`'s: the storage binary hosting the system group.
-            .filter_run_and_exit(ultragraphdb_tool_bdd::features_dir()?, |feature, _, _| {
-                !feature.tags.iter().any(|tag| tag == "system")
-            }),
+            // The features tagged `@system` are `system_bdd`'s: the storage binary hosting the system group. Those tagged
+            // `@drops` are `drops_bdd`'s, this binary run with `BDD_FEATURES` naming them (`BUILD.bazel`).
+            .filter_run_and_exit(
+                ultragraphdb_tool_bdd::features_dir()?,
+                move |feature, _, _| {
+                    let tagged = |name: &str| feature.tags.iter().any(|tag| tag == name);
+                    match own.as_deref() {
+                        Some(tag) => tagged(tag),
+                        None => !tagged("system") && !tagged("drops"),
+                    }
+                },
+            ),
     );
     Ok(())
 }
