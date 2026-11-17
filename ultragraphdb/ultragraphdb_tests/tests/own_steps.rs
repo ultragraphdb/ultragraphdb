@@ -35,6 +35,10 @@ use crate::shells::{CompioDial, Knobs, TestClient, pause, run, with_client};
 use crate::transaction_steps::{committed, nothing};
 
 /// The time, to measure a wait a scenario names.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 fn clock() -> Instant {
     Instant::now()
 }

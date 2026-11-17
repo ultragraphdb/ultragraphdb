@@ -544,8 +544,10 @@ struct Planned {
     wait_path: &'static str,
 }
 
-/// The processes of `spec` at `layout`, in the order their readiness needs: frontend, storage, compute. A role's bare name is
-/// the file its labelled instances share, so the first of two takes a label too.
+/// The processes of `spec` at `layout`, in design D10's order: storage, compute, the frontend. The frontend comes last
+/// because each of its cores learns the compute processes from Members at its start, and again only when a role connection
+/// closes or no compute process is left (design D9): a compute process joining after a core's start goes unused there. A
+/// role's bare name is the file its labelled instances share, so the first of two takes a label too.
 fn plan(layout: &Layout, spec: &Spec) -> TestResult<Vec<Planned>> {
     let [f_obs, s_obs, c_obs] = &layout.observability;
     let [_, storage_role, compute_role] = &layout.roles;
@@ -555,13 +557,6 @@ fn plan(layout: &Layout, spec: &Spec) -> TestResult<Vec<Planned>> {
         spec.partitions
     };
     let mut planned = vec![Planned {
-        program: FRONTEND_BINARY,
-        instance: "frontend",
-        settings: layout.frontend_settings(spec)?,
-        observability: f_obs.clone(),
-        wait_path: "/health",
-    }];
-    planned.push(Planned {
         program: STORAGE_BINARY,
         instance: if spec.two_storages {
             "storage_1"
@@ -571,7 +566,7 @@ fn plan(layout: &Layout, spec: &Spec) -> TestResult<Vec<Planned>> {
         settings: layout.storage_settings(spec, (1, first_count), (storage_role, s_obs), true)?,
         observability: s_obs.clone(),
         wait_path: "/ready",
-    });
+    }];
     if spec.two_storages {
         let observability = shifted(s_obs, SECOND_PROCESS)?;
         planned.push(Planned {
@@ -608,11 +603,18 @@ fn plan(layout: &Layout, spec: &Spec) -> TestResult<Vec<Planned>> {
             wait_path: "/ready",
         });
     }
+    planned.push(Planned {
+        program: FRONTEND_BINARY,
+        instance: "frontend",
+        settings: layout.frontend_settings(spec)?,
+        observability: f_obs.clone(),
+        wait_path: "/health",
+    });
     Ok(planned)
 }
 
-/// Starts the config service holding `layout`'s roles of `spec`, then the frontend, storage and compute in the order their
-/// readiness needs, and waits until the frontend is ready and its client endpoint accepts.
+/// Starts the config service holding `layout`'s roles of `spec`, then storage, compute and the frontend in the order
+/// [`plan`] gives, and waits until the frontend is ready and its client endpoint accepts.
 fn start(layout: &Layout, spec: &Spec, util: ServiceUtil) -> TestResult<Cluster> {
     let planned = plan(layout, spec)?;
     let instances: Vec<(&str, &[(String, String)])> = planned

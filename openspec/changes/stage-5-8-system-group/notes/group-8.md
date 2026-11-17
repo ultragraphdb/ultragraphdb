@@ -479,8 +479,18 @@ connection (the next Commit left in doubt). The host and frontend runs have no p
 
 ## Found wanting
 
-1. `bdd_client_endpoint` "A read is never resent after a frame" failed once in the gate (facts `rows 12, rows 12, rows 1`) and
-   passed on rerun: by reading, `compute_2` may write its remaining batches before its SIGKILL lands, so no read is cut.
+1. **Fixed (harness): `bdd_client_endpoint` "A read is never resent after a frame" failed intermittently** (facts `rows 12,
+   rows 12, rows 1`). The kill was not late: a read's credit (4 frames of the fixture's about 7) keeps compute from finishing
+   a read before the client grants more, which it does only after the kill. Both reads had gone to compute_1. Under D9 a
+   frontend core learns compute processes from Members at its start, and again only when a role connection closes or no
+   compute is left; the harness started the frontend before storage and compute, so a core whose start-up Members read fell
+   before compute_2 joined listed one compute for its lifetime. "Reads alternate between two compute processes" failed the
+   same way. Evidence: temporary logging of each dispatch's address and the core's compute count; the three two-compute
+   scenarios ×10 under 12 `yes` processes failed 6 of 10, every failing run `computes=1`; after the fix 10 of 10 passed,
+   `computes=2` on every dispatch. Fix: `tests/cluster.rs` `plan` starts storage, compute, then the frontend (D10's order).
+   `bdd_client_endpoint` 20 of 20 uncached under load (72–90 s); the package's 13 targets pass. A compute process that
+   joins while the frontend serves is found at the next of D9's events, as D9 states; stage 5.9 has no compute process to
+   find.
 2. The clippy aspect fails on `ultragraphdb_common_frontend` in lines task 8.3 did not write (shadowing in
    `system_link_tasks.rs`, a complex type in `system_link/mod.rs`, a useless conversion in the unit and property tests, a manual
    `div_ceil`, unfulfilled expectations).
