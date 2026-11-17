@@ -34,21 +34,98 @@ rust_test(
     ),
 )
 
+# The feature files each scenario target runs, under `features/`: the scenarios split over several targets, so each ends
+# within Bazel's time. A target's runfiles hold its feature files alone, and cucumber runs what `features/` holds.
+BDD_FEATURES = {
+    "bdd_catalog": ["metadata-group/catalog.feature"],
+    "bdd_client_endpoint": [
+        "client-endpoint/endpoint.feature",
+        "client-endpoint/limits.feature",
+        "client-endpoint/lost_replies.feature",
+        "client-endpoint/processes.feature",
+        "client-endpoint/routing.feature",
+        "client-endpoint/shared.feature",
+        "client-endpoint/spread.feature",
+    ],
+    "bdd_kubernetes": ["kubernetes-deployment/pods.feature"],
+    "bdd_quad_reads": [
+        "quad-reads/access_paths.feature",
+        "quad-reads/client_order.feature",
+        "quad-reads/levels.feature",
+        "quad-reads/limits.feature",
+        "quad-reads/resume_keys.feature",
+        "quad-reads/retention.feature",
+        "quad-reads/spread.feature",
+        "quad-reads/transaction_reads.feature",
+    ],
+    "bdd_sessions": [
+        "transactions/lost_replies.feature",
+        "transactions/processes.feature",
+    ],
+    "bdd_transactions": [
+        "transactions/limits.feature",
+        "transactions/operations.feature",
+        "transactions/requests.feature",
+        "transactions/spread.feature",
+        "transactions/tokens.feature",
+    ],
+    "bdd_wire_protocol": [
+        "wire-protocol/conformance.feature",
+        "wire-protocol/connections.feature",
+        "wire-protocol/credit.feature",
+        "wire-protocol/damaged_replies.feature",
+        "wire-protocol/lost_replies.feature",
+        "wire-protocol/process_faults.feature",
+        "wire-protocol/requests.feature",
+        "wire-protocol/terms.feature",
+    ],
+}
+
+# What every scenario target runs beside its feature files: the binaries it starts and the golden bodies the client's
+# conformance suite plays, here sent to the real binaries.
+BDD_DATA = [
+    "//ultragraphdb_protocol/ultragraphdb_protocol_wire:golden_bodies",
+    ":copy_config",
+    ":copy_compute",
+    ":copy_frontend",
+    ":copy_storage",
+]
+
 # Whole clusters as processes: each is copied into the sandbox, and the test starts it, its dependencies first. No
 # container is involved, so Bazel caches the result. The ports are declared and fixed, so `exclusive` keeps any other test
-# from running beside this one; it stays sandboxed. The golden bodies are the conversations the client's conformance suite
-# plays, here sent to the real binaries.
+# from running beside this one; it stays sandboxed.
+[
+    rust_test(
+        name = name,
+        srcs = glob(["tests/**/*.rs"]),
+        crate_root = "tests/bdd.rs",
+        data = ["features/" + feature for feature in features] + BDD_DATA,
+        tags = [
+            "exclusive",
+            "integration_test",
+        ],
+        use_libtest_harness = False,
+        deps = [":ultragraphdb_tests"] + all_crate_deps(
+            normal = True,
+            normal_dev = True,
+        ),
+    )
+    for name, features in BDD_FEATURES.items()
+]
+
+# Every feature file no target above names, so each scenario runs in exactly one target.
 rust_test(
     name = "bdd",
     srcs = glob(["tests/**/*.rs"]),
     crate_root = "tests/bdd.rs",
-    data = glob(["features/**/*.feature"]) + [
-        "//ultragraphdb_protocol/ultragraphdb_protocol_wire:golden_bodies",
-        ":copy_config",
-        ":copy_compute",
-        ":copy_frontend",
-        ":copy_storage",
-    ],
+    data = glob(
+        ["features/**/*.feature"],
+        exclude = [
+            "features/" + feature
+            for features in BDD_FEATURES.values()
+            for feature in features
+        ],
+    ) + BDD_DATA,
     tags = [
         "exclusive",
         "integration_test",
