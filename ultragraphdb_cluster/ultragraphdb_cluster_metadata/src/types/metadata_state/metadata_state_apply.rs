@@ -133,10 +133,7 @@ impl MetadataState {
             }
             MetadataCommand::CreateTenant { tenant } => self.create_tenant(*tenant),
             MetadataCommand::DrawSecret { secret } => self.draw_secret(secret),
-            MetadataCommand::RemoveDefaults { tenant } => {
-                self.remove_defaults(*tenant);
-                Ok(())
-            }
+            MetadataCommand::RemoveDefaults { tenant } => self.remove_defaults(*tenant),
             // The log's framing of a large command, which the group reassembles before it applies the command.
             MetadataCommand::Chunk { .. } | MetadataCommand::Commit { .. } => Err(
                 ClusterError::contradicts("a whole command, not a chunk of one or its commit"),
@@ -154,9 +151,10 @@ impl MetadataState {
         Ok(())
     }
 
-    /// Removes every default-entry record of `tenant`.
-    fn remove_defaults(&mut self, tenant: Tenant) {
+    /// Removes every default-entry record of `tenant`; it refuses nothing.
+    fn remove_defaults(&mut self, tenant: Tenant) -> Result<(), ClusterError> {
         self.defaults.retain(|(of, _), _| *of != tenant);
+        Ok(())
     }
 
     /// Holds `secret` from here on.

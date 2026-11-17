@@ -1865,7 +1865,7 @@ fn drop_aimed_at_an_earlier_schema(w: &mut Steps) -> TestResult {
         let _settled = turn_all(hosts, 3, 0)?;
         let sender = hosts
             .first()
-            .and_then(|host| host.mailbox().sender(pid(1).ok()?))
+            .and_then(|first| first.mailbox().sender(pid(1).ok()?))
             .context("partition 1's sender")?;
         for (at, version) in [(2, 3), (3, 4)] {
             let announced = vec![CatalogVersion::new(Tenant::new(TENANT), version)];
@@ -1875,11 +1875,11 @@ fn drop_aimed_at_an_earlier_schema(w: &mut Steps) -> TestResult {
                 announced,
                 Vec::new(),
             )?))?;
-            let _settled = turn_all(hosts, 2, 0)?;
+            let _closed = turn_all(hosts, 2, 0)?;
         }
-        let host = hosts.first_mut().context("partition 1")?;
-        let before = holds(host, "s", "p")?;
-        let ticket = host.commit_drop((TENANT, 1), DropRequest::Tenant, 3, (0, 0), 0)?;
+        let deciding = hosts.first_mut().context("partition 1")?;
+        let before = holds(deciding, "s", "p")?;
+        let ticket = deciding.commit_drop((TENANT, 1), DropRequest::Tenant, 3, (0, 0), 0)?;
         let ended = turn_all(hosts, 3, 0)?;
         let outcome = ended
             .iter()
@@ -1891,8 +1891,8 @@ fn drop_aimed_at_an_earlier_schema(w: &mut Steps) -> TestResult {
             .err()
             .context("the Drop is refused")?;
         let reply = error_reply(refusal);
-        let host = hosts.first().context("partition 1")?;
-        let changed = before && !holds(host, "s", "p")?;
+        let decided = hosts.first().context("partition 1")?;
+        let changed = before && !holds(decided, "s", "p")?;
         w.numbers = vec![
             u64::from(reply.code().number()),
             reply.detail(),

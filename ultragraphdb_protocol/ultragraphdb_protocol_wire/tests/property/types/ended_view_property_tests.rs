@@ -37,7 +37,7 @@ fn test_an_ended_round_trips(tc: TestCase) {
     );
     let again = read_back::<EndedView>(&bytes);
     assert_eq!(again, Some(body));
-    assert_eq!(again.and_then(|body| built(&body).ok()), Some(bytes));
+    assert_eq!(again.and_then(|rebuilt| built(&rebuilt).ok()), Some(bytes));
 }
 
 /// Session `index` of `section` broken: all zero, equal to the one before or below it; the refusal it gives.

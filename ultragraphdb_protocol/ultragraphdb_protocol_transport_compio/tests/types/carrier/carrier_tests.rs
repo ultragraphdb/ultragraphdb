@@ -236,8 +236,9 @@ fn test_a_read_waking_beside_a_split_carriers_write_and_read_takes_its_byte() ->
         assert_eq!(written?, 1, "the write");
         let compio::BufResult(beside, _) = within(read, "the read beside it").await?;
         assert_eq!(beside?, 1, "the read beside it");
-        let compio::BufResult(other, got) = within(other_read, "the other carrier's read").await?;
-        assert_eq!(other?, 1, "the other carrier's read");
+        let compio::BufResult(read_other, got) =
+            within(other_read, "the other carrier's read").await?;
+        assert_eq!(read_other?, 1, "the other carrier's read");
         assert_eq!(got, b"o");
         Ok::<(), TestError>(())
     })

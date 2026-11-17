@@ -63,7 +63,7 @@ fn test_a_catalog_request_round_trips(tc: TestCase) {
     );
     let again = read_back::<CatalogView>(&bytes);
     assert_eq!(again, Some(body));
-    assert_eq!(again.and_then(|body| built(&body).ok()), Some(bytes));
+    assert_eq!(again.and_then(|rebuilt| built(&rebuilt).ok()), Some(bytes));
 }
 
 /// L1.21, Catalog: a request naming a `version` and an epoch, one of `version` 0 whose epoch is past 2⁴² − 1 (case

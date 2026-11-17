@@ -131,9 +131,9 @@ async fn books() -> TestResult<Books> {
     let catalog = (held.version(), held.epoch(), held.bytes().to_vec());
     let catalog_position = held.position();
     drop(reply);
-    let reply = storage.request(&Placement::request(0)).await?;
-    let view = reply.view()?;
-    let placed = PlacementView::from_frame(&view)?;
+    let placed_reply = storage.request(&Placement::request(0)).await?;
+    let placed_view = placed_reply.view()?;
+    let placed = PlacementView::from_frame(&placed_view)?;
     let placement_position = placed.position();
     let placement = (
         placed.epoch(),
@@ -146,11 +146,11 @@ async fn books() -> TestResult<Books> {
             .filter_map(|index| placed.run(index))
             .collect(),
     );
-    drop(reply);
+    drop(placed_reply);
     let mut frontend = group_as("frontend").await?;
-    let reply = frontend.request(&Challenge::request(ADMIN)).await?;
-    let view = reply.view()?;
-    let challenged = ChallengeView::from_frame(&view)?;
+    let challenge_reply = frontend.request(&Challenge::request(ADMIN)).await?;
+    let challenge_view = challenge_reply.view()?;
+    let challenged = ChallengeView::from_frame(&challenge_view)?;
     Ok(Books {
         catalog,
         principal: (challenged.iterations(), challenged.salt().to_vec()),
@@ -195,44 +195,16 @@ fn books_recover(w: &mut Steps) -> TestResult {
     )?;
     w.roles = Some(util);
     let (before, second) = Runtime::new()?.block_on(async {
-        let mut closes = group_as("frontend").await?;
-        closes.send_only(&Subscribe::at_latest()).await?;
-        let mut asking = group_as("frontend").await?;
-        // Answered once a close has assigned the version's epoch, which the closes asked for below bring.
-        let declared = vec![Declared::Predicate(DeclaredPredicate::new(
-            "http://ex.org/declared",
-        ))];
-        asking
-            .send_only(&Declare::declarations(TENANT, 0, 0, declared))
-            .await?;
-        // The open epoch is 1 when the group holds no close; a request for an epoch closed already changes nothing.
-        asking.send_only(&CloseRequest::frontend(1)).await?;
-        let mut latest = close_epoch(&closes.next_frame().await?)?;
-        // Each pass asks for the open epoch's close and reads it: ends at the twelfth (Ultra rule 2).
-        while latest < CLOSES {
-            asking
-                .send_only(&CloseRequest::frontend(latest + 1))
-                .await?;
-            latest = close_epoch(&closes.next_frame().await?)?;
-        }
-        let reply = asking.next_frame().await?;
-        answered("the Declare", &reply)?;
-        let version = DeclareView::from_frame(&reply.view()?)?.version();
-        if version != 1 {
-            return Err(TestError::new(format!(
-                "the Declare built version {version}"
-            )));
-        }
-        drop(reply);
+        declared_through_closes().await?;
         let mut storage = group_as("storage").await?;
         let _first = leased(&mut storage).await?;
         let second = leased(&mut storage).await?;
         TestResult::Ok((books().await?, second))
     })?;
     killed(w, pid)?;
-    let util = w.roles.as_ref().context("the processes")?;
+    let roles = w.roles.as_ref().context("the processes")?;
     let again = scratch("storage-books-again.log");
-    let _restarted: u32 = started(util, &settings, &again, FIRST_OBSERVED)?;
+    let _restarted: u32 = started(roles, &settings, &again, FIRST_OBSERVED)?;
     let (after, latest, third) = Runtime::new()?.block_on(async {
         let after = books().await?;
         let latest = latest_close().await?;
@@ -257,6 +229,41 @@ fn books_recover(w: &mut Steps) -> TestResult {
     w.epochs = vec![latest];
     w.leases = vec![second, third];
     w.logs = vec![std::fs::read_to_string(&again)?];
+    Ok(())
+}
+
+/// Declares a predicate, which builds version 1, and asks for closes through the twelfth, which assign the version's
+/// epoch: the Declare is answered once they have.
+async fn declared_through_closes() -> TestResult {
+    let mut closes = group_as("frontend").await?;
+    closes.send_only(&Subscribe::at_latest()).await?;
+    let mut asking = group_as("frontend").await?;
+    // Answered once a close has assigned the version's epoch, which the closes asked for below bring.
+    let declared = vec![Declared::Predicate(DeclaredPredicate::new(
+        "http://ex.org/declared",
+    ))];
+    asking
+        .send_only(&Declare::declarations(TENANT, 0, 0, declared))
+        .await?;
+    // The open epoch is 1 when the group holds no close; a request for an epoch closed already changes nothing.
+    asking.send_only(&CloseRequest::frontend(1)).await?;
+    let mut latest = close_epoch(&closes.next_frame().await?)?;
+    // Each pass asks for the open epoch's close and reads it: ends at the twelfth (Ultra rule 2).
+    while latest < CLOSES {
+        asking
+            .send_only(&CloseRequest::frontend(latest + 1))
+            .await?;
+        latest = close_epoch(&closes.next_frame().await?)?;
+    }
+    let reply = asking.next_frame().await?;
+    answered("the Declare", &reply)?;
+    let version = DeclareView::from_frame(&reply.view()?)?.version();
+    if version != 1 {
+        return Err(TestError::new(format!(
+            "the Declare built version {version}"
+        )));
+    }
+    drop(reply);
     Ok(())
 }
 
@@ -451,8 +458,8 @@ fn restarts_with_version(w: &mut Steps) -> TestResult {
         committed_at_or_after(&format!("tcp://127.0.0.1:{FIRST_PORT}"), (1, 1), effective)?;
     killed(w, pid)?;
     let again = scratch("storage-versions-again.log");
-    let util = w.roles.as_ref().context("the processes")?;
-    let _restarted: u32 = started(util, &settings, &again, FIRST_OBSERVED)?;
+    let roles = w.roles.as_ref().context("the processes")?;
+    let _restarted: u32 = started(roles, &settings, &again, FIRST_OBSERVED)?;
     w.logs = vec![std::fs::read_to_string(&again)?];
     Ok(())
 }

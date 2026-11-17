@@ -151,7 +151,7 @@ fn server_finals(tc: &TestCase) -> Result<(), ScramError> {
         relay.finish(&signature)?,
         format!("v={}", STANDARD.encode(signature)).into_bytes()
     );
-    let (mut relay, auth_message, proof) = relay_to_the_proof(&drawn)?;
+    let (mut proven, auth_message, proof) = relay_to_the_proof(&drawn)?;
     let signed = drawn
         .verifier
         .sign(&auth_message, &proof)
@@ -160,7 +160,7 @@ fn server_finals(tc: &TestCase) -> Result<(), ScramError> {
     let mut server = drawn.server();
     let server_first = server.first(&client.first_message()?, drawn.lookup())?;
     let served = server.last(&client.final_message(&server_first)?)?;
-    assert_eq!((relay.finish(&signed)?, PRINCIPAL), served);
+    assert_eq!((proven.finish(&signed)?, PRINCIPAL), served);
     Ok(())
 }
 
@@ -285,8 +285,8 @@ fn finals_refused_alike(tc: &TestCase) -> Result<(), ScramError> {
             .verifier
             .sign(&auth_message, &proof)
             .map(|signature| {
-                let message = format!("v={}", STANDARD.encode(signature));
-                (message.into_bytes(), PRINCIPAL)
+                let server_final = format!("v={}", STANDARD.encode(signature));
+                (server_final.into_bytes(), PRINCIPAL)
             })
             .ok_or(ScramError::proof())
     });

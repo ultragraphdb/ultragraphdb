@@ -24,14 +24,14 @@ pub fn laid_out(
     tenant: u64,
     position: u64,
     unused: Option<(usize, u8)>,
-    table: [Vec<u8>; 2],
+    table: &[Vec<u8>; 2],
     flags: u8,
 ) -> Option<Vec<u8>> {
     let mut header = command_header(&[(0, &tenant.to_le_bytes()), (8, &position.to_le_bytes())]);
     if let Some((at, byte)) = unused {
         header[at] = byte;
     }
-    frame(Command::Defaults, header, &sections(&table), flags)
+    frame(Command::Defaults, header, &sections(table), flags)
 }
 
 /// The predicates a view reads from `bytes`, with its fields.
@@ -59,7 +59,7 @@ fn test_a_defaults_round_trips(tc: TestCase) {
     } else {
         (0, Vec::new())
     };
-    let expected = laid_out(tenant, position, None, iri_table(&predicates), 0);
+    let expected = laid_out(tenant, position, None, &iri_table(&predicates), 0);
     let body = if reply {
         Defaults::reply(tenant, position, predicates.clone())
     } else {
@@ -71,7 +71,7 @@ fn test_a_defaults_round_trips(tc: TestCase) {
     assert_eq!(read(&bytes), Ok((tenant, position, predicates)));
     let again = read_back::<DefaultsView>(&bytes);
     assert_eq!(again, Some(body));
-    assert_eq!(again.and_then(|body| built(&body).ok()), Some(bytes));
+    assert_eq!(again.and_then(|rebuilt| built(&rebuilt).ok()), Some(bytes));
 }
 
 /// `predicates` as term-table entries of kind 1.
@@ -114,7 +114,7 @@ fn test_a_defaults_breaking_one_rule_is_refused_with_that_rule(tc: TestCase) {
             (1, None, refusal)
         }
     };
-    let laid = laid_out(3, position, unused, term_table(&table), 0);
+    let laid = laid_out(3, position, unused, &term_table(&table), 0);
     assert!(laid.is_some());
     assert_eq!(
         outcome::<DefaultsView>(&laid.unwrap_or_default()),
@@ -152,7 +152,7 @@ fn test_a_defaults_breaking_two_rules_is_refused_with_the_earlier(tc: TestCase) 
         field(539, "default order", last as u64),
     ];
     let unused = broken(0).then(|| (at, nonzero_byte(&tc)));
-    let laid = laid_out(3, 1, unused, sections, 0);
+    let laid = laid_out(3, 1, unused, &sections, 0);
     assert!(laid.is_some());
     assert_eq!(
         outcome::<DefaultsView>(&laid.unwrap_or_default()),
@@ -177,7 +177,7 @@ fn test_a_defaults_builder_refuses_what_its_view_refuses(tc: TestCase) {
         3 => predicates.swap(index - 1, index),
         _ => (),
     }
-    let expected = laid_out(3, position, None, iri_table(&predicates), 0);
+    let expected = laid_out(3, position, None, &iri_table(&predicates), 0);
     let body = Defaults::reply(3, position, predicates);
     assert_builds_as_laid_out::<_, DefaultsView>(&body, &expected);
     assert_eq!(built(&body).is_err(), broken != 0);

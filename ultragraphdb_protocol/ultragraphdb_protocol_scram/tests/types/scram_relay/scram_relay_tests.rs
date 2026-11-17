@@ -414,11 +414,11 @@ fn test_messages_out_of_step_are_refused() -> TestResult {
     let read = relay.last(CLIENT_FINAL)?;
     assert_eq!(read.0, AUTH_MESSAGE);
     assert_eq!(relay.last(CLIENT_FINAL)?, read);
-    let signature = verifier()?
+    let signed = verifier()?
         .sign(&read.0, &read.1)
         .context("RFC 7677's proof holds")?;
-    assert_eq!(relay.finish(&signature)?, SERVER_FINAL);
-    assert_eq!(relay.finish(&signature).err(), out_of_step.clone());
+    assert_eq!(relay.finish(&signed)?, SERVER_FINAL);
+    assert_eq!(relay.finish(&signed).err(), out_of_step.clone());
     assert_eq!(relay.last(CLIENT_FINAL).err(), out_of_step.clone());
     assert_eq!(
         relay.challenge(&SALT, ITERATIONS).err(),

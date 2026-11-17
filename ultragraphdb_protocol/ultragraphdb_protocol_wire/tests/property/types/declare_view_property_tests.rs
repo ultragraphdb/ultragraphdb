@@ -124,9 +124,9 @@ impl Names {
 /// `ABSENT`, the tokenizers' count and names, the domains' count and names; kind 9 with bit 0 for an abstract type,
 /// the type and its parent or `ABSENT`; kind 10 with the relation and its roles.
 fn record_of(drawn: &Drawn, names: &mut Names) -> (u8, u8, Vec<u32>) {
-    let counted = |list: &[String], names: &mut Names| {
+    let counted = |list: &[String], interned: &mut Names| {
         let mut args = vec![u32::try_from(list.len()).unwrap_or(ABSENT)];
-        args.extend(list.iter().map(|name| names.intern(name)));
+        args.extend(list.iter().map(|name| interned.intern(name)));
         args
     };
     match drawn {
@@ -305,7 +305,7 @@ fn round_trips(fields: Fields, declarations: &[Drawn], target: Option<&str>, bod
     );
     let again = read_back::<DeclareView>(&bytes);
     assert_eq!(again, Some(body));
-    assert_eq!(again.and_then(|body| built(&body).ok()), Some(bytes));
+    assert_eq!(again.and_then(|rebuilt| built(&rebuilt).ok()), Some(bytes));
 }
 
 /// L1.5, L1.6: a Declare of `kind` 1 with 1 to 8 drawn declarations, a request or a reply, is the bytes laid out by

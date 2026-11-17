@@ -50,7 +50,7 @@ fn test_a_subscribe_round_trips(tc: TestCase) {
     );
     let again = read_back::<SubscribeView>(&bytes);
     assert_eq!(again, Some(body));
-    assert_eq!(again.and_then(|body| built(&body).ok()), Some(bytes));
+    assert_eq!(again.and_then(|rebuilt| built(&rebuilt).ok()), Some(bytes));
 }
 
 /// L1.21, Subscribe: one drawn rule broken is refused with that rule's refusal: an unused byte, `from` above 2⁴² − 1,

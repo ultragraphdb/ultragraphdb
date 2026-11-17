@@ -12,3 +12,7 @@ config_setting(
         "compilation_mode": "opt",
     },
 )
+
+# The one Clippy configuration, which `cargo clippy` finds at the workspace root and the Clippy aspect reads through
+# `--@rules_rust//rust/settings:clippy.toml` in `.bazelrc`.
+exports_files(["clippy.toml"])

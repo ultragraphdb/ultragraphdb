@@ -66,7 +66,7 @@ fn package() -> TestResult<PathBuf> {
 }
 
 /// The release `name` rendered into `namespace` under `domain`: the objects of `rendered_<name>.jsonl`.
-fn rendered(file: &str, namespace: &str, domain: &str) -> TestResult<Release> {
+fn rendered(file: &str, namespace: String, domain: String) -> TestResult<Release> {
     let path = package()?.join(format!("rendered_{file}.jsonl"));
     let text = std::fs::read_to_string(&path).context(&path.display().to_string())?;
     let objects = serde_json::Deserializer::from_str(&text)
@@ -74,15 +74,19 @@ fn rendered(file: &str, namespace: &str, domain: &str) -> TestResult<Release> {
         .filter(|object| !matches!(object, Ok(Value::Null)))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Release {
-        namespace: namespace.to_string(),
-        domain: domain.to_string(),
+        namespace,
+        domain,
         objects,
     })
 }
 
 /// The release `scripts/cluster_local.sh` renders: `ultragraphdb` in its namespace, under the chart's default domain.
 fn default_release() -> TestResult<Release> {
-    rendered("kube", "ultragraphdb", "cluster.local")
+    rendered(
+        "kube",
+        "ultragraphdb".to_string(),
+        "cluster.local".to_string(),
+    )
 }
 
 /// The text at `pointer` of `value`.
@@ -545,11 +549,11 @@ fn rendered_as(
     _partitions: u32,
 ) -> TestResult {
     let file = if release == "ultragraphdb" {
-        "kube"
+        "kube".to_string()
     } else {
-        release.as_str()
+        release
     };
-    w.release = rendered(file, &namespace, &domain)?;
+    w.release = rendered(&file, namespace, domain)?;
     Ok(())
 }
 

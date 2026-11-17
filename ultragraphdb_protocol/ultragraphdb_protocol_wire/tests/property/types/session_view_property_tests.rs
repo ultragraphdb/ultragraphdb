@@ -46,7 +46,7 @@ fn test_a_session_round_trips(tc: TestCase) {
     );
     let again = read_back::<SessionView>(&bytes);
     assert_eq!(again, Some(body));
-    assert_eq!(again.and_then(|body| built(&body).ok()), Some(bytes));
+    assert_eq!(again.and_then(|rebuilt| built(&rebuilt).ok()), Some(bytes));
 }
 
 /// One rule of a Session's Order line: the unused byte it sets, whether it zeroes the session, whether it gives the

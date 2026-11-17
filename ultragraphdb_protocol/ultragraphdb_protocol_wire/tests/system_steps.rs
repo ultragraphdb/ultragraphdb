@@ -370,6 +370,13 @@ fn goldens_hold_their_fields(w: &mut Steps) -> TestResult {
         assert_eq!(view_any(bytes)?, Ok(()));
     }
     // The fields `generate_roles.py` names for each frame, built here from their values.
+    session_goldens_hold()?;
+    declare_goldens_hold()?;
+    login_goldens_hold()
+}
+
+/// The golden Session, Check, check reply and Ended frames hold the fields `generate_roles.py` names.
+fn session_goldens_hold() -> TestResult {
     let checks = vec![
         SessionCheck::new(SESSION_A, 9, CheckKind::Marks),
         SessionCheck::new(SESSION_B, 9, CheckKind::Asks),
@@ -398,6 +405,11 @@ fn goldens_hold_their_fields(w: &mut Steps) -> TestResult {
         body_of::<EndedView>(&role("ended")?)?,
         Ended::new(vec![SESSION_A, SESSION_C])
     );
+    Ok(())
+}
+
+/// The golden Declare and Defaults frames hold the fields `generate_roles.py` names.
+fn declare_goldens_hold() -> TestResult {
     let declare = body_of::<DeclareView>(&role("declare_reply")?)?;
     assert_eq!(
         (declare.tenant(), declare.built_on(), declare.principal()),
@@ -432,6 +444,11 @@ fn goldens_hold_their_fields(w: &mut Steps) -> TestResult {
         body_of::<DefaultsView>(&role("defaults_reply")?)?,
         Defaults::reply(3, 1_250, predicates)
     );
+    Ok(())
+}
+
+/// The golden Challenge and Verify frames hold the fields `generate_roles.py` names.
+fn login_goldens_hold() -> TestResult {
     assert_eq!(
         body_of::<ChallengeView>(&role("challenge")?)?,
         Challenge::request("user")

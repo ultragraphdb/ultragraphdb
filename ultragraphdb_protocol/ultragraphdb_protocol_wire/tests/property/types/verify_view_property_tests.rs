@@ -69,7 +69,7 @@ fn test_a_verify_round_trips(tc: TestCase) {
     );
     let request = Verify::request(name.clone(), auth_message.clone(), client_proof);
     let body = match verified {
-        Some((principal, signature)) => request.with_verified(principal, signature),
+        Some((verifier, signed)) => request.with_verified(verifier, signed),
         None => request,
     };
     assert!(expected.is_some());
@@ -92,12 +92,12 @@ fn test_a_verify_round_trips(tc: TestCase) {
             client_proof,
             verified.is_some(),
             principal,
-            verified.map(|(_, signature)| signature)
+            verified.map(|(_, signed)| signed)
         ))
     );
     let again = read_back::<VerifyView>(&bytes);
     assert_eq!(again, Some(body));
-    assert_eq!(again.and_then(|body| built(&body).ok()), Some(bytes));
+    assert_eq!(again.and_then(|rebuilt| built(&rebuilt).ok()), Some(bytes));
 }
 
 /// The rules of a verified reply's Order line broken where `broken` says, and each rule's refusal: an unused byte,

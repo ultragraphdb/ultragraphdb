@@ -79,7 +79,7 @@ fn decide(
             announced,
             Vec::new(),
         )?))?;
-        let _settled = turned(host, 2)?;
+        let _closed = turned(host, 2)?;
     }
     let (predicate, graph) = (ex("p"), ex("g"));
     let drop = match kind {

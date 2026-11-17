@@ -39,5 +39,10 @@ test --test_env=HEGEL_PHASES=explicit,reuse,generate,target
 # release_flags reach only its own crate, so the flag goes to every target here.
 build --@rules_rust//rust/settings:extra_rustc_flag=-Coverflow-checks=on
 
+# One lint configuration for both checkers: the Clippy aspect reads the repository's clippy.toml, as `cargo clippy` does,
+# so `disallowed-methods` and `too-many-lines-threshold = 70` hold under Bazel too. Without it the aspect reads rules_rust's
+# empty .clippy.toml.
+build --@rules_rust//rust/settings:clippy.toml=//:clippy.toml
+
 # Allow developers to extend configuration locally (ignored in version control).
 try-import %workspace%/.bazelrc.local

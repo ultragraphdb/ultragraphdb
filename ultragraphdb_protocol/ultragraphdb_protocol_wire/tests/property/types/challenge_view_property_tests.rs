@@ -83,7 +83,7 @@ fn test_a_challenge_round_trips(tc: TestCase) {
     );
     let again = read_back::<ChallengeView>(&bytes);
     assert_eq!(again, Some(body));
-    assert_eq!(again.and_then(|body| built(&body).ok()), Some(bytes));
+    assert_eq!(again.and_then(|rebuilt| built(&rebuilt).ok()), Some(bytes));
 }
 
 /// The rules of a Challenge reply's Order line broken where `broken` says, and each rule's refusal: an unused byte, a

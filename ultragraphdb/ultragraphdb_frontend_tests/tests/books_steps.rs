@@ -65,6 +65,25 @@ fn until_version(version: u64, within: Duration) -> TestResult<bool> {
     Ok(false)
 }
 
+/// Writes `a` holding two objects of `nick`, each in a write of its own.
+fn two_nicks(runtime: &Runtime, a: &str) -> TestResult {
+    runtime.block_on(async {
+        let mut client = admin(1).await?;
+        for object in ["http://ex.org/x", "http://ex.org/y"] {
+            let mut terms = TermTable::new();
+            let change = WriteChange::Insert {
+                graph: None,
+                subject: terms.iri(a),
+                predicate: terms.iri(NICK),
+                object: terms.iri(object),
+            };
+            let write = ultragraphdb_protocol_wire::DirectWrite::new(TENANT, terms, vec![change]);
+            let _committed = client.direct_write(write, None).await?;
+        }
+        TestResult::Ok(())
+    })
+}
+
 #[when(
     "a client commits a declaration of `nick` single-valued, the frontend stops before any partition reports, and a partition then reports that the data refuses it"
 )]
@@ -76,21 +95,7 @@ fn check_outlives_frontend(w: &mut Steps) -> TestResult {
     // `a` in partition 2, the second process's, holding two objects of `nick`.
     let a = subject_of("http://ex.org/a", 2)?;
     let runtime = Runtime::new()?;
-    runtime.block_on(async {
-        let mut client = admin(1).await?;
-        for object in ["http://ex.org/x", "http://ex.org/y"] {
-            let mut terms = TermTable::new();
-            let change = WriteChange::Insert {
-                graph: None,
-                subject: terms.iri(&a),
-                predicate: terms.iri(NICK),
-                object: terms.iri(object),
-            };
-            let write = ultragraphdb_protocol_wire::DirectWrite::new(TENANT, terms, vec![change]);
-            let _committed = client.direct_write(write, None).await?;
-        }
-        TestResult::Ok(())
-    })?;
+    two_nicks(&runtime, &a)?;
     let before = latest_version()?;
     let second = roles
         .second

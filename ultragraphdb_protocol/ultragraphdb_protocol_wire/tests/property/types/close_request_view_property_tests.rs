@@ -48,7 +48,7 @@ fn test_a_close_request_round_trips(tc: TestCase) {
     );
     let again = read_back::<CloseRequestView>(&bytes);
     assert_eq!(again, Some(body));
-    assert_eq!(again.and_then(|body| built(&body).ok()), Some(bytes));
+    assert_eq!(again.and_then(|rebuilt| built(&rebuilt).ok()), Some(bytes));
 }
 
 /// L1.21, CloseRequest: an unused byte, and an `epoch` of 0 whatever the `partition`, is refused with its rule's

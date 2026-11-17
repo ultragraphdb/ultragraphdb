@@ -21,7 +21,7 @@ pub(crate) struct Settings(BTreeMap<String, BTreeMap<String, String>>);
 
 impl Settings {
     /// Sets `table.key` to `value`, written as it stands: a number or a boolean.
-    pub(crate) fn bare(&mut self, table: &str, key: &str, value: impl ToString) {
+    pub(crate) fn bare(&mut self, table: &str, key: &str, value: &impl ToString) {
         let _previous = self
             .0
             .entry(table.to_string())
@@ -31,7 +31,7 @@ impl Settings {
 
     /// Sets `table.key` to the string `value`.
     pub(crate) fn text(&mut self, table: &str, key: &str, value: &str) {
-        self.bare(table, key, format!("\"{value}\""));
+        self.bare(table, key, &format!("\"{value}\""));
     }
 
     /// Holds the table `table`, with no key when it holds none yet.
@@ -94,7 +94,7 @@ pub(crate) fn defects(instances: &Instances, active: Option<&Instances>) -> Vec<
 /// The settings every instance of a drawn target shares: its cluster, its secret and the system group's address.
 fn joined(system_address: &str) -> Settings {
     let mut settings = Settings::default();
-    settings.bare("cluster", "id", 7);
+    settings.bare("cluster", "id", &7);
     settings.text("cluster", "role_secret_file", "/run/secret");
     settings.text("cluster", "system_address", system_address);
     settings
@@ -103,16 +103,16 @@ fn joined(system_address: &str) -> Settings {
 /// Makes `settings`, storage instance `index`'s of `storages`, the host of the system group: its `[system]` table, the two
 /// moved tables and the partition count it forms the placement over.
 pub(crate) fn host(settings: &mut Settings, index: u64, storages: u64) {
-    settings.bare("cluster", "partition_count", storages);
+    settings.bare("cluster", "partition_count", &storages);
     settings.text(
         "system",
         "role_address",
         &format!("tcp://10.0.2.{index}:{SYSTEM_PORT}"),
     );
     settings.text("system", "data_dir", "/data/system");
-    settings.bare("metadata", "sessions_max", 16);
-    settings.bare("sequencer", "epoch_ms_min", 2);
-    settings.bare("sequencer", "epoch_ms_max", 10);
+    settings.bare("metadata", "sessions_max", &16);
+    settings.bare("sequencer", "epoch_ms_min", &2);
+    settings.bare("sequencer", "epoch_ms_max", &10);
 }
 
 /// Undoes [`host`].
@@ -143,7 +143,7 @@ pub(crate) fn valid(computes: u64, storages: u64) -> Instances {
             "role_address",
             &format!("tcp://10.0.1.{index}:7082"),
         );
-        let _none = instances.insert(format!("compute_{index}"), compute);
+        let _no_compute = instances.insert(format!("compute_{index}"), compute);
     }
     for index in 1..=storages {
         let mut storage = joined(&system_address);
@@ -152,8 +152,8 @@ pub(crate) fn valid(computes: u64, storages: u64) -> Instances {
             "address",
             &format!("tcp://10.0.2.{index}:8080"),
         );
-        storage.bare("storage", "partition_first", index);
-        storage.bare("storage", "partition_count", 1);
+        storage.bare("storage", "partition_first", &index);
+        storage.bare("storage", "partition_count", &1);
         storage.text(
             "storage",
             "role_address",
@@ -163,7 +163,7 @@ pub(crate) fn valid(computes: u64, storages: u64) -> Instances {
         if index == 1 {
             host(&mut storage, index, storages);
         }
-        let _none = instances.insert(format!("storage_{index}"), storage);
+        let _no_storage = instances.insert(format!("storage_{index}"), storage);
     }
     instances
 }

@@ -14,8 +14,7 @@ use ultragraphdb_core_keys::{DEFAULT_GRAPH, Graph, Keyspace, QuadKey};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
-    BodyView, Command, DirectWrite, DropCommand, ObjectRecords, RequestTerm, ScanAt, TermTable,
-    WriteChange,
+    Command, DirectWrite, DropCommand, ObjectRecords, RequestTerm, ScanAt, TermTable, WriteChange,
 };
 use ultragraphdb_tests::{
     CLIENT_ADDRESS, CLUSTER, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, answering, frontend_holding,
@@ -223,15 +222,15 @@ fn knows_dropped(w: &mut Steps) -> TestResult {
         .collect::<TestResult<Vec<_>>>()?;
         wrote(&mut client, terms, changes).await?;
         // The edge again with a property, so it holds a statement ID and a statement record.
-        let mut terms = TermTable::new();
+        let mut edge_terms = TermTable::new();
         let edge = WriteChange::InsertEdge {
             graph: None,
-            subject: terms.iri(A),
-            predicate: terms.iri(KNOWS),
-            object: terms.iri(C),
-            properties: vec![(terms.iri(SINCE), terms.intern(literal("2020"))?)],
+            subject: edge_terms.iri(A),
+            predicate: edge_terms.iri(KNOWS),
+            object: edge_terms.iri(C),
+            properties: vec![(edge_terms.iri(SINCE), edge_terms.intern(literal("2020"))?)],
         };
-        wrote(&mut client, terms, vec![edge]).await?;
+        wrote(&mut client, edge_terms, vec![edge]).await?;
         let mut partition = dial().await?;
         let mut ids = Vec::new();
         for iri in [A, B, KNOWS, NAME] {

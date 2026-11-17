@@ -59,20 +59,20 @@ fn test_a_relay_prints_the_length_of_its_messages_never_their_text() -> TestResu
         client_final,
     ];
     let relays = [&initial, &read, &challenged, &answered, &relay];
-    for relay in relays {
-        for shown in [format!("{relay:?}"), format!("{relay:#?}")] {
+    for each in relays {
+        for shown in [format!("{each:?}"), format!("{each:#?}")] {
             for text in texts {
                 hides(&shown, text.as_bytes())?;
             }
             hides(&shown, &SALT)?;
         }
         holds(
-            &format!("{relay:?}"),
+            &format!("{each:?}"),
             &format!("nonce: <{} bytes>", SERVER_NONCE.len()),
         )?;
     }
-    for relay in [&read, &challenged, &answered] {
-        let printed = format!("{relay:?}");
+    for each in [&read, &challenged, &answered] {
+        let printed = format!("{each:?}");
         holds(&printed, &format!("binding: <{} bytes>", binding.len()))?;
         holds(
             &printed,
@@ -80,9 +80,9 @@ fn test_a_relay_prints_the_length_of_its_messages_never_their_text() -> TestResu
         )?;
         holds(&printed, &format!("nonce: <{} bytes>", nonce.len()))?;
     }
-    for relay in [&challenged, &answered] {
+    for each in [&challenged, &answered] {
         holds(
-            &format!("{relay:?}"),
+            &format!("{each:?}"),
             &format!("server_first: <{} bytes>", server_first.len()),
         )?;
     }

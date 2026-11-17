@@ -70,7 +70,7 @@ fn test_a_describe_answer_round_trips_its_catalog(tc: TestCase) {
     );
     let again = read_back::<DescribeView>(&bytes);
     assert_eq!(again, Some(body));
-    assert_eq!(again.and_then(|body| built(&body).ok()), Some(bytes));
+    assert_eq!(again.and_then(|rebuilt| built(&rebuilt).ok()), Some(bytes));
 }
 
 /// The client endpoint reads a Describe whose `catalog` is 0 and refuses any other with `FieldValue` (`"catalog"`),

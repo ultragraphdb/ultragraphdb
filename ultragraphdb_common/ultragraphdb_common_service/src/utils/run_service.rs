@@ -229,7 +229,6 @@ where
 }
 
 /// The code the process exits with after `outcome`, its refusal printed where an operator reads it.
-#[must_use]
 pub fn exit_status(outcome: Result<(), RoleError>) -> ExitCode {
     match outcome {
         Ok(()) => ExitCode::SUCCESS,

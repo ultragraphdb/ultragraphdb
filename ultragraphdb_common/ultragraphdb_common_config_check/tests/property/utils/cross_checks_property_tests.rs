@@ -79,7 +79,7 @@ fn test_the_system_check_accepts_exactly_one_complete_host(tc: TestCase) {
             }
         }
         if !partition {
-            settings.bare("storage", "partition_count", 0);
+            settings.bare("storage", "partition_count", &0);
         }
     }
     let others: Vec<String> = std::iter::once("frontend".to_string())

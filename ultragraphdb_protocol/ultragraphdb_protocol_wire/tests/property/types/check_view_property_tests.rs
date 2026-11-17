@@ -122,7 +122,7 @@ fn round_trips(drawn: &[Fields]) {
     assert_eq!(read(&bytes), Ok(drawn.to_vec()));
     let again = read_back::<CheckView>(&bytes);
     assert_eq!(again, Some(body));
-    assert_eq!(again.and_then(|body| built(&body).ok()), Some(bytes));
+    assert_eq!(again.and_then(|rebuilt| built(&rebuilt).ok()), Some(bytes));
 }
 
 /// L1.2: a Check request of 1 to 64 drawn checks is the bytes laid out by hand, reads back to its fields and builds
@@ -289,8 +289,8 @@ fn test_a_reply_is_checked_against_its_request(tc: TestCase) {
         .iter()
         .map(|fields| answer(fields, tc.draw(gs::sampled_from(vec![1u8, 12, 14, 21]))))
         .collect();
-    let checked = |reply: &[Fields], sent: &[Fields]| {
-        let laid = laid_out(command_header(&[]), section(reply)).unwrap_or_default();
+    let checked = |replied: &[Fields], sent: &[Fields]| {
+        let laid = laid_out(command_header(&[]), section(replied)).unwrap_or_default();
         let sent = owned(sent);
         viewed::<CheckView, _>(&laid, |view| view.check_reply(&sent).map_err(|e| e.0))
     };

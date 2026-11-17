@@ -382,7 +382,24 @@ fn code_of(error: &ClientError) -> Option<ErrorCode> {
         ClientErrorEnum::InDoubt {
             cause: Some(cause), ..
         } => code_of(cause),
-        _ => None,
+        ClientErrorEnum::Transport { .. }
+        | ClientErrorEnum::Protocol { .. }
+        | ClientErrorEnum::TimedOut
+        | ClientErrorEnum::ConnectionLost { .. }
+        | ClientErrorEnum::NotConnected
+        | ClientErrorEnum::Request { .. }
+        | ClientErrorEnum::ReplyMismatch { .. }
+        | ClientErrorEnum::OutcomeUnknown { .. }
+        | ClientErrorEnum::InDoubt { .. }
+        | ClientErrorEnum::NotInDoubt { .. }
+        | ClientErrorEnum::SessionBusy { .. }
+        | ClientErrorEnum::UnknownSession { .. }
+        | ClientErrorEnum::ReadOnly { .. }
+        | ClientErrorEnum::StreamFinished { .. }
+        | ClientErrorEnum::StreamBusy { .. }
+        | ClientErrorEnum::StreamLimit { .. }
+        | ClientErrorEnum::BufferLimit { .. }
+        | ClientErrorEnum::TransactionMismatch { .. } => None,
     }
 }
 
