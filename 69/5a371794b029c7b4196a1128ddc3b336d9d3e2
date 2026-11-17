@@ -1,0 +1,21 @@
+"openspec/designs/UltraGraphDB Storage IO in Longshore.md"
+  s_21eff977e05256::t_f721009afa56aa 1-142
+ROADMAP.md
+  s_21eff977e05256::t_c3aa6134ff08ed 14,28-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "695a371794b029c7b4196a1128ddc3b336d9d3e2",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
