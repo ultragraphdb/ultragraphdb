@@ -68,8 +68,34 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
                 let held = self.metadata.state().session_principal(session).is_ok();
                 let _unheard: Result<(), bool> = reply.send(held);
             }
+            other @ (SystemAsked::TenantFacts { .. }
+            | SystemAsked::Map { .. }
+            | SystemAsked::SchemaId { .. }
+            | SystemAsked::Describe { .. }
+            | SystemAsked::Declare { .. }
+            | SystemAsked::DropCatalog { .. }
+            | SystemAsked::RecordDefault { .. }
+            | SystemAsked::Report { .. }) => self.take_catalog(other)?,
+            other @ (SystemAsked::Connect { .. }
+            | SystemAsked::Disconnect { .. }
+            | SystemAsked::Session { .. }
+            | SystemAsked::Check { .. }
+            | SystemAsked::Ended { .. }
+            | SystemAsked::Defaults { .. }
+            | SystemAsked::CatalogAt { .. }
+            | SystemAsked::Challenge { .. }
+            | SystemAsked::Verify { .. }
+            | SystemAsked::LatestClose { .. }) => self.take_system(other, now_us)?,
+        }
+        Ok(())
+    }
+
+    /// Takes what an endpoint core asked of a tenant's catalog and facts, the placement map and the partitions' reports.
+    /// An asker gone has no one to tell, so every send's failure is dropped.
+    fn take_catalog(&mut self, asked: SystemAsked) -> Result<(), RoleError> {
+        match asked {
             SystemAsked::TenantFacts { tenant, reply } => {
-                drop(reply.send(self.tenant_facts(tenant)))
+                let _unheard: Result<(), TenantFacts> = reply.send(self.tenant_facts(tenant));
             }
             SystemAsked::Map { reply } => {
                 drop(reply.send(self.metadata.state().placement().cloned()));
@@ -93,7 +119,22 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
                 reply,
             } => self.record_default(tenant, &predicate, reply)?,
             SystemAsked::Report { report, reply } => self.report(report, reply)?,
-            other @ (SystemAsked::Connect { .. }
+            // `take` hands the catalog's asks here alone.
+            SystemAsked::Join { .. }
+            | SystemAsked::Members { .. }
+            | SystemAsked::Placement { .. }
+            | SystemAsked::Catalog { .. }
+            | SystemAsked::Lease { .. }
+            | SystemAsked::CloseRequest { .. }
+            | SystemAsked::Subscribe { .. }
+            | SystemAsked::NextClose { .. }
+            | SystemAsked::Verifier { .. }
+            | SystemAsked::RegisterSession { .. }
+            | SystemAsked::CheckSession { .. }
+            | SystemAsked::BeginCommit { .. }
+            | SystemAsked::CommitEnded { .. }
+            | SystemAsked::SessionHeld { .. }
+            | SystemAsked::Connect { .. }
             | SystemAsked::Disconnect { .. }
             | SystemAsked::Session { .. }
             | SystemAsked::Check { .. }
@@ -102,7 +143,7 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
             | SystemAsked::CatalogAt { .. }
             | SystemAsked::Challenge { .. }
             | SystemAsked::Verify { .. }
-            | SystemAsked::LatestClose { .. }) => self.take_system(other, now_us)?,
+            | SystemAsked::LatestClose { .. } => {}
         }
         Ok(())
     }
