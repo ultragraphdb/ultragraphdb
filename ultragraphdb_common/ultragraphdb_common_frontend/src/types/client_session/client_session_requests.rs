@@ -292,21 +292,25 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     }
 
     /// What the system group says of a tenant (`PROTOCOL.md` §8.3, §11.13, *The frontend's reads*): the catalog version a
-    /// client reads at the view's latest closed epoch, by a Catalog of `version` 0 naming it, and the default-entry records by
-    /// Defaults; answered across frames within the client's `max_frame`, under its credit.
+    /// client reads at the view's latest closed epoch, by a Catalog of `version` 0 naming it, which the answer names in
+    /// `catalog` on every frame, and the default-entry records by Defaults; answered across frames within the client's
+    /// `max_frame`, under its credit.
     async fn describe(&mut self, stream: u64, view: &FrameView<'_>) -> Result<Answer, ErrorReply> {
-        let asked = DescribeView::from_frame(view).map_err(|rule| protocol(&rule))?;
+        let asked = DescribeView::from_client_frame(view).map_err(|rule| protocol(&rule))?;
         let tenant = asked.tenant();
         let facts = self.gate(Action::Read, tenant).await?;
         let closed = facts.last_closed;
         let system = self.core.system();
-        let declarations = match system.catalog_at(tenant, closed).await {
-            Ok((version, bytes)) => CatalogContents::decode(tenant, version, &bytes)
-                .map_err(|error| ErrorReply::new(ErrorCode::Unavailable, error.to_string()))?
-                .into_declarations(),
-            // No version is in effect at the epoch: the initial catalog's, which declares nothing.
+        let (catalog, declarations) = match system.catalog_at(tenant, closed).await {
+            Ok((version, bytes)) => (
+                version,
+                CatalogContents::decode(tenant, version, &bytes)
+                    .map_err(|error| ErrorReply::new(ErrorCode::Unavailable, error.to_string()))?
+                    .into_declarations(),
+            ),
+            // No version is in effect at the epoch: the initial catalog's, version 0, which declares nothing.
             Err(refusal) if refusal.code() == ErrorCode::Refused && refusal.detail() == 0 => {
-                Vec::new()
+                (0, Vec::new())
             }
             Err(refusal) => return Err(refusal),
         };
@@ -317,7 +321,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             read_version,
             &declarations,
             recorded.iter().map(String::as_str),
-        );
+        )
+        .with_catalog(catalog);
         let frames = answer
             .frames(
                 self.header(stream, Command::Describe),

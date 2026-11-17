@@ -17,12 +17,33 @@ once the check ended.
 A partition SHALL refuse a Drop of kind 3 or 4 whose `catalog` is not the catalog version in effect at its round's
 epoch, with code 2, kind 5, decided at the round as it refuses an Ingest share, since each endpoint core holds a view
 of its own and a core one close behind would pass a Drop aimed at an earlier schema. The check the frontend makes
-before it sends the Drop stays, as an early refusal.
+before it sends the Drop stays, as an early refusal, against the version in effect at the endpoint core's open epoch,
+the version a partition checks at a round of that epoch, which the core's view holds from the effective epochs the
+closes announce, the Catalog replies name and its Declare replies imply: it SHALL never refuse a Drop a partition would
+take at that epoch, a version committed as pending being in effect nowhere, and SHALL refuse nothing where its view
+cannot name that version. A Drop it passes MAY still be refused at its round, when a version takes effect first.
 
 #### Scenario: A Drop aimed at an earlier schema is refused by the partition
 - **WHEN** version 4 of a tenant takes effect, an endpoint core whose view still holds version 3 sends a Drop of kind 4
   naming `catalog` 3, and the partition decides it in a round of the epoch at which version 4 is in effect
 - **THEN** the partition refuses the Drop with code 2, kind 5, and removes nothing
+
+#### Scenario: The frontend refuses a Drop naming another version than the one in effect
+- **WHEN** version 1 of a tenant is in effect at the endpoint core's open epoch, and a client sends Drops of kind 3
+  naming `catalog` 0, 2 and 1, then a Drop of kind 2 and one of kind 1, naming none
+- **THEN** the first two are refused with code 2, kind 5, each message naming its version and version 1, before any
+  partition sees them, and the other three reach the partition
+
+#### Scenario: A pending version leaves a Drop naming the version in effect to the partition
+- **WHEN** version 1 of a tenant is in effect, a Drop of kind 1 makes version 2 pending, and a client sends a Drop of
+  kind 3 naming `catalog` 1
+- **THEN** the frontend passes it to the partition
+
+#### Scenario: During a check a Drop names the version being checked
+- **WHEN** version 2 of a tenant is being checked, its effective epoch at or below the endpoint core's open epoch,
+  Describe names version 1, and a client sends a Drop of kind 3 naming `catalog` 2 and one naming `catalog` 1
+- **THEN** the first reaches the partition, and the second is refused with code 2, kind 5, the message naming versions
+  1 and 2
 
 ## MODIFIED Requirements
 

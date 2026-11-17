@@ -59,8 +59,11 @@ impl SystemLink {
     /// says the tenant holds none.
     async fn read_version(&self, tenant: u64, version: u64) -> Result<(), ErrorReply> {
         match self.catalog_read(&Catalog::request(tenant, version)).await {
-            Ok((read, bytes)) => {
-                self.state.borrow_mut().view.catalog(tenant, read, &bytes)?;
+            Ok((read, effective, bytes)) => {
+                self.state
+                    .borrow_mut()
+                    .view
+                    .catalog(tenant, read, effective, &bytes)?;
                 self.notify();
                 Ok(())
             }

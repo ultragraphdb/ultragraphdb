@@ -84,6 +84,30 @@ fn test_a_describe_continues_across_frames() -> TestResult {
     Ok(())
 }
 
+/// The catalog version an answer is drawn from reaches the caller, from an answer of one frame and from one of two, every
+/// frame naming it; a tenant holding none is described at 0 (`PROTOCOL.md` §8.3).
+#[test]
+fn test_a_describe_answer_names_its_catalog_version() -> TestResult {
+    // 78,948 lines take two frames, as above; 1 line takes one.
+    for (lines, catalog) in [(1, 0), (1, 3), (78_948, 9)] {
+        let expected = answer(lines).with_catalog(catalog);
+        let frames = frames_of(&expected, MAX_FRAME_SIZE)?;
+        for frame in &frames {
+            let view = FrameView::validate(frame, CLUSTER, MAX_FRAME_SIZE)?;
+            assert_eq!(
+                &view.header().command_header()[16..24],
+                &catalog.to_le_bytes()
+            );
+        }
+        let mut h = Harness::ready(server().with_describe(expected.clone()))?;
+        let p = h.core.describe(0, h.now)?;
+        let read = described(h.settle(p)?)?;
+        assert_eq!(read.catalog(), expected.catalog(), "{lines} lines");
+        assert_eq!(read, expected);
+    }
+    Ok(())
+}
+
 /// An answer of seven frames, past the Welcome's credit of 4, is read whole: the client grants its configured 2 frames
 /// each time the count reaches 0 before the last frame, after the fourth and the sixth, and the server sends the rest
 /// under them.

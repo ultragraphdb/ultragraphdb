@@ -261,6 +261,7 @@ enum Body {
     Describe {
         tenant: u64,
         read_version: u64,
+        catalog: u64,
         entries: Vec<EntryFields>,
         max_frame: u16,
     },
@@ -1420,11 +1421,13 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
         Body::Describe {
             tenant,
             read_version,
+            catalog,
             entries,
             max_frame,
         } => {
-            let built =
-                Describe::new(*tenant, *read_version).with_entries(describe_entries(entries));
+            let built = Describe::new(*tenant, *read_version)
+                .with_catalog(*catalog)
+                .with_entries(describe_entries(entries));
             let max_frame = 1024 + usize::from(*max_frame);
             if let Ok(frames) = built.frames(header.clone(), max_frame) {
                 let mut answer = DescribeFrames::new();

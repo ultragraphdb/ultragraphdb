@@ -1529,12 +1529,11 @@ fn tenant_data_dropped(w: &mut Steps) -> TestResult {
     let (held, declared) = with_client(&at, async |client| {
         let name_declared = DeclaredPredicate::new(&name).with_kind(DeclaredKind::Property);
         crate::endpoint_steps::declare(client, name_declared).await?;
-        // A Drop of a tenant's data names the catalog version it drops under, 0 for a tenant holding none, and a partition
-        // refuses one naming another than the version in effect at its round's epoch (`PROTOCOL.md` §6.5). The cluster is the
-        // scenario's own (`own_catalog`), so `name`'s declaration built the tenant's first version, one above none (§11.12): version 1. It is in
-        // effect from the epoch the declaring Commit's close assigned (§11.13, *Its epoch*), which a Describe listing `name` has
-        // reached.
-        let catalog = 1;
+        // A Drop of a tenant's data names the catalog version it drops under, which a Describe names (`PROTOCOL.md` §6.5,
+        // §8.3), and a partition refuses one naming another than the version in effect at its round's epoch. The version
+        // declaring `name` is in effect from the epoch the declaring Commit's close assigned (§11.13, *Its epoch*), which a
+        // Describe listing `name` has reached, and the Describe names it.
+        let mut catalog = 0;
         let mut listed = false;
         for _ in 0..500 {
             let described = client.describe(TENANT).await?;
@@ -1543,6 +1542,7 @@ fn tenant_data_dropped(w: &mut Steps) -> TestResult {
                 .iter()
                 .any(|declared| declared.predicate() == name);
             if listed {
+                catalog = described.catalog();
                 break;
             }
             pause(Duration::from_millis(10)).await;

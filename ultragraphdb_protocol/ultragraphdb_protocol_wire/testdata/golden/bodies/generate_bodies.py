@@ -359,9 +359,10 @@ golden("execute", 11, command_header([(0, le(1, 8)), (8, le(5, 8))]),
        sections(terms.sections() + [u32s(params), b""]), stream=15)
 
 
-# 12 Describe (section 8.3): the request, nine empty sections; and the answer: labels, relationship types, property
-# keys, then the declarations, each record's `extra` 0 (section 4.6), and no entry (sections 7 and 8 empty).
-def describe(labels, rels, props, read_version):
+# 12 Describe (section 8.3): the request, nine empty sections and `catalog` 0; and the answer, drawn from catalog
+# version 7: labels, relationship types, property keys, then the declarations, each record's `extra` 0 (section 4.6),
+# and no entry (sections 7 and 8 empty).
+def describe(labels, rels, props, read_version, catalog):
     global records, args, strings, terms
     strings, records, args, terms = Strings(), b"", [], Terms()
     secs = [u32s([strings.intern(s) for s in group]) for group in (labels, rels, props)]
@@ -369,13 +370,13 @@ def describe(labels, rels, props, read_version):
     change(8, 1, [f"{EX}name", ABSENT, 1, "term", 0])
     change(9, 0, [f"{EX}Person", ABSENT])
     body = sections(strings.sections() + secs + [records, u32s(args), b"", b""])
-    return command_header([(0, le(0, 8)), (8, le(read_version, 8))]), body
+    return command_header([(0, le(0, 8)), (8, le(read_version, 8)), (16, le(catalog, 8))]), body
 
 
 golden("describe", 12, command_header([]), sections([b""] * 9), stream=17)
-ch, body = describe([f"{EX}Person"], [f"{EX}knows"], [f"{EX}name"], 42)
+ch, body = describe([f"{EX}Person"], [f"{EX}knows"], [f"{EX}name"], 42, 7)
 golden("describe_reply", 12, ch, body, stream=17)
-SCHEMA_ID = xxhash.xxh3_64_intdigest(describe([], [], [], 42)[1])
+SCHEMA_ID = xxhash.xxh3_64_intdigest(describe([], [], [], 42, 7)[1])
 
 # 13 Result (section 9.1): two unbound slots and the reifier column, three rows, read at epoch 30 in partition 2;
 # terms in order of first use, row by row; cells column by column; the first term an IRI, tag 0x01 and its text's

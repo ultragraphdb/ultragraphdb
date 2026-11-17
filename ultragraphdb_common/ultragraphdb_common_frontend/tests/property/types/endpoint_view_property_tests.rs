@@ -57,7 +57,7 @@ fn test_the_view_never_goes_back(tc: TestCase) {
             1 => {
                 let tenant = tc.draw(gs::sampled_from(TENANTS.to_vec()));
                 let version = tc.draw(gs::integers::<u64>().min_value(1).max_value(9));
-                view.declared(tenant, version);
+                view.declared(tenant, version, 0);
                 let held = versions.entry(tenant).or_insert(0);
                 *held = (*held).max(version);
             }
@@ -82,7 +82,7 @@ fn test_the_view_never_goes_back(tc: TestCase) {
                     let read = held + tc.draw(gs::integers::<u64>().min_value(0).max_value(2));
                     let bytes = CatalogContents::new(tenant, read.max(1), Vec::new()).encode();
                     if let Ok(bytes) = bytes {
-                        assert!(view.catalog(tenant, read.max(1), &bytes).is_ok());
+                        assert!(view.catalog(tenant, read.max(1), 0, &bytes).is_ok());
                         let _previous = versions.insert(tenant, held.max(read.max(1)));
                     }
                 }
@@ -184,8 +184,8 @@ fn test_a_schema_id_is_a_function_of_the_bytes(tc: TestCase) {
     let expected = describe_of(1, 0, decoded.declarations(), std::iter::empty()).schema_id();
     let mut first = EndpointView::new();
     let mut second = EndpointView::new();
-    assert!(first.catalog(1, version, &bytes).is_ok());
-    assert!(second.catalog(1, version, &bytes).is_ok());
+    assert!(first.catalog(1, version, 0, &bytes).is_ok());
+    assert!(second.catalog(1, version, 0, &bytes).is_ok());
     assert_eq!(first.schema_id(1), Some(expected));
     assert_eq!(second.schema_id(1), Some(expected));
 }

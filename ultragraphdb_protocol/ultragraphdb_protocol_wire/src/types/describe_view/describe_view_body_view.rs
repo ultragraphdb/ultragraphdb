@@ -29,7 +29,7 @@ impl<'a> BodyView<'a> for DescribeView<'a> {
 
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let header = expect_command(frame, Self::COMMAND)?;
-        Self::read(header, frame.body())
+        Self::read(header, frame.body(), false)
     }
 
     fn to_body(&self) -> Result<Describe, ProtocolError> {
@@ -49,6 +49,7 @@ impl<'a> BodyView<'a> for DescribeView<'a> {
             }
         }
         Ok(Describe::new(self.tenant, self.read_version)
+            .with_catalog(self.catalog)
             .with_labels(owned(self.labels().collect()))
             .with_relationship_types(owned(self.relationship_types().collect()))
             .with_property_keys(owned(self.property_keys().collect()))
@@ -60,13 +61,33 @@ impl<'a> BodyView<'a> for DescribeView<'a> {
 }
 
 impl<'a> DescribeView<'a> {
+    /// A Describe a client sent, read as [`BodyView::from_frame`] reads it, its `catalog` 0 (`PROTOCOL.md` §8.3): the
+    /// client endpoint's reading.
+    ///
+    /// # Errors
+    ///
+    /// [`BodyView::from_frame`]'s refusals, and [`ProtocolError::field_value`] (`"catalog"`) for a `catalog` other than
+    /// 0, after the unused bytes and before the sections.
+    pub fn from_client_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
+        let header = expect_command(frame, Self::COMMAND)?;
+        Self::read(header, frame.body(), true)
+    }
+
     /// The answer of command header `header` and `body`, a frame's or the continuation frames' sections
-    /// concatenated, checked in `PROTOCOL.md` §8.3's order: unused bytes 16–127 zero; the nine sections; the string
-    /// list (0, 1); sections 2, 3 and 4, each whole u32s, each index below the string count; the args (6) whole u32s;
-    /// the declarations (5); the entries (7, 8).
-    pub(crate) fn read(header: CommandHeader<'_>, body: &'a [u8]) -> Result<Self, ProtocolError> {
+    /// concatenated, checked in `PROTOCOL.md` §8.3's order: unused bytes 24–127 zero; `catalog` 0 when `from_client`;
+    /// the nine sections; the string list (0, 1); sections 2, 3 and 4, each whole u32s, each index below the string
+    /// count; the args (6) whole u32s; the declarations (5); the entries (7, 8).
+    pub(crate) fn read(
+        header: CommandHeader<'_>,
+        body: &'a [u8],
+        from_client: bool,
+    ) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
-        header.unused_zero(&[(0, 16)])?;
+        header.unused_zero(&[(0, 24)])?;
+        let catalog = header.u64_at(16);
+        if from_client && catalog != 0 {
+            return Err(ProtocolError::field_value(command, "catalog", catalog));
+        }
         let sections = read_sections::<9>(command, body, 0)?;
         let strings = read_string_list(command, (0, 1), sections.get(0), sections.get(1))?;
         let limit = count(command, "strings", strings.len())?;
@@ -102,6 +123,7 @@ impl<'a> DescribeView<'a> {
         Ok(Self {
             tenant: header.u64_at(0),
             read_version: header.u64_at(8),
+            catalog,
             strings,
             labels,
             relationship_types,

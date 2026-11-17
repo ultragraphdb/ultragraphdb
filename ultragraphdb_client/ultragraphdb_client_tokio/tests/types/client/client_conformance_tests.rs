@@ -222,6 +222,8 @@ async fn golden_catalog(client: &mut Client<SimConnect, Anonymous>) -> TestResul
         described,
         decoded("describe_reply", |f| DescribeView::from_frame(f)?.to_body())?
     );
+    // generate_bodies.py lays the golden answer out drawn from catalog version 7.
+    assert_eq!(described.catalog(), 7);
     Ok(())
 }
 

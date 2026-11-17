@@ -21,9 +21,9 @@ pub enum HoldOutcome {
 
 /// One endpoint core's view of what the system group's closes announce (design D6; `PROTOCOL.md` §11.12, *Epochs*): the
 /// latest closed epoch, the placement in effect and the tenants its runs list, each tenant's latest catalog version as the
-/// closes and the core's own Declare replies name it, the schema id of each version it read with Catalog, and the Begins
-/// holding a token ahead of it. Nothing is decided from it but what a Begin and the gate read: the system group stays the
-/// authority. Sans-I/O: the core's link feeds it, and time is what it is told.
+/// closes and the core's own Declare replies name it, with the epoch each version takes effect at, the schema id of each
+/// version it read with Catalog, and the Begins holding a token ahead of it. Nothing is decided from it but what a Begin,
+/// the gate and a Drop's early refusal read: the system group and the partitions stay the authority. Sans-I/O: the core's link feeds it, and time is what it is told.
 ///
 /// Control plane (Ultra rule 3), but for its reads: a close allocates once per close.
 #[derive(Debug, Default, Clone)]
@@ -39,6 +39,9 @@ pub struct EndpointView {
     tenants: BTreeSet<u64>,
     /// Each tenant's latest version learned.
     current: BTreeMap<u64, u64>,
+    /// Each tenant's versions learned with the epoch each takes effect at, 0 while pending, from the highest in effect at
+    /// the open epoch on.
+    effective: BTreeMap<u64, BTreeMap<u64, u64>>,
     /// The tenants whose current version was read once.
     read: BTreeSet<u64>,
     /// Each tenant's schema id, by the version it was computed of.
@@ -82,6 +85,20 @@ impl EndpointView {
         }
         for (tenant, version) in announced {
             self.learned(*tenant, *version);
+            // A close's announcement takes effect at the epoch one above it (`PROTOCOL.md` §13.4).
+            self.scheduled(*tenant, *version, epoch.saturating_add(1));
+        }
+        let open = self.open_epoch();
+        for versions in self.effective.values_mut() {
+            // Below the highest version in effect, no version is asked for again.
+            if let Some(highest) = versions
+                .iter()
+                .filter(|(_, at)| **at != 0 && **at <= open)
+                .map(|(version, _)| *version)
+                .max()
+            {
+                versions.retain(|version, _| *version >= highest);
+            }
         }
         true
     }
@@ -99,13 +116,19 @@ impl EndpointView {
         self.wants_placement = false;
     }
 
-    /// Version `version` of `tenant` read with Catalog, its bytes `bytes`: its schema id computed, as `core_catalog`'s
-    /// `describe_of` gives it.
+    /// Version `version` of `tenant` read with Catalog, taking effect at `epoch`, 0 while pending, its bytes `bytes`: its
+    /// schema id computed, as `core_catalog`'s `describe_of` gives it.
     ///
     /// # Errors
     ///
     /// Code 17 for bytes that do not decode as a catalog version, as the group answered for a version no longer held.
-    pub fn catalog(&mut self, tenant: u64, version: u64, bytes: &[u8]) -> Result<(), ErrorReply> {
+    pub fn catalog(
+        &mut self,
+        tenant: u64,
+        version: u64,
+        epoch: u64,
+        bytes: &[u8],
+    ) -> Result<(), ErrorReply> {
         let contents = CatalogContents::decode(tenant, version, bytes)
             .map_err(|error| ErrorReply::new(ErrorCode::Unavailable, error.to_string()))?;
         let id = describe_of(tenant, 0, contents.declarations(), std::iter::empty()).schema_id();
@@ -113,12 +136,15 @@ impl EndpointView {
         let _new = self.read.insert(tenant);
         let _done = self.refresh.remove(&tenant);
         self.learned(tenant, version);
+        self.scheduled(tenant, version, epoch);
         Ok(())
     }
 
-    /// The core's own Declare made `version` of `tenant`.
-    pub fn declared(&mut self, tenant: u64, version: u64) {
+    /// The core's own Declare made `version` of `tenant`, taking effect at `epoch`: a kind 1 reply's commit version's, 0 for
+    /// a version a Drop's Declare committed as pending (`PROTOCOL.md` §13.27).
+    pub fn declared(&mut self, tenant: u64, version: u64, epoch: u64) {
         self.learned(tenant, version);
+        self.scheduled(tenant, version, epoch);
     }
 
     /// Whether a Begin and the gate may be answered from it: it holds a close, and no Placement or Catalog it wants is
@@ -188,6 +214,30 @@ impl EndpointView {
         self.current.get(&tenant).copied().unwrap_or(0)
     }
 
+    /// `tenant`'s version in effect at the open epoch, the one a partition checks at a round of it (`PROTOCOL.md` §6.5): the
+    /// highest version taking effect at or below it, every version above it held and none of them in effect yet; 0 when no
+    /// version is in effect. `None` when the view cannot name it: the tenant never read, or a version above the highest in
+    /// effect never learned.
+    #[must_use]
+    pub fn in_effect(&self, tenant: u64) -> Option<u64> {
+        if self.unread(tenant) {
+            return None;
+        }
+        let open = self.open_epoch();
+        let versions = self.effective.get(&tenant);
+        let mut version = self.current_version(tenant);
+        // Versions are numbered from 1, each one above the version it is built on: down from the current one, each held,
+        // until one in effect.
+        while version > 0 {
+            match versions.and_then(|held| held.get(&version)) {
+                Some(at) if *at != 0 && *at <= open => return Some(version),
+                Some(_) => version = version.saturating_sub(1),
+                None => return None,
+            }
+        }
+        Some(0)
+    }
+
     /// The schema id of `tenant`'s current version, once that version was read; of version 0 once the tenant is known to hold
     /// none, the initial catalog's.
     #[must_use]
@@ -243,6 +293,20 @@ impl EndpointView {
     #[must_use]
     pub fn next_deadline(&self) -> Option<Instant> {
         self.holds.values().map(|(_, deadline)| *deadline).min()
+    }
+
+    /// `tenant`'s version `version` takes effect at `epoch`, 0 while pending: an epoch once known stays, since a version is
+    /// assigned one epoch alone (`PROTOCOL.md` §11.13, *Its epoch*).
+    fn scheduled(&mut self, tenant: u64, version: u64, epoch: u64) {
+        let at = self
+            .effective
+            .entry(tenant)
+            .or_default()
+            .entry(version)
+            .or_insert(0);
+        if *at == 0 {
+            *at = epoch;
+        }
     }
 
     /// `tenant`'s version `version` learned: the highest learned stays.

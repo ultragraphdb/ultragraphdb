@@ -102,6 +102,7 @@ impl BodyBuilder for Describe {
         command_header(&[
             (0, &self.tenant().to_le_bytes()),
             (8, &self.read_version().to_le_bytes()),
+            (16, &self.catalog().to_le_bytes()),
         ])
     }
 

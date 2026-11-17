@@ -177,10 +177,10 @@ FRAMES["migrate"] = migrate(1)
 FRAMES["migrate_checked_reply"] = migrate(2, 4, epoch=44, report=b"renamed: Human -> Person", flags=LAST)
 FRAMES["migrate_failed_reply"] = migrate(3, 9, 2201, 45, b"UGS2201 <http://ex.org/p1> breaks rule r", flags=LAST)
 
-# 12 Describe (section 8.3): tenant 9's answer at read version 42 with no declaration and four entries by kind, then
-# name: the schema crm (kind 1) and the type Person (kind 3), their bytes opaque; the source crm (19), its text; the
-# retired name Human (20), renamed to Person at version 3 until 2027-01-15 (item 1, fate 1, current the string index of
-# Person). The strings: the entries' names, then the current names, each once.
+# 12 Describe (section 8.3): tenant 9's answer at read version 42, drawn from catalog version 12, with no declaration
+# and four entries by kind, then name: the schema crm (kind 1) and the type Person (kind 3), their bytes opaque; the
+# source crm (19), its text; the retired name Human (20), renamed to Person at version 3 until 2027-01-15 (item 1, fate
+# 1, current the string index of Person). The strings: the entries' names, then the current names, each once.
 SOURCE = "namespace crm {\n  type Person {}\n}\n"
 UNTIL = 1_800_000_000_000_000
 strings = Strings()
@@ -193,7 +193,7 @@ for (kind, _, payload), name in zip(entries, names):
         payload = bytes([1, 1, 0, 0]) + le(strings.intern("Person"), 4) + le(3, 8) + le(UNTIL, 8)
     records += bytes([kind, 0, 0, 0]) + le(name, 4) + le(len(data), 4) + le(len(payload), 4)
     data += payload
-DESCRIBE_CH = command_header([(0, le(9, 8)), (8, le(42, 8))])
+DESCRIBE_CH = command_header([(0, le(9, 8)), (8, le(42, 8)), (16, le(12, 8))])
 describe_sections = strings.sections() + [b"", b"", b"", b"", b"", records, data]
 FRAMES["describe_entries"] = frame(12, DESCRIBE_CH, sections(describe_sections), stream=17, flags=LAST)
 

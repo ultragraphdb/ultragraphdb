@@ -293,13 +293,28 @@ Every remaining failure, root-caused:
 7. **The frontend's early refusal of a Drop's `catalog` is absent.** `PROTOCOL.md` §6.5: "The frontend refuses one whose
    `catalog` is not the tenant's current version the same way, before any partition sees it"; design D14: "The frontend's
    check stays as an early refusal". `drop_request` (`client_session_one_frame.rs`) relays the client's Drop unchanged and
-   checks nothing against its view; the partition's check alone decides. Not changed here.
+   checks nothing against its view; the partition's check alone decides. Not changed here. **Fixed 2026-11-17.** The
+   user decided (2026-11-17) that the check compares against the version in effect at the endpoint core's open epoch,
+   the version a partition checks at a round of that epoch, and not the tenant's current version, the highest learned
+   with a pending one among them: an early refusal never refuses what the partition would take. Compared against the
+   current version, a Drop naming the version in effect was refused while the core's own Drop had committed the next
+   version as pending, though its partition would take it. `PROTOCOL.md` §6.5 states the rule, how the core knows the
+   version (the epochs the closes announce, the Catalog replies name and a Declare of kind 1's reply implies), that it
+   refuses nothing where its view cannot name the version, and how it relates to Describe's `catalog`. `EndpointView`
+   holds each version's effective epoch and answers `in_effect`; `drop_request` refuses a Drop of kind 3 or 4 naming
+   another with code 2, kind 5, the message naming both versions, after the gate and the partition's choice and before
+   the session's check and the Bind; kinds 1 and 2 pass unchecked (schema-changes, three scenarios, `bdd_catalog`).
 8. **No reply tells a client a tenant's catalog version.** A Drop of kind 3 or 4 names "the tenant's catalog version the
    client drops under" (§6.5), an Ingest the version it encoded against (§6.8), an Install the version it builds on (§8.4);
    only an Install's reply names a version. A declaring Commit answers `(c + 2) << 22` (§11.13, *Its epoch*), and Describe
    carries entries, not the version's fixed part (§8.3, `CATALOG.md` §2). A client of a tenant declared through Writes learns
    the number only by counting its own declarations from none, as "A tenant's data drop keeps its catalog" does. The user's
-   to decide.
+   to decide. **Fixed 2026-11-17** (the user's decision): Describe's command header holds `catalog` at 16, the tenant's
+   catalog version the answer is drawn from, 0 for a tenant holding none (`PROTOCOL.md` §8.3, cross-referenced from §6.5,
+   §6.8, §8.4 and §11.13), 0 from a client, refused at the client endpoint with `FieldValue` (`"catalog"`). The wire's
+   `Describe` and `DescribeView` carry it, the frontend names the version its Catalog read at the latest close returned on
+   every frame of the answer, and a client reads it from `Reply::Described` (`Describe::catalog`). The golden
+   `describe_reply.frame` names version 7, the `describe_entries` and `describe_three_frames` seeds version 12.
 9. **A system link stalls under frames of a megabyte.** `common_frontend:bdd_catalog_cap` failed 2 of 16, 1 of 10, 2 of 30,
    7 of 60 and 9 of 40 runs (several runs at once, under another agent's load), and 0 of 34 in other batches: a declaring
    Commit is never answered (`no frame came` after 5 s), at Commits 0 to 4. At the stall the group holds no new version, a

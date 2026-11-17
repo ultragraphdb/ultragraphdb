@@ -75,7 +75,7 @@ pub const BODIES: [GoldenBody; 45] = [
     GoldenBody { name: "prepare_text_reply", command: 10, stream: 47, flags: 0, sequence: 1, size: 424, checksum: 0xd837_aa7e_c98a_bc45, checksum_body: 0x47ef_99f0_5b8f_8245 },
     GoldenBody { name: "execute", command: 11, stream: 15, flags: 0, sequence: 1, size: 336, checksum: 0xf929_6433_8595_88a7, checksum_body: 0xb518_2367_cd44_9c6f },
     GoldenBody { name: "describe", command: 12, stream: 17, flags: 0, sequence: 1, size: 328, checksum: 0xf056_75a0_8bc8_df02, checksum_body: 0x1824_2aed_3dce_fd46 },
-    GoldenBody { name: "describe_reply", command: 12, stream: 17, flags: 0, sequence: 1, size: 528, checksum: 0x0772_835f_528c_08cd, checksum_body: 0x1170_c15d_90e8_58c0 },
+    GoldenBody { name: "describe_reply", command: 12, stream: 17, flags: 0, sequence: 1, size: 528, checksum: 0xe02e_157b_d15a_a135, checksum_body: 0x1170_c15d_90e8_58c0 },
     GoldenBody { name: "result", command: 13, stream: 11, flags: 1, sequence: 1, size: 792, checksum: 0x35fd_8547_fed2_3edb, checksum_body: 0x0f5c_e0c2_2ee5_6688 },
     GoldenBody { name: "result_more", command: 13, stream: 11, flags: 0, sequence: 1, size: 784, checksum: 0x1385_29a8_b7ec_604a, checksum_body: 0xb22a_d94b_8ad2_fa6d },
     GoldenBody { name: "result_query", command: 13, stream: 49, flags: 1, sequence: 1, size: 440, checksum: 0xe268_e188_96e6_e8a5, checksum_body: 0x9d07_aecd_41ca_879a },

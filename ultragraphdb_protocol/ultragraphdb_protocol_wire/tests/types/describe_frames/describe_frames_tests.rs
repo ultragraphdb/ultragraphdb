@@ -146,6 +146,59 @@ fn test_a_continuation_keeps_the_first_command_header() -> TestResult {
     Ok(())
 }
 
+/// Every frame of an answer drawn from catalog version 5 names version 5, bytes 16 to 23 of its command header, and
+/// the answer read across them names it once.
+#[test]
+fn test_every_frame_of_an_answer_names_its_catalog() -> TestResult {
+    let drawn = answer().with_catalog(5);
+    let frames = drawn.frames(header(), 4_096)?;
+    assert!(frames.len() >= 3, "{} frames", frames.len());
+    for bytes in &frames {
+        assert_eq!(&bytes[128 + 16..128 + 24], &5u64.to_le_bytes());
+    }
+    let taken = take(&frames)?;
+    assert_eq!(taken.view()?.catalog(), 5);
+    assert_eq!(taken.view()?.to_body()?, drawn);
+    Ok(())
+}
+
+/// A continuation frame naming another catalog version than the first's breaks the first's command header: refused
+/// as `FieldValue` naming `describe` and the one frame taken, laid out by hand.
+#[test]
+fn test_a_continuation_naming_another_catalog_is_refused() -> TestResult {
+    let fields = |catalog: u64| -> [(usize, Vec<u8>); 3] {
+        [
+            (0, 9u64.to_le_bytes().to_vec()),
+            (8, 42u64.to_le_bytes().to_vec()),
+            (16, catalog.to_le_bytes().to_vec()),
+        ]
+    };
+    let laid = |catalog: u64, last: bool| -> TestResult<Vec<u8>> {
+        let held = fields(catalog);
+        let named: Vec<(usize, &[u8])> = held.iter().map(|(at, b)| (*at, b.as_slice())).collect();
+        frame(Command::Describe, &named, &vec![vec![]; 9], last)
+    };
+    let mut taken = DescribeFrames::new();
+    taken.push(&frame_of(&laid(5, false)?)?)?;
+    assert_eq!(
+        taken
+            .push(&frame_of(&laid(6, true)?)?)
+            .err()
+            .context("a refusal")?
+            .0,
+        ProtocolErrorEnum::FieldValue {
+            command: 12,
+            field: "describe",
+            value: 1
+        }
+    );
+    let mut same = DescribeFrames::new();
+    same.push(&frame_of(&laid(5, false)?)?)?;
+    same.push(&frame_of(&laid(5, true)?)?)?;
+    assert_eq!(same.view()?.catalog(), 5);
+    Ok(())
+}
+
 /// A continuation frame of the answer holding `bytes` in section `index` and every other section empty.
 fn part(index: usize, bytes: Vec<u8>) -> TestResult<Vec<u8>> {
     let mut sections = vec![vec![]; 9];

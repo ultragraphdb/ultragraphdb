@@ -798,7 +798,7 @@ its read version below the drop's version, aborts with Conflict, kind Drop.
 | 32 | 8 | `request` | u64 | as Commit's |
 | 40 | 8 | `commit_version` | u64 | as Commit's |
 | 48 | 24 | `token` | session token (section 4.8) | as Commit's: zero in a request; in a reply through a session, a token whose `epoch` is `commit_version >> 22`; in a reply through no session, the zero token (`FieldValue` `"token"`) |
-| 72 | 8 | `catalog` | u64 | kinds 3 and 4: the tenant's catalog version the client drops under, 0 for a tenant holding none; kinds 1 and 2: 0 (`FieldValue` `"catalog"`) |
+| 72 | 8 | `catalog` | u64 | kinds 3 and 4: the tenant's catalog version the client drops under, as a Describe names it (section 8.3), 0 for a tenant holding none; kinds 1 and 2: 0 (`FieldValue` `"catalog"`) |
 
 | Section | Contents |
 |---|---|
@@ -826,12 +826,26 @@ is a destructive schema change (`schema/SCHEMA.md` section 13.2). A predicate `@
 A Drop of kind 4 removes the tenant's schemas with its data and its default-entry records (section 11.13), after
 which the tenant takes an Install again (section 8.4).
 
-A Drop of a tenant's data or of everything in a tenant names in `catalog` the catalog version it drops under. The
+A Drop of a tenant's data or of everything in a tenant names in `catalog` the catalog version it drops under, which the
+client reads from a Describe of the tenant (section 8.3). The
 partition refuses one whose `catalog` is not the version in effect at its round's epoch with code 2 (Conflict), kind 5
 (Catalog), decided at the round as an Ingest share's is (section 6.8), dropping nothing, so a Drop aimed at an earlier
-schema never removes the data of a later one. The frontend refuses one whose `catalog` is not the tenant's current
-version the same way, before any partition sees it. That is an early refusal: each endpoint core holds a view of its
-own (section 11.13, *The frontend's reads*), and a core one close behind would pass a Drop aimed at an earlier schema.
+schema never removes the data of a later one. The frontend refuses one whose `catalog` is not the version in effect at
+its endpoint core's open epoch the same way, the message naming both versions, before any partition sees it: the version
+a partition checks at a round of that epoch. The core reads it from its view, which holds each version it learned with
+the epoch the version takes effect at, as a close announces it, a Catalog reply names it and a Declare's reply of kind 1
+implies it, a version committed as pending holding none (section 11.13, *The frontend's reads*, *Its epoch*): the highest
+version taking effect at or below the open epoch, where the view holds every version above it, none of them in effect
+yet. Where the view cannot name that version, it refuses nothing. So the frontend never refuses a Drop a partition would
+take at a round of the core's open epoch; a Drop of a predicate or a graph names no version and passes no such check.
+That is an early refusal: each endpoint core holds a view of its own, and a core one close behind would pass a Drop
+aimed at an earlier schema. A Drop the frontend passes is still refused at its round when a version takes effect before
+the round's epoch: the partition's check decides. Describe's `catalog` is the version in effect at the core's latest
+close, leaving out one being checked (section 8.3), so it is the version in effect at the open epoch unless the latest
+close announced a version taking effect at the open epoch, or a version in effect is being checked. A client whose Drop
+is refused describes the tenant again after the next close. While a check runs, the version in effect is the one being
+checked, which its partitions validate against and Describe does not name (section 11.13, *A tightening's check*), so a
+Drop naming Describe's version is refused until the check ends.
 A Drop removes a container whole: the history of `@bitemporal` and `@append_only` types goes with the graph or the
 tenant's data that held it, which no delete or retraction removes (`../schema/SCHEMA.md` section 8.4). A Drop of kind 3
 or 4 is an audit event naming the principal, the tenant and that version (`../../openspec/notes/SECURITY.md`, *Audit*).
@@ -948,7 +962,7 @@ skips and each edge it skips because the edge is already visible (section 12.1),
 | 24 | 8 | `tenant` | u64 | the tenant it acts in |
 | 32 | 24 | `token` | session token (section 4.8) | as DirectWrite's |
 | 56 | 8 | `principal` | u64 | as DirectWrite's: 0 from a client, refused at the client endpoint (`FieldValue` `"principal"`), filled by the frontend when it relays a share |
-| 64 | 8 | `catalog` | u64 | the tenant's catalog version the client encoded the frame against; 0 for a tenant holding none |
+| 64 | 8 | `catalog` | u64 | the tenant's catalog version the client encoded the frame against, as a Describe names it (section 8.3); 0 for a tenant holding none |
 | 72 | 4 | `share` | u32 | 0 from a client, refused at the client endpoint (`FieldValue` `"share"`); the share's number, from 1, when the frontend relays a share |
 
 | Section | Contents |
@@ -1302,22 +1316,26 @@ a statement with a writing clause executes in a read-write transaction only (cod
 ### 8.3 Describe (12)
 
 What a tenant's catalog declares and its metadata records, as far as the connection's principal may read it, every
-namespace installed in the tenant included. The client sends the tenant alone: `read_version` 0 and nine empty sections.
+namespace installed in the tenant included. The client sends the tenant alone: `read_version` 0, `catalog` 0 and nine
+empty sections.
 
 The frontend answers a Describe itself, from the catalog version and the default-entry records it reads from the system
 group (section 11.13, *The frontend's reads*), asking no partition, and so names what is declared and
 recorded rather than what data holds: `read_version` the version bound of the endpoint core's latest closed epoch
 (section 11.12, *Epochs*), or of
-epoch 0 before the first close; section 2 the entity types declared in effect at that epoch; section 3 the predicates of
-kind edge or either that it declares or holds a default entry for; section 4 those of kind property or either; sections
+epoch 0 before the first close; `catalog` the tenant's catalog version the answer is drawn from, the one the system
+group names at that epoch, 0 for a tenant holding none, which a Drop of kind 3 or 4, an Ingest and an Install name in
+their own `catalog` or `version` (sections 6.5, 6.8, 8.4); section 2 the entity types declared in effect at that
+epoch; section 3 the predicates of kind edge or either that it declares or holds a default entry for; section 4 those of kind property or either; sections
 5 and 6 the catalog's declarations the principal may read; sections 7 and 8 the entries of the catalog version those
 declarations are drawn from that the principal may read, the installed sources and the retired names among them. An
 answer that does not fit one frame within the client's `max_frame` continues in further frames (*Continuation*, below).
 
-| Command header | Width | Field | Type |
-|---|---|---|---|
-| 0 | 8 | `tenant` | u64 |
-| 8 | 8 | `read_version` | u64 |
+| Command header | Width | Field | Type | Rule |
+|---|---|---|---|---|
+| 0 | 8 | `tenant` | u64 | |
+| 8 | 8 | `read_version` | u64 | |
+| 16 | 8 | `catalog` | u64 | in a reply, the tenant's catalog version the answer is drawn from, 0 for a tenant holding none; 0 from a client, refused at the client endpoint (`FieldValue` `"catalog"`) |
 
 | Section | Contents |
 |---|---|
@@ -1380,7 +1398,8 @@ The whole and filtered kinds follow `../schema/SCHEMA.md` section 10.3's rule, e
 schemas' vocabulary whole, what names a predicate filtered. The schema id hashes the entries as the principal sees them
 (section 11.7).
 
-Order: unused bytes 16–127 zero; sections; the string list (0, 1); sections 2, 3, 4 in turn, each a whole number of u32s
+Order: unused bytes 24–127 zero; from a client, `catalog` 0 (`FieldValue` `"catalog"`); sections; the string list (0,
+1); sections 2, 3, 4 in turn, each a whole number of u32s
 (`SectionLength`) and each index below the string count (`IndexOutOfRange`); the args (6) a whole number of u32s; the
 records (5); section 7 a whole number of 16-byte entries (`SectionLength`); each entry in order: bytes 1–3 zero
 (`PaddingNotZero`, the body offset), `kind` 1 to 20 (`FieldValue` `"entry kind"`), `name` below the string count
@@ -1394,7 +1413,8 @@ entries' bytes ending at section 8's end (`CountMismatch` `"entry bytes"`).
 The request's body, nine empty sections, is 72 bytes: the table, every `offset` 72 and every `len` 0.
 
 **Continuation.** An answer larger than one frame within the client's `max_frame` continues in further Describe frames
-on the stream, each with the first's command header, the last alone flagged `LAST`. The client reads them as one body,
+on the stream, each with the first's command header, its `read_version` and `catalog` among it, the last alone flagged
+`LAST`. The client reads them as one body,
 each of its nine sections the concatenation, in frame order, of that section's bytes in every frame, and checks the
 Order above once, on that body; a frame breaking the first's command header is refused as `FieldValue` (`"describe"`). A
 frame splits a section of records or u32s only between whole ones and a text only on a character boundary, so each
@@ -1441,7 +1461,7 @@ with code 7 before stage 9.5 (section 11.2).
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 8 | `tenant` | u64 | |
-| 8 | 8 | `version` | u64 | in a request, the catalog version the sources build on, 0 for a tenant with none; in a reply, the version installed, at least 1 (`FieldValue` `"version"`) |
+| 8 | 8 | `version` | u64 | in a request, the catalog version the sources build on, as a Describe names it (section 8.3), 0 for a tenant with none; in a reply, the version installed, at least 1 (`FieldValue` `"version"`) |
 | 16 | 8 | `epoch` | epoch (section 1) | in a reply, the epoch the version takes effect at; 0 in a request |
 | 24 | 8 | `staged` | u64 | in a reply to sources holding a migration, the staged namespace's identifier, at least 1; else 0, and 0 in a request (`FieldValue` `"staged"`) |
 
@@ -2861,10 +2881,13 @@ versions, and the application of declaration records and drops with their refusa
   current version, which a declaring transaction builds on (*A new version*) and a schema id follows (section 11.7), is
   the highest the process has learned: from one Catalog read when a tenant is first used, where code 7 with `detail` 0
   says the tenant holds none, from each close's announcements, and from each Declare's reply. It is never asked per
-  request, and nothing is decided from it apart from the early refusals of sections 6.5 and 6.8: the system group
+  request, and nothing is decided from it apart from the early refusal of section 6.8, while that of section 6.5 reads
+  the version in effect at the core's open epoch from the same closes and replies: the system group
   checks the version a Declare is built on. Which version a
   Describe reports is the system group's to say, since only it knows a version being checked or withdrawn: the frontend
-  asks with a Catalog request of `version` 0 naming the latest closed epoch (section 13.7). It reads the default-entry
+  asks with a Catalog request of `version` 0 naming the latest closed epoch (section 13.7), and names the version the
+  reply holds in the answer's `catalog`, or 0 when the group answers code 7 with `detail` 0, the tenant holding none at
+  that epoch (section 8.3). It reads the default-entry
   records a Describe names with Defaults (section 13.28), a second request, so the two may be read at two log
   positions: a record is only ever added, creates no version and stales no statement, so such a Describe equals one
   sent a moment later.

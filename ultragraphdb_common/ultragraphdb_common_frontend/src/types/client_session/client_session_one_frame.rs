@@ -9,8 +9,8 @@ use compio::runtime::spawn;
 use ultragraphdb_common_role::Answer;
 use ultragraphdb_protocol_wire::{
     Action, Bind, BindKind, BodyBuilder, BodyView, CheckKind, Command, ConditionalWriteView,
-    DirectWriteView, DropCommandView, DropKind, ErrorCode, ErrorReply, FrameView, Header,
-    WriteChange, xxh3_64,
+    ConflictKind, DirectWriteView, DropCommandView, DropKind, ErrorCode, ErrorReply, FrameView,
+    Header, WriteChange, xxh3_64,
 };
 
 use super::client_session_bind::{command_of, cross_partition, error_of};
@@ -346,8 +346,11 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         }
     }
 
-    /// A Drop: the gate, the tenant, its session; refused with code 23 when several partitions hold the tenant's run, and otherwise
-    /// bound to the one that does (`PROTOCOL.md` §11.12, *Drops*).
+    /// A Drop: the gate, the tenant, its catalog version, its session; refused with code 23 when several partitions hold the
+    /// tenant's run, and otherwise bound to the one that does (`PROTOCOL.md` §11.12, *Drops*). A Drop of a tenant's data or
+    /// of everything in it naming another version than the one in effect at the core's open epoch is refused before any
+    /// partition sees it (§6.5): an early refusal, refusing nothing the partition would take at that epoch, whose check at
+    /// its round's epoch decides.
     pub(super) async fn drop_request(
         &mut self,
         stream: u64,
@@ -365,6 +368,14 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             [only] => *only,
             [lowest, other, ..] => return Err(cross_partition(*lowest, *other)),
         };
+        let names_version = matches!(asked.kind(), DropKind::TenantData | DropKind::Tenant);
+        let in_effect = self.core.system().view().in_effect(tenant);
+        if names_version
+            && let Some(in_effect) = in_effect
+            && asked.catalog() != in_effect
+        {
+            return Err(stale_drop(asked.catalog(), in_effect));
+        }
         let Some(link) = self.core.links().partition(partition) else {
             return Err(self.unavailable());
         };
@@ -496,6 +507,16 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             self.core.system().ended(dropping.session.to_be_bytes());
         }
     }
+}
+
+/// A Drop naming catalog version `named` where `in_effect` is in effect at the core's open epoch: code 2, kind 5, naming both
+/// (`PROTOCOL.md` §6.5).
+fn stale_drop(named: u64, in_effect: u64) -> ErrorReply {
+    ErrorReply::new(
+        ErrorCode::Conflict,
+        format!("the Drop names catalog version {named}, and {in_effect} is in effect"),
+    )
+    .with_detail(ConflictKind::Catalog.number())
 }
 
 /// Where a ConditionalWrite goes, from its changes' `destination` and each operation's `placed`: every subject named by a change or

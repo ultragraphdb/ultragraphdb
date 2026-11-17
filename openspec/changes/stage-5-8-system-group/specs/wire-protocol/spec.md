@@ -77,7 +77,10 @@ only, and rows SHALL come in the store's key order. The frontend SHALL answer De
 in effect, read from the system group with Catalog, and the tenant's default-entry records, read with Defaults, asking
 no partition, as far as the connection's principal may read it, so it names what is declared and recorded rather than
 what data holds: `read_version` the version bound of the latest closed epoch the endpoint core's view holds, or of
-epoch 0 before the first close; the entity types declared in effect at that epoch; the predicates of kind edge or either that it declares
+epoch 0 before the first close; `catalog` the tenant's catalog version the answer is drawn from, 0 for a tenant holding
+none, which every frame of the answer names alike and a client names in a Drop of kind 3 or 4, an Ingest and an Install,
+a client's Describe naming 0 and refused with `FieldValue` (`"catalog"`) otherwise;
+the entity types declared in effect at that epoch; the predicates of kind edge or either that it declares
 or holds a default entry for as relationship types, those of kind property or either as property keys; and the catalog's
 declarations. An answer that does not fit one frame within the client's `max_frame` SHALL continue in further Describe
 frames on the stream, each with the first's command header, the last alone flagged `LAST`; a frame SHALL split a section
@@ -97,6 +100,16 @@ answer whose sections hold more than `catalog_bytes_max` bytes together SHALL be
 - **THEN** the frontend answers asking no partition: `read_version` is the version bound of the latest closed epoch,
   the declarations list `name` with its `term` index, the property keys hold `name` and `score`, and the relationship
   types hold `score`
+
+#### Scenario: Describe names the catalog version it is drawn from
+- **WHEN** a client describes a tenant holding no catalog version, then declares `name`, and describes it again once
+  the version declaring `name` is in effect at the latest close
+- **THEN** the first answer's `catalog` is 0, and the second's is the version the system group holds, the one that
+  declares `name`
+
+#### Scenario: A client's Describe naming a catalog version is refused
+- **WHEN** a client sends a Describe whose `catalog` is 1
+- **THEN** it is refused at the client endpoint with `FieldValue` naming `catalog`
 
 #### Scenario: A literal at a node slot is refused
 - **WHEN** a statement's subject parameter is bound to a literal

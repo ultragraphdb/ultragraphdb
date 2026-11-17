@@ -3,6 +3,7 @@
 
 Feature: The server's rules of a request
   openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md
+  openspec/changes/stage-5-8-system-group/specs/wire-protocol/spec.md, the catalog version a Describe names
 
   Scenario: A skolem IRI nobody can hold binds nothing
     When a read-write transaction's first request is a Read binding its subject to an IRI under tenant 7's skolem base in tenant 0, and its next request is a Write of `<a>`
@@ -39,6 +40,14 @@ Feature: The server's rules of a request
   Scenario: Describe answers from the metadata group
     When `name` is declared a property with a `term` index, `score` holds a default entry, and a client sends Describe for the tenant
     Then the frontend answers asking no other role: `read_version` is the version bound of the latest closed epoch, the declarations list `name` with its `term` index, the property keys hold `name` and `score`, and the relationship types hold `score`
+
+  Scenario: Describe names the catalog version it is drawn from
+    When a client describes a tenant holding no catalog version, then declares `name`, and describes it again once the version declaring `name` is in effect at the latest close
+    Then the first answer's `catalog` is 0, and the second's is the version the system group holds, the one that declares `name`
+
+  Scenario: A client's Describe naming a catalog version is refused
+    When a client sends a Describe whose `catalog` is 1
+    Then it is refused at the client endpoint with `FieldValue` naming `catalog`
 
   Scenario: A literal at a node slot is refused
     When a statement's subject parameter is bound to a literal

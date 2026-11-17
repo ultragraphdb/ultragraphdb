@@ -18,15 +18,16 @@ use crate::utils::checksum::xxh3_64;
 use crate::utils::continuation::{Cut, continuation_frames};
 
 /// What a tenant holds, the data dictionary's answer (`PROTOCOL.md` §8.3): sent with the tenant alone, answered with the
-/// snapshot it was read at, the labels, relationship types and property keys, the catalog's declarations (predicates,
-/// entity types and relations) and the entries of the catalog version they are drawn from. An entity type's preorder
-/// number is held beside it until the preorder numbering is removed; the wire carries none, a record's `extra` being
-/// 0 (§4.6).
+/// snapshot it was read at, the tenant's catalog version it is drawn from, the labels, relationship types and property
+/// keys, the catalog's declarations (predicates, entity types and relations) and the entries of the catalog version they
+/// are drawn from. An entity type's preorder number is held beside it until the preorder numbering is removed; the wire
+/// carries none, a record's `extra` being 0 (§4.6).
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
 /// | 0 | `tenant` | u64 |
 /// | 8 | `read_version` | u64 |
+/// | 16 | `catalog` | u64 |
 ///
 /// | Section | Contents |
 /// |---|---|
@@ -43,6 +44,7 @@ use crate::utils::continuation::{Cut, continuation_frames};
 pub struct Describe {
     tenant: u64,
     read_version: u64,
+    catalog: u64,
     labels: Vec<String>,
     relationship_types: Vec<String>,
     property_keys: Vec<String>,
@@ -53,12 +55,13 @@ pub struct Describe {
 }
 
 impl Describe {
-    /// An answer for `tenant` read at `read_version`, empty until its parts are set.
+    /// An answer for `tenant` read at `read_version`, drawn from catalog version 0, empty until its parts are set.
     #[must_use]
     pub fn new(tenant: u64, read_version: u64) -> Self {
         Self {
             tenant,
             read_version,
+            catalog: 0,
             labels: Vec::new(),
             relationship_types: Vec::new(),
             property_keys: Vec::new(),
@@ -79,6 +82,18 @@ impl Describe {
     #[must_use]
     pub fn read_version(&self) -> u64 {
         self.read_version
+    }
+
+    /// The tenant's catalog version the answer is drawn from, 0 for a tenant holding none; zero in a request.
+    #[must_use]
+    pub fn catalog(&self) -> u64 {
+        self.catalog
+    }
+
+    /// The answer drawn from the tenant's catalog version `catalog`.
+    #[must_use]
+    pub fn with_catalog(self, catalog: u64) -> Self {
+        Self { catalog, ..self }
     }
 
     /// The labels.

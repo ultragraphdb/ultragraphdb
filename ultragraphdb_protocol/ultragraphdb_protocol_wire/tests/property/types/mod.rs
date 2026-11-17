@@ -20,6 +20,8 @@ mod defaults_frames_property_tests;
 #[cfg(test)]
 mod defaults_view_property_tests;
 #[cfg(test)]
+mod describe_view_property_tests;
+#[cfg(test)]
 mod ended_view_property_tests;
 #[cfg(test)]
 mod session_view_property_tests;

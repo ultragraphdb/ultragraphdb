@@ -102,6 +102,6 @@ impl DescribeFrames {
             .command_header
             .as_ref()
             .unwrap_or(&[0; COMMAND_HEADER_SIZE]);
-        DescribeView::read(CommandHeader(header), &self.body)
+        DescribeView::read(CommandHeader(header), &self.body, false)
     }
 }

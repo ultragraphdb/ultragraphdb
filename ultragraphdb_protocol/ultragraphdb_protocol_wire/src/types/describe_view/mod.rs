@@ -19,6 +19,7 @@ use crate::utils::le::bytes_at;
 pub struct DescribeView<'a> {
     tenant: u64,
     read_version: u64,
+    catalog: u64,
     strings: StringList<'a>,
     labels: Vec<u32>,
     relationship_types: Vec<u32>,
@@ -40,6 +41,12 @@ impl<'a> DescribeView<'a> {
     #[must_use]
     pub fn read_version(&self) -> u64 {
         self.read_version
+    }
+
+    /// The tenant's catalog version the answer is drawn from, 0 for a tenant holding none; zero in a request.
+    #[must_use]
+    pub fn catalog(&self) -> u64 {
+        self.catalog
     }
 
     /// The strings the body's indices name.

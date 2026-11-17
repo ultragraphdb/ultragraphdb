@@ -12,7 +12,8 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::types::describe::describe_tests::golden_answer;
 use crate::utils::golden_bodies::{
-    body_data, frame_of, golden, join_sections, put, reframe, split_sections, with_section,
+    body_data, frame_of, golden, join_sections, put, reframe, split_sections, with_command_header,
+    with_section,
 };
 
 fn ex(name: &str) -> String {
@@ -23,7 +24,11 @@ fn ex(name: &str) -> String {
 fn test_the_golden_answer_reads_its_values() -> TestResult {
     let bytes = golden("describe_reply")?.bytes()?;
     let view = DescribeView::from_frame(&frame_of(&bytes)?)?;
-    assert_eq!((view.tenant(), view.read_version()), (0, 42));
+    // generate_bodies.py: tenant 0, read version 42, catalog version 7.
+    assert_eq!(
+        (view.tenant(), view.read_version(), view.catalog()),
+        (0, 42, 7)
+    );
     assert_eq!(
         view.labels().collect::<Vec<_>>(),
         vec!["http://ex.org/Person"]
@@ -41,6 +46,7 @@ fn test_the_golden_answer_reads_its_values() -> TestResult {
     assert_eq!(view.to_body()?, golden_answer());
     let request = golden("describe")?.bytes()?;
     let request_view = DescribeView::from_frame(&frame_of(&request)?)?;
+    assert_eq!(request_view.catalog(), 0);
     assert_eq!(request_view.to_body()?, Describe::request(0));
     assert_eq!(request_view.declarations(), 0);
     Ok(())
@@ -178,6 +184,86 @@ fn test_a_nonzero_tenant_and_read_version_read_back() -> TestResult {
     let bytes = Describe::new(5, 6).frame(golden("describe")?.header())?;
     let view = DescribeView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!((view.tenant(), view.read_version()), (5, 6));
+    Ok(())
+}
+
+/// `catalog`, bytes 16 to 23 of the command header (`PROTOCOL.md` §8.3), reads back whatever it holds in a reply, and
+/// to the owned answer.
+#[test]
+fn test_a_catalog_reads_back() -> TestResult {
+    for catalog in [1, 0x0102_0304_0506_0708, u64::MAX] {
+        let answer = Describe::new(5, 6).with_catalog(catalog);
+        assert_eq!(answer.catalog(), catalog);
+        let bytes = answer.frame(golden("describe")?.header())?;
+        assert_eq!(&bytes[128 + 16..128 + 24], &catalog.to_le_bytes());
+        let view = DescribeView::from_frame(&frame_of(&bytes)?)?;
+        assert_eq!(view.catalog(), catalog);
+        assert_eq!(view.to_body()?, answer);
+    }
+    Ok(())
+}
+
+/// Unused bytes are 24 to 127: a byte set among them is refused at its frame offset, from a client or not, before the
+/// catalog's rule; one among `catalog`'s bytes is read as the catalog.
+#[test]
+fn test_unused_bytes_are_24_to_127() -> TestResult {
+    for at in [24usize, 127] {
+        let frame = with_command_header(&golden("describe_reply")?.bytes()?, |h| h[at] = 1);
+        let reserved = ProtocolErrorEnum::ReservedNotZero { offset: 128 + at };
+        assert_eq!(
+            DescribeView::from_frame(&frame_of(&frame)?)
+                .err()
+                .context("a refusal")?
+                .0,
+            reserved
+        );
+        assert_eq!(
+            DescribeView::from_client_frame(&frame_of(&frame)?)
+                .err()
+                .context("a refusal")?
+                .0,
+            reserved
+        );
+    }
+    let high = with_command_header(&golden("describe")?.bytes()?, |h| h[23] = 1);
+    assert_eq!(
+        DescribeView::from_frame(&frame_of(&high)?)?.catalog(),
+        1 << 56
+    );
+    Ok(())
+}
+
+/// The client endpoint reads the golden request, `catalog` 0, and refuses the golden answer's `catalog` 7 with
+/// `FieldValue` (`"catalog"`), after the unused bytes and before the sections (§8.3's Order); a reply's reader takes it.
+#[test]
+fn test_the_client_endpoint_refuses_a_catalog_other_than_0() -> TestResult {
+    let request = golden("describe")?.bytes()?;
+    let asked = DescribeView::from_client_frame(&frame_of(&request)?)?;
+    assert_eq!((asked.tenant(), asked.catalog()), (0, 0));
+    assert_eq!(asked.to_body()?, Describe::request(0));
+    let answer = golden("describe_reply")?.bytes()?;
+    let catalog = ProtocolErrorEnum::FieldValue {
+        command: 12,
+        field: "catalog",
+        value: 7,
+    };
+    assert_eq!(
+        DescribeView::from_client_frame(&frame_of(&answer)?)
+            .err()
+            .context("a refusal")?
+            .0,
+        catalog
+    );
+    assert_eq!(DescribeView::from_frame(&frame_of(&answer)?)?.catalog(), 7);
+    // A label past the strings breaks a later rule: the catalog's refusal comes first.
+    let both = with_section(&answer, 9, 2, |labels| put(labels, 0, 4, 4));
+    assert_eq!(
+        DescribeView::from_client_frame(&frame_of(&both)?)
+            .err()
+            .context("a refusal")?
+            .0,
+        catalog
+    );
     Ok(())
 }
 

@@ -17,8 +17,8 @@ use ultragraphdb_core_ids::{Epoch, SessionToken, Version};
 use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
 use ultragraphdb_protocol_wire::{
     Begin, BeginView, BodyView, CATALOG_BYTES_MAX, CheckKind, CheckOutcome, CheckView, Command,
-    Commit, Describe, DescribeFrames, EndedView, ErrorCode, ErrorReply, FLAG_LAST, FrameView,
-    HeaderView, MAX_FRAME_SIZE, ReadLevel,
+    Commit, ConflictKind, Describe, DescribeFrames, DropCommand, EndedView, ErrorCode, ErrorReply,
+    FLAG_LAST, FrameView, HeaderView, MAX_FRAME_SIZE, ReadLevel,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -491,7 +491,7 @@ fn a_stale_view_held(w: &mut Steps) {
 async fn described(
     client: &mut crate::endpoint_stage::Client,
     stream: u64,
-) -> TestResult<(usize, Vec<String>)> {
+) -> TestResult<(usize, Vec<String>, u64)> {
     let mut frames = DescribeFrames::new();
     let mut count = 0;
     loop {
@@ -517,6 +517,7 @@ async fn described(
             .iter()
             .map(|p| p.predicate().to_string())
             .collect(),
+        body.catalog(),
     ))
 }
 
@@ -537,11 +538,12 @@ fn describe_during_a_check(w: &mut Steps) -> TestResult {
         let played = Played::start(play, 1).await?;
         let mut client = played.ann(0).await?;
         let stream = client.send(&Describe::request(0)).await?;
-        let (_, predicates) = described(&mut client, stream).await?;
+        let (_, predicates, catalog) = described(&mut client, stream).await?;
         assert!(
             predicates.contains(&"http://ex.org/name".to_string()),
             "{predicates:?}"
         );
+        assert_eq!(catalog, 1, "the version before the one being checked");
         assert!(
             !predicates.contains(&"http://ex.org/nick".to_string()),
             "{predicates:?}"
@@ -735,9 +737,11 @@ fn a_describe_across_frames(w: &mut Steps) -> TestResult {
         let played = Played::start(play, 1).await?;
         let mut client = played.ann(0).await?;
         let stream = client.send(&Describe::request(0)).await?;
-        let (frames, read) = described(&mut client, stream).await?;
+        let (frames, read, catalog) = described(&mut client, stream).await?;
         assert_eq!(frames, 2);
         assert_eq!(read, predicates);
+        // Each frame names the first's command header, or the client refuses it: both name the version played, 1.
+        assert_eq!(catalog, 1, "the version the answer is drawn from");
         Ok(())
     })
 }
@@ -776,5 +780,166 @@ fn a_describe_past_its_bound(w: &mut Steps) -> TestResult {
 
 #[then("it is refused with code 6, `detail` `catalog_bytes_max`")]
 fn a_describe_past_its_bound_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
+/// A Drop answered on `client`: the frame it got.
+async fn dropped(
+    client: &mut crate::endpoint_stage::Client,
+    drop_of: &DropCommand,
+) -> TestResult<crate::endpoint_stage::Got> {
+    let stream = client.send(drop_of).await?;
+    client.got(stream).await
+}
+
+/// Whether `got` is the early refusal of a Drop naming `named` where `in_effect` is in effect: code 2, kind 5, naming both
+/// (`PROTOCOL.md` §6.5).
+fn refused_early(got: &crate::endpoint_stage::Got, named: u64, in_effect: u64) -> bool {
+    got.code == Some(ErrorCode::Conflict)
+        && got.detail == ConflictKind::Catalog.number()
+        && got.message.contains(&format!("catalog version {named}"))
+        && got.message.contains(&format!("{in_effect} is in effect"))
+}
+
+#[when(
+    "version 1 of a tenant is in effect at the endpoint core's open epoch, and a client sends Drops of kind 3 naming `catalog` 0, 2 and 1, then a Drop of kind 2 and one of kind 1, naming none"
+)]
+fn drops_against_the_version_in_effect(w: &mut Steps) -> TestResult {
+    played_run(w, || async {
+        let play = SystemPlay::new(CLUSTER, 1);
+        let name = "http://ex.org/name";
+        // Version 1 takes effect at epoch 1, the group's latest close: the core's open epoch is 2.
+        let in_effect = 1;
+        play.version(0, in_effect, 1, version_of(0, in_effect, &[name])?);
+        let played = Played::start(play, 1).await?;
+        let partition = played.partition(1, ordinary).await?;
+        let mut client = played.ann(0).await?;
+        for named in [in_effect.saturating_sub(1), in_effect.saturating_add(1)] {
+            let got = dropped(
+                &mut client,
+                &DropCommand::tenant_data(0).with_catalog(named),
+            )
+            .await?;
+            assert!(
+                refused_early(&got, named, in_effect),
+                "{:?} {}",
+                got.code,
+                got.message
+            );
+        }
+        assert_eq!(
+            (
+                partition.count(Command::Bind),
+                partition.count(Command::Drop)
+            ),
+            (0, 0),
+            "no partition saw them"
+        );
+        let passed = [
+            DropCommand::tenant_data(0).with_catalog(in_effect),
+            DropCommand::graph(0, "http://ex.org/g"),
+            DropCommand::predicate(0, name),
+        ];
+        for drop_of in &passed {
+            let got = dropped(&mut client, drop_of).await?;
+            assert_eq!(got.command, Command::Drop, "{}", got.message);
+        }
+        assert_eq!(partition.count(Command::Drop), passed.len());
+        Ok(())
+    })
+}
+
+#[then(
+    "the first two are refused with code 2, kind 5, each message naming its version and version 1, before any partition sees them, and the other three reach the partition"
+)]
+fn drops_against_the_version_in_effect_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
+#[when(
+    "version 1 of a tenant is in effect, a Drop of kind 1 makes version 2 pending, and a client sends a Drop of kind 3 naming `catalog` 1"
+)]
+fn a_drop_beside_a_pending_version(w: &mut Steps) -> TestResult {
+    played_run(w, || async {
+        let play = SystemPlay::new(CLUSTER, 1);
+        let name = "http://ex.org/name";
+        let in_effect = 1;
+        play.version(0, in_effect, 1, version_of(0, in_effect, &[name])?);
+        let played = Played::start(play, 1).await?;
+        let partition = played.partition(1, ordinary).await?;
+        let mut client = played.ann(0).await?;
+        let got = dropped(&mut client, &DropCommand::predicate(0, name)).await?;
+        assert_eq!(got.command, Command::Drop, "{}", got.message);
+        // The Drop's Declare of kind 2 committed the next version as pending, with no epoch (`PROTOCOL.md` §13.27).
+        assert_eq!(played.group.count(Command::Declare), 1);
+        let pending = played.system(0)?.view().current_version(0);
+        assert_eq!(pending, in_effect.saturating_add(1), "the core learned it");
+        let got = dropped(
+            &mut client,
+            &DropCommand::tenant_data(0).with_catalog(in_effect),
+        )
+        .await?;
+        assert_eq!(got.command, Command::Drop, "{:?} {}", got.code, got.message);
+        assert_eq!(
+            partition.count(Command::Drop),
+            2,
+            "both reached the partition"
+        );
+        Ok(())
+    })
+}
+
+#[then("the frontend passes it to the partition")]
+fn a_drop_beside_a_pending_version_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
+#[when(
+    "version 2 of a tenant is being checked, its effective epoch at or below the endpoint core's open epoch, Describe names version 1, and a client sends a Drop of kind 3 naming `catalog` 2 and one naming `catalog` 1"
+)]
+fn a_drop_during_a_check(w: &mut Steps) -> TestResult {
+    played_run(w, || async {
+        let play = SystemPlay::new(CLUSTER, 1);
+        let (name, nick) = ("http://ex.org/name", "http://ex.org/nick");
+        let (before, checked) = (1, 2);
+        play.version(0, before, 1, version_of(0, before, &[name])?);
+        // Version 2 is being checked: the group names it to no Describe, so the play holds it with no epoch of its own,
+        // while the close of epoch 2 announces it, taking effect at 3, the core's open epoch.
+        play.version(0, checked, 0, version_of(0, checked, &[name, nick])?);
+        let played = Played::start(play, 1).await?;
+        let partition = played.partition(1, ordinary).await?;
+        played.play.close(2, 0, &[(0, checked)]);
+        let system = played.system(0)?;
+        until("the close of 2", || system.view().latest_closed() == 2).await?;
+        let mut client = played.ann(0).await?;
+        let stream = client.send(&Describe::request(0)).await?;
+        let (_, _, described) = described(&mut client, stream).await?;
+        assert_eq!(described, before, "Describe leaves the checked version out");
+        let got = dropped(
+            &mut client,
+            &DropCommand::tenant_data(0).with_catalog(checked),
+        )
+        .await?;
+        assert_eq!(got.command, Command::Drop, "{:?} {}", got.code, got.message);
+        let got = dropped(
+            &mut client,
+            &DropCommand::tenant_data(0).with_catalog(before),
+        )
+        .await?;
+        assert!(
+            refused_early(&got, before, checked),
+            "{:?} {}",
+            got.code,
+            got.message
+        );
+        assert_eq!(partition.count(Command::Drop), 1, "the first alone");
+        Ok(())
+    })
+}
+
+#[then(
+    "the first reaches the partition, and the second is refused with code 2, kind 5, the message naming versions 1 and 2"
+)]
+fn a_drop_during_a_check_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }

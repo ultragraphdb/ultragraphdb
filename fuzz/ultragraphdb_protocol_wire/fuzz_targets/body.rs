@@ -118,6 +118,9 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
         Command::ConditionalWrite => {
             let _ = ConditionalWriteView::from_client_frame(&frame);
         }
+        Command::Describe => {
+            let _ = DescribeView::from_client_frame(&frame);
+        }
         _ => {}
     }
     Ok((frame.command(), rebuilt))

@@ -6,6 +6,7 @@
 //! What a core asks the system group on a stream of its own, each answered by its frames.
 
 use futures::channel::oneshot;
+use ultragraphdb_core_ids::Version;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Catalog, CatalogFrames, Challenge, ChallengeView, Declare, DeclareView,
     Declared, Defaults, DefaultsFrames, DropKind, ErrorReply, FrameView, Header, MAX_FRAME_SIZE,
@@ -128,7 +129,12 @@ impl SystemLink {
         let view = self.read(&frame)?;
         let reply = DeclareView::from_frame(&view).map_err(|rule| ErrorReply::protocol(&rule))?;
         let answered = (reply.version(), reply.commit_version());
-        self.state.borrow_mut().view.declared(tenant, answered.0);
+        // The version takes effect at the epoch of the first commit version it answers (`PROTOCOL.md` §11.13, *Its epoch*).
+        let epoch = Version::from_u64(answered.1).epoch().get();
+        self.state
+            .borrow_mut()
+            .view
+            .declared(tenant, answered.0, epoch);
         self.notify();
         Ok(answered)
     }
@@ -153,7 +159,8 @@ impl SystemLink {
         let reply = DeclareView::from_frame(&view).map_err(|rule| ErrorReply::protocol(&rule))?;
         let version = reply.version();
         if version != 0 {
-            self.state.borrow_mut().view.declared(tenant, version);
+            // Committed as pending: no epoch is assigned to it yet (`PROTOCOL.md` §13.27).
+            self.state.borrow_mut().view.declared(tenant, version, 0);
             self.notify();
         }
         Ok(version)
@@ -182,14 +189,17 @@ impl SystemLink {
     ///
     /// The group's refusal; code 17 when the link is closed or closes before the answer.
     pub async fn catalog_at(&self, tenant: u64, epoch: u64) -> Result<(u64, Vec<u8>), ErrorReply> {
-        self.catalog_read(&Catalog::request_at(tenant, epoch)).await
+        self.catalog_read(&Catalog::request_at(tenant, epoch))
+            .await
+            .map(|(version, _effective, bytes)| (version, bytes))
     }
 
-    /// The version `request` asks for and its bytes, read across Catalog frames.
+    /// The version `request` asks for, the epoch it takes effect at, 0 while pending, and its bytes, read across Catalog
+    /// frames.
     pub(super) async fn catalog_read(
         &self,
         request: &Catalog,
-    ) -> Result<(u64, Vec<u8>), ErrorReply> {
+    ) -> Result<(u64, u64, Vec<u8>), ErrorReply> {
         let frames = self.ask(request).await?;
         let mut read = CatalogFrames::new();
         for frame in &frames {
@@ -200,7 +210,7 @@ impl SystemLink {
         let version = read
             .view()
             .ok_or_else(|| unavailable("a Catalog answer of no frame"))?;
-        Ok((version.version(), version.bytes().to_vec()))
+        Ok((version.version(), version.epoch(), version.bytes().to_vec()))
     }
 
     /// `frame` validated as a frame of the link's cluster.

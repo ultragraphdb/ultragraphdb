@@ -161,7 +161,7 @@ fn test_a_reopened_subscription_reads_what_the_skipped_closes_announced() -> Tes
     assert!(view.wants_placement());
     assert_eq!(view.wants_catalogs(), vec![T1]);
     view.placement(map()?, 2, vec![0, T1]);
-    view.catalog(T1, 4, &empty_version(T1, 4)?).replied()?;
+    view.catalog(T1, 4, 0, &empty_version(T1, 4)?).replied()?;
     assert!(view.answers());
     assert_eq!(view.latest_closed(), 12);
     assert_eq!(view.current_version(T1), 4);
@@ -174,10 +174,75 @@ fn test_a_tenants_version_never_falls() -> TestResult {
     let mut view = at(7)?;
     assert!(view.close(8, 0, &[(T1, 3)]));
     assert_eq!(view.current_version(T1), 3);
-    view.declared(T1, 4);
+    view.declared(T1, 4, 0);
     assert_eq!(view.current_version(T1), 4);
     assert!(view.close(9, 0, &[(T1, 3)]));
     assert_eq!(view.current_version(T1), 4);
+    Ok(())
+}
+
+/// The version in effect at the open epoch (`PROTOCOL.md` §6.5): a close of epoch `e` announces versions taking effect at
+/// `e + 1`, the open epoch is one above the latest close, and a version committed as pending is in effect nowhere. A
+/// tenant never read names none; one holding no version names 0.
+#[test]
+fn test_the_version_in_effect_at_the_open_epoch() -> TestResult {
+    let mut view = at(7)?;
+    assert_eq!(view.in_effect(T1), None, "never read");
+    view.catalog_none(T1);
+    assert_eq!(view.in_effect(T1), Some(0), "the tenant holds none");
+    // Close 8 announces version 1, taking effect at 9, the open epoch.
+    assert!(view.close(8, 0, &[(T1, 1)]));
+    assert_eq!(view.in_effect(T1), Some(1));
+    // A Drop's Declare commits version 2 as pending: version 1 stays in effect.
+    view.declared(T1, 2, 0);
+    assert_eq!(view.current_version(T1), 2);
+    assert_eq!(
+        view.in_effect(T1),
+        Some(1),
+        "a pending version is in effect nowhere"
+    );
+    // Version 3 read with Catalog, taking effect at 11, above the open epoch 9.
+    view.catalog(T1, 3, 11, &empty_version(T1, 3)?).replied()?;
+    assert_eq!(view.in_effect(T1), Some(1), "version 3 takes effect later");
+    assert!(view.close(9, 0, &[]));
+    assert_eq!(view.in_effect(T1), Some(1), "the open epoch is 10");
+    assert!(view.close(10, 0, &[]));
+    assert_eq!(view.in_effect(T1), Some(3), "the open epoch is 11");
+    Ok(())
+}
+
+/// A declaring Commit's reply names its version's effective epoch, which may lie above the core's open epoch while the
+/// close assigning it has not reached the core: the version before stays in effect until that close.
+#[test]
+fn test_a_declared_version_takes_effect_at_its_epoch() -> TestResult {
+    let mut view = at(7)?;
+    view.catalog_none(T1);
+    view.declared(T1, 1, 9);
+    assert_eq!(
+        view.in_effect(T1),
+        Some(0),
+        "version 1 takes effect at 9, the open epoch is 8"
+    );
+    assert!(view.close(8, 0, &[(T1, 1)]));
+    assert_eq!(view.in_effect(T1), Some(1));
+    Ok(())
+}
+
+/// A view that cannot name the version in effect names none: the current version read is pending, or takes effect above
+/// the open epoch, and the version below it was never learned.
+#[test]
+fn test_a_version_never_learned_leaves_none_named() -> TestResult {
+    let mut pending = at(7)?;
+    pending
+        .catalog(T1, 5, 0, &empty_version(T1, 5)?)
+        .replied()?;
+    assert_eq!(pending.in_effect(T1), None, "version 4 was never learned");
+    let mut later = at(7)?;
+    later.catalog(T1, 5, 12, &empty_version(T1, 5)?).replied()?;
+    assert_eq!(later.in_effect(T1), None);
+    let mut read = at(7)?;
+    read.catalog(T1, 5, 3, &empty_version(T1, 5)?).replied()?;
+    assert_eq!(read.in_effect(T1), Some(5), "in effect since epoch 3");
     Ok(())
 }
 
@@ -202,9 +267,9 @@ fn test_a_schema_id_is_describe_ofs() -> TestResult {
     view.catalog_none(T1);
     assert!(!view.unread(T1));
     assert_eq!(view.schema_id(T1), Some(initial));
-    view.declared(T1, 2);
+    view.declared(T1, 2, 0);
     assert_eq!(view.schema_id(T1), None, "version 2 is not read");
-    view.catalog(T1, 2, &empty_version(T1, 2)?).replied()?;
+    view.catalog(T1, 2, 0, &empty_version(T1, 2)?).replied()?;
     assert_eq!(
         view.schema_id(T1),
         Some(initial),
@@ -217,7 +282,10 @@ fn test_a_schema_id_is_describe_ofs() -> TestResult {
 #[test]
 fn test_bytes_that_do_not_decode_are_refused() -> TestResult {
     let mut view = at(7)?;
-    let refused = view.catalog(T1, 2, &[0xFF; 3]).err().context("a refusal")?;
+    let refused = view
+        .catalog(T1, 2, 0, &[0xFF; 3])
+        .err()
+        .context("a refusal")?;
     assert_eq!(refused.code().number(), 17);
     assert_eq!(view.current_version(T1), 0);
     Ok(())

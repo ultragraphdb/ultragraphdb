@@ -14,8 +14,10 @@ fn ex(name: &str) -> String {
     format!("http://ex.org/{name}")
 }
 
+/// The answer `generate_bodies.py` lays out as `describe_reply.frame`: tenant 0, read version 42, catalog version 7.
 pub fn golden_answer() -> Describe {
     Describe::new(0, 42)
+        .with_catalog(7)
         .with_labels(vec![ex("Person")])
         .with_relationship_types(vec![ex("knows")])
         .with_property_keys(vec![ex("name")])
@@ -39,12 +41,20 @@ fn test_the_request_and_the_answer_build_the_golden_frames() -> TestResult {
         golden("describe")?.bytes()?
     );
     assert_eq!(Describe::request(0), Describe::new(0, 0));
+    assert_eq!(
+        Describe::request(0).catalog(),
+        0,
+        "a request names catalog 0"
+    );
     let answer = golden_answer();
     assert_eq!(
         answer.frame(golden("describe_reply")?.header())?,
         golden("describe_reply")?.bytes()?
     );
-    assert_eq!((answer.tenant(), answer.read_version()), (0, 42));
+    assert_eq!(
+        (answer.tenant(), answer.read_version(), answer.catalog()),
+        (0, 42, 7)
+    );
     assert_eq!(answer.labels(), &[ex("Person")]);
     assert_eq!(answer.predicates().len(), 2);
     assert_eq!(answer.entity_types()[0].1, 0);
@@ -61,6 +71,11 @@ fn test_the_schema_id_follows_the_declarations_alone() {
         .with_predicates(answer.predicates().to_vec())
         .with_entity_types(answer.entity_types().to_vec());
     assert_eq!(other_data.schema_id(), DESCRIBE_SCHEMA_ID);
+    // The catalog version lies in the command header, which the schema id's body leaves out (§11.7).
+    assert_eq!(
+        golden_answer().with_catalog(8).schema_id(),
+        DESCRIBE_SCHEMA_ID
+    );
     let declared =
         golden_answer().with_relations(vec![DeclaredRelation::new(ex("R"), vec![ex("r")])]);
     assert_ne!(declared.schema_id(), DESCRIBE_SCHEMA_ID);

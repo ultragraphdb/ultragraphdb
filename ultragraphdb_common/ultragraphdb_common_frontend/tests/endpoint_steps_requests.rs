@@ -1693,6 +1693,92 @@ fn describe_answers_from_the_metadata_group_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
+/// Describe's `catalog` and property keys.
+async fn catalog_described(client: &mut Client) -> TestResult<(u64, Vec<String>)> {
+    let describe = client.send(&Describe::request(0)).await?;
+    let got = client.got(describe).await?;
+    let view = view_frame(&got.bytes)?;
+    let answer = DescribeView::from_frame(&view)?;
+    Ok((
+        answer.catalog(),
+        answer.property_keys().map(str::to_string).collect(),
+    ))
+}
+
+#[when(
+    "a client describes a tenant holding no catalog version, then declares `name`, and describes it again once the version declaring `name` is in effect at the latest close"
+)]
+fn describe_names_the_catalog_version_it_is_drawn_from(w: &mut Steps) -> TestResult {
+    run(w, Options::default(), |stage| async move {
+        let _whole = &stage;
+        let name = "http://ex.org/name";
+        let mut client = stage.ann().await?;
+        let none = stage
+            .owner
+            .tenant_facts(0)
+            .await
+            .map_err(|refusal| TestError::new(refusal.message().to_string()))?
+            .current_version();
+        assert_eq!(none, 0, "the tenant holds no catalog version");
+        let (first, _keys) = catalog_described(&mut client).await?;
+        assert_eq!(
+            first, none,
+            "a tenant holding none is described at catalog 0"
+        );
+        declare(&mut client, DeclaredPredicate::new(name)).await?;
+        let held = stage
+            .owner
+            .catalog(0, 0)
+            .await
+            .map_err(|refusal| TestError::new(refusal.message().to_string()))?
+            .version();
+        assert_ne!(held, none, "the declaration made a version");
+        for _ in 0..500 {
+            let (catalog, keys) = catalog_described(&mut client).await?;
+            if keys.iter().any(|key| key == name) {
+                assert_eq!(catalog, held, "the version declaring `name`");
+                return Ok(());
+            }
+            assert_eq!(catalog, none, "until it takes effect, the version before");
+            pause(2).await;
+        }
+        Err(TestError::new("the version never took effect"))
+    })
+}
+
+#[then(
+    "the first answer's `catalog` is 0, and the second's is the version the system group holds, the one that declares `name`"
+)]
+fn describe_names_the_catalog_version_it_is_drawn_from_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
+#[when("a client sends a Describe whose `catalog` is 1")]
+fn a_clients_describe_naming_a_catalog_version_is_refused(w: &mut Steps) -> TestResult {
+    run(w, Options::default(), |stage| async move {
+        let _whole = &stage;
+        let mut client = stage.ann().await?;
+        let stream = client.send(&Describe::request(0).with_catalog(1)).await?;
+        let refused = client.got(stream).await?;
+        assert_eq!(
+            refused.code,
+            Some(ErrorCode::Protocol),
+            "{}",
+            refused.message
+        );
+        assert!(refused.message.contains("catalog"), "{}", refused.message);
+        // The connection goes on: a Describe naming 0 after it is answered.
+        let (catalog, _keys) = catalog_described(&mut client).await?;
+        assert_eq!(catalog, 0, "tenant 0 holds no version");
+        Ok(())
+    })
+}
+
+#[then("it is refused at the client endpoint with `FieldValue` naming `catalog`")]
+fn a_clients_describe_naming_a_catalog_version_is_refused_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
 #[when("a statement's subject parameter is bound to a literal")]
 fn a_literal_at_a_node_slot_is_refused(w: &mut Steps) -> TestResult {
     let options = Options::default();
