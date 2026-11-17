@@ -765,6 +765,44 @@ fn test_a_broken_frame_on_a_read_gives_the_connection_up() -> TestResult {
     Ok(())
 }
 
+/// A read whose last frame had arrived when its transaction was refused is kept on the live connection, to be read to its
+/// end: a frame of it whose chunk does not verify, read there, gives that connection up with the rule it broke, as a frame
+/// of an open read does (`PROTOCOL.md` §2.6: a client refusing a frame from the server closes the connection).
+#[test]
+fn test_a_broken_frame_of_a_kept_read_gives_the_live_connection_up() -> TestResult {
+    use ultragraphdb_protocol_wire::{BodyBuilder, ErrorReply, FLAG_LAST};
+    let mut h = Harness::ready(server())?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
+    while h.core.transmit().is_some() {}
+    let mut broken = forged(&mut h, stream.stream(), 1, FLAG_LAST)?;
+    let last = broken.len() - 1;
+    broken[last] ^= 4;
+    h.deliver(&broken)??;
+    let refusal = ErrorReply::new(ErrorCode::Refused, "refused").frame(
+        Header::new(CLUSTER, Command::Error)
+            .with_stream(tx.stream())
+            .with_flags(FLAG_LAST),
+    )?;
+    let refusal = h.numbered(&refusal)?;
+    h.deliver(&refusal)??;
+    assert!(
+        h.core.is_connected(),
+        "a refused transaction keeps the connection"
+    );
+    let refused = h
+        .core
+        .next_batch(&stream, h.now, |_| ())
+        .err()
+        .context("an error")?;
+    assert!(
+        matches!(&refused.0, ClientErrorEnum::Protocol { error } if matches!(error.0, ProtocolErrorEnum::Chunk { index: 0, .. })),
+        "{refused:?}"
+    );
+    assert!(!h.core.is_connected(), "given up");
+    Ok(())
+}
+
 /// The core of the tests, welcomed by a server allowing one stream and frames up to 524,288 bytes, the least it may.
 fn narrow() -> TestResult<Harness> {
     let mut h = Harness::with(

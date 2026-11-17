@@ -89,8 +89,17 @@ impl<L: Login> ClientCore<L> {
             };
             return match arrived(&frame, read) {
                 Arrived::Batch(value, _) => Ok(BatchPoll::Batch(value)),
-                Arrived::Refused(error) | Arrived::Broken(error) => {
+                Arrived::Refused(error) => {
                     let _drained = self.kept_reads.remove(&key);
+                    Err(error)
+                }
+                Arrived::Broken(error) => {
+                    let _drained = self.kept_reads.remove(&key);
+                    // A read kept on the live connection, its transaction refused, broke a rule of that connection's, which
+                    // a client refusing a frame closes (`PROTOCOL.md` §2.6); one kept from a lost connection has none left.
+                    if stream.generation() == self.generation && self.is_connected() {
+                        self.lose(&ClientError::connection_lost(Some(error.clone())));
+                    }
                     Err(error)
                 }
             };
