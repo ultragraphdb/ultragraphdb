@@ -21,8 +21,8 @@ use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
-    Bind, BindKind, BodyView, Command, Commit, CommitView, ErrorReplyView, Placement,
-    PlacementView, RoleKind, TermTable, Write, WriteChange,
+    Bind, BindKind, BodyView, Command, Commit, CommitView, EpochCloseView, ErrorReplyView,
+    Placement, PlacementView, RoleKind, Subscribe, TermTable, Write, WriteChange,
 };
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
@@ -86,6 +86,7 @@ struct Steps {
     data: String,
     placements: Vec<Vec<(u32, u32, u32)>>,
     status: u16,
+    epochs: Vec<u64>,
 }
 
 /// The settings of an instance of `count` partitions from `first`, at ports from `port`, observed at `observed`, dialling
@@ -648,6 +649,40 @@ fn nothing_to_replay(w: &mut Steps) -> TestResult {
     assert_eq!(rounds_replayed(log)?, 0, "{log}");
     w.roles = None;
     Ok(())
+}
+
+#[when("the system group's sequencer closes epochs 1 to 5 and storage is connected")]
+fn subscribed(w: &mut Steps) -> TestResult {
+    let util = services()?;
+    let settings = hosting((1, 1, FIRST_PORT, FIRST_OBSERVED), 1, &fresh_data())?;
+    let _pid: u32 = started(
+        &util,
+        &settings,
+        &scratch("storage-closes.log"),
+        FIRST_OBSERVED,
+    )?;
+    w.roles = Some(util);
+    // A storage process's role connection to the group, subscribed from before the first close.
+    w.epochs = Runtime::new()?.block_on(async {
+        let target = Address::parse(&format!("tcp://{SYSTEM_ADDRESS}"))?;
+        let mut client = RoleClient::dial(&target, CLUSTER, "storage", SECRET).await?;
+        let first = client.request(&Subscribe::new(0)).await?;
+        let mut epochs = vec![EpochCloseView::from_frame(&first.view()?)?.epoch()];
+        drop(first);
+        while epochs.len() < 5 {
+            let next = client.next_frame().await?;
+            epochs.push(EpochCloseView::from_frame(&next.view()?)?.epoch());
+        }
+        Ok::<Vec<u64>, TestError>(epochs)
+    })?;
+    Ok(())
+}
+
+#[then("storage receives five epoch-close commands, in order")]
+fn closes_in_order(w: &mut Steps) {
+    // The first five epochs, as the scenario names them: the sequencer closes from 1 (sequencer, "Epochs close").
+    assert_eq!(w.epochs, (1..=5).collect::<Vec<u64>>());
+    w.roles = None;
 }
 
 fn main() -> TestResult {

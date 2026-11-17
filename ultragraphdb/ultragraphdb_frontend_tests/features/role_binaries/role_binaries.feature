@@ -9,14 +9,6 @@ Feature: The frontend binary as a process
     When a client authenticates on the client endpoint with the role secret
     Then authentication is refused with the same error as a wrong password
 
-  Scenario: Epoch closes reach storage in order
-    When the frontend's sequencer closes epochs 1 to 5 and storage is connected
-    Then storage receives five epoch-close commands, in order
-
-  Scenario: The frontend answers a partition's lease and its placement
-    When a partition asks the frontend for a block and the placement
-    Then the frontend answers both over the role connection
-
   Scenario: The frontend binary carries no storage engine
     When the frontend binary's dependency graph is listed
     Then it names neither `ultragraphdb_store_kv` nor fjall

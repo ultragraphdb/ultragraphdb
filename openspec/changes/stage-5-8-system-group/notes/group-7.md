@@ -442,3 +442,128 @@ The integration targets, once each, `--nocache_test_results`:
    passes, and "The same frames cross TCP" states no order; left as it is.
 4. **`values.yaml`'s header** says the objects' fixed names are those "the role addresses of the `kube` profile name"; the
    frontend's is named by none now. Left.
+
+## Task 7.2's kubernetes-deployment part, and the two scenarios out of `frontend_tests`
+
+Decided by the user on 2026-11-16, after *Found wanting* 1 of task 7.5: the rendered chart's scenarios hermetically under
+Bazel with rules_helm (a), the running cluster's over the built binaries as task 8.2 plans (b); "Epoch closes reach storage in
+order" moved to `storage_tests`' `system_bdd`, and "The frontend answers a partition's lease and its placement" removed.
+
+### (a) The rendered chart: `ultragraphdb_chart_tests`
+
+- `MODULE.bazel` takes `rules_helm` 0.34.0 from the Bazel Central Registry (`periareon/rules_helm`, published 2026-10-05; 0.35.0
+  of 2026-11-06 was under two weeks old). Its toolchain downloads Helm 4.2.0 checksummed per platform, and the module registers
+  its toolchains itself; it brings `rules_go` 0.63.0 and `gazelle` 0.53.0, which build its packager and templater from Go
+  sources with a Go SDK of their own. `MODULE.bazel.lock` gains 348 lines and changes none. Nothing runs a Helm of the host.
+- `deploy/helm/ultragraphdb/BUILD.bazel`: `:chart`, the chart as `helm_package` makes it (templates, values, `Chart.yaml`, the
+  `kube` profile as the `.Files` the ConfigMap reads), and `:sources`, every file of the chart.
+- `ultragraphdb/ultragraphdb_chart_tests`, a test-only crate as `ultragraphdb_config_tests` is: `helm_template` renders `:chart`
+  as `scripts/cluster_local.sh` does (the release `ultragraphdb` in its namespace) and as the release `graphs` into the namespace
+  `graphs` under `example.internal` with `partitions=2`; aspect_bazel_lib's `yq` (already a dependency) writes each rendered
+  object as a JSON line; the test reads them with `serde_json`, already in the workspace. No YAML crate was added. The renders
+  sit in the test's package, so `deploy/helm/` in its runfiles holds the chart's sources alone, which a scenario searches.
+  `Cargo.lock` takes the crate as a member (an entry with its four dependencies, checked with `cargo metadata --offline
+  --locked`).
+
+`features/kubernetes-deployment/chart.feature`, 9 scenarios: the spec's "A pod runs unprivileged", "The frontend's pod holds no
+bootstrap secret" and "No secret is in the repository", verbatim; and what the four requirements state of the objects, under
+names of their own: the workloads of one cluster (two StatefulSets of one replica, each data directory its settings name below
+its claim's mount, the frontend and compute Deployments holding no volume but a Secret's projection, a headless Service per
+StatefulSet and for compute publishing not-ready addresses, `frontend-client` serving the endpoint's port); the frontend's
+container declaring its endpoint's and observability ports and no other; the storage pod declaring the port
+`system.role_address` names on its Service and container, the group's logs below its claim, and it alone mounting the bootstrap
+secret, inside the mount its `bootstrap_secret_file` lies in; every `cluster.system_address` and `system.role_address` naming
+`<set>-0.<service>.<namespace>.svc.<domain>` at the storage Service's `system` port, as an outline over both releases, with the
+partition count; and each role's environment holding the four bootstrap variables of a clear-text service, naming the config
+Service, the profile's target, its own instance and the read key's file. Every expected value is read from the rendered
+objects or settings, or is a name the spec states (65532, 65534).
+
+The search for a secret refuses a PEM block, a run of at least 32 characters of the base64 alphabet holding a digit, a
+lowercase and an uppercase letter (a random draw of that length lacks one with a chance below 10^-7), a run of 32 hexadecimal
+digits, and any value the render drew into the four Secrets. A first bound, any run of 32 base64 characters, refused
+`profile/kube.toml` for the path `/etc/ultragraphdb/profiles/kube/targets`.
+
+Failing first: the suite was written after the chart it checks (task 7.5), so it was shown to bite by a temporary edit, since
+reverted, putting the bootstrap secret and a role port 7081 back into `templates/frontend.yaml`: 9 scenarios, 6 passed, 3
+failed ("holds no bootstrap secret", "declares … no other", "it alone of every pod mounts the bootstrap secret").
+
+### (b) The running cluster over the built binaries: `ultragraphdb_tests`
+
+`features/kubernetes-deployment/pods.feature` and `tests/kubernetes_steps.rs`, registered in `tests/bdd.rs`; `Cluster::observability`
+added to `tests/cluster.rs`. A pod is a process started through the config service, its deletion with a grace period of zero a
+SIGKILL, its workload starting it again the same instance on the settings the config service holds, over the same data
+directories. Six scenarios, verbatim, in the first run alone (compio over TCP):
+
+| Scenario | Bound as |
+|---|---|
+| An empty namespace comes up | a cluster from nothing: the config service and every role `/ready`, the frontend's settings naming no `data_dir`, a client authenticating and committing |
+| A storage pod restarts at its address | two storage processes, the non-hosting one killed and started again: Members equal before and after and listing partition 2 at its address, a write to an IRI of partition 2 committed |
+| A missing role secret stops a role | storage started with `role_secret_file` naming no file: exit 78 naming it; the file written, started again and `/ready` |
+| A storage pod killed under writes keeps every acknowledged commit | 8 one-frame writes acknowledged, the hosting storage process killed as a ninth leaves (acknowledged if answered within 1 s), started again; once the group lists compute again, every acknowledged object read back. Compute runs with `cluster.join_deadline_ms = 10000` (*Found wanting* below) |
+| The hosting storage pod killed keeps the books | a session registered, a declaring Commit (naming no session, `PROTOCOL.md` §11.13), the host killed and started again: the session's next commit accepted, the latest catalog version unchanged |
+| A deleted frontend pod loses nothing | a session's write committed, the frontend killed and started again, a new client resuming the session one above its last request and committing; both objects read back |
+
+`tests/cluster.rs` gains `Spec::compute`, a compute process's settings beyond the harness's, and `Cluster::observability` and
+`Cluster::log`. Each waits 300 ms after its last commit before the kill, so the frontend's Ended reaches the group and no mark of the closing
+connection holds the session for twice `transaction_ms`.
+
+Not bound: "An upgrade keeps the Secrets". It is Helm's `lookup` against a cluster's Secrets and `scripts/cluster_local.sh`
+creating only those absent; `helm template` reads no cluster, and the built binaries hold no Secret. It needs a cluster.
+
+First run: 6 scenarios, 5 passed; "The hosting storage pod killed keeps the books" was refused "a Commit of declarations names no
+session": the step committed the declaration through the session, which §11.13 forbids. The step was wrong; it commits with no
+session now. The six bind behaviour tasks 7.4 and 7.5 built, so none failed for want of code.
+
+### The two scenarios out of `frontend_tests`
+
+- "Epoch closes reach storage in order" is in `storage_tests/features/system/role_commands.feature` (`@system @hosting`, run
+  by `system_bdd`), its When as this change's wire-protocol text: "the system group's sequencer closes epochs 1 to 5 and
+  storage is connected". A hosting storage process starts; a role connection as storage subscribes from 0 and reads epochs 1
+  to 5 in order. `system_bdd`: 7 scenarios, 5.1 s.
+- "The frontend answers a partition's lease and its placement" is removed: no specification holds it, and the system group's
+  answer to a Lease is `common_system`'s "A lease is answered from a rising mark"
+  (`features/client-endpoint/owner.feature`), its Placement storage_tests' "The hosting instance serves the books".
+- Their bindings in `frontend_tests/tests/bdd.rs` are removed (`frontend_alone`, `as_storage`, the four steps, the World's
+  `epochs`, `leased` and `ranges`, and the imports they alone used).
+
+### The gate
+
+`make build` passes. `bazel test //... --test_tag_filters=-integration_test`: 179 of 179 pass, `chart_tests:bdd` among them
+(9 scenarios, 18 steps; 0.2 s uncached in the gate run, 3.2 s on its first run with the sandbox cold). Clippy through the aspect over
+`chart_tests:bdd`, `frontend_tests:bdd`, `storage_tests:system_bdd` and `ultragraphdb_tests:bdd`: none on a line of this task;
+`ultragraphdb_tests` stops on three "this lint expectation is unfulfilled", `tests/lossy_link.rs:50` and `:126`, unchanged since
+the base, and `tests/own_steps.rs:35`, the file another agent is editing.
+
+The integration targets, `--nocache_test_results`:
+
+| Target | Result | Time |
+|---|---|---|
+| `storage_tests:system_bdd` | **passes**, 7 scenarios, the moved one among them | 7.0 s (5.1 s alone) |
+| `frontend_tests:bdd` | 18 of 18 scenarios passed, then the binary did not exit until Bazel's timeout (966 s); run again alone: **passes**, 18 of 18 | 12.9 s |
+| `ultragraphdb_tests:bdd`, the six scenarios alone (first run) | **passes**, 6 of 6 | 15.9 s |
+| `ultragraphdb_tests:bdd`, whole | every run's summary printed, then TIMEOUT (1,335 s): 198/208, 10/10, 35/36, 36/38, 35/36 | |
+
+The whole suite's failures are task 7.4's list (*The gate*, items 1 to 5: the group's quiet time, the Declare frame's cap, the
+token above the open epoch, the silent partition under SIGSTOP of the host, the tenant's data drop); none is one of the six. Its
+first run grew from 190/202 at task 7.4 to 198/208 by the six. In the gate's first whole run, before compute's deadline was
+set, "A storage pod killed under writes keeps every acknowledged commit" failed with "no compute process answers" (*Found wanting*
+1 below).
+
+### Found wanting
+
+1. **A restarted host leaves the frontend ready and its reads refused for up to half compute's deadline.** When the storage
+   process hosting the system group restarts, the frontend reads Members again as its connection to storage closes (design
+   D9) and finds no compute: the restarted group holds no Join from before, and compute sends its Join again only when its
+   next ask, every half `join_deadline_ms` (30 s at the default of 60 s, `common_compute`'s `ASKS_PER_DEADLINE`), finds its
+   address unlisted. Until then the frontend, `/ready` since the group answered, refuses every read with code 17 "no compute
+   process answers". kubernetes-deployment, "A storage pod killed under writes keeps every acknowledged commit", says the
+   commits read back "once the pod is ready". The scenario runs its compute at a deadline of 10 s and waits until Members
+   lists compute; the cause is design D9 and D10's, the user's to decide (compute asking at once when its connection to the
+   group closes, the frontend's `/ready` asking for a compute process, or the group keeping its members across a restart).
+   Task 7.4's "A client's declaration of `name` a property is acknowledged, …, the storage process restarts, and a client
+   writes" fails in the whole run with the same refusal.
+2. **A binary hanging at its end.** `frontend_tests:bdd` and the whole `ultragraphdb_tests:bdd` each printed their last
+   summary and then ran until Bazel's timeout, under a load average of 12 with another agent's builds; `frontend_tests` run
+   again alone ended at once, and so do the six scenarios alone. Not root-caused: the last step of each is the drop of what
+   started the processes, which waits for each to stop.
+3. **"An upgrade keeps the Secrets" is not bound** (above); it needs a cluster.

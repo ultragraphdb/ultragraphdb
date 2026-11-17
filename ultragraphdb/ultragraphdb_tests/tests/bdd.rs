@@ -13,6 +13,7 @@ mod client_reads;
 mod cluster;
 mod conformance_steps;
 mod endpoint_steps;
+mod kubernetes_steps;
 mod limit_steps;
 mod lossy_link;
 mod operation_steps;

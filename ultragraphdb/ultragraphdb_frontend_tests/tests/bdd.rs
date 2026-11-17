@@ -17,18 +17,13 @@ use std::path::Path;
 use std::process::ExitStatus;
 use std::time::Duration;
 use ultragraphdb_client_compio::{Client, ClientConfig, TcpConnector};
-use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_common_service::BIND_RETRIES;
 use ultragraphdb_protocol_scram::{ScramLogin, system_nonce};
-use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_wire::{
-    BodyView, EpochCloseView, Lease, LeaseView, Placement, PlacementView, Subscribe,
-};
 use ultragraphdb_tests::{
     CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, DOUBLE_ADDRESS, FRONTEND_BINARY,
-    FRONTEND_OBSERVABILITY, PARENT_PID, SECRET, START_SECONDS, STORAGE_BINARY, SYSTEM_ROLE_ADDRESS,
-    answering, bootstrap, exit_is, frontend_holding, http_status, process, render_settings, role,
-    scratch, served_by_double, start_double, until_answering, until_ports_free, with,
+    FRONTEND_OBSERVABILITY, PARENT_PID, SECRET, START_SECONDS, STORAGE_BINARY, bootstrap, exit_is,
+    frontend_holding, http_status, process, render_settings, role, scratch, served_by_double,
+    start_double, until_answering, until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -50,12 +45,9 @@ pub(crate) fn services() -> TestResult<ServiceUtil> {
 
 #[derive(Debug, Default, World)]
 pub(crate) struct Steps {
-    epochs: Vec<u64>,
     pub(crate) exited: Option<ExitStatus>,
     graph: String,
-    leased: Option<(u64, u64)>,
     pub(crate) log: String,
-    ranges: usize,
     pub(crate) roles: Option<ServiceUtil>,
     pub(crate) refused: Option<String>,
     pub(crate) answered: role_read_steps::Answered,
@@ -87,76 +79,6 @@ fn client_with_secret(w: &mut Steps) -> TestResult {
 fn same_as_wrong_password(w: &mut Steps) -> TestResult {
     assert!(w.log.contains("authentication failed"), "{}", w.log);
     assert_eq!(w.log, client_refusal("storage", "a wrong password")?);
-    w.roles = None;
-    Ok(())
-}
-
-/// Starts the frontend alone, waiting on its `/health`.
-fn frontend_alone(w: &mut Steps) -> TestResult {
-    let util = services()?;
-    let log = scratch(FRONTEND_BINARY);
-    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
-    let _pid: u32 =
-        util.start_service_from_config(role(FRONTEND_BINARY, &frontend_holding()?, &log, wait))?;
-    w.roles = Some(util);
-    Ok(())
-}
-
-/// The system group's role address, dialled as storage holding the cluster's secret. Since the switch (design D2) the
-/// frontend listens at no role address and the books are the system group's, in the storage process hosting it.
-async fn as_storage() -> TestResult<RoleClient> {
-    let target = Address::parse(&format!("tcp://{}", SYSTEM_ROLE_ADDRESS))?;
-    Ok(RoleClient::dial(&target, CLUSTER, "storage", SECRET).await?)
-}
-
-#[when("the frontend's sequencer closes epochs 1 to 5 and storage is connected")]
-fn subscribed(w: &mut Steps) -> TestResult {
-    frontend_alone(w)?;
-    Runtime::new()?.block_on(async {
-        let mut client = as_storage().await?;
-        let first = client.request(&Subscribe::new(0)).await?;
-        let mut note = |frame: &ultragraphdb_protocol_transport::ReceivedFrame| -> TestResult {
-            let view = frame.view()?;
-            w.epochs.push(EpochCloseView::from_frame(&view)?.epoch());
-            Ok(())
-        };
-        note(&first)?;
-        drop(first);
-        for _ in 1..5 {
-            let next = client.next_frame().await?;
-            note(&next)?;
-        }
-        Ok(())
-    })
-}
-
-#[then("storage receives five epoch-close commands, in order")]
-fn in_order(w: &mut Steps) {
-    assert_eq!(w.epochs, [1, 2, 3, 4, 5]);
-    w.roles = None;
-}
-
-#[when("a partition asks the frontend for a block and the placement")]
-fn lease_and_placement(w: &mut Steps) -> TestResult {
-    frontend_alone(w)?;
-    Runtime::new()?.block_on(async {
-        let mut client = as_storage().await?;
-        let leased = client.request(&Lease::request(1, 1, 16)).await?;
-        let view = leased.view()?;
-        let block = LeaseView::from_frame(&view)?;
-        w.leased = Some((block.start(), block.end()));
-        drop(leased);
-        let placed = client.request(&Placement::request(0)).await?;
-        w.ranges = PlacementView::from_frame(&placed.view()?)?.range_count();
-        Ok(())
-    })
-}
-
-#[then("the frontend answers both over the role connection")]
-fn answered_both(w: &mut Steps) -> TestResult {
-    let (start, end) = w.leased.context("a block")?;
-    assert_eq!(end - start, 16);
-    assert_eq!(w.ranges, 1, "one partition holds every bucket");
     w.roles = None;
     Ok(())
 }
