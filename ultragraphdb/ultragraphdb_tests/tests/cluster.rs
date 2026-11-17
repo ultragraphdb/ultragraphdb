@@ -10,13 +10,13 @@ use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use compio::runtime::Runtime;
 use service_utils::{ServiceStartConfig, ServiceUtil, WaitStrategy};
 use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_protocol_transport::{Address, Scheme};
-use ultragraphdb_protocol_wire::{BodyView, Placement, PlacementView};
+use ultragraphdb_protocol_wire::{BodyView, DEFAULT_TRANSACTION_MS, Placement, PlacementView};
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
     CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS,
@@ -452,6 +452,10 @@ impl Cluster {
             }
             self.restart(instance)?;
             until_answering(observability, "/ready")?;
+            if *instance == self.host()?.instance {
+                // The host listens again before it is ready: its group's quiet time begins anew.
+                quiet_from_now(&self.client.address);
+            }
         }
         until_answering(&self.frontend_ready_address()?, "/ready")
     }
@@ -469,14 +473,17 @@ impl Cluster {
         Ok(std::fs::read_to_string(&self.member("frontend")?.log)?)
     }
 
-    /// What the storage process hosting the system group has logged so far: the first storage process.
-    pub(crate) fn host_log(&self) -> TestResult<String> {
-        let host = self
-            .members
+    /// The storage process hosting the system group: the first storage process.
+    fn host(&self) -> TestResult<&Member> {
+        self.members
             .iter()
             .find(|member| member.program == STORAGE_BINARY)
-            .context("the hosting storage process")?;
-        Ok(std::fs::read_to_string(&host.log)?)
+            .context("the hosting storage process")
+    }
+
+    /// What the storage process hosting the system group has logged so far.
+    pub(crate) fn host_log(&self) -> TestResult<String> {
+        Ok(std::fs::read_to_string(&self.host()?.log)?)
     }
 
     /// Where `/ready` of the frontend answers.
@@ -623,7 +630,39 @@ fn start(layout: &Layout, spec: &Spec, util: ServiceUtil) -> TestResult<Cluster>
     };
     until_answering(f_obs, "/ready")?;
     until_listening(&layout.client)?;
+    // The system group listened before its storage process was ready.
+    quiet_from_now(&layout.client);
     Ok(cluster)
+}
+
+/// Records that the system group of the cluster a client dials at `client` listened before now, so its quiet time ends by
+/// [`quiet_time`] from now.
+fn quiet_from_now(client: &str) {
+    let quiet_ends = Instant::now() + quiet_time();
+    QUIET_ENDS.with_borrow_mut(|ends| {
+        ends.retain(|(held, _)| held != client);
+        ends.push((client.to_string(), quiet_ends));
+    });
+}
+
+/// How long the system group is quiet once it begins to listen: twice `transaction_ms`, the protocol's default, which no
+/// setting moves. Meanwhile it evicts no session, refusing a Register that would need an eviction with code 14, and answers a
+/// resend's check, of kind 1, with 14 (`PROTOCOL.md` §11.5).
+fn quiet_time() -> Duration {
+    Duration::from_millis(2 * u64::from(DEFAULT_TRANSACTION_MS))
+}
+
+/// Waits until the system group of the cluster a client dials at `at` is past its quiet time, for a scene that resends a
+/// request through a session or fills the registry: a cluster this run started, at its start; any other, at once.
+pub(crate) fn after_quiet_time(at: &ClientAt) {
+    let ends = QUIET_ENDS.with_borrow(|ends| {
+        ends.iter()
+            .find(|(client, _)| *client == at.address)
+            .map(|(_, ends)| *ends)
+    });
+    if let Some(ends) = ends {
+        std::thread::sleep(ends.saturating_duration_since(Instant::now()));
+    }
 }
 
 /// Starts a scenario's own cluster over `carrier` at the declared ports, as `spec` says.
@@ -642,6 +681,9 @@ thread_local! {
     static SHARED: RefCell<Vec<(String, Cluster)>> = const { RefCell::new(Vec::new()) };
     /// How many clusters of a spec of their own this run has started, each at ports of its own.
     static SPECS_STARTED: Cell<u16> = const { Cell::new(0) };
+    /// When the system group of each cluster started is past its quiet time, by the address a client dials it at: the last
+    /// start at an address sets it.
+    static QUIET_ENDS: RefCell<Vec<(String, Instant)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The cluster named `name` of this run, started when a scenario first asks: where a client dials it.

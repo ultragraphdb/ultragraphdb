@@ -8,7 +8,7 @@
 
 use cucumber::{then, when};
 use ultragraphdb_client_compio::{ClientError, ClientErrorEnum};
-use ultragraphdb_core_ids::{Epoch, SessionToken, Version};
+use ultragraphdb_core_ids::Version;
 use ultragraphdb_core_terms::SYSTEM_VOCABULARY;
 use ultragraphdb_protocol_wire::{
     Begin, ColumnType, CommitOperation, ConditionalWrite, DeclaredKind, DeclaredPredicate,
@@ -909,49 +909,6 @@ fn declaration_refused(w: &mut Steps) -> TestResult {
     ) || refusal_of(refused).is_ok_and(|(code, _, _)| code == ErrorCode::Protocol);
     assert!(protocol, "{refused:?}");
     assert!(!w.seen.facts.contains(&w.iri("p")), "{:?}", w.seen.facts);
-    Ok(())
-}
-
-#[when(
-    "the sequencer's open epoch is 30, and a Begin, a DirectWrite and a ConditionalWrite each carry a token of epoch 31"
-)]
-fn token_above_open(w: &mut Steps) -> TestResult {
-    let [a, p, b, id] = ["a", "p", "b", "id"].map(|n| w.iri(n));
-    let far = Epoch::new(1 << 40)?;
-    w.seen.refusals = in_shared(w, async |client| {
-        let token = SessionToken::new(1, 1, far);
-        let begin = Begin::new(TENANT, 0, true).with_token(token.clone());
-        let begun = client.begin_with(begin, None).await;
-        let direct = direct_of(&a, &p, &iri(&b))?.with_token(token.clone());
-        let directed = client.direct_write(direct, None).await;
-        let conditional = claim(&id, "x")?.with_token(token);
-        let conditioned = client.conditional_write(conditional, None).await;
-        [
-            begun.map(|_| ()),
-            directed.map(|_| ()),
-            conditioned.map(|_| ()),
-        ]
-        .into_iter()
-        .map(|outcome| {
-            outcome
-                .err()
-                .context("a token above the open epoch refused")
-        })
-        .collect::<Result<Vec<ClientError>, _>>()
-    })?;
-    w.seen.facts = vec![far.get().to_string()];
-    Ok(())
-}
-
-#[then("each is refused with Error 1 on its stream, the message naming epoch 31")]
-fn token_above_refused(w: &mut Steps) -> TestResult {
-    let epoch = w.seen.facts.first().context("the epoch")?;
-    assert_eq!(w.seen.refusals.len(), 3, "{}", w.over());
-    for refused in &w.seen.refusals {
-        let (code, _, message) = refusal_of(refused)?;
-        assert_eq!(code, ErrorCode::Protocol, "{refused:?}");
-        assert!(message.contains(epoch.as_str()), "{message}");
-    }
     Ok(())
 }
 

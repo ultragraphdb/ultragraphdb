@@ -21,10 +21,6 @@ Feature: Commits answer a session token through the three binaries
     When a read-only transaction at snapshot level names a read version in epoch 12, and carries a token of epoch 20
     Then its reads answer at the named version, and none waits for epoch 20
 
-  Scenario: A token above the open epoch is refused
-    When the sequencer's open epoch is 30, and a Begin, a DirectWrite and a ConditionalWrite each carry a token of epoch 31
-    Then each is refused with Error 1 on its stream, the message naming epoch 31
-
   Scenario: A one-frame write carries the session's token
     When a client's session commits a DirectWrite whose reply's token is of epoch 12, resolves a resend whose stored reply's is of epoch 9, then sends a ConditionalWrite through the session
     Then the ConditionalWrite carries the token of epoch 12

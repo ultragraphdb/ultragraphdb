@@ -16,7 +16,7 @@ use ultragraphdb_protocol_wire::{
     BodyView, Catalog, CatalogView, Declared, DeclaredKind, DeclaredPredicate, ErrorCode,
     RequestTerm, TermTable, Write, WriteChange,
 };
-use ultragraphdb_tests::{CLUSTER, SECRET};
+use ultragraphdb_tests::{CLUSTER, SECRET, until_answering};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::Steps;
@@ -48,6 +48,8 @@ pub(crate) struct Seen {
     reports: Vec<String>,
     /// A write's refusal by the catalog, and what the subject holds after it.
     objects: usize,
+    /// The partition left silent.
+    silent: u64,
 }
 
 fn declaration(predicate: DeclaredPredicate) -> Write {
@@ -210,17 +212,24 @@ fn over_two_answered(w: &mut Steps) {
 /// The wait of the silent scenario, in milliseconds.
 const CHECK_MS: u64 = 300;
 
+/// The storage process the silent scenario stops, apart from the first, which hosts the system group, and its partition: a
+/// second storage process holds the partitions from 2 (`Spec::second_storage`).
+const SILENT: (&str, u64) = ("storage_2", 2);
+
 #[when(
     "a client commits a declaration of `nick` single-valued, and a partition holding the tenant reports nothing within `catalog_check_ms`"
 )]
 fn silent(w: &mut Steps) -> TestResult {
     let nick = w.iri("nick");
-    let spec = Spec::one_partition().host("metadata.catalog_check_ms", CHECK_MS);
+    let spec = Spec::one_partition()
+        .second_storage()
+        .host("metadata.catalog_check_ms", CHECK_MS);
     let cluster = start_own_as(w.carrier, &spec)?;
     let before = latest_version(&cluster.system)?;
+    let (stopped, partition) = SILENT;
     let mut seen = run(async {
         let mut client = client(&cluster.client).await?;
-        cluster.signal("storage", Signal::Stop)?;
+        cluster.signal(stopped, Signal::Stop)?;
         let answer = declared(
             &mut client,
             &declaration(DeclaredPredicate::new(&nick).with_single(true)),
@@ -228,11 +237,16 @@ fn silent(w: &mut Steps) -> TestResult {
         .await;
         let refused = refused_with(answer, ErrorCode::TimedOut);
         // Whatever the answer, a process left stopped would hold the cluster's end up.
-        cluster.signal("storage", Signal::Continue)?;
+        cluster.signal(stopped, Signal::Continue)?;
         let (detail, message) = refused?;
+        // The silent partition's own report: the other's came in time.
+        let reported = format!("partition={partition}");
         let mut late = false;
         for _ in 0..POLLS {
-            late = cluster.host_log()?.contains(REPORTED);
+            late = cluster
+                .host_log()?
+                .lines()
+                .any(|line| line.contains(REPORTED) && line.contains(&reported));
             if late {
                 break;
             }
@@ -242,6 +256,7 @@ fn silent(w: &mut Steps) -> TestResult {
         Ok(Seen {
             refusal: Some((ErrorCode::TimedOut, detail, message)),
             single: single(&mut client, &nick).await?,
+            silent: partition,
             ..Seen::default()
         })
     })?;
@@ -258,10 +273,11 @@ fn silent_refused(w: &mut Steps) -> TestResult {
     let seen = &w.tightening;
     let (code, detail, message) = seen.refusal.as_ref().context("the refusal")?;
     assert_eq!(*code, ErrorCode::TimedOut);
-    assert_eq!(*detail, 1, "the partition silent");
+    assert_eq!(*detail, seen.silent, "the partition silent");
     let withdrawn = seen.versions.0 + 1;
     assert!(
-        message.contains("partition 1") && message.contains(&withdrawn.to_string()),
+        message.contains(&format!("partition {}", seen.silent))
+            && message.contains(&withdrawn.to_string()),
         "{message}"
     );
     assert_eq!(
@@ -293,6 +309,10 @@ fn after_restart(w: &mut Steps) -> TestResult {
     // the version effect: the start alone can.
     cluster.stop("storage")?;
     cluster.restart("storage")?;
+    // The storage process hosts the system group, which the frontend dials again: a client connecting before both are ready
+    // is refused, the frontend's connection to the group closed.
+    until_answering(&cluster.observability("storage")?, "/ready")?;
+    until_answering(&cluster.frontend_ready_address()?, "/ready")?;
     w.tightening = run(async {
         let mut client = client(&cluster.client).await?;
         let object: RequestTerm = iri(&b);

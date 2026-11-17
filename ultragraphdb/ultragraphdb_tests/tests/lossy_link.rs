@@ -45,12 +45,10 @@ pub(crate) struct LossyLink {
 }
 
 impl LossyLink {
-    /// A link to the client endpoint at `to`, a `tcp://` address.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the link carries bytes beside the scenarios, on threads of the test's own"
-    )]
+    /// A link to the client endpoint at `to`, a `tcp://` address, once the system group behind it is past its quiet time: a
+    /// link loses a frame so that its client sends again, and the group answers a resend's check 14 while it is quiet.
     pub(crate) fn to(to: &ClientAt) -> TestResult<Self> {
+        crate::cluster::after_quiet_time(to);
         let target: SocketAddr = to
             .address
             .strip_prefix("tcp://")
@@ -122,10 +120,6 @@ enum Way {
 }
 
 /// Starts carrying `client`'s connection to `target`, on a thread each way.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the link carries bytes beside the scenarios, on threads of the test's own"
-)]
 fn carry(
     client: TcpStream,
     target: SocketAddr,

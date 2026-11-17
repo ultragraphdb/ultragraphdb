@@ -25,7 +25,8 @@ use crate::client_reads::{
     refusal_of, string, write_of,
 };
 use crate::cluster::{
-    Carriers, Cluster, Signal, Spec, client, hand_back, iri_of_partition, placement_ranges, taken,
+    Carriers, Cluster, Signal, Spec, after_quiet_time, client, hand_back, iri_of_partition,
+    placement_ranges, taken,
 };
 use crate::lossy_link::LossyLink;
 use crate::read_steps::{big_pattern, until_rows, write_big};
@@ -34,10 +35,6 @@ use crate::shells::{CompioDial, Knobs, TestClient, pause, run, with_client};
 use crate::transaction_steps::{committed, nothing};
 
 /// The time, to measure a wait a scenario names.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a test measures a wait its scenario names; no simulation replays it"
-)]
 fn clock() -> Instant {
     Instant::now()
 }
@@ -180,6 +177,8 @@ fn third_refused(w: &mut Steps) -> TestResult {
 fn evicted_commit(w: &mut Steps) -> TestResult {
     own(w, &Spec::one_partition().host("metadata.sessions_max", 1))?;
     let at = cluster(w)?.client.clone();
+    // The group evicts no session while it is quiet.
+    after_quiet_time(&at);
     let [a, p, b] = ["a", "p", "b"].map(|name| w.iri(name));
     let (refused, held) = run(async {
         let mut first = client(&at).await?;
@@ -355,9 +354,11 @@ fn evicted_unknown(w: &mut Steps) -> TestResult {
     "the registry holds `sessions_max` sessions, each with a commit in flight, and a client registers another"
 )]
 fn registry_all_in_flight(w: &mut Steps) -> TestResult {
-    own(w, &Spec::one_partition().host("metadata.sessions_max", 1))?;
+    let (_, a) = two_storages(w, Spec::one_partition().host("metadata.sessions_max", 1))?;
     let at = cluster(w)?.client.clone();
-    let [a, p, b] = ["a", "p", "b"].map(|name| w.iri(name));
+    // The group evicts no session while it is quiet, which would refuse the last Register too.
+    after_quiet_time(&at);
+    let [p, b] = ["p", "b"].map(|name| w.iri(name));
     let (mut first, mut second, session) = run(async {
         let mut first = client(&at).await?;
         let mut second = TestClient::new(&at, &Knobs::one_attempt())?;
@@ -365,14 +366,15 @@ fn registry_all_in_flight(w: &mut Steps) -> TestResult {
         let session = first.register().await?;
         Ok((first, second, session))
     })?;
-    // A stopped partition takes the commit into its socket and answers nothing, so the commit stays in flight.
-    cluster(w)?.signal("storage", Signal::Stop)?;
+    // A stopped partition takes the commit into its socket and answers nothing, so the commit stays in flight. It is the second
+    // storage process's: the first hosts the system group, which answers the Registers.
+    cluster(w)?.signal("storage_2", Signal::Stop)?;
     let running = cluster(w)?;
     let (busy, written, again) = run(async {
         let register = async {
             pause(Duration::from_millis(200)).await;
             let busy = second.register().await;
-            running.signal("storage", Signal::Continue)?;
+            running.signal("storage_2", Signal::Continue)?;
             TestResult::Ok(busy)
         };
         let (written, busy) = futures::join!(
@@ -402,17 +404,20 @@ fn register_busy(w: &mut Steps) -> TestResult {
     "the registry holds `sessions_max` sessions, the oldest has a Commit at its partition unanswered, its client's connection closes, and another session is registered"
 )]
 fn oldest_in_flight(w: &mut Steps) -> TestResult {
-    own(w, &Spec::one_partition().host("metadata.sessions_max", 2))?;
+    let (_, a) = two_storages(w, Spec::one_partition().host("metadata.sessions_max", 2))?;
     let at = cluster(w)?.client.clone();
-    let [a, p, b, c] = ["a", "p", "b", "c"].map(|name| w.iri(name));
+    // The group evicts no session while it is quiet.
+    after_quiet_time(&at);
+    let [p, b, c] = ["p", "b", "c"].map(|name| w.iri(name));
     let running = cluster(w)?;
     let (newer, oldest, resumed) = run(async {
         let mut oldest = client(&at).await?;
         let session = oldest.register().await?;
         let mut newer = client(&at).await?;
         let newer_session = newer.register().await?;
-        // A stopped partition answers nothing, so the Commit stays at it while its client's connection closes.
-        running.signal("storage", Signal::Stop)?;
+        // A stopped partition answers nothing, so the Commit stays at it while its client's connection closes. It is the second
+        // storage process's: the first hosts the system group, which answers the third Register.
+        running.signal("storage_2", Signal::Stop)?;
         let write = direct_of(&a, &p, &iri(&b))?;
         let waited = within_or_gone(
             oldest.direct_write(write, session),
@@ -423,7 +428,7 @@ fn oldest_in_flight(w: &mut Steps) -> TestResult {
         waited?;
         let mut third = client(&at).await?;
         let _third = third.register().await?;
-        running.signal("storage", Signal::Continue)?;
+        running.signal("storage_2", Signal::Continue)?;
         let newer_write = newer
             .direct_write(direct_of(&a, &p, &iri(&c))?, newer_session)
             .await;
@@ -1025,6 +1030,8 @@ fn says_what_runs_again(w: &mut Steps) -> TestResult {
 fn direct_resent(w: &mut Steps) -> TestResult {
     let (_, second) = two_storages(w, Spec::one_partition())?;
     let at = cluster(w)?.client.clone();
+    // The group answers a resend's check 14 while it is quiet.
+    after_quiet_time(&at);
     let p = w.iri("p");
     let mut held = run(async { client(&at).await })?;
     let session = run(async { Ok(held.register().await?) })?;
@@ -1684,9 +1691,11 @@ fn version_refused(w: &mut Steps) -> TestResult {
     "a client of 4 commit attempts registers, and a full registry answers its first two Registers code 14"
 )]
 fn register_retried(w: &mut Steps) -> TestResult {
-    own(w, &Spec::one_partition().host("metadata.sessions_max", 1))?;
+    let (_, a) = two_storages(w, Spec::one_partition().host("metadata.sessions_max", 1))?;
     let at = cluster(w)?.client.clone();
-    let [a, p, b] = ["a", "p", "b"].map(|n| w.iri(n));
+    // The group evicts no session while it is quiet, which would refuse the third Register too.
+    after_quiet_time(&at);
+    let [p, b] = ["p", "b"].map(|n| w.iri(n));
     let (mut first, mut second, session) = run(async {
         let mut first = client(&at).await?;
         let mut second = TestClient::new(&at, &Knobs::default())?;
@@ -1694,13 +1703,14 @@ fn register_retried(w: &mut Steps) -> TestResult {
         let session = first.register().await?;
         Ok((first, second, session))
     })?;
-    cluster(w)?.signal("storage", Signal::Stop)?;
+    // The second storage process's partition: the first hosts the system group, which answers the Registers.
+    cluster(w)?.signal("storage_2", Signal::Stop)?;
     let running = cluster(w)?;
     // The commit in flight fills the registry until the partition goes on, past the client's first two attempts, 50 ms apart.
     let registered = run(async {
         let free_later = async {
             pause(Duration::from_millis(120)).await;
-            running.signal("storage", Signal::Continue)
+            running.signal("storage_2", Signal::Continue)
         };
         let registering = async {
             pause(Duration::from_millis(20)).await;
@@ -1730,9 +1740,11 @@ fn register_returned(w: &mut Steps) -> TestResult {
     "a client of 3 commit attempts registers, and a full registry answers every Register code 14"
 )]
 fn register_exhausted(w: &mut Steps) -> TestResult {
-    own(w, &Spec::one_partition().host("metadata.sessions_max", 1))?;
+    let (_, a) = two_storages(w, Spec::one_partition().host("metadata.sessions_max", 1))?;
     let at = cluster(w)?.client.clone();
-    let [a, p, b] = ["a", "p", "b"].map(|n| w.iri(n));
+    // The group evicts no session while it is quiet: the code 14 the scenario awaits is the commit in flight's.
+    after_quiet_time(&at);
+    let [p, b] = ["p", "b"].map(|n| w.iri(n));
     let knobs = Knobs {
         commit_attempts: Some(3),
         ..Knobs::default()
@@ -1744,14 +1756,15 @@ fn register_exhausted(w: &mut Steps) -> TestResult {
         let session = first.register().await?;
         Ok((first, second, session))
     })?;
-    cluster(w)?.signal("storage", Signal::Stop)?;
+    // The second storage process's partition: the first hosts the system group, which answers the Registers.
+    cluster(w)?.signal("storage_2", Signal::Stop)?;
     let running = cluster(w)?;
     let (busy, open) = run(async {
         let registering = async {
             pause(Duration::from_millis(50)).await;
             let busy = second.register().await;
             let open = second.begin(TENANT, true).await.is_ok();
-            running.signal("storage", Signal::Continue)?;
+            running.signal("storage_2", Signal::Continue)?;
             TestResult::Ok((busy, open))
         };
         let (written, outcome) = futures::join!(
