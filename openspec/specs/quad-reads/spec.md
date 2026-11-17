@@ -5,7 +5,6 @@ Quad-pattern reads: compute executing a pattern with each position bound or unbo
 read on one core, the access path chosen by the bound positions, a reverse read asking the object's referrers, rows
 returned in key order in batches that fit the client's frame, with resume keys, transaction levels and the retention a
 read relies on, so reads run on compute while each partition answers for its own entries.
-
 ## Requirements
 ### Requirement: Compute executes quad-pattern reads over storage
 A read SHALL be a quad pattern with each position bound or unbound, a limit and a resume key, executed by compute, which
@@ -542,20 +541,20 @@ A transaction SHALL name on Begin the level, the session token, if any, and the 
 transaction SHALL read its partition's latest state whatever the level, and a token SHALL make its commit carry an epoch
 at or above the token's (transactions, "Commits answer a session token"). A read-only transaction SHALL read at its
 level: the latest state of one partition, binding to the partition of its first read, a later read reaching another
-partition refused; a snapshot at a closed epoch (the default), the latest epoch the sequencer had closed when the
+partition refused; a snapshot at a closed epoch (the default), the latest closed epoch the endpoint core's view held when the
 transaction began or its session token's epoch if that is higher, one snapshot for all its reads, each waiting until
 every partition it asks has closed that epoch (sequencer, "Partitions learn each closed epoch and stamp the open one");
 or monotonic-fast, which quad-pattern reads may take since they are monotonic, each read answering at one epoch: the
 lowest closed epoch among the partitions it touches, but never below its floor, the larger of the session token's epoch
-and the highest epoch any read of the transaction has answered at when this read is sent, waiting only for a partition that
-has not closed the floor; a reverse
-read reads `R(o)` at the home's latest closed epoch `e`, waiting until `e` is at or above the floor, resolves its groups
-through the placement map at `e`, and has every member answer at `e`, waiting until each has closed `e`. A transaction's
-monotonic-fast reads therefore never go back and always see its token's commit, but need not share one snapshot. A
-read-only transaction carrying a token SHALL wait, within its deadline, until the token's epoch has closed. A snapshot
-read waiting on the open epoch SHALL make the frontend, which hosts the sequencer, ask it for an early close (sequencer,
-"The sequencer closes epochs at its own wall-clock time"). The frontend SHALL hold a latest-level transaction's later read until
-its first read's first Result names the partition, or that read ends; a first read refused leaves the next read first.
+and the highest epoch any read of the transaction has answered at when this read is sent, waiting only for a partition
+that has not closed the floor; a reverse read reads `R(o)` at the home's latest closed epoch `e`, waiting until `e` is
+at or above the floor, resolves its groups through the placement map at `e`, and has every member answer at `e`, waiting
+until each has closed `e`. A transaction's monotonic-fast reads therefore never go back and always see its token's
+commit, but need not share one snapshot. A read-only transaction carrying a token SHALL wait, within its deadline, until
+the token's epoch has closed. A snapshot read waiting on the open epoch SHALL make the frontend ask the sequencer for an
+early close, by CloseRequest naming the open epoch with `partition` 0 (sequencer, "An early close is asked by
+CloseRequest from either role"). The frontend SHALL hold a latest-level transaction's later read until its first read's
+first Result names the partition, or that read ends; a first read refused leaves the next read first.
 
 #### Scenario: A read after a commit sees it through its token
 - **WHEN** a client commits a write, receives a session token, and begins a transaction with that token whose read

@@ -147,22 +147,32 @@ ends the read alone, on a transaction's stream the transaction.
 A read SHALL be a quad pattern with each position bound or unbound, a limit and a resume key, naming its transaction,
 whose Begin names the level, session token and deadline the read takes; a row SHALL name its statement by its quad and,
 when the statement holds a statement ID, its reifier IRI, never by the statement ID. A write SHALL be a changeset, in
-its transaction's tenant, addressing a statement's properties, or one of several parallel edges, through the
-statement's reifier IRI, and a statement without one by its triple term and graph; a commit-time operation SHALL be its
-own request, and its result in the Commit reply SHALL name the node it found or created by its IRI or skolem IRI. A
-tenant SHALL bind per Begin, so one connection's transactions MAY act in several. A statement SHALL be prepared once per
-connection, which holds it, in the tenant its Prepare names, from a quad pattern with parameter slots, answered with a
-statement id, its parameter and result column types and a schema id, and executed with parameters bound by position; Execute
-SHALL refuse a statement prepared in another tenant than its transaction's with code 10 (UnknownStatement), `detail` the
-statement; after a new catalog version of its tenant its schema id SHALL no longer match, and an execution SHALL be refused as
+its transaction's tenant, addressing a statement's properties, or one of several parallel edges, through the statement's
+reifier IRI, and a statement without one by its triple term and graph; a commit-time operation SHALL be its own request,
+and its result in the Commit reply SHALL name the node it found or created by its IRI or skolem IRI. A tenant SHALL bind
+per Begin, so one connection's transactions MAY act in several. A statement SHALL be prepared once per connection, which
+holds it, in the tenant its Prepare names, from a quad pattern with parameter slots, answered with a statement id, its
+parameter and result column types and a schema id, and executed with parameters bound by position; Execute SHALL refuse
+a statement prepared in another tenant than its transaction's with code 10 (UnknownStatement), `detail` the statement;
+after a new catalog version of its tenant its schema id SHALL no longer match, and an execution SHALL be refused as
 stale, while recording a default entry (metadata-group, "Catalog versions take effect at an epoch boundary") SHALL keep
 the schema id; a literal bound at a slot that takes a node SHALL be refused. A resume key SHALL continue its own request
-only, and rows SHALL come in the store's key order. The frontend SHALL answer Describe itself from the metadata group, asking
-no other role, as far as the connection's principal may read it, so it names what is declared and recorded rather than what
-data holds: `read_version` the version bound of the latest epoch the sequencer closed, or of epoch 0 before the first close;
-the entity types declared in effect at that epoch; the predicates of kind edge or either that it declares or holds a default
-entry for as relationship types, those of kind property or either as property keys; and the catalog's declarations. An answer
-not fitting one frame within the client's `max_frame` SHALL be refused with code 6 (TooLarge), `detail` that `max_frame`.
+only, and rows SHALL come in the store's key order. The frontend SHALL answer Describe itself, from the catalog version
+in effect, read from the system group with Catalog, and the tenant's default-entry records, read with Defaults, asking
+no partition, as far as the connection's principal may read it, so it names what is declared and recorded rather than
+what data holds: `read_version` the version bound of the latest closed epoch the endpoint core's view holds, or of
+epoch 0 before the first close; `catalog` the tenant's catalog version the answer is drawn from, 0 for a tenant holding
+none, which every frame of the answer names alike and a client names in a Drop of kind 3 or 4, an Ingest and an Install,
+a client's Describe naming 0 and refused with `FieldValue` (`"catalog"`) otherwise;
+the entity types declared in effect at that epoch; the predicates of kind edge or either that it declares
+or holds a default entry for as relationship types, those of kind property or either as property keys; and the catalog's
+declarations. An answer that does not fit one frame within the client's `max_frame` SHALL continue in further Describe
+frames on the stream, each with the first's command header, the last alone flagged `LAST`; a frame SHALL split a section
+of records or u32s only between whole ones and a text only on a character boundary, and the client SHALL read the frames
+as one body, each of its nine sections the concatenation, in frame order, of that section's bytes in every frame.
+Describe frames SHALL spend credit as Result frames do, the stream starting with the Welcome's `initial_credit`. An
+answer whose sections hold more than `catalog_bytes_max` bytes together SHALL be refused with code 6 (TooLarge),
+`detail` that bound.
 
 #### Scenario: A stale statement is refused
 - **WHEN** a statement is prepared, the catalog of its tenant changes, and the statement is executed
@@ -171,9 +181,19 @@ not fitting one frame within the client's `max_frame` SHALL be refused with code
 #### Scenario: Describe answers from the metadata group
 - **WHEN** `name` is declared a property with a `term` index, `score` holds a default entry, and a client sends Describe
   for the tenant
-- **THEN** the frontend answers asking no other role: `read_version` is the version bound of the latest closed epoch,
+- **THEN** the frontend answers asking no partition: `read_version` is the version bound of the latest closed epoch,
   the declarations list `name` with its `term` index, the property keys hold `name` and `score`, and the relationship
   types hold `score`
+
+#### Scenario: Describe names the catalog version it is drawn from
+- **WHEN** a client describes a tenant holding no catalog version, then declares `name`, and describes it again once
+  the version declaring `name` is in effect at the latest close
+- **THEN** the first answer's `catalog` is 0, and the second's is the version the system group holds, the one that
+  declares `name`
+
+#### Scenario: A client's Describe naming a catalog version is refused
+- **WHEN** a client sends a Describe whose `catalog` is 1
+- **THEN** it is refused at the client endpoint with `FieldValue` naming `catalog`
 
 #### Scenario: A literal at a node slot is refused
 - **WHEN** a statement's subject parameter is bound to a literal
@@ -184,9 +204,14 @@ not fitting one frame within the client's `max_frame` SHALL be refused with code
   commits
 - **THEN** the Commit reply names `http://ex.org/x` by its text, and holds no system ID
 
-#### Scenario: A Describe past the client's frame is refused
-- **WHEN** a tenant's Describe answer does not fit one frame within the client's `max_frame`
-- **THEN** it is refused with code 6, `detail` that `max_frame`
+#### Scenario: A Describe continues across frames
+- **WHEN** a tenant's Describe answer takes two frames within the client's `max_frame`
+- **THEN** the frontend sends two Describe frames with one command header under the client's credit, the first without
+  `LAST` and the second with it, and the client reads the declarations one frame would hold
+
+#### Scenario: A Describe past the catalog's bound is refused
+- **WHEN** a tenant's Describe answer's sections hold more than `catalog_bytes_max` bytes together
+- **THEN** it is refused with code 6, `detail` `catalog_bytes_max`
 
 #### Scenario: A statement prepared in another tenant is refused
 - **WHEN** a connection prepares a statement in tenant 1 and executes it in a transaction of tenant 0
@@ -476,24 +501,28 @@ partition's write-set record SHALL name that principal.
 ### Requirement: Roles exchange role commands
 Roles SHALL exchange role commands in the same frames as clients, in a command range clients may not send: routing a
 write or a read to a partition, a reverse read's request to the partitions an entity's referrer set names included,
-joining the cluster at the frontend's address and learning its members,
-registering a reference at an entity's home and its reply, delivering epoch closes with the catalog versions they assign
-and the session evictions they carry, a partition's request for a close, leasing a sequence block, reading the placement
-map and a catalog version, and verifying a principal's proof. A role command arriving on a client connection SHALL be
-refused with a protocol error naming the command, and a role connection SHALL authenticate with the cluster's role
-secret (role-binaries, "Roles authenticate each other with the cluster's role secret") before its first role command. A role
-endpoint's Welcome SHALL announce `max_frame` 1,048,576 and `max_streams` 4,294,967,295, and a role's Hello `max_frame` 1,048,576,
-so a relayed frame takes any size a client's may and a role's stream refusal never reaches a client as a limit it did not pass;
-every Welcome's `initial_credit` SHALL be at least 1. A partition SHALL answer each Write and Operation on a Bind stream with Held
-(531), once it holds the request, or with an Error; the protocol's Answered-by column SHALL list Held for both on a Bind stream,
-and it SHALL refuse a Write, Operation, Commit or Abort on a stream no Bind of kind 1 opened, and a Drop on one no Bind of kind 2
-opened, with Error 1 naming the command. Entries SHALL name the Scan's chosen `version` in every frame, a version or version bound,
-refused otherwise with `FieldValue` naming `version`, as a Scan's and a Begin's `read_version` is naming `read_version`, and `through`, the batch's
-last range; a Scan's range SHALL carry `after_len` and its `after`; ComputeRead SHALL carry `max_frame` and `credit`; a Reference's
-`outcome` SHALL be 0, 7, 17 or 26. A dialling side SHALL refuse an Entries frame whose `version` is not its Scan's first frame's,
-with `FieldValue` naming `version`, and an entry that does not belong where its frame puts it, with `FieldValue` naming `entry order`,
-the entry's index: in a run, one whose key is not the first key of a range from `range` through `through`, at or after the range of
-the entry before; in a batch of one range, a key below the range's first key, or at or above its past key when it has one.
+joining the cluster at the system group's address and learning its members, registering a session, asking a session's
+owner check and ending the mark of its commit in flight, asking for the catalog version a declaring Commit or a Drop
+calls for, reading a tenant's default-entry records, registering a reference at an entity's home and its reply,
+delivering epoch closes with the catalog versions they assign and the session evictions they carry, a partition's
+request for a close, leasing a sequence block, reading the placement map and a catalog version, and asking for a
+principal's challenge and verifying its proof. A role command arriving on a client connection SHALL be refused with a
+protocol error naming the command, and a role connection SHALL authenticate with the cluster's role secret
+(role-binaries, "Roles authenticate each other with the cluster's role secret") before its first role command. A role
+endpoint's Welcome SHALL announce `max_frame` 1,048,576 and `max_streams` 4,294,967,295, and a role's Hello `max_frame`
+1,048,576, so a relayed frame takes any size a client's may and a role's stream refusal never reaches a client as a
+limit it did not pass; every Welcome's `initial_credit` SHALL be at least 1. A partition SHALL answer each Write and
+Operation on a Bind stream with Held (531), once it holds the request, or with an Error; the protocol's Answered-by
+column SHALL list Held for both on a Bind stream, and it SHALL refuse a Write, Operation, Commit or Abort on a stream no
+Bind of kind 1 opened, and a Drop on one no Bind of kind 2 opened, with Error 1 naming the command. Entries SHALL name
+the Scan's chosen `version` in every frame, a version or version bound, refused otherwise with `FieldValue` naming
+`version`, as a Scan's and a Begin's `read_version` is naming `read_version`, and `through`, the batch's last range; a
+Scan's range SHALL carry `after_len` and its `after`; ComputeRead SHALL carry `max_frame` and `credit`; a Reference's
+`outcome` SHALL be 0, 7, 17 or 26. A dialling side SHALL refuse an Entries frame whose `version` is not its Scan's first
+frame's, with `FieldValue` naming `version`, and an entry that does not belong where its frame puts it, with
+`FieldValue` naming `entry order`, the entry's index: in a run, one whose key is not the first key of a range from
+`range` through `through`, at or after the range of the entry before; in a batch of one range, a key below the range's
+first key, or at or above its past key when it has one.
 
 #### Scenario: A client may not send a role command
 - **WHEN** a client connection sends a block-lease command
@@ -545,7 +574,7 @@ the entry before; in a batch of one range, a key below the range's first key, or
   and the home's latest delivered close in the reply
 
 #### Scenario: Epoch closes reach storage in order
-- **WHEN** the frontend's sequencer closes epochs 1 to 5 and storage is connected
+- **WHEN** the system group's sequencer closes epochs 1 to 5 and storage is connected
 - **THEN** storage receives five epoch-close commands, in order
 
 #### Scenario: A Write on a Bind stream is answered by Held
@@ -860,4 +889,61 @@ client SHALL say a refusal's value was cut, and the caller reads the value again
 - **WHEN** an Error of code 8 arrives with `detail` 1, another with bit 1 set, and another with bit 63 set
 - **THEN** the receiver accepts the first, its value cut, and refuses the others with `FieldValue` naming `detail`; a
   sender builds neither
+
+### Requirement: The system group's commands are bodies of the protocol
+The protocol SHALL carry, as role commands with the bodies `PROTOCOL.md` sections 13.8, 13.9, 13.23 to 13.25, 13.27
+and 13.28 state: Challenge (519) and Verify (520), served from stage 5.8; Session (534), a session's identity and its
+principal, answered with the same bytes; Check (535), one section of 32-byte checks, each a session, a principal, a
+`kind` of 1 or 2 and an `outcome`, answered whole with every outcome filled; Ended (536), one section of sessions,
+answered by nothing, its stream ending with it; Declare (538), a `kind` of 1 or 2 with the tenant, the version built on and the principal, and
+the sections of a Write; and Defaults (539), a tenant's default-entry predicates as a term table, continued across
+frames as Catalog is. Every decoder SHALL enforce its body's order of checks, and a builder SHALL refuse to build what
+its decoder refuses: building the frame of a body its decoder refuses SHALL give the decoder's refusal and no frame. The command table SHALL keep number 540 for stage 6.6 and refuse it as an unknown command.
+
+#### Scenario: A Check's sessions ascend
+- **WHEN** a Check holds two checks whose sessions are equal, or the second below the first
+- **THEN** it is refused with `FieldValue` naming `check` and the second check's index
+
+#### Scenario: A Check request holds no outcome
+- **WHEN** a Check request holds an outcome other than 0, or a reply an outcome of 0 or 7
+- **THEN** each is refused with `FieldValue` naming `check` and the check's index
+
+#### Scenario: A Subscribe from the latest close names no epoch
+- **WHEN** a Subscribe holds `latest` 1 with `from` 5, or `latest` 1 on a connection whose role is `storage`
+- **THEN** each is refused with `FieldValue` naming `latest`
+
+#### Scenario: A Catalog request may name an epoch only without a version
+- **WHEN** a Catalog request names `version` 3 and `epoch` 9
+- **THEN** it is refused with `FieldValue` naming `catalog`
+
+#### Scenario: An Ended names at least one session
+- **WHEN** an Ended holds an empty section 0, or a section of 24 bytes
+- **THEN** the first is refused with `CountMismatch` naming `sessions`, the second with `SectionLength`
+
+#### Scenario: A Session names a session
+- **WHEN** a Session's `session` is all zero
+- **THEN** it is refused with `FieldValue` naming `session`
+
+#### Scenario: A Declare of a Drop holds no declaration
+- **WHEN** a Declare of kind 2 holds a record in section 0, or names `drop` 1 with no term
+- **THEN** the first is refused with `CountMismatch` naming `declarations`, the second with `CountMismatch` naming
+  `drop terms`
+
+#### Scenario: A Declare of declarations holds at least one
+- **WHEN** a Declare of kind 1 holds no record in section 0
+- **THEN** it is refused with `CountMismatch` naming `declarations`
+
+#### Scenario: Defaults continues across frames in order
+- **WHEN** a tenant's default-entry predicates fill two Defaults frames
+- **THEN** the first carries no `LAST` and the second does, both hold one command header, and the predicates ascend by
+  their texts' bytes across both
+
+#### Scenario: Each new body has a golden frame
+- **WHEN** the golden frames of Session, Check, Ended, Declare, Defaults, Challenge and Verify are decoded and built
+  again
+- **THEN** each decodes to the fields its generator names and builds to the same bytes
+
+#### Scenario: Command 540 is not served
+- **WHEN** a role connection sends command 540
+- **THEN** it is refused as an unknown command
 

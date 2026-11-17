@@ -337,6 +337,15 @@ task 8.3). These findings were not taken into that change, and stage 5.9 settles
 each crate and exits 0, so `make check` passes without checking any manifest for unused dependencies (found
 2026-11-17). Which tool replaces it, and does `make check` fail when that tool cannot read a manifest?
 
+### 25. `common_frontend`'s mutation survivors
+
+Stage 5.8's last mutation run of `ultragraphdb_common_frontend` (base `443a7f54`, 2026-11-17) left 77 missed mutants and
+77 timeouts unresolved when the stage closed. They are listed in the archived change's `notes/mutants-common-frontend.md`.
+They concentrate in the system link's reads and turns, the client session and the `system_play` test double. Each one
+calls for a test that kills it, an entry in `.cargo/mutants.toml` with its argument, evidence that a process scenario
+kills it, or a stated reason it stays open. Each timeout also needs a check that tests failed before the cut. Which
+change takes them: stage 5.9, which rewrites the frontend into compute, or a run on a new base once 5.9 lands?
+
 ## Source material: requirements
 
 The change's `server-node` spec, whole:

@@ -23,7 +23,7 @@ design to this one is in `archive/UltraGraphDB Architecture Reviw.md` and
 | The frontend and compute as one role, named compute | Decided 2026-11-12; stage 5.9 |
 | The tile store | Stage 6.5; specified (`../changes/stage-6-5-tile-store`), three of its tasks done |
 | The object-store binding of the tile store | Decided 2026-11-12; enters the tile store's specification before stage 6.5 is built |
-| The system group hosted by storage | Decided 2026-11-12; stage 5.8, the next stage. It runs inside the frontend today |
+| The system group hosted by storage | Built (stage 5.8, `../changes/archive/2026-11-17-stage-5-8-system-group`) |
 | Client discovery by seed addresses and a versioned node list; compute tags | Decided 2026-11-12; the protocol with the merge, the drivers when several compute nodes run |
 | Replication of every group | Designed (`UltraGraphDB Distribution Protocol.md`); stage 8, then stage 10 |
 | Several compute nodes | From stage 5.9, with the node list (`PROTOCOL.md` section 11.14; decided 2026-11-12) |
@@ -690,6 +690,9 @@ starts before the one before it is complete.
 
 ### 1. Stage 5.8: the system group moves to storage
 
+**Built** (stage 5.8, archived as `../changes/archive/2026-11-17-stage-5-8-system-group`). The items
+below are what the stage settled and closed.
+
 The first of the three. The frontend and compute still exist as two processes. After this stage both dial the system
 group on storage, compute joining it and the frontend reading its members, the frontend holds nothing durable, and stage 5.9 merges two stateless processes.
 
@@ -720,9 +723,9 @@ Blind spots to close:
 - **Describe** answers from the metadata state machine in process today and becomes a call.
 - **Membership is the system group's.** It answers Join and Members. The node list a client receives, its version
   and its tags are stage 5.9's.
-- **A baseline of its own.** Reads are recorded before this stage, since the benchmark record holds writes alone.
-  The benchmark is rerun after it, so the round trip it adds to a commit is measured apart from what stage 5.9
-  removes from a read.
+- **A baseline of its own.** Reads are recorded before this stage (`../benches/benches-2026-11-15.md`), since the
+  benchmark record held writes alone. Each endpoint core times a Check frame's round trip into its telemetry. The
+  benchmark is next rerun on stage 6.5's storage engine, which replaces the one it measures.
 
 ### 2. Stage 5.9: the frontend and compute become one role
 

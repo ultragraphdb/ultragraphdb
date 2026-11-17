@@ -1,0 +1,169 @@
+# `common_frontend`: the survivors of its last mutation run
+
+The run: `scripts/mutants.sh ultragraphdb_common_frontend --diff 443a7f54`, run 3 of 3, on 2026-11-17 at 8 jobs with
+`[profile.mutants]`. It tested 572 mutants in 2 hours: 344 caught, 77 missed, 74 unviable, 77 timeouts. The user stopped
+the fix pass on 2026-11-18 before it changed anything, so every mutant below is unresolved (backlog item 25). The ledger
+for this base is spent; a later run takes a new base.
+
+A timeout is a hang the suite notices only if tests failed before cargo-mutants cut it. That has not been checked
+for these 77.
+
+## Missed (77)
+
+- `src/types/endpoint_core.rs:124:9: replace EndpointCore<A>::report_phases with ()`
+- `src/types/endpoint_view.rs:75:50: replace > with >= in EndpointView::close`
+- `src/types/endpoint_view.rs:208:9: replace EndpointView::tenants -> impl Iterator<Item = u64>+'_ with ::std::iter::once(0)`
+- `src/types/relay_authenticator.rs:101:9: replace RelayAuthenticator::refused with ()`
+- `src/types/relay_authenticator.rs:140:9: replace <impl fmt::Debug for RelayMechanism>::fmt -> fmt::Result with Ok(Default::default())`
+- `src/types/relay_authenticator.rs:129:9: replace <impl fmt::Debug for RelayAuthenticator>::fmt -> fmt::Result with Ok(Default::default())`
+- `src/types/role_links.rs:253:9: replace RoleLinks::lists -> bool with true`
+- `src/types/system_turns.rs:143:9: replace Turn::is_empty -> bool with true`
+- `src/types/system_turns.rs:143:31: replace && with || in Turn::is_empty`
+- `src/types/system_turns.rs:188:38: replace - with + in per_frame`
+- `src/types/system_turns.rs:188:38: replace - with / in per_frame`
+- `src/types/system_turns.rs:195:21: replace < with <= in per_frame`
+- `src/types/system_turns.rs:183:22: replace / with % in per_frame`
+- `src/types/system_turns.rs:183:22: replace / with * in per_frame`
+- `src/types/system_turns.rs:200:25: replace && with || in per_frame`
+- `src/types/system_turns.rs:200:21: replace > with == in per_frame`
+- `src/types/system_turns.rs:200:21: replace > with < in per_frame`
+- `src/types/system_turns.rs:200:21: replace > with >= in per_frame`
+- `src/types/system_turns.rs:200:28: delete ! in per_frame`
+- `src/types/system_turns.rs:201:19: replace -= with += in per_frame`
+- `src/types/system_turns.rs:201:19: replace -= with /= in per_frame`
+- `src/utils/declare_bound.rs:24:5: replace declare_fits -> Result<(), ErrorReply> with Ok(())`
+- `src/utils_test/system_play.rs:173:9: replace SystemPlay::garbled -> Option<Vec<u8>> with Some(vec![])`
+- `src/utils_test/system_play.rs:173:9: replace SystemPlay::garbled -> Option<Vec<u8>> with Some(vec![0])`
+- `src/utils_test/system_play.rs:173:9: replace SystemPlay::garbled -> Option<Vec<u8>> with Some(vec![1])`
+- `src/utils_test/system_play.rs:198:9: replace SystemPlay::closed -> u64 with 0`
+- `src/utils_test/system_play.rs:198:9: replace SystemPlay::closed -> u64 with 1`
+- `src/utils_test/system_play.rs:210:22: replace != with == in SystemPlay::close`
+- `src/utils_test/system_play.rs:263:45: replace || with && in SystemPlay::answer`
+- `src/utils_test/system_play.rs:394:37: replace match guard queued.len() > 1 with true in SystemPlay::check`
+- `src/utils_test/system_play.rs:394:50: replace > with >= in SystemPlay::check`
+- `src/utils_test/system_play.rs:439:40: replace match guard principal != 0 with true in SystemPlay::verify`
+- `src/utils_test/system_play.rs:544:37: replace == with != in SystemPlay::catalog`
+- `src/types/client_session/client_session_commit.rs:212:42: replace -= with /= in ClientSession<A>::retried_commit`
+- `src/types/client_session/client_session_commit.rs:212:42: replace -= with += in ClientSession<A>::retried_commit`
+- `src/types/client_session/client_session_one_frame.rs:131:28: replace != with == in ClientSession<A>::routed`
+- `src/types/client_session/client_session_one_frame.rs:516:9: replace ClientSession<A>::drop_answered with ()`
+- `src/types/client_session/client_session_reads.rs:431:23: replace && with || in ClientSession<A>::read_refused`
+- `src/types/client_session/client_session_requests.rs:154:32: replace + with - in ClientSession<A>::gate`
+- `src/types/client_session/client_session_requests.rs:179:24: replace > with >= in ClientSession<A>::begin`
+- `src/types/client_session/client_session_requests.rs:197:30: replace > with >= in ClientSession<A>::begin`
+- `src/types/client_session/client_session_requests.rs:312:29: replace match guard refusal.code() == ErrorCode::Refused && refusal.detail() == 0 with true in ClientSession<A>::describe`
+- `src/types/client_session/client_session_requests.rs:312:66: replace && with || in ClientSession<A>::describe`
+- `src/types/client_session/client_session_requests.rs:318:38: replace == with != in ClientSession<A>::describe`
+- `src/types/client_session/client_session_requests.rs:356:27: replace > with >= in ClientSession<A>::describe_credited`
+- `src/types/client_session/client_session_requests.rs:360:25: replace -= with += in ClientSession<A>::describe_credited`
+- `src/types/client_session/client_session_requests.rs:360:25: replace -= with /= in ClientSession<A>::describe_credited`
+- `src/types/client_session/client_session_session.rs:50:33: replace match guard refusal.code() == ErrorCode::Unavailable with true in <impl Session for ClientSession<A>>::authenticating_step`
+- `src/types/client_session/client_session_session.rs:45:24: delete ! in <impl Session for ClientSession<A>>::authenticating_step`
+- `src/types/client_session/client_session_session.rs:68:29: replace match guard refusal.code() == ErrorCode::Unavailable with true in <impl Session for ClientSession<A>>::authenticating_step`
+- `src/types/client_session/client_session_session.rs:68:29: replace match guard refusal.code() == ErrorCode::Unavailable with false in <impl Session for ClientSession<A>>::authenticating_step`
+- `src/types/client_session/client_session_session.rs:68:44: replace == with != in <impl Session for ClientSession<A>>::authenticating_step`
+- `src/types/client_session/client_session_session.rs:154:25: replace match guard one.session != 0 with true in <impl Session for ClientSession<A>>::cancelled`
+- `src/types/client_session/client_session_session.rs:154:25: replace match guard one.session != 0 with false in <impl Session for ClientSession<A>>::cancelled`
+- `src/types/client_session/client_session_session.rs:154:37: replace != with == in <impl Session for ClientSession<A>>::cancelled`
+- `src/types/client_session/client_session_session.rs:227:41: replace != with == in <impl Drop for ClientSession<A>>::drop`
+- `src/types/client_session/client_session_session.rs:247:25: replace match guard one.session != 0 with true in <impl Drop for ClientSession<A>>::drop`
+- `src/types/client_session/client_session_session.rs:247:25: replace match guard one.session != 0 with false in <impl Drop for ClientSession<A>>::drop`
+- `src/types/client_session/client_session_session.rs:247:37: replace != with == in <impl Drop for ClientSession<A>>::drop`
+- `src/types/client_session/client_session_session.rs:261:33: replace != with == in <impl Drop for ClientSession<A>>::drop`
+- `src/types/system_link/system_link_reads.rs:57:9: replace SystemLink::known -> Result<(), ErrorReply> with Ok(())`
+- `src/types/system_link/system_link_reads.rs:76:20: replace match guard version == 0 && refusal.code() == ErrorCode::Refused && refusal.detail() == 0 with true in SystemLink::read_version`
+- `src/types/system_link/system_link_reads.rs:78:21: replace && with || in SystemLink::read_version`
+- `src/types/system_link/system_link_reads.rs:77:21: replace && with || in SystemLink::read_version`
+- `src/types/system_link/system_link_reads.rs:140:57: delete ! in SystemLink::refresh`
+- `src/types/system_link/system_link_reads.rs:196:9: replace && with || in map_of`
+- `src/types/system_link/system_link_reads.rs:200:21: replace && with || in map_of`
+- `src/types/system_link/system_link_reads.rs:199:21: replace && with || in map_of`
+- `src/types/system_link/system_link_reads.rs:221:12: delete ! in spawn_members`
+- `src/types/system_link/system_link_reads.rs:276:5: replace withdrawn with ()`
+- `src/types/system_link/system_link_reads.rs:278:22: replace && with || in withdrawn`
+- `src/types/system_link/system_link_reads.rs:278:25: delete ! in withdrawn`
+- `src/types/system_link/system_link_reads.rs:299:5: replace every_partition -> bool with true`
+- `src/types/system_link/system_link_reads.rs:300:28: replace && with || in every_partition`
+- `src/types/system_link/system_link_tasks.rs:137:38: replace && with || in next_frame`
+- `src/types/system_link/system_link_tasks.rs:334:22: replace != with == in delivered_close`
+- `src/types/system_link/system_link_tasks.rs:400:23: replace && with || in refuse`
+
+## Timeouts (77)
+
+- `src/types/endpoint_view.rs:70:9: replace EndpointView::close -> bool with true`
+- `src/types/endpoint_view.rs:70:9: replace EndpointView::close -> bool with false`
+- `src/types/endpoint_view.rs:113:9: replace EndpointView::placement with ()`
+- `src/types/endpoint_view.rs:155:9: replace EndpointView::answers -> bool with false`
+- `src/types/endpoint_view.rs:155:34: delete ! in EndpointView::answers`
+- `src/types/endpoint_view.rs:155:52: delete ! in EndpointView::answers`
+- `src/types/endpoint_view.rs:161:9: replace EndpointView::wants_placement -> bool with false`
+- `src/types/role_link/mod.rs:169:9: replace RoleLink::open -> u64 with 0`
+- `src/types/role_link/mod.rs:169:9: replace RoleLink::open -> u64 with 1`
+- `src/types/role_links.rs:103:9: replace RoleLinks::link -> Option<RoleLink> with None`
+- `src/types/role_links.rs:229:9: replace RoleLinks::learned with ()`
+- `src/types/role_links.rs:265:9: replace RoleLinks::closed_found with ()`
+- `src/types/system_link/mod.rs:94:9: replace LinkState::stream -> u64 with 0`
+- `src/types/system_link/mod.rs:101:9: replace LinkState::queue -> Option<Waker> with None`
+- `src/types/system_link/mod.rs:94:9: replace LinkState::stream -> u64 with 1`
+- `src/types/system_link/mod.rs:107:9: replace LinkState::changed -> Vec<Waker> with vec![]`
+- `src/types/system_link/mod.rs:360:9: replace SystemLink::changed_or with ()`
+- `src/types/system_link/mod.rs:362:30: replace != with == in SystemLink::changed_or`
+- `src/types/system_link/mod.rs:374:9: replace SystemLink::notify with ()`
+- `src/types/system_turns.rs:48:9: replace SystemTurns::queue_check -> u64 with 0`
+- `src/types/system_turns.rs:48:9: replace SystemTurns::queue_check -> u64 with 1`
+- `src/types/system_turns.rs:70:9: replace SystemTurns::is_empty -> bool with true`
+- `src/types/system_turns.rs:70:32: replace && with || in SystemTurns::is_empty`
+- `src/types/system_turns.rs:76:9: replace SystemTurns::take -> Turn with Default::default()`
+- `src/types/system_turns.rs:91:42: delete ! in SystemTurns::take`
+- `src/types/system_turns.rs:101:9: replace SystemTurns::checks_max -> usize with 0`
+- `src/types/system_turns.rs:137:9: replace Turn::checks -> &[(u64, SessionCheck)] with Vec::leak(Vec::new())`
+- `src/types/system_turns.rs:170:5: replace per_frame -> usize with 0`
+- `src/types/system_turns.rs:176:66: replace <= with > in per_frame`
+- `src/types/system_turns.rs:196:19: replace += with -= in per_frame`
+- `src/types/system_turns.rs:196:19: replace += with *= in per_frame`
+- `src/types/system_turns.rs:209:5: replace session_at -> [u8; 16] with [1; 16]`
+- `src/utils_test/system_play.rs:126:9: replace SystemPlay::release with ()`
+- `src/utils_test/system_play.rs:173:9: replace SystemPlay::garbled -> Option<Vec<u8>> with None`
+- `src/utils_test/system_play.rs:263:27: replace == with != in SystemPlay::answer`
+- `src/utils_test/system_play.rs:263:56: replace == with != in SystemPlay::answer`
+- `src/types/client_session/client_session_session.rs:171:9: replace ClientSession<A>::event with ()`
+- `src/types/client_session/client_session_session.rs:182:9: replace ClientSession<A>::role_event with ()`
+- `src/types/role_link/role_link_tasks.rs:61:5: replace run with ()`
+- `src/types/role_link/role_link_tasks.rs:126:5: replace deliver -> Result<(), String> with Ok(())`
+- `src/types/system_link/system_link_asks.rs:33:16: delete ! in SystemLink::ask`
+- `src/types/system_link/system_link_asks.rs:64:9: replace SystemLink::cluster -> u64 with 0`
+- `src/types/system_link/system_link_asks.rs:64:9: replace SystemLink::cluster -> u64 with 1`
+- `src/types/system_link/system_link_reads.rs:114:9: replace SystemLink::read_placement -> Result<(), ErrorReply> with Ok(())`
+- `src/types/system_link/system_link_reads.rs:140:54: replace || with && in SystemLink::refresh`
+- `src/types/system_link/system_link_reads.rs:138:9: replace SystemLink::refresh with ()`
+- `src/types/system_link/system_link_reads.rs:141:36: delete ! in SystemLink::refresh`
+- `src/types/system_link/system_link_reads.rs:164:9: replace SystemLink::read_wanted -> Result<(), ErrorReply> with Ok(())`
+- `src/types/system_link/system_link_reads.rs:195:27: replace == with != in map_of`
+- `src/types/system_link/system_link_reads.rs:198:30: replace == with != in map_of`
+- `src/types/system_link/system_link_reads.rs:199:35: replace == with != in map_of`
+- `src/types/system_link/system_link_reads.rs:200:41: replace == with != in map_of`
+- `src/types/system_link/system_link_reads.rs:253:5: replace until_ready -> bool with true`
+- `src/types/system_link/system_link_tasks.rs:38:5: replace spawn_connection with ()`
+- `src/types/system_link/system_link_tasks.rs:42:15: delete ! in spawn_connection`
+- `src/types/system_link/system_link_tasks.rs:65:5: replace run with ()`
+- `src/types/system_link/system_link_tasks.rs:108:5: replace subscribe -> Option<std::task::Waker> with None`
+- `src/types/system_link/system_link_tasks.rs:120:5: replace send with ()`
+- `src/types/system_link/system_link_tasks.rs:132:5: replace next_frame -> Option<Vec<u8>> with None`
+- `src/types/system_link/system_link_tasks.rs:132:5: replace next_frame -> Option<Vec<u8>> with Some(vec![])`
+- `src/types/system_link/system_link_tasks.rs:132:5: replace next_frame -> Option<Vec<u8>> with Some(vec![0])`
+- `src/types/system_link/system_link_tasks.rs:132:5: replace next_frame -> Option<Vec<u8>> with Some(vec![1])`
+- `src/types/system_link/system_link_tasks.rs:134:12: delete ! in next_frame`
+- `src/types/system_link/system_link_tasks.rs:137:41: delete ! in next_frame`
+- `src/types/system_link/system_link_tasks.rs:152:5: replace turn with ()`
+- `src/types/system_link/system_link_tasks.rs:186:5: replace read with ()`
+- `src/types/system_link/system_link_tasks.rs:203:12: delete ! in read`
+- `src/types/system_link/system_link_tasks.rs:219:5: replace deliver -> Result<(), String> with Ok(())`
+- `src/types/system_link/system_link_tasks.rs:220:50: replace != with == in deliver`
+- `src/types/system_link/system_link_tasks.rs:220:38: replace & with ^ in deliver`
+- `src/types/system_link/system_link_tasks.rs:225:15: replace == with != in deliver`
+- `src/types/system_link/system_link_tasks.rs:225:30: replace >= with < in deliver`
+- `src/types/system_link/system_link_tasks.rs:231:21: replace == with != in deliver`
+- `src/types/system_link/system_link_tasks.rs:246:9: replace == with != in deliver`
+- `src/types/system_link/system_link_tasks.rs:300:9: replace == with != in delivered_close`
+- `src/types/system_link/system_link_tasks.rs:296:5: replace delivered_close -> Result<(), String> with Ok(())`
+- `src/types/system_link/system_link_tasks.rs:357:5: replace delivered_checks -> Result<(), String> with Ok(())`

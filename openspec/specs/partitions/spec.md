@@ -5,20 +5,19 @@ Partitions: the units a storage process hosts, each with its own log, commit ste
 the placement map gives it, owning every entry its own subjects' writes derive, with referrer sets naming where an
 entity's inbound edges may lie and work reaching another partition refused with `CrossPartition`, so a write commits
 locally in one partition and a reverse read asks only the partitions that may hold its entries.
-
 ## Requirements
 ### Requirement: A storage process hosts partitions over bucket ranges
 A storage process SHALL host the partitions the placement map gives it, each with its own log, its own commit step and
 its own keyspaces, holding the data of its bucket ranges and nothing else. An entity's home SHALL be the partition the
 placement map gives its bucket. A partition SHALL be the same code whether a process hosts one or many. The storage
-binary SHALL host one partition unless configured otherwise. The frontend SHALL form the placement when the metadata group
-holds none, an even map over `[cluster] partition_count`. A storage process SHALL claim the partitions
-`[storage] partition_first` and `partition_count` name, and any number of processes SHALL host the partitions between
-them; a claim on a partition outside the placement, or one another address holds, SHALL be refused. In this stage the
-placement SHALL then stay fixed, a process holding its map for its lifetime.
+binary SHALL host one partition unless configured otherwise. The system group SHALL form the placement when the metadata
+group holds none, an even map over `[cluster] partition_count`. A storage process SHALL claim the partitions `[storage]
+partition_first` and `partition_count` name, by a Join at the system group's address, and any number of processes SHALL
+host the partitions between them; a claim on a partition outside the placement, or one another address holds, SHALL be
+refused. In this stage the placement SHALL then stay fixed, a process holding its map for its lifetime.
 
-#### Scenario: The frontend forms the placement
-- **WHEN** a frontend with `partition_count` 4 starts on a metadata group holding no placement
+#### Scenario: The system group forms the placement
+- **WHEN** the system group's host with `partition_count` 4 starts on a metadata group holding no placement
 - **THEN** the metadata group holds an even map over 4 partitions, and a restart forms none
 
 #### Scenario: Two storage processes share the partitions

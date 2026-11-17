@@ -21,7 +21,7 @@ the whole repository is gated by `make build` and `make test` when a wave return
 
 ## 0. Specifications first
 
-- [ ] 0.1 Stage 5.8's change archived, and, as a gate before group 1, every delta of this change read in full against the capabilities as archived: every MODIFIED requirement equal to the archived text but for this change's edits, and no sentence the renaming left wrong, circular or without meaning, each defect corrected in the delta
+- [ ] 0.1 Stage 5.8's change archived, and, as a gate before group 1, every delta of this change read in full against the capabilities as archived: every MODIFIED requirement equal to the archived text but for this change's edits, and no sentence the renaming left wrong, circular or without meaning, each defect corrected in the delta; the requirements this change and stage 5.8 both modify, with the stage 5.8 scenarios its deltas do not hold, are listed in `notes/rebase-on-stage-5-8.md`
 - [ ] 0.2 `PROTOCOL.md` brought to this stage's text: sections 1 to 13 saying "compute" for the role holding the client endpoint, section 13.12 and the relay's rules of section 11.12 removed, the "From stage 5.9" paragraphs folded into the sections they amend, section 4.7's rows for Nodes and Roster, no section renumbered
 - [ ] 0.3 `SECURITY.md`'s tiers and `AGENTS.md`'s role descriptions brought to two roles
 

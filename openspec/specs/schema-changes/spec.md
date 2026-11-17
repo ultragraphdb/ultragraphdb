@@ -104,18 +104,15 @@ so another tenant sharing the bucket run SHALL keep its own, and no drop SHALL s
 removal of each tenant (metadata-group, "The metadata group holds the tenants"). No partition SHALL hold catalog keys.
 Every drop SHALL remove what it drops physically. A drop SHALL not remove dictionary entries or default-entry records. A
 drop reaching several partitions is cross-partition (partitions, "A read-write transaction stays within one partition in
-this stage"). The frontend SHALL commit the catalog version a Drop calls for as pending before it relays the Drop's
-reply, stored or new, and SHALL build no version that would change nothing, so a frontend that stopped in between leaves
-the step to the client's resend; a Drop through no session has no resend, and a client that lost its reply runs the Drop
-again, which removes nothing more and builds that version.
+this stage"). The frontend SHALL ask the system group, by Declare of kind 2, for the catalog version a Drop calls for,
+committed there as pending, before it relays the Drop's reply, stored or new, and the system group SHALL build no
+version that would change nothing, so a frontend that stopped in between leaves the step to the client's resend; a Drop
+through no session has no resend, and a client that lost its reply runs the Drop again, which removes nothing more and
+builds that version.
 
 #### Scenario: Dropping a predicate removes it from the predicate lists
 - **WHEN** `knows` is held for `a` and `b` and is dropped
 - **THEN** no key of `knows` remains, and neither the subject predicates of `a` nor of `b` holds `knows`
-
-#### Scenario: Dropping a vector predicate drops its vector index
-- **WHEN** `emb` is declared with a vector index, holds vectors, and is dropped
-- **THEN** no forward or vector-index key of `emb` remains
 
 #### Scenario: Dropping a graph keeps the other graphs
 - **WHEN** graphs `<g1>` and `<g2>` hold statements and `<g1>` is dropped
@@ -125,27 +122,15 @@ again, which removes nothing more and builds that version.
 - **WHEN** a tenant's data is dropped
 - **THEN** its predicates hold no data and its catalog is unchanged
 
-#### Scenario: Dropping a tenant's everything survives a restart
-- **WHEN** everything in tenant 3 is dropped and the roles are restarted
-- **THEN** tenant 3 holds no quad key, and the metadata group holds its initial catalog
-
-#### Scenario: A tenant's drop leaves a tenant sharing its run
-- **WHEN** tenants 7 and 8 share a bucket run, each holds statements in one partition, and everything in tenant 7 is
-  dropped
-- **THEN** tenant 7 holds no quad key, its catalog is the initial catalog, and every statement and the catalog of tenant
-  8 are unchanged
-
 #### Scenario: A resent Drop builds the version a stopped frontend left
-- **WHEN** a Drop of `p` through a session commits at its partition, the frontend stops before it commits the catalog
-  version removing `p`'s declaration, and the client resends the Drop after the frontend restarts
-- **THEN** the partition's table answers the stored reply, the frontend commits that version as pending before it relays
-  the reply, and `p` is dropped once
+- **WHEN** a Drop of `p` through a session commits at its partition, the frontend stops before the catalog
+  version removing `p`'s declaration is asked for, and the client resends the Drop after the frontend restarts
+- **THEN** the partition's table answers the stored reply, the system group commits that version as pending, asked by the frontend before it relays the reply, and `p` is dropped once
 
 #### Scenario: A Drop through no session runs again
 - **WHEN** a Drop of `p` through no session commits at its partition, its reply is lost, and the client sends the Drop
   again
-- **THEN** the second Drop removes nothing more, and the frontend builds the version removing `p`'s declaration before
-  it relays the reply
+- **THEN** the second Drop removes nothing more, and the system group builds the version removing `p`'s declaration, asked by the frontend before it relays the reply
 
 #### Scenario: A default entry outlives a drop
 - **WHEN** `score` holds a default-entry record, and a Drop of `score` commits
@@ -168,15 +153,17 @@ drop, and leave its catalog in the metadata group.
 - **THEN** no key of any quad keyspace of the tenant remains, split or not, and its catalog is unchanged
 
 ### Requirement: A tightening is checked before it is acknowledged
-A declaring Commit that tightens a predicate SHALL be answered only once every partition holding the tenant at the catalog
-version's effective epoch has reported its check passed, and the frontend SHALL wait `catalog_check_ms` for the reports, durable
-in the metadata group. A partition's refusal SHALL refuse the Commit with code 7 naming the predicate and the subject or object at
-fault; a partition silent past the wait SHALL refuse it with code 24, `detail` that partition, naming the partition and the version.
-Each SHALL withdraw the version in one command with the offer of the version restoring the previous declaration, durable before the
-refusal. Describe SHALL report no version being checked or withdrawn. A version built on one being checked SHALL be refused with code
-2, kind 5. Declarations tightening one predicate or aspect and loosening another SHALL be refused at the Commit with code 7, `detail`
-the index of the first that loosens, the catalog unchanged. A frontend that stops SHALL take the check up again from the metadata
-group.
+A declaring Commit that tightens a predicate SHALL be answered only once every partition holding the tenant at the
+catalog version's effective epoch has reported its check passed, and the system group SHALL wait `catalog_check_ms` for
+the reports, durable in the metadata group, holding the frontend's Declare open until the check ends. A partition's
+refusal SHALL refuse the Commit with code 7 naming the predicate and the subject or object at fault; a partition silent
+past the wait SHALL refuse it with code 24, `detail` that partition, naming the partition and the version. Each SHALL
+withdraw the version in one command with the offer of the version restoring the previous declaration, durable before the
+refusal. Describe SHALL report no version being checked or withdrawn. A version built on one being checked SHALL be
+refused with code 2, kind 5. Declarations tightening one predicate or aspect and loosening another SHALL be refused at
+the Commit with code 7, `detail` the index of the first that loosens, the catalog unchanged. The check SHALL be the
+system group's: a frontend that stops changes nothing about it, and a host of the group that restarts SHALL take the
+check up again and wait `catalog_check_ms` anew.
 
 #### Scenario: A tightening the data contradicts is refused and restored
 - **WHEN** `a` holds two objects of `nick` and a client commits a declaration of `nick` single-valued
@@ -205,9 +192,8 @@ group.
 - **WHEN** `friend` is declared an edge, and a client commits a declaration of `friend` a property
 - **THEN** the Commit is refused with code 7, `detail` its declaration's index, naming `friend`, and the catalog is unchanged
 
-#### Scenario: A restarted frontend finishes the check it held
-- **WHEN** a client commits a declaration of `nick` single-valued, the frontend stops before any partition reports, and after its
-  restart a partition reports that the data refuses it
+#### Scenario: A check outlives the frontend that asked for it
+- **WHEN** a client commits a declaration of `nick` single-valued, the frontend stops before any partition reports, and a partition then reports that the data refuses it
 - **THEN** the metadata group holds a version restoring the previous declaration, and no Describe reports `nick` single-valued
 
 #### Scenario: A Drop during a check stands against the restoring version
@@ -257,4 +243,49 @@ commits a round of the assigned epoch before it holds the new version.
 - **WHEN** an index is added while epoch 48 is the latest close, and a partition's latest delivered close is 48
 - **THEN** the partition's commits carry epoch 49 until the close of 49, carrying the new version, is delivered to it,
   and its first commit at epoch 50 is validated against the new version
+
+### Requirement: A restarted host of the system group takes a check up again
+A tightening's check SHALL survive a restart of the system group's host: the version SHALL still be held as being
+checked after recovery, the reports the metadata log holds SHALL count, the partitions SHALL send again each report
+left unanswered, and the wait of `catalog_check_ms` SHALL begin anew. The Declare that asked for the version closed
+with the host, which leaves the client's Commit in doubt as a lost reply does; Describe SHALL show what took effect
+once the check ended.
+
+#### Scenario: A check passes after the host restarts
+- **WHEN** a declaration of `nick` single-valued is being checked over two partitions, one has reported its check
+  passed, the system group's host is killed and restarted, and the other partition then reports its check passed
+- **THEN** the version stands, Describe reports `nick` single-valued, and the client's Commit, whose reply was lost, is
+  shown committed by Describe
+
+### Requirement: A partition checks the catalog version a Drop names
+A partition SHALL refuse a Drop of kind 3 or 4 whose `catalog` is not the catalog version in effect at its round's
+epoch, with code 2, kind 5, decided at the round as it refuses an Ingest share, since each endpoint core holds a view
+of its own and a core one close behind would pass a Drop aimed at an earlier schema. The check the frontend makes
+before it sends the Drop stays, as an early refusal, against the version in effect at the endpoint core's open epoch,
+the version a partition checks at a round of that epoch, which the core's view holds from the effective epochs the
+closes announce, the Catalog replies name and its Declare replies imply: it SHALL never refuse a Drop a partition would
+take at that epoch, a version committed as pending being in effect nowhere, and SHALL refuse nothing where its view
+cannot name that version. A Drop it passes MAY still be refused at its round, when a version takes effect first.
+
+#### Scenario: A Drop aimed at an earlier schema is refused by the partition
+- **WHEN** version 4 of a tenant takes effect, an endpoint core whose view still holds version 3 sends a Drop of kind 4
+  naming `catalog` 3, and the partition decides it in a round of the epoch at which version 4 is in effect
+- **THEN** the partition refuses the Drop with code 2, kind 5, and removes nothing
+
+#### Scenario: The frontend refuses a Drop naming another version than the one in effect
+- **WHEN** version 1 of a tenant is in effect at the endpoint core's open epoch, and a client sends Drops of kind 3
+  naming `catalog` 0, 2 and 1, then a Drop of kind 2 and one of kind 1, naming none
+- **THEN** the first two are refused with code 2, kind 5, each message naming its version and version 1, before any
+  partition sees them, and the other three reach the partition
+
+#### Scenario: A pending version leaves a Drop naming the version in effect to the partition
+- **WHEN** version 1 of a tenant is in effect, a Drop of kind 1 makes version 2 pending, and a client sends a Drop of
+  kind 3 naming `catalog` 1
+- **THEN** the frontend passes it to the partition
+
+#### Scenario: During a check a Drop names the version being checked
+- **WHEN** version 2 of a tenant is being checked, its effective epoch at or below the endpoint core's open epoch,
+  Describe names version 1, and a client sends a Drop of kind 3 naming `catalog` 2 and one naming `catalog` 1
+- **THEN** the first reaches the partition, and the second is refused with code 2, kind 5, the message naming versions
+  1 and 2
 

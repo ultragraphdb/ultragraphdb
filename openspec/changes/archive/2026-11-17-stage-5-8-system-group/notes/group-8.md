@@ -722,3 +722,17 @@ The survivors (d13843fd holds the tests):
   28 or 31 s: 33, 33, 32, 32, 21, 29; 57, 57. Each is a hang the suite notices, not a slow pass.
 
 No mutant was equivalent; `.cargo/mutants.toml` is unchanged. No product code changed.
+
+## Phase 5: the stage's final mutation runs (lane 1, `common_frontend`)
+
+`scripts/mutants.sh ultragraphdb_common_frontend --diff 443a7f54`, run 3 of 3, 8 jobs. The unmutated baseline passed
+(22 s build, 56 s test) once 7ce85c1c ordered the compute doubles. It tested 572 mutants in 2 hours: 344 caught, 77
+missed, 74 unviable, 77 timeouts.
+
+The missed mutants concentrate in the system link's reads and turns (`system_turns.rs` 14, `system_link_reads.rs` 14,
+`system_link_tasks.rs` 3), the client session (`client_session_session.rs` 13, `client_session_requests.rs` 9, four other
+files 6), the `system_play` test double (11) and six other files (7). The user stopped their fix pass on 2026-11-18 to
+close the stage. Every mutant is listed in `mutants-common-frontend.md` and stays unresolved under backlog item 25,
+together with the check of the 77 timeouts. The ledger for this base is spent.
+
+`make property-random` was not run at the close.

@@ -8,8 +8,8 @@
 | 4. Data model and quad storage                                                         | ✅             | `openspec/changes/archive/2026-10-26-stage-4-data-model-and-quad-storage`                                                                    |
 | 5. Transactions, WAL and the zero-copy binary protocol                                 | ✅             | `openspec/changes/archive/2026-11-01-stage-5-transactions-and-binary-protocol`<br>`openspec/changes/archive/2026-11-02-transport-tls`        |
 | 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage)       | ✅             | `openspec/changes/archive/2026-11-09-stage-5-5-three-role-refactor`<br>`openspec/changes/archive/2026-11-09-batch-commits-through-the-roles` |
-| 5.7 Benchmark three-role cluster architecture                                          | ✅             | `openspec/changes/stage-5-8-system-group`                                                                                                                                              |
-| 5.8 Merge system and storage group into storage service                                | `progressing` | `openspec/changes/stage-5-8-system-group`                                                                                                    |
+| 5.7 Benchmark three-role cluster architecture                                          | ✅             | `openspec/changes/archive/2026-11-17-stage-5-8-system-group`                                                                                                                                              |
+| 5.8 Merge system and storage group into storage service                                | ✅            | `openspec/changes/archive/2026-11-17-stage-5-8-system-group`                                                                                                    |
 | 5.9 Merge frontend and compute node into one service, named compute                    | `open`        | `openspec/changes/stage-5-9-compute-role`                                                                                                    |
 | 6.3 Storage I/O in longshore: the tile store's file path on io_uring, decided by E9     | `open`        | `openspec/designs/UltraGraphDB Storage IO in Longshore.md`                                                                                   |
 | 6.5 The tile store: a graph-native storage engine replacing the KV store               | `open`        | `openspec/changes/stage-6-5-tile-store`                                                                                                      |
@@ -34,5 +34,4 @@ The architecture these stages build is
 
 Next
 
-- verify and implement stage 5.8
 - verify and implement stage 5.9

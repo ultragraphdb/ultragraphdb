@@ -7,10 +7,11 @@ and shutdown, settings validated at start, io_uring with a polling fallback, exi
 secret authenticating role connections, so each role starts, runs and stops alike on a cluster and in one container.
 ## Requirements
 ### Requirement: Each role is its own binary and image
-The roles SHALL be three binaries under `ultragraphdb/`: `ultragraphdb_frontend` (the client endpoint,
-authentication, the metadata group and the sequencer), `ultragraphdb_compute` (quad-pattern reads) and
-`ultragraphdb_storage` (partitions). Each SHALL link only its role's crates and SHALL ship as its own multi-arch OCI
-image for amd64 and arm64 on the Wolfi glibc base, running as user 65532 with no shell. A fourth binary,
+The roles SHALL be three binaries under `ultragraphdb/`: `ultragraphdb_frontend` (the client endpoint and the relay of
+authentication), `ultragraphdb_compute` (quad-pattern reads) and `ultragraphdb_storage` (partitions and, in the instance
+its settings name, the system group with the metadata state machine and the sequencer; system-group, "One storage
+instance hosts the system group"). Each SHALL link only its role's crates and SHALL ship as its own multi-arch OCI image
+for amd64 and arm64 on the Wolfi glibc base, running as user 65532 with no shell. A fourth binary,
 `ultragraphdb_supervisor`, SHALL be the supervisor of the development image, which holds the three role binaries, the
 config service (config-service) and the supervisor on the same base.
 
@@ -23,6 +24,11 @@ config service (config-service) and the supervisor on the same base.
 - **WHEN** the frontend binary's dependency graph is listed
 - **THEN** it names neither `ultragraphdb_store_kv` nor fjall
 
+#### Scenario: The frontend binary carries no book
+- **WHEN** the frontend binary's dependency graph is listed
+- **THEN** it names neither `ultragraphdb_common_system`, `ultragraphdb_cluster_metadata`, `ultragraphdb_cluster_sequencer` nor
+  `ultragraphdb_transactions_log`
+
 ### Requirement: Roles meet through the transport at their addresses
 Roles SHALL exchange the binary protocol's frames through the transport, at addresses from configuration: `tcp://`
 across hosts, `unix://` within a container. Every frame SHALL be encoded, bounds-checked and version-negotiated on both
@@ -30,25 +36,30 @@ carriers, and no role SHALL ask which carrier it runs on.
 
 #### Scenario: The development container uses Unix sockets
 - **WHEN** the development image starts with its default profile
-- **THEN** the frontend and compute connect through `unix:///run/ultragraph/<role>.sock`, each partition through
-  `unix:///run/ultragraph/storage-p<partition>.sock`, and a write and a read through the frontend succeed
+- **THEN** the system group listens at `unix:///run/ultragraph/system.sock`, compute at `unix:///run/ultragraph/compute.sock` and each partition at `unix:///run/ultragraph/storage-p<partition>.sock`, the frontend listens at no role address, and a write and a read through the frontend succeed
 
 #### Scenario: The same frames cross TCP
 - **WHEN** the three roles run in three containers configured with `tcp://` addresses
 - **THEN** the same write and read succeed, and the read's rows are byte-identical to the Unix-socket run's
 
 ### Requirement: The supervisor starts, stops and reports the roles
-The supervisor SHALL start the config service and wait for its `/ready`, then start the frontend and wait for its `/health`, then start storage and wait for its `/ready`, then
-start compute and wait for its `/ready`, and then wait for the frontend's `/ready`, since the frontend is ready only once
-a storage partition answers it. Storage and compute SHALL retry joining until their deadline, so neither needs the
-frontend's recovery to have ended. The supervisor SHALL restart no role on its own; SHALL draw the config service's two keys at random at the development image's first start, keeping them in its data directory, and the bootstrap administrator's password before the cluster's first start alone, since the frontend reads it once and the operator then removes it; SHALL refuse with code 78 a target whose instances name more than one `role_secret_file`, since the roles of one container share one role secret; SHALL forward SIGTERM and SIGINT; SHALL stop the roles in the shutdown order; SHALL set `ULTRAGRAPHDB_PARENT_PID` to its own process for everything it starts, the config service included, so killed outright it orphans nothing, and a supervisor at PID 1 has no parent to lose, its death ending the container; SHALL itself stop as on SIGTERM once the process its own `ULTRAGRAPHDB_PARENT_PID` names is no longer its parent; and SHALL exit
-with the exit code of the first role that failed, 128 plus the signal's number for a role a signal killed, or 0 after a
-clean shutdown.
+The supervisor SHALL start the config service and wait for its `/ready`, then start storage and wait for its `/ready`,
+since storage hosts the system group and depends on no other role, then start compute and wait for its `/ready`, and
+then start the frontend and wait for its `/ready`. Compute and the frontend SHALL retry dialling the system group until
+their deadline, so neither needs the order to hold. The supervisor SHALL restart no role on its own; SHALL draw the
+config service's two keys at random at the development image's first start, keeping them in its data directory, and the
+bootstrap administrator's password before the cluster's first start alone, since the system group's host reads it once
+and the operator then removes it; SHALL refuse with code 78 a target whose instances name more than one
+`role_secret_file`, since the roles of one container share one role secret; SHALL forward SIGTERM and SIGINT; SHALL stop
+the roles in the shutdown order; SHALL set `ULTRAGRAPHDB_PARENT_PID` to its own process for everything it starts, the
+config service included, so killed outright it orphans nothing, and a supervisor at PID 1 has no parent to lose, its
+death ending the container; SHALL itself stop as on SIGTERM once the process its own `ULTRAGRAPHDB_PARENT_PID` names is
+no longer its parent; and SHALL exit with the exit code of the first role that failed, 128 plus the signal's number for
+a role a signal killed, or 0 after a clean shutdown.
 
 #### Scenario: The start order reaches readiness
 - **WHEN** the supervisor starts the config service and the three roles
-- **THEN** the config service answers first, every role's `/ready` answers, the frontend's last, and no role waited on one
-  that was waiting on it
+- **THEN** the config service answers first, storage's `/ready` answers before compute and the frontend are started, the frontend's answers last, and no role waited on one that was waiting on it
 
 #### Scenario: A failing role ends the container with its code
 - **WHEN** the storage process exits with code 74 while the others run
@@ -88,17 +99,16 @@ clean shutdown.
 - **THEN** every commit acknowledged before the kill reads back through the restarted container
 
 ### Requirement: Each role runs one runtime per core
-Each role SHALL run one compio runtime per core it uses, a storage partition on its own, sharing no mutable state with
-another; what crosses between them SHALL go by message. `[runtime] pin_cores` SHALL ask each runtime to bind to one CPU,
-chosen from those the process is permitted, as a container's cpuset restricts them. `[runtime] pin_skip` SHALL leave that many of the permitted CPUs free, from the lowest, for the CPUs a host gives its interrupts, none by default, and a role running more runtimes than the CPUs left SHALL bind them in turn. The role SHALL read its permitted CPUs once, before it binds any thread, and SHALL bind the thread that starts its runtimes to all the CPUs they take and to no single one, since a thread bound to one CPU leaves every thread it starts that CPU alone to ask for. Pinning SHALL be a performance choice
-and never a condition of correctness: where the platform cannot bind a thread, as macOS cannot, offering only a
-cache-locality hint, the role SHALL run unpinned and say so. The frontend SHALL accept and serve clients on each of its runtimes,
-one per CPU it may use, on one client address bound once: its role address, its connections back and its readiness on the first,
-each role that joins made known to every one, each dialling its own connections to the other roles, and its counts of failed
-authentications held by its owner for all of them (client-endpoint, "Connections authenticate against the metadata group's
-principals").
-At start each role SHALL log, per runtime, the CPU it asked for and what it has, read back from the operating system where
-it can be.
+Each role SHALL run one compio runtime per core it uses, a storage partition on its own and the system group on its own
+in the instance hosting it, sharing no mutable state with another; what crosses between them SHALL go by message.
+`[runtime] pin_cores` SHALL ask each runtime to bind to one CPU, chosen from those the process is permitted, as a
+container's cpuset restricts them. `[runtime] pin_skip` SHALL leave that many of the permitted CPUs free, from the lowest, for the CPUs a host gives its interrupts, none by default, and a role running more runtimes than the CPUs left SHALL bind them in turn. The role SHALL read its permitted CPUs once, before it binds any thread, and SHALL bind the thread that starts its runtimes to all the CPUs they take and to no single one, since a thread bound to one CPU leaves every thread it starts that CPU alone to ask for. Pinning SHALL be a performance choice and never a condition of correctness: where the
+platform cannot bind a thread, as macOS cannot, offering only a cache-locality hint, the role SHALL run unpinned and say
+so. The frontend SHALL accept and serve clients on each of its runtimes, one per CPU it may use, on one client address
+bound once: its readiness on the first, each runtime dialling its own connections to the system group and to the other
+roles, and its counts of failed authentications held by its first runtime for all of them (client-endpoint, "Connections
+authenticate against the metadata group's principals"). At start each role SHALL log, per runtime, the CPU it asked for
+and what it has, read back from the operating system where it can be.
 
 #### Scenario: A pinned role reports what it holds
 - **WHEN** a role starts with `pin_cores = true` on a platform that allows binding
@@ -119,18 +129,34 @@ it can be.
 - **THEN** every write is committed, the frontend logs a runtime per CPU, and more than one of its cores relays the writes
 
 ### Requirement: Readiness, health and shutdown
-Each role SHALL serve `/health`, answering once it holds its settings (config-service) and has bound every listener it serves from its
-start, so that `/health` answering says a connection to such an address is accepted: the frontend its role and client addresses. Until
-then `/health` SHALL answer 503. Storage binds its partitions' addresses once they have recovered, with `/ready`, so its `/health`
-answers while it recovers and a peer dialling it meanwhile is refused at once. Each role SHALL also serve `/ready`, answering once its dependencies are
-reachable: the frontend once its metadata group and sequencer have recovered and a storage partition answers, storage
-once its partitions have recovered their logs, compute once a frontend and a storage process answer. On SIGTERM the
-frontend SHALL stop accepting connections and finish its open requests, compute SHALL drain, and storage SHALL apply
-and sync what its logs hold before it exits.
+Each role SHALL serve `/health`, answering once it holds its settings (config-service) and has bound every listener it
+serves from its start, so that `/health` answering says a connection to such an address is accepted: the frontend its
+client address. Until then `/health` SHALL answer 503. Storage binds its partitions' addresses once they have recovered,
+with `/ready`, so its `/health` answers while it recovers and a peer dialling it meanwhile is refused at once. Each role
+SHALL also serve `/ready`, answering once its dependencies are reachable: storage once its partitions have recovered
+their logs and joined, and in the hosting instance once the system group has recovered and listens before them
+(system-group, "The hosting process starts the group first and stops it last"); compute once the system group and a
+storage process answer; the frontend once the system group answers it, its view holds a placement and a close, Members
+lists every partition of the placement and a storage partition answers. The frontend's `/ready` SHALL answer 503 from the
+moment its connection to the system group closes until the group answers it again, its view holds a close, Members lists
+every partition of the placement and a storage partition answers, and 200 again from then (system-group, "A lost system
+group is waited for until the deadline"); its `/health` is unaffected, and compute's and storage's `/ready` stay as stated
+above. On SIGTERM the frontend SHALL stop accepting connections and finish its open requests, compute SHALL drain, and
+storage SHALL apply and sync what its partitions' logs hold, then stop the system group it hosts, before it exits.
 
 #### Scenario: Storage is not ready before recovery
 - **WHEN** a storage process restarts with 10,000 rounds to replay
 - **THEN** `/health` answers once it holds its settings, and `/ready` answers only after the replay
+
+#### Scenario: The frontend is ready only once the books answer
+- **WHEN** the frontend starts while the hosting storage process still recovers
+- **THEN** the frontend's `/health` answers, and its `/ready` answers only after storage's
+
+#### Scenario: The frontend is unready while its system group is unreachable
+- **WHEN** the frontend is ready, and the hosting storage process is killed and started again within `join_deadline_ms`
+- **THEN** the frontend's `/ready` answers 503 once its connection to the system group has closed while its `/health`
+  answers 200, and its `/ready` answers 200 again once the group answers it, Members lists every partition and one
+  answers
 
 #### Scenario: Storage flushes on shutdown
 - **WHEN** storage receives SIGTERM after acknowledging commits
@@ -153,13 +179,13 @@ from the config service, and the config service's own from the file it is starte
 - **THEN** the configuration is refused with an error naming `storge`
 
 ### Requirement: Configuration is explicit and validated at start
-Each role SHALL take its settings from the config service, and the config service alone SHALL read a local settings file,
-named by `--config`, holding its address, TLS files, key files, data directory and central file. The settings SHALL be standard TOML
-parsed by `ultragraphdb_tool_toml` (settings-toml). Every table and setting name SHALL use only `a`–`z`, `0`–`9` and `_`; a
-file naming any other SHALL be refused as an unknown setting. A role SHALL refuse to start on an unknown setting, malformed
-settings or a missing required setting, naming the setting, and SHALL exit with code 78; the config service SHALL make every
-other check before it serves a revision (config-service). Each role's data SHALL live under one directory per role and
-replica, laid out as on a cluster node.
+Each role SHALL take its settings from the config service, and the config service alone SHALL read a local settings
+file, named by `--config`, holding its address, TLS files, key files, data directory and central file. The settings
+SHALL be standard TOML parsed by `ultragraphdb_tool_toml` (settings-toml). Every table and setting name SHALL use only
+`a`–`z`, `0`–`9` and `_`; a file naming any other SHALL be refused as an unknown setting. A role SHALL refuse to start
+on an unknown setting, malformed settings or a missing required setting, naming the setting, and SHALL exit with code
+78; the config service SHALL make every other check before it serves a revision (config-service). Each role's data SHALL
+live under one directory per role and replica, laid out as on a cluster node.
 
 #### Scenario: An unknown setting stops the start
 - **WHEN** the storage binary receives settings whose `[storage]` table holds the key `partiton_count`
@@ -175,7 +201,7 @@ replica, laid out as on a cluster node.
 
 #### Scenario: The data layout matches a node's
 - **WHEN** the development container has started
-- **THEN** `/data` holds `meta/`, `seq/` and `storage/p1/r1/`, the paths a cluster node uses for the same roles
+- **THEN** `/data` holds `system/meta/`, `system/seq/` and `storage/p1/r1/`, the paths a cluster's hosting storage node uses, and no directory of the frontend's
 
 ### Requirement: io_uring where allowed, polling where not
 Each role SHALL use io_uring when the kernel allows it and SHALL fall back to compio's polling driver when io_uring
@@ -191,8 +217,8 @@ system calls are refused, logging which it uses at start. The repository SHALL s
 - **THEN** it starts on io_uring and logs that it does
 
 ### Requirement: Exit codes name the cause
-Each role and the supervisor SHALL exit with a code naming the cause, from the `sysexits` convention, documented in
-each binary's help and stable:
+Each role and the supervisor SHALL exit with a code naming the cause, from the `sysexits` convention, documented in each
+binary's help and stable:
 
 | Code | Name | Cause |
 |---|---|---|
@@ -203,8 +229,8 @@ each binary's help and stable:
 | 78 | `EX_CONFIG` | a configuration error: an unknown, malformed, missing or out-of-bounds setting, or an unreadable secret or certificate file |
 
 #### Scenario: A subscription past the closes held exits with its code
-- **WHEN** the frontend ends a storage process's subscription, the close it asks for being no longer held
-- **THEN** the process shuts down through its ordinary path, and it exits with code 69 naming what the frontend said
+- **WHEN** the system group ends the subscription of a storage process that does not host it, the close it asks for being no longer held
+- **THEN** the process shuts down through its ordinary path, and it exits with code 69 naming what the system group said
 
 #### Scenario: An invariant violation exits with its code
 - **WHEN** a storage partition detects an invariant violation in a release build
@@ -219,19 +245,20 @@ each binary's help and stable:
 - **THEN** compute shuts down through its ordinary path and exits with code 69
 
 ### Requirement: A role takes a port a killed process leaves held
-Each role and the config service SHALL retry the bind of a TCP address refused with `EADDRINUSE` every 50 ms for up to 5 s, logging
-each retry and naming the address, and past that SHALL exit with code 69, the error naming the address and what to do. Any other bind error SHALL end the start
-at once, as a Unix socket's refusal does: a role replaces a socket left behind, so nothing frees such a path by waiting.
-A killed process is reaped before the kernel tears down the io_uring ring it ran on, and an accept in flight on that ring holds its
-listener until then, so a role started at once may find its port taken for some milliseconds.
+Each role and the config service SHALL retry the bind of a TCP address refused with `EADDRINUSE` every 50 ms for up to 5
+s, logging each retry and naming the address, and past that SHALL exit with code 69, the error naming the address and
+what to do. Any other bind error SHALL end the start at once, as a Unix socket's refusal does: a role replaces a socket
+left behind, so nothing frees such a path by waiting. A killed process is reaped before the kernel tears down the
+io_uring ring it ran on, and an accept in flight on that ring holds its listener until then, so a role started at once
+may find its port taken for some milliseconds.
 
 #### Scenario: A port held a moment is taken
 - **WHEN** a role starts at a TCP address another process holds, which lets it go within the bound
 - **THEN** the role logs each retry naming the address, binds it, and answers `/health`
 
-#### Scenario: The frontend's /health answers once its listeners are bound
-- **WHEN** the frontend starts while another process holds its role address, which lets it go within the bound
-- **THEN** `/health` answers 503 while the address is held, and once it answers 200 a role connection to the address is accepted at once
+#### Scenario: The frontend's /health answers once its listener is bound
+- **WHEN** the frontend starts while another process holds its client address, which lets it go within the bound
+- **THEN** `/health` answers 503 while the address is held, and once it answers 200 a client connection to the address is accepted at once
 
 #### Scenario: A port held past the bound ends the start
 - **WHEN** a role starts at a TCP address another process holds past the bound
@@ -245,12 +272,12 @@ listener until then, so a role started at once may find its port taken for some 
 Every role SHALL read the cluster's role secret at start from the file its `[cluster] role_secret_file` setting names, a
 Kubernetes Secret on a cluster, and SHALL refuse to start with code 78 when the file is missing, unreadable or empty. A
 role connection SHALL authenticate with SCRAM-SHA-256 against that secret before its first role command, each role
-verifying its peer locally from the secret, since the metadata group's principals live in the frontend, which is itself
-a peer. The role secret SHALL authenticate role connections only and SHALL be refused on the client endpoint. In the
-development container each role's Unix socket SHALL be owned by user 65532 with mode 0600.
+verifying its peer locally from the secret, since a role connection to the system group must open before the metadata
+group's principals can be asked for. The role secret SHALL authenticate role connections only and SHALL be refused on
+the client endpoint. In the development container each role's Unix socket SHALL be owned by user 65532 with mode 0600.
 
 #### Scenario: A role with the wrong secret is refused
-- **WHEN** a storage process started with a different role secret connects to the frontend
+- **WHEN** a frontend started with a different role secret connects to the system group
 - **THEN** its authentication is refused, it sends no role command, and it retries until its deadline
 
 #### Scenario: The role secret opens no client session

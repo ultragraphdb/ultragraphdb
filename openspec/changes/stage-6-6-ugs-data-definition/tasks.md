@@ -33,6 +33,7 @@ work on disjoint crates, and the whole repository is gated by `make build` and `
 - [x] 0.13 The review's resolutions R2 to R7 carried into `SCHEMA.md`, `PROTOCOL.md`, `QUERY-ULTRA-QL.md` and `SECURITY.md` (2026-11-10; `notes/review-resolutions.md`)
 - [x] 0.14 The reviewers' decisions D1 to D19 carried into `SCHEMA.md`, `PROTOCOL.md`, `QUERY-ULTRA-QL.md` and `QUERY-SPARQL-CORE.md`, and the corrections of `notes/review-resolutions.md` part 2.2 into this change's specifications (2026-11-10)
 - [x] 0.15 The core principles' review, P1 to P11, carried into `SCHEMA.md`, `CATALOG.md`, `PROTOCOL.md`, this change's specifications, design and tasks (2026-11-10; `notes/core-principles-review.md`, design decision 15)
+- [ ] 0.16 This change's deltas rebased on stage 5.8's archived specifications: each requirement this change and stage 5.8 both modify brought to the archived text but for this change's edits, the stage 5.8 scenarios its deltas do not hold listed in `notes/rebase-on-stage-5-8.md`
 
 ## 1. The wire → `ultragraphdb_core_body` (new), `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_transport`
 
