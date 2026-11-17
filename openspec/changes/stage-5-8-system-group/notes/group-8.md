@@ -393,3 +393,21 @@ Files to delete: none. Commits, by task:
    `BUILD.bazel`'s `bdd`/`drops_bdd` hunk.
 
 This section goes with whichever commit takes this file. `Cargo.lock` is unchanged.
+
+# The gate of task 7.6
+
+`make test` on 2026-11-17 at `4ea0abea`, the first full gate since group 0, on a quiet machine: every phase passed.
+
+| Phase | Result |
+|---|---|
+| doc tests | 20 of 20 |
+| unit tests | 92 of 92 |
+| property tests | 10 of 10 |
+| concurrency tests | 5 of 5 |
+| BDD tests | 52 of 52 |
+| integration tests | 18 of 18, 12 run and 6 cached |
+
+No binary hung at its end. With it, tasks 4.2, 5.1, 7.6, 8.1 and 8.2 are complete: the scenarios that need a later stage's
+work moved to `openspec/notes/backlog.md` (items 21 and 22); "A partition without closes commits until its epoch is full"
+is bound at the partition; "A partition's sync holds up no close" is bound in-process in `common_system` beside the
+process-level binding in `storage_tests`.
