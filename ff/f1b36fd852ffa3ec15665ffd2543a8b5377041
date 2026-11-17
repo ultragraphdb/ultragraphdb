@@ -1,0 +1,43 @@
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/system_link/system_link_reads.rs
+  s_21eff977e05256::t_9e2feb2aa14398 214-219,222-223
+  s_21eff977e05256::t_0c9351e6059b87 251,253-259
+  s_21eff977e05256::t_a5d525c26a5cd2 224
+  s_21eff977e05256::t_81795ac1918ebb 248-250
+  s_21eff977e05256::t_345b0eaeaa02f0 252
+  s_21eff977e05256::t_924d2a3d6be808 260-262
+  s_21eff977e05256::t_52dbf383557ecd 8-10,14,226-227,229-239,246-247,263-298
+ultragraphdb/ultragraphdb_frontend_tests/features/role_binaries/unready.feature
+  s_21eff977e05256::t_2b52e3d188bf3c 1-11
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/role_link/role_link_tasks.rs
+  s_21eff977e05256::t_9e80cad31e9c82 60
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/role_link/mod.rs
+  s_21eff977e05256::t_3a7fe4bc003db2 39-40
+  s_21eff977e05256::t_f774cc917a9aa3 120-124
+  s_21eff977e05256::t_fa637fb7716920 125-126
+openspec/changes/stage-5-8-system-group/specs/role-binaries/spec.md
+  s_21eff977e05256::t_b1405ef5e277a2 134-139,149-154
+ultragraphdb/ultragraphdb_frontend_tests/tests/system_steps.rs
+  s_21eff977e05256::t_2fc3c8a0f54efc 558-608
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/system_link/mod.rs
+  s_21eff977e05256::t_d9552037dfa308 79-80,124-125,161
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/system_link/system_link_tasks.rs
+  s_21eff977e05256::t_f16ed36dfc96ba 331-333
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/system_link_tests.rs
+  s_21eff977e05256::t_33d13e4fa1166c 14,71-75,84,431-527
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fff1b36fd852ffa3ec15665ffd2543a8b5377041",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
