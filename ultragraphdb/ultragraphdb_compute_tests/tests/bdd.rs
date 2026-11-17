@@ -33,9 +33,9 @@ use ultragraphdb_protocol_wire::{Scan, ScanAt, ScanRange};
 use ultragraphdb_tests::{
     CLUSTER, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS, DOUBLE_ADDRESS,
     FRONTEND_BINARY, FRONTEND_OBSERVABILITY, SECRET, START_SECONDS, STORAGE_BINARY,
-    STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, answering, bootstrap, compute_on_one_host,
-    exit_is, frontend_holding, holding, http_status, process, render_settings, role, scratch,
-    served_by_double, start_double, storage_holding, until_answering, with,
+    STORAGE_OBSERVABILITY, answering, bootstrap, compute_on_one_host, exit_is, frontend_holding,
+    holding, http_status, not_hosting, process, render_settings, role, scratch, served_by_double,
+    start_double, storage_holding, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -300,8 +300,34 @@ fn signal(pid: u32, signal: &str) -> TestResult {
     Ok(())
 }
 
-/// Starts the three roles with compute's deadline short, sends storage `to_storage`, and holds how compute exits; the storage
-/// process is returned to its caller, for what it still needs.
+/// Where the storage process compute loses listens, its partition 2's role address and its observability: a process apart
+/// from the one hosting the system group, so the group answers throughout and compute's loss is that partition's alone.
+const LOST_ROLE_ADDRESS: &str = "127.0.0.1:17085";
+const LOST_OBSERVABILITY: &str = "127.0.0.1:18085";
+
+/// The settings of a storage process of partition 2 of two, hosting no system group, at [`LOST_ROLE_ADDRESS`].
+fn not_hosting_partition_2() -> TestResult<Vec<(String, String)>> {
+    let settings = [
+        (
+            "observability.address",
+            format!("tcp://{LOST_OBSERVABILITY}"),
+        ),
+        ("storage.role_address", format!("tcp://{LOST_ROLE_ADDRESS}")),
+        ("storage.partition_first", "2".to_string()),
+        ("storage.partition_count", "1".to_string()),
+    ];
+    Ok(settings
+        .iter()
+        .fold(not_hosting(storage_holding()?), |held, (name, value)| {
+            with(held, name, value)
+        }))
+}
+
+/// Starts the three roles over two storage processes, the first hosting the system group and partition 1 and the second
+/// partition 2, with compute's deadline short; sends the second `to_storage`, and holds how compute exits. A hung or killed
+/// process hosting the group too would be the group's loss, which compute names by the group's address (system-group, "A
+/// lost system group is waited for until the deadline"). The lost storage process is returned to its caller, for what it
+/// still needs.
 fn lose_storage(w: &mut Steps, to_storage: &str) -> TestResult<u32> {
     let util = services()?;
     let _frontend: u32 = util.start_service_from_config(role(
@@ -310,11 +336,17 @@ fn lose_storage(w: &mut Steps, to_storage: &str) -> TestResult<u32> {
         &scratch(FRONTEND_BINARY),
         answering(FRONTEND_OBSERVABILITY, "/health"),
     ))?;
-    let storage = util.start_service_from_config(role(
+    let _hosting: u32 = util.start_service_from_config(role(
         STORAGE_BINARY,
-        &storage_holding()?,
+        &with(storage_holding()?, "cluster.partition_count", "2"),
         &scratch(STORAGE_BINARY),
         answering(STORAGE_OBSERVABILITY, "/ready"),
+    ))?;
+    let storage = util.start_service_from_config(role(
+        STORAGE_BINARY,
+        &not_hosting_partition_2()?,
+        &scratch("storage-partition-2"),
+        answering(LOST_OBSERVABILITY, "/ready"),
     ))?;
     let log = scratch("compute-lost-storage.log");
     let compute = util.start_service_from_config(role(
@@ -352,7 +384,7 @@ fn storage_hangs(w: &mut Steps) -> TestResult {
 #[then("compute shuts down through its ordinary path and exits with code 69")]
 fn lost_storage(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 69)?;
-    assert!(w.log.contains(STORAGE_ROLE_ADDRESS), "{}", w.log);
+    assert!(w.log.contains(LOST_ROLE_ADDRESS), "{}", w.log);
     w.roles = None;
     Ok(())
 }
