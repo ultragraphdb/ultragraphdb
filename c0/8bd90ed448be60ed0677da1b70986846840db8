@@ -1,0 +1,65 @@
+ROADMAP.md
+  s_21eff977e05256::t_ad9b02ee7d2343 11-12
+openspec/changes/archive/2026-11-17-stage-5-8-system-group/notes/group-8.md
+  s_21eff977e05256::t_c03ff396ca6668 725-738
+openspec/changes/archive/2026-11-17-stage-5-8-system-group/notes/mutants-common-frontend.md
+  s_21eff977e05256::t_2698b9017241b4 1-169
+openspec/changes/archive/2026-11-17-stage-5-8-system-group/tasks.md
+  s_21eff977e05256::t_b9668a6b8aa07d 76,86,103,117
+openspec/changes/stage-5-9-compute-role/notes/rebase-on-stage-5-8.md
+  s_21eff977e05256::t_162881bfb6cb5e 1-76
+openspec/changes/stage-5-9-compute-role/tasks.md
+  s_21eff977e05256::t_6970285ccfeb29 24
+openspec/changes/stage-6-5-tile-store/notes/rebase-on-stage-5-8.md
+  s_21eff977e05256::t_b18e358a55ab19 1-32
+openspec/changes/stage-6-5-tile-store/tasks.md
+  s_21eff977e05256::t_192f11deba51fb 27
+openspec/changes/stage-6-6-ugs-data-definition/notes/rebase-on-stage-5-8.md
+  s_21eff977e05256::t_3b3fe0ee4e02f5 1-24
+openspec/changes/stage-6-6-ugs-data-definition/tasks.md
+  s_21eff977e05256::t_10284b08b8e50d 36
+"openspec/designs/UltraGraphDB Distribution Architecture.md"
+  s_21eff977e05256::t_208ea9a917f6e9 26,693-695,726-728
+openspec/notes/backlog.md
+  s_21eff977e05256::t_4e77218d6120f5 340-348
+openspec/specs/client-endpoint/spec.md
+  s_21eff977e05256::t_a402b078889dc5 40-53,59-63,324-436
+openspec/specs/config-service/spec.md
+  s_21eff977e05256::t_889e9569703cb7 66,72,75,78,95-114
+openspec/specs/kubernetes-deployment/spec.md
+  s_21eff977e05256::t_9a18fcf5b21e57 10-19,23,32-36,40,44-51,61-64,78-80,87-95
+openspec/specs/metadata-group/spec.md
+  s_21eff977e05256::t_924db35970dc53 11-14,27-28,32-33,37-41,60-62,65-66,68-74,144-154,173,178-185,198-205,208-209
+openspec/specs/partitions/spec.md
+  s_21eff977e05256::t_5d3e06cd95a468 13-17,19-20
+openspec/specs/quad-reads/spec.md
+  s_21eff977e05256::t_d8ee0d4076900d 544,549-557
+openspec/specs/role-binaries/spec.md
+  s_21eff977e05256::t_68d8ed3938caa5 10-14,27-31,39,46-58,62,102-111,132-145,151-160,182-188,204,220-221,232-233,248-253,259-261,275-277,280
+openspec/specs/schema-changes/spec.md
+  s_21eff977e05256::t_747a3cdc78e1e2 107-111,126-128,133,156-166,195-196,247-291
+openspec/specs/sequencer/spec.md
+  s_21eff977e05256::t_82fc2ebf3ca6f8 64-72,94-102,116,142-144,155-183
+openspec/specs/system-group/spec.md
+  s_21eff977e05256::t_0fcb80349976ec 1-309
+openspec/specs/transactions/spec.md
+  s_21eff977e05256::t_1576edc753e3ac 210-214,230-231,236-242,320-324,433-438
+openspec/specs/wire-protocol/spec.md
+  s_21eff977e05256::t_4fa3be8604f151 150-157,160-175,184,188-197,207-214,504-525,577,893-949
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c08bd90ed448be60ed0677da1b70986846840db8",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
