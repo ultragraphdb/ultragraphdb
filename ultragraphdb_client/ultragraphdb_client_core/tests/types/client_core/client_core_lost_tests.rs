@@ -388,6 +388,35 @@ fn test_a_kept_read_ending_in_a_broken_frame_answers_its_rule_after_the_loss() -
     Ok(())
 }
 
+/// A broken frame kept from a lost connection, read once the client has connected again, answers its rule and leaves the
+/// new connection up: the rule was broken on the connection already lost, which is the one a client refusing a frame closes.
+#[test]
+fn test_a_broken_frame_kept_from_a_lost_connection_leaves_the_next_connection_up() -> TestResult {
+    let mut c = Conn::new()?;
+    let tx = c.begin(true)?;
+    let stream = c.read(&tx)?;
+    // A Result flagged last, a body byte flipped: its chunk is checked when it is read.
+    let mut broken = ResultBatch::new(2).frame(
+        Header::new(CLUSTER, Command::Result)
+            .with_stream(stream.stream())
+            .with_flags(ultragraphdb_protocol_wire::FLAG_LAST),
+    )?;
+    broken[300] ^= 1;
+    c.deliver(&broken)??;
+    c.core.disconnected(TransportError::closed(), start());
+    c.connect()?;
+    let refused = c.batch(&stream).err().context("an error")?;
+    assert!(
+        matches!(
+            &refused.0,
+            ultragraphdb_client_core::ClientErrorEnum::Protocol { .. }
+        ),
+        "{refused:?}"
+    );
+    assert!(c.core.is_connected(), "the new connection stays up");
+    Ok(())
+}
+
 /// A read kept, or cut short, by a lost connection and then cancelled is forgotten: nothing is sent for it, and it is
 /// finished.
 #[test]

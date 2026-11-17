@@ -6,4 +6,6 @@
 #[cfg(test)]
 mod catalog_codec_tests;
 #[cfg(test)]
+mod describe_of_tests;
+#[cfg(test)]
 mod tokenizer_datatypes_tests;

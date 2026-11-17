@@ -873,3 +873,66 @@ fn test_the_old_settings_are_refused_by_name() -> TestResult {
     }
     Ok(())
 }
+
+/// A table in a role's file is held by every instance of the role: `[metadata]` there serves the host, which then lacks no
+/// moved table, and is refused in the instance not hosting.
+#[test]
+fn test_a_table_in_the_roles_file_is_held_by_each_instance() -> TestResult {
+    let host = STORAGE_1.replacen("[metadata]\n", "", 1);
+    let target = with(
+        with(valid(), "storage_1", &host),
+        "storage",
+        &format!("{STORAGE}[metadata]\n"),
+    );
+    let listing = checked(&target, None);
+    says(
+        &listing,
+        &[
+            "instance storage_2, setting metadata: it holds a [metadata] table and does not host the system group",
+        ],
+    );
+    says_not(&listing, &["instance storage_1, setting metadata:"]);
+    Ok(())
+}
+
+/// The sequencer's bounds are the host's alone: a storage instance not hosting that holds `[sequencer]` is refused by the
+/// System check for the table, and its bounds are not checked.
+#[test]
+fn test_only_the_hosts_sequencer_bounds_are_checked() -> TestResult {
+    let reversed = format!("[sequencer]\nepoch_ms_min = 11\nepoch_ms_max = 10\n{STORAGE_2}");
+    let listing = checked(&with(valid(), "storage_2", &reversed), None);
+    says(
+        &listing,
+        &[
+            "instance storage_2, setting sequencer: it holds a [sequencer] table and does not host the system group",
+        ],
+    );
+    says_not(&listing, &["setting sequencer.epoch_ms_max"]);
+    Ok(())
+}
+
+/// A frontend dials the system group alone: a `compute.role_address` in its file is no address of its own, so it is not
+/// parsed as one.
+#[test]
+fn test_a_frontends_role_addresses_are_its_system_address_alone() -> TestResult {
+    let foreign = format!("{FRONTEND}[compute]\nrole_address = \"ftp://10.0.0.1:7082\"\n");
+    says_not(
+        &checked(&with(valid(), "frontend", &foreign), None),
+        &["instance frontend, setting compute.role_address"],
+    );
+    Ok(())
+}
+
+/// A frontend's client endpoint is a listener: it cannot share an address with another instance's.
+#[test]
+fn test_the_frontends_endpoint_takes_part_in_the_address_checks() -> TestResult {
+    let compute = "tcp://10.0.0.3:7082";
+    let endpoint = format!("{FRONTEND}[endpoint]\naddress = \"{compute}\"\nplaintext = true\n");
+    says(
+        &checked(&with(valid(), "frontend", &endpoint), None),
+        &[&format!(
+            "instance frontend, setting endpoint.address: {compute} is also compute_1's compute.role_address"
+        )],
+    );
+    Ok(())
+}
