@@ -318,6 +318,12 @@ task 8.3). These findings were not taken into that change, and stage 5.9 settles
 - **`Push::Close` in a stream count.** `StorageSession::answered` does not count `Push::Close` as ending a stream. This is
   harmless today, since the connection closes.
 
+### 24. The unused-dependency check reads no manifest
+
+`scripts/check.sh` runs `cargo machete-nk` 0.9.2, which cannot parse `edition = "2024"`. It prints a parse error for
+each crate and exits 0, so `make check` passes without checking any manifest for unused dependencies (found
+2026-11-17). Which tool replaces it, and does `make check` fail when that tool cannot read a manifest?
+
 ## Source material: requirements
 
 The change's `server-node` spec, whole:

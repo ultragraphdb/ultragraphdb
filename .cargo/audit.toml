@@ -1,0 +1,10 @@
+# cargo-audit configuration, read by scripts/check.sh's `cargo audit --deny warnings`.
+#
+# Each ignored advisory carries the reason it cannot be acted on yet and when its entry goes.
+
+[advisories]
+ignore = [
+    # humantime 2.4.0 is unmaintained (no vulnerability). It reaches the workspace through cucumber 0.23.0 alone, a test
+    # dependency, and 0.23.0 is cucumber's latest release (2026-11-17). Remove this entry once cucumber drops humantime.
+    "RUSTSEC-2026-0542",
+]
