@@ -91,10 +91,13 @@ to another process's directory, and there are no outside users. A development cl
   Verify with the counts held in the frontend; the frontend's view of epochs, tenants and catalog versions; reading
   Members in place of taking Joins.
 - `partitions`: the system group forms the placement, and a storage process claims its partitions there.
-- `transactions`: the owner check and the mark of a commit in flight asked of the system group.
+- `transactions`: the owner check and the mark of a commit in flight asked of the system group; a Begin naming a token
+  ahead of the open epoch held until its close (`PROTOCOL.md` section 4.8), which retires the scenario refusing it.
 - `quad-reads`: a snapshot read's early close asked by CloseRequest.
 - `schema-changes`: a Drop's catalog version and a tightening's check held by the system group, whichever frontend
-  stops; a partition's check of the catalog version a Drop names.
+  stops; a partition's check of the catalog version a Drop names. The three scenarios of "Drops" naming a vector predicate
+  or tenants other than 0 move to `openspec/notes/backlog.md` (items 21 and 22), for stages 7 and 8, which build what
+  they need.
 - `wire-protocol`: the role commands the system group serves, and Describe answered from Catalog and Defaults, across
   frames.
 - `config-service`: the `[system]` table, the one hosting instance, `cluster.system_address` and the tables that move.

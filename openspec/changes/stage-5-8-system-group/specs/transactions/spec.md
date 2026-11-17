@@ -121,3 +121,49 @@ full registry may evict SHALL be refused with code 14, evicting nothing.
 - **WHEN** a DirectWrite through a session is answered code 17, the partition had not committed it, and the client sends
   it again
 - **THEN** the frontend relays it, not recalls it, the partition commits it, and the reply carries its commit version
+
+### Requirement: Commits answer a session token
+A committed transaction's reply through a session SHALL carry a session token naming its partition, its log position and
+the epoch of its commit version; a later read or transaction carrying the token SHALL see that commit and every commit
+before it in that partition. A transaction carrying a token of epoch `t` SHALL commit at epoch `t` or later, its
+partition waiting until the close of `t − 1` has been delivered to it, so a causally later write never falls in an
+earlier snapshot. A reply through no session SHALL carry the zero token, a declaration's and a Drop's among them. A
+transaction naming a read version SHALL read at that version whatever token it carries, and the token gives it nothing.
+A Begin naming a token whose epoch is above the endpoint core's open epoch SHALL be held until the core's stream of
+closes delivers the close before the token's epoch, and a DirectWrite or ConditionalWrite naming one SHALL go to its
+partition, which holds the commit until that close (`PROTOCOL.md` section 4.8; client-endpoint, "An endpoint core keeps
+a view of what the closes announce"), since a partition may have received a close the core has not. The Rust client
+SHALL keep, per session, the token of the highest epoch among the session's commits, one-frame writes and resolved
+resends included, and SHALL send it with every Begin it makes for that session and in every DirectWrite and
+ConditionalWrite through it; a zero token replaces nothing.
+
+#### Scenario: A token names its commit
+- **WHEN** a transaction commits in partition 1 at position 40 with a version of epoch 12
+- **THEN** its reply carries the token (partition 1, position 40, epoch 12)
+
+#### Scenario: A read with a token sees the commit
+- **WHEN** a client commits `<a> <knows> <b>` and reads `<a>`'s statements with the commit's token from another
+  connection
+- **THEN** the read returns `<a> <knows> <b>`
+
+#### Scenario: A causally later commit is not stamped earlier
+- **WHEN** a session commits in partition 1 at epoch 20, and its next transaction, carrying that token, commits in
+  partition 2 while partition 2's latest delivered close is 17
+- **THEN** partition 2 commits it only after close 19 is delivered, at epoch 20 or later
+
+#### Scenario: A reply through no session carries no token
+- **WHEN** a transaction and a Drop each commit through no session, `session` all zero
+- **THEN** each reply's `commit_version` is its version and its token is 24 zero bytes, and a receiver accepts it
+
+#### Scenario: A named read version takes nothing from a token
+- **WHEN** a read-only transaction at snapshot level names a read version in epoch 12, and carries a token of epoch 20
+- **THEN** its reads answer at the named version, and none waits for epoch 20
+
+#### Scenario: A one-frame write carries the session's token
+- **WHEN** a client's session commits a DirectWrite whose reply's token is of epoch 12, resolves a resend whose stored
+  reply's is of epoch 9, then sends a ConditionalWrite through the session
+- **THEN** the ConditionalWrite carries the token of epoch 12
+
+#### Scenario: A zero token replaces nothing
+- **WHEN** a client's session holds a token of epoch 12, and a commit through no session answers the zero token
+- **THEN** the session still sends the token of epoch 12

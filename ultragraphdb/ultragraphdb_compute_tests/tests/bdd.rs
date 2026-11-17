@@ -35,7 +35,7 @@ use ultragraphdb_tests::{
     FRONTEND_BINARY, FRONTEND_OBSERVABILITY, SECRET, START_SECONDS, STORAGE_BINARY,
     STORAGE_OBSERVABILITY, answering, bootstrap, compute_on_one_host, exit_is, frontend_holding,
     holding, http_status, not_hosting, process, render_settings, role, scratch, served_by_double,
-    start_double, storage_holding, until_answering, with,
+    start_double, storage_holding, until_answering, until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -219,10 +219,17 @@ fn compute_joining(util: &ServiceUtil) -> TestResult {
     Ok(())
 }
 
-#[when("compute has joined a frontend no partition has joined")]
+/// Compute alone: no storage process, so nothing hosts the system group, and the address compute dials it at is free first.
+#[when("compute has started while no process listens at `cluster.system_address`")]
 fn compute_alone(w: &mut Steps) -> TestResult {
+    until_ports_free(&[])?;
     let util = services()?;
-    compute_joining(&util)?;
+    let _compute: u32 = util.start_service_from_config(role(
+        COMPUTE_BINARY,
+        &holding(compute_on_one_host(), SECRET)?,
+        &scratch(COMPUTE_BINARY),
+        answering(COMPUTE_OBSERVABILITY, "/health"),
+    ))?;
     w.roles = Some(util);
     Ok(())
 }

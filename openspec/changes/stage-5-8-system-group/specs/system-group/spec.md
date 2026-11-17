@@ -35,8 +35,8 @@ even map over `[cluster] partition_count`.
 #### Scenario: The books recover in the storage process
 - **WHEN** the group holds a catalog version, two block leases, a principal and twelve closes, and its host is killed
   and restarted
-- **THEN** the group's state after recovery equals its state before the kill, read at the same log position, and the
-  sequencer's last closed epoch is 12
+- **THEN** the group's state after recovery equals its state before the kill, read at or past the log position it was
+  read at before, and the sequencer's last closed epoch is 12
 
 #### Scenario: The group's logs lie beside the partitions'
 - **WHEN** the development container has started with `system.data_dir = "/data/system"`

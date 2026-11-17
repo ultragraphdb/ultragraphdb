@@ -20,7 +20,7 @@ Feature: The compute binary as a process
     Then it exits with code 78 and an error naming `compute.role_address`
 
   Scenario: Compute is ready once a partition has joined
-    When compute has joined a frontend no partition has joined
+    When compute has started while no process listens at `cluster.system_address`
     Then its `/health` answers, its `/ready` does not, and it turns ready once a partition joins
 
   Scenario: Compute serves reads alone

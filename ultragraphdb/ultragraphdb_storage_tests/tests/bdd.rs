@@ -44,10 +44,10 @@ use ultragraphdb_tests::{
     ADMIN_KEY, CLUSTER, CONFIG_ADDRESS, CONFIG_BINARY, DOUBLE_ADDRESS, DOUBLE_REVISION,
     FRONTEND_BINARY, FRONTEND_OBSERVABILITY, READ_KEY, SECRET, START_SECONDS, STORAGE_BINARY,
     STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, SYSTEM_ROLE_ADDRESS, TARGET, answering, bootstrap,
-    config_folder, config_process, exit_is, fresh_data, frontend_holding, holding, http_body,
-    http_status, members_at, not_hosting, process, render_settings, role, role_of_service, scratch,
-    served_by_double, start_config_service, start_double, storage_holding, storage_on_one_host,
-    until_answering, until_ports_free, with,
+    config_folder, config_process, exit_is, fresh_data, frontend_holding, frontend_on_one_host,
+    holding, http_body, http_status, members_at, not_hosting, process, render_settings, role,
+    role_of_service, scratch, served_by_double, start_config_service, start_double,
+    storage_holding, storage_on_one_host, until_answering, until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_http_client::{HttpClient, HttpReply, HttpUrl};
@@ -90,16 +90,8 @@ const SHORT_DEADLINE_MS: &str = "800";
 const ADMIN_ADDRESS: &str = "127.0.0.1:18090";
 
 /// The addresses a role of these scenarios holds beyond those every suite declares, and what holds each.
-const OWN_ADDRESSES: [(&str, &str); 7] = [
+const OWN_ADDRESSES: [(&str, &str); 5] = [
     (ADMIN_ADDRESS, "a loadable role's admin listener"),
-    (
-        REFUSED_ROLE_ADDRESS,
-        "the role endpoint of the storage process holding another role secret",
-    ),
-    (
-        REFUSED_OBSERVABILITY,
-        "the observability of the storage process holding another role secret",
-    ),
     (
         "127.0.0.1:17200",
         "the role endpoint of the storage process hosting partitions 1 and 2",
@@ -142,43 +134,37 @@ fn run_to_exit(w: &mut Steps, variables: Vec<(String, String)>) -> TestResult {
     Ok(())
 }
 
-/// Where the storage process holding another role secret listens: beside the hosting process's partition and observability.
-const REFUSED_ROLE_ADDRESS: &str = "127.0.0.1:17183";
-const REFUSED_OBSERVABILITY: &str = "127.0.0.1:18183";
-
-#[when("a storage process started with a different role secret connects to the frontend")]
+/// A frontend logs a refused dial below the level a role logs at, so the system group it dials is the test's: the played group
+/// holding the cluster's secret, which counts the authentications it refuses and the role commands it is asked.
+#[when("a frontend started with a different role secret connects to the system group")]
 fn wrong_secret(w: &mut Steps) -> TestResult {
-    let util = services()?;
-    // The books' host since the switch is the storage process hosting the system group, which every role dials.
-    let _host: u32 = start_storage(&util, &storage_holding()?, &scratch("storage-host.log"))?;
     let refused = [
-        ("storage.data_dir", fresh_data()),
+        (
+            "cluster.system_address",
+            format!("tcp://{PLAYED_FRONTEND_ADDRESS}"),
+        ),
         ("cluster.join_deadline_ms", SHORT_DEADLINE_MS.to_string()),
-        (
-            "storage.role_address",
-            format!("tcp://{REFUSED_ROLE_ADDRESS}"),
-        ),
-        (
-            "observability.address",
-            format!("tcp://{REFUSED_OBSERVABILITY}"),
-        ),
     ]
     .iter()
     .fold(
-        not_hosting(holding(storage_on_one_host(), "another secret")?),
+        holding(frontend_on_one_host(), "another secret")?,
         |settings, (name, value)| with(settings, name, value),
     );
-    let refused_log = scratch("storage-refused.log");
-    let pid = util.start_service_from_config(role(
-        STORAGE_BINARY,
-        &refused,
-        &refused_log,
-        WaitStrategy::NoWait,
-    ))?;
-    w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
-    w.log = std::fs::read_to_string(&refused_log)?;
-    w.system = format!("tcp://{}", SYSTEM_ROLE_ADDRESS);
-    w.roles = Some(util);
+    let log = scratch("frontend-refused.log");
+    let util = services()?;
+    let played = Runtime::new()?.block_on(async {
+        let played = play_frontend(Push::Nothing).await?;
+        let pid = util.start_service_from_config(role(
+            FRONTEND_BINARY,
+            &refused,
+            &log,
+            WaitStrategy::NoWait,
+        ))?;
+        w.exited = exit_of(&util, pid).await;
+        Ok::<_, TestError>(played)
+    })?;
+    w.log = std::fs::read_to_string(&log)?;
+    w.played = Some(played);
     Ok(())
 }
 
@@ -186,24 +172,20 @@ fn wrong_secret(w: &mut Steps) -> TestResult {
     "its authentication is refused, it sends no role command, and it retries until its deadline"
 )]
 fn refused_and_retried(w: &mut Steps) -> TestResult {
+    let played = w.played.as_ref().context("the played system group")?;
+    assert!(
+        played.refusals() > 1,
+        "{} refusals:\n{}",
+        played.refusals(),
+        w.log
+    );
+    assert_eq!(played.commands(), 0, "{}", w.log);
+    // The deadline passed with the group never reached: the frontend stops, naming the address and the deadline.
     exit_is(w.exited, &w.log, 69)?;
-    assert!(w.log.contains("authentication failed"), "{}", w.log);
-    let attempts = w
-        .log
-        .split("after ")
-        .nth(1)
-        .and_then(|rest| rest.split(' ').next())
-        .and_then(|count| count.parse::<u32>().ok())
-        .context("the attempts it made")?;
-    assert!(attempts > 1, "{}", w.log);
-    // Members lists the hosting process's partition alone: the refused process joined nothing.
-    let expected = vec![(
-        RoleKind::Storage,
-        1,
-        format!("tcp://{STORAGE_ROLE_ADDRESS}"),
-    )];
-    assert_eq!(members_at(&w.system)?, expected, "no role joined");
-    w.roles = None;
+    let gone = format!(
+        "the system group at tcp://{PLAYED_FRONTEND_ADDRESS} has been gone for join_deadline_ms, {SHORT_DEADLINE_MS} ms"
+    );
+    assert!(w.log.contains(&gone), "{}", w.log);
     Ok(())
 }
 
@@ -692,15 +674,16 @@ fn close_out_of_order(w: &mut Steps) -> TestResult {
     on_played_frontend(w, Push::OutOfOrder).map(drop)
 }
 
+/// The storage process hosts no system group: it dials the played one, which ends its subscription.
 #[when(
-    "the frontend ends a storage process's subscription, the close it asks for being no longer held"
+    "the system group ends the subscription of a storage process that does not host it, the close it asks for being no longer held"
 )]
 fn subscription_ended(w: &mut Steps) -> TestResult {
     on_played_frontend(w, Push::Ending).map(drop)
 }
 
 #[then(
-    "the process shuts down through its ordinary path, and it exits with code 69 naming what the frontend said"
+    "the process shuts down through its ordinary path, and it exits with code 69 naming what the system group said"
 )]
 fn exits_on_the_end(w: &mut Steps) -> TestResult {
     assert!(w.exited.is_some(), "it runs on:\n{}", w.log);
@@ -738,11 +721,11 @@ fn on_played_frontend(w: &mut Steps, push: Push) -> TestResult<Arc<Played>> {
 /// (notes/group-3-quads-apply.md, "Sequences").
 const BLOCKS_HELD: usize = 2;
 
-/// How long the test lets a stopping storage process go on before the frontend answers its Join: ten of the role's 20 ms
+/// How long the test lets a stopping storage process go on before the system group answers its Join: ten of the role's 20 ms
 /// looks at whether it stops.
 const STOP_SEEN: Duration = Duration::from_millis(200);
 
-#[when("a storage partition joins the frontend")]
+#[when("a storage partition joins the system group")]
 fn joins_played(w: &mut Steps) -> TestResult {
     w.played = Some(on_played_frontend(w, Push::Ending)?);
     Ok(())
@@ -769,7 +752,7 @@ fn leased_ahead(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("storage receives SIGTERM while the frontend holds its Join's reply")]
+#[when("storage receives SIGTERM while the system group holds its Join's reply")]
 fn stopped_joining(w: &mut Steps) -> TestResult {
     let log = scratch("storage-stopped-joining.log");
     let settings = with(

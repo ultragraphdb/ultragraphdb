@@ -68,10 +68,6 @@ builds that version.
 - **WHEN** `knows` is held for `a` and `b` and is dropped
 - **THEN** no key of `knows` remains, and neither the subject predicates of `a` nor of `b` holds `knows`
 
-#### Scenario: Dropping a vector predicate drops its vector index
-- **WHEN** `emb` is declared with a vector index, holds vectors, and is dropped
-- **THEN** no forward or vector-index key of `emb` remains
-
 #### Scenario: Dropping a graph keeps the other graphs
 - **WHEN** graphs `<g1>` and `<g2>` hold statements and `<g1>` is dropped
 - **THEN** no key of `<g1>` remains, and every statement of `<g2>` is still held
@@ -79,16 +75,6 @@ builds that version.
 #### Scenario: Dropping data keeps the catalog
 - **WHEN** a tenant's data is dropped
 - **THEN** its predicates hold no data and its catalog is unchanged
-
-#### Scenario: Dropping a tenant's everything survives a restart
-- **WHEN** everything in tenant 3 is dropped and the roles are restarted
-- **THEN** tenant 3 holds no quad key, and the metadata group holds its initial catalog
-
-#### Scenario: A tenant's drop leaves a tenant sharing its run
-- **WHEN** tenants 7 and 8 share a bucket run, each holds statements in one partition, and everything in tenant 7 is
-  dropped
-- **THEN** tenant 7 holds no quad key, its catalog is the initial catalog, and every statement and the catalog of tenant
-  8 are unchanged
 
 #### Scenario: A resent Drop builds the version a stopped frontend left
 - **WHEN** a Drop of `p` through a session commits at its partition, the frontend stops before the catalog

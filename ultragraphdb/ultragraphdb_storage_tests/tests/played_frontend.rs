@@ -66,6 +66,10 @@ pub struct Played {
     /// The partitions each Join named, in order.
     joined: Mutex<Vec<u32>>,
     subscribes: AtomicUsize,
+    /// The connections whose authentication was refused.
+    refusals: AtomicUsize,
+    /// The role commands its connections were asked, whatever their command.
+    commands: AtomicUsize,
     holding: AtomicBool,
 }
 
@@ -88,6 +92,16 @@ impl Played {
     /// How many subscriptions were opened.
     pub fn subscribes(&self) -> usize {
         self.subscribes.load(Ordering::Acquire)
+    }
+
+    /// How many connections' authentication was refused.
+    pub fn refusals(&self) -> usize {
+        self.refusals.load(Ordering::Acquire)
+    }
+
+    /// How many role commands its connections were asked.
+    pub fn commands(&self) -> usize {
+        self.commands.load(Ordering::Acquire)
     }
 
     fn lease(&self, type_prefix: u16, partition: u32) {
@@ -152,7 +166,12 @@ fn placement() -> TestResult<Placement> {
 }
 
 impl Session for PlayedFrontend {
+    fn authentication_refused(&mut self) {
+        let _refused: usize = self.played.refusals.fetch_add(1, Ordering::AcqRel);
+    }
+
     async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
+        let _asked: usize = self.played.commands.fetch_add(1, Ordering::AcqRel);
         let view = match frame.view() {
             Ok(view) => view,
             Err(rule) => return Answer::Refuse(ErrorReply::protocol(&rule)),

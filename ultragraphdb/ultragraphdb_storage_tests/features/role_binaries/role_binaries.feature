@@ -5,7 +5,7 @@ Feature: The storage binary as a process
   openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md
 
   Scenario: A role with the wrong secret is refused
-    When a storage process started with a different role secret connects to the frontend
+    When a frontend started with a different role secret connects to the system group
     Then its authentication is refused, it sends no role command, and it retries until its deadline
 
   Scenario: A missing role secret stops the start
@@ -33,11 +33,11 @@ Feature: The storage binary as a process
     Then `/health` answers at once and `/ready` answers only after the replay
 
   Scenario: Storage stopped before it joined is never ready
-    When storage receives SIGTERM while the frontend holds its Join's reply
+    When storage receives SIGTERM while the system group holds its Join's reply
     Then it completes its Join, exits with code 0, and never reports itself ready
 
   Scenario: A partition leases its blocks ahead of need
-    When a storage partition joins the frontend
+    When a storage partition joins the system group
     Then it leased the current block and the block ahead of each type before it joined
 
   Scenario: An unknown setting stops the start
@@ -61,8 +61,8 @@ Feature: The storage binary as a process
     Then it logs that it runs unpinned, and serves requests
 
   Scenario: A subscription past the closes held exits with its code
-    When the frontend ends a storage process's subscription, the close it asks for being no longer held
-    Then the process shuts down through its ordinary path, and it exits with code 69 naming what the frontend said
+    When the system group ends the subscription of a storage process that does not host it, the close it asks for being no longer held
+    Then the process shuts down through its ordinary path, and it exits with code 69 naming what the system group said
 
   Scenario: An invariant violation exits with its code
     When a storage partition detects an invariant violation in a release build

@@ -286,6 +286,21 @@ catalog version and the generated schema, connects to UltraGraphDB and serves gR
     generated schema naming the catalog version it was generated from?
   - Do the generators port Hydra's adapter rules alone, or use Hydra's code?
 
+### 21. Drops across tenants (stage 7)
+
+Stage 5.8 holds tenant 0 alone: further tenants take the cluster operation of `SECURITY.md`'s `operate` action, whose
+command arrives with stage 7's administration commands (metadata-group, "The metadata group holds the tenants"), and no
+client or role path makes one. Two scenarios of schema-changes' "Drops" name tenants 3, 7 and 8, so no binding over the
+binaries holds them in stage 5.8; they moved here from its change on 2026-11-17, verbatim, under *Source material:
+requirements*. Stage 7's change specifies them again beside the tenant command, which makes those tenants.
+
+### 22. A vector predicate's drop (stage 8)
+
+The frontend refuses a vector-index declaration until stage 8 (client-endpoint, "Vector-index declarations wait for stage
+8"), so no vector-index key exists over the binaries before it. Schema-changes' "Dropping a vector predicate drops its
+vector index" moved here from stage 5.8's change on 2026-11-17, verbatim, under *Source material: requirements*. Stage
+8's change specifies it again beside the vector-index declaration it admits.
+
 ## Source material: requirements
 
 The change's `server-node` spec, whole:
@@ -512,6 +527,29 @@ From the change's `wire-protocol` spec, the scenarios that need a server answeri
 - **WHEN** a connection's credential expires before a new exchange completes, with a transaction open
 - **THEN** the server answers code 22 on stream 0 and closes the connection, the transaction aborts, and the
   principal's sessions serve its next connection
+
+From stage 5.8's change, `specs/schema-changes/spec.md`, the scenarios no binding over its binaries can hold, removed from
+its "Drops" on 2026-11-17 (items 21 and 22):
+
+#### From the requirement "Drops" (`schema-changes`)
+
+#### Scenario: Dropping a vector predicate drops its vector index
+- **WHEN** `emb` is declared with a vector index, holds vectors, and is dropped
+- **THEN** no forward or vector-index key of `emb` remains
+
+#### From the requirement "Drops" (`schema-changes`)
+
+#### Scenario: Dropping a tenant's everything survives a restart
+- **WHEN** everything in tenant 3 is dropped and the roles are restarted
+- **THEN** tenant 3 holds no quad key, and the metadata group holds its initial catalog
+
+#### From the requirement "Drops" (`schema-changes`)
+
+#### Scenario: A tenant's drop leaves a tenant sharing its run
+- **WHEN** tenants 7 and 8 share a bucket run, each holds statements in one partition, and everything in tenant 7 is
+  dropped
+- **THEN** tenant 7 holds no quad key, its catalog is the initial catalog, and every statement and the catalog of tenant
+  8 are unchanged
 
 ## Source material: design
 
