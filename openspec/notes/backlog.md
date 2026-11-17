@@ -301,6 +301,23 @@ The frontend refuses a vector-index declaration until stage 8 (client-endpoint, 
 vector index" moved here from stage 5.8's change on 2026-11-17, verbatim, under *Source material: requirements*. Stage
 8's change specifies it again beside the vector-index declaration it admits.
 
+### 23. What the refused-frame fixes of stage 5.8 left (stage 5.9)
+
+Stage 5.8 made each side that reads role replies follow `PROTOCOL.md` §2.5 step 3 and §2.6 (its `notes/group-8.md`,
+task 8.3). These findings were not taken into that change, and stage 5.9 settles each of them:
+
+- **One reader rule.** The rule for late frames, stray frames and frames on stream 0 is written three times:
+  `RoleClient::arrived` and storage's `subscribed` and `catalog_frame`. Should a `RoleClient` method that reads a
+  request's next frame hold it once in `ultragraphdb_common_role`?
+- **A Scan that could not be sent.** Compute's `ScanStream::open` does not `forget` its stream when `link.send` fails, so
+  the entry stays until a frame arrives on that stream or the link closes.
+- **A failed write on compute's `Link`.** When `write_frames` ends on a write error, the link is not marked closed: later
+  sends are answered 17, and nothing dials again until the reader ends.
+- **An Error 7 within a catalog version.** In storage's `held_versions`, an Error 7 on a version's stream after its first
+  frame ends that tenant's versions quietly. Should it fail the read instead?
+- **`Push::Close` in a stream count.** `StorageSession::answered` does not count `Push::Close` as ending a stream. This is
+  harmless today, since the connection closes.
+
 ## Source material: requirements
 
 The change's `server-node` spec, whole:

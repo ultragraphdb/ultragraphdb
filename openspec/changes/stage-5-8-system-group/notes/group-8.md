@@ -510,6 +510,98 @@ Found wanting by the audit:
    (`storage create failed (is a directory)`), and only the superblock write fails, as root too. The exit-74 and
    stop-path assertions are unchanged. 20 of 20 uncached under 12 `yes` processes on 16 CPUs (3.4–7.3 s).
 
+Items 1 to 6, fixed after the audit, test first (each new test failed for the reason given before its fix):
+1. **The frontend's `RoleLink`** records each stream's requests: the one that opened it, and each later one `send` carries.
+   In `deliver` it refuses a frame that answers none of its stream's requests (§2.5, step 3). It also refuses a Bind, Held,
+   Commit, Drop, Reference or Error whose body breaks its rules, a Reference that is no reply included. A refusal closes
+   the link (§2.6, §13): its streams are answered 17, and `RoleLinks` dials again. Result frames are not decoded there;
+   the client checks them. `LinkEvent` carries the read reply (`Bound`, `Held`, `Registered`, `Refused`, `Frame` for a
+   Result or a Commit's or Drop's reply relayed as it came), so the session handlers read no frame again: no Bind is taken
+   as `read_version` 0, no other command is dropped or relayed. A partition's Error on a one-frame or Drop stream reaches
+   the client rebuilt by `push_error`, fitted to its `max_frame`. Tests (`client_session_tests.rs`), each failing first:
+   - `test_a_bind_answered_by_a_frame_refused_closes_the_link`, failed "no answer came";
+   - `test_a_held_refused_closes_the_link`, failed "no answer came";
+   - `test_a_read_answered_by_a_frame_refused_closes_the_link`, failed "no answer came";
+   - `test_a_commit_reply_refused_closes_the_link`, failed with the Commit relayed;
+   - `test_a_drop_reply_refused_closes_the_link`, failed with the Drop relayed;
+   - `test_a_one_frame_write_answered_otherwise_closes_the_link`, failed with a Held relayed;
+   - `test_a_reference_refused_closes_the_link`, failed with 17 answered and the link kept.
+
+   The stricter link found test doubles breaking the protocol. `RoleDouble` answered a Drop's Bind with a
+   `read_version`, and sent its replies through a session with no token; four BDD steps answered Commits the same way.
+   They are fixed, and `committed` is exported for them.
+2. **The client core** gives the live connection up when a broken Result frame is read from a read kept on it, its
+   transaction refused (`test_a_broken_frame_of_a_kept_read_gives_the_live_connection_up`, failed "given up"). By design
+   a Result frame's chunks are checked when it is read: one dropped unread by a cancel, a forgotten read or a
+   transaction's end closes nothing.
+3. **The partition core** answers a chunk or body-length failure (§2.5, steps 9–12) with `Push::Close`, whether checked
+   as it takes a frame or, for a frame behind a parked request, in its turn. `serve.rs` sends that as Error 1 on stream 0
+   and closes, as for `Answer::Close`.
+   - `test_a_request_failing_its_checksum_closes_its_connection_now_or_in_its_turn` failed with `Refuse(.. "chunk 0, body
+     bytes 0..24 ..")` for `Close(Chunk)`.
+   - `test_a_pushed_close_ends_the_connection_with_error_1_on_stream_0` failed by timing out.
+4. **`serve.rs`** tells the session `cancelled(stream)` when a refusal ends a stream it held open, such as a Credit with a
+   bad body (`test_a_refusal_ending_an_open_stream_tells_the_session`, failed `[]` for `[1]`).
+5. **Readers that took frames on any stream:**
+   - **`RoleClient::request`** takes its reply on its own stream alone. It checks a frame on an ended stream whole and
+     drops it, and refuses one on stream 0 or on a stream not opened, closing the connection.
+     `test_a_reply_on_another_stream_is_refused_and_closes_the_connection` failed "a refusal: none";
+     `test_a_late_frame_is_dropped_once_whole` failed "command 531 is not served".
+   - **Compute's `Link`** refuses a stream at or above `next_stream`, and checks a late frame whole before dropping it.
+     `test_a_frame_on_a_stream_not_opened_closes_the_link` and `test_a_late_frame_is_checked_whole_and_dropped` both
+     failed "the lookup's refusal: none".
+   - **Compute's `closes`** refuses a frame on stream 0 or on a stream not opened, and a late frame failing its check, then
+     asks the group again (`test_a_frame_the_held_connection_refuses_closes_it`, failed "Ahead: the group asked again did
+     not happen").
+   - **Storage's `deliver_closes`** reads the subscription's stream alone and drops late frames. It takes an Error 1 on
+     stream 0, or a refused frame, as the connection's end: it closes the connection and joins again, where it exited 69
+     or kept the old client open through `retry_until`. The two new system-group scenarios
+     (`storage_tests/features/system-group/lost_group.feature`) failed against the unfixed `service.rs`:
+     - "A connection error ending a subscription's connection is joined again" failed "a second Join did not happen
+       within 20 s";
+     - "A frame on a stream storage has not opened closes the subscription's connection" failed with the first
+       subscription's connection still open at the second Join.
+
+   `serve_partition`'s listening moved to `accept_at` (clippy `too_many_lines`).
+6. **`serve.rs`** answers no Ended, whether refused by the session or arriving while stopping, as it answers no
+   CloseRequest (§13.25) (`test_a_refused_ended_is_answered_by_nothing`, failed `(16, 1)` for `(513, 2)`).
+
+The last fix wave closed the four findings those fixes left:
+1. **Storage `catalog_read`.** Catalog frames after the first were read without a check on their stream. A Catalog frame
+   on stream 0, or on a stream not opened, was taken into the version, and a late frame failed the read. They now follow
+   §2.5 step 3 as the subscription does:
+   - a late frame is checked whole and dropped;
+   - the group's Error on stream 0 or on the version's stream is its refusal;
+   - a frame on any other stream is refused (`CommandNotServed`), and dropping the client closes the connection.
+
+   An Error on the version's stream after the first frame now passes through with its own code, where it was refused as
+   `WrongCommand`. Tests: three scenarios in `storage_tests` `lost_group.feature` over the played group, and in the
+   system-group spec (failed: catalog connections 2 for 1, 1 for 2, 1 for 2).
+2. **Frames behind a closing frame.** `serve.rs` already stops at the first Close. The window was in the partition core:
+   the storage session answers `Open` at once, so it took frames its connection handed it before the close reached the
+   session. The core now keeps the connections it closed (`refused`) until their `Closed`, and takes none of their later
+   frames (§2.6). Test: `test_nothing_behind_a_frame_closing_its_connection_is_taken` (failed "the DirectWrite behind the
+   closing frame was taken"). The checksum test's in-turn half moved to a second connection, since §2.6 no longer allows
+   using a closed one.
+3. **Compute's `Link`.** A frame on a stream whose holder dropped its receiver without `forget` (a Scan that could not be
+   sent) was dropped unchecked. It is now late: checked whole, and the stream ends. Test:
+   `test_a_frame_of_a_stream_whose_holder_is_gone_is_checked_whole` (failed "the lookup's refusal: none").
+4. **`bdd_endpoint` "A role connection's dial past its bound closes it"** failed 15 of 60 uncached under 32 `yes`
+   processes, every one `Unavailable` "no compute process answers". The step put the silent compute in the core's links
+   alone. The start-up Members reads run every 100 ms while no partition answers (D9, D10), and they replaced it with the
+   group's empty list. The step now joins it at the group and reads Members. 60 of 60 uncached under the same load.
+
+Found wanting by the fixes, recorded in `openspec/notes/backlog.md`:
+1. `StorageSession::answered` does not count `Push::Close` as ending a stream. This is harmless, since the connection
+   closes.
+2. Compute's `ScanStream::open` does not `forget` its stream when `link.send` fails; the entry stays until a frame
+   arrives on that stream or the link closes.
+3. Compute's `Link`: when `write_frames` ends on a write error, the link is not marked closed; later sends are answered 17
+   and nothing dials again until the reader ends.
+4. Storage's `held_versions`: an Error 7 on a version's stream after its first frame ends that tenant's versions quietly.
+5. The late, stray and stream-0 rule is written three times: `RoleClient::arrived`, storage's `subscribed` and its
+   `catalog_frame`.
+
 ## Bite evidence (temporary edits, reverted)
 
 Counting assertions through `failure_order`: a predicate committed again fails "held once", a stray statement fails "no other
