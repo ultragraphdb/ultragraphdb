@@ -1,0 +1,26 @@
+ultragraphdb_core/ultragraphdb_core_catalog/tests/utils/describe_of_tests.rs
+  s_21eff977e05256::t_e35e8fe24899de 1-90,97-135
+  s_21eff977e05256::t_b90ae09e51f4ca 91-96
+ultragraphdb_core/ultragraphdb_core_catalog/tests/utils/mod.rs
+  s_21eff977e05256::t_8a409d62cc3cf4 9-10
+ultragraphdb_client/ultragraphdb_client_core/tests/types/client_core/client_core_lost_tests.rs
+  s_21eff977e05256::t_db9d2ea0e76cc0 391-419
+ultragraphdb_common/ultragraphdb_common_config_check/tests/utils/cross_checks_tests.rs
+  s_21eff977e05256::t_5e7cc15bbd29fc 876-938
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d13843fd8fe4e1c4068c035b7244ebf4406a6efb",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
