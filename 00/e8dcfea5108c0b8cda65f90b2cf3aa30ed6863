@@ -1,0 +1,22 @@
+ultragraphdb_common/ultragraphdb_common_system/src/types/system_group/system_group_answer.rs
+  s_21eff977e05256::t_9aa979698bc7f6 93-96,98,122-137,146
+  s_21eff977e05256::t_ec80b8f0032fb2 71-78
+  s_21eff977e05256::t_43a8164ea0b51d 79-81,90-92
+  s_21eff977e05256::t_0f8245715c2bb4 82-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "00e8dcfea5108c0b8cda65f90b2cf3aa30ed6863",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
