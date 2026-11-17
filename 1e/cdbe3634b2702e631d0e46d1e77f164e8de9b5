@@ -1,0 +1,57 @@
+AGENTS.md
+  s_21eff977e05256::t_5884442000f63f 308
+Cargo.lock
+  s_21eff977e05256::t_68ad8ae3e81d7b 228-233,384-385,398-399,407-408,425,435-436,447-448,465-466,468,481-482,489-490,509-510,521,523
+Cargo.toml
+  s_21eff977e05256::t_c70ef7f9a5fd48 122
+MODULE.bazel
+  s_21eff977e05256::t_9d3d64b49bf1e0 88-90,93
+MODULE.bazel.lock
+  s_21eff977e05256::t_7d43f3e26383ad 1036,1150-1159
+fuzz/Cargo.lock
+  s_21eff977e05256::t_9da5c002785260 96-101,156-157,170-171,179-180,197,207-208,219-220,237-238,240,253-254,261-262,281-282,293,295,1618,1769
+fuzz/Cargo.toml
+  s_21eff977e05256::t_975350a01b58e0 59
+ultragraphdb_client/ultragraphdb_client_compio/tests/bdd.rs
+  s_21eff977e05256::t_8aeed36f699c78 388-390
+ultragraphdb_client/ultragraphdb_client_compio/tests/types/client/client_shell_tests.rs
+  s_21eff977e05256::t_c2f46b0f2951d5 688,691
+ultragraphdb_common/ultragraphdb_common_service/tests/utils/listen_tests.rs
+  s_21eff977e05256::t_93bbf1dcce7ad4 31,116
+ultragraphdb_common/ultragraphdb_common_service/tests/utils/run_service_tests.rs
+  s_21eff977e05256::t_233dc11aeb015c 284,655-667
+ultragraphdb_common/ultragraphdb_common_system/tests/property/types/system_group/system_group_catalog_property_tests.rs
+  s_21eff977e05256::t_232fd161d8dc25 378,387,472
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/src/types/compio_sim_stream/compio_sim_stream_async_read.rs
+  s_21eff977e05256::t_f42d73efb31884 9
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/src/types/compio_tls_stream/compio_tls_stream_async_read.rs
+  s_21eff977e05256::t_0e37a03f6b3ca2 9
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/src/types/compio_tls_stream/mod.rs
+  s_21eff977e05256::t_f5e7d9ac9d2e96 13
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/src/types/connection/mod.rs
+  s_21eff977e05256::t_6ce1edcb660409 7
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/src/types/tls_read_half.rs
+  s_21eff977e05256::t_5391592615d37e 11
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/src/types/tls_write_half.rs
+  s_21eff977e05256::t_41e56f89e396a9 11
+ultragraphdb_transactions/ultragraphdb_transactions_log/src/types/compio_file/compio_file_durable_file.rs
+  s_21eff977e05256::t_fe87674f8350be 8
+ultragraphdb_transport/ultragraphdb_transport_http_server/tests/utils/serve_http_tests.rs
+  s_21eff977e05256::t_743b1738c03349 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1ecdbe3634b2702e631d0e46d1e77f164e8de9b5",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
