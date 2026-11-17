@@ -569,7 +569,8 @@ fn test_a_resume_key_naming_an_unheld_term_past_the_frame_is_refused_within_it()
 
 /// A monotonic-fast read over partitions, its partitions dialled by a read before it, is refused when one fails the Closed it is
 /// asked: one silent past the answer bound with code 17, its connection closed; one refusing with its own refusal; one answering
-/// with a frame that is no Closed, or whose body does not read, with code 17, its connection closed.
+/// with a frame that is no Closed, or whose body does not read, or an Error whose body does not read, with code 17, its
+/// connection closed.
 #[test]
 fn test_a_closed_failed_refuses_a_monotonic_fast_read() -> TestResult {
     use ultragraphdb_protocol_wire::ErrorCode;
@@ -583,6 +584,7 @@ fn test_a_closed_failed_refuses_a_monotonic_fast_read() -> TestResult {
             (refused, ErrorCode::TooOld),
             (ClosedAnswer::NotClosed, ErrorCode::Unavailable),
             (ClosedAnswer::Corrupt, ErrorCode::Unavailable),
+            (ClosedAnswer::BadError, ErrorCode::Unavailable),
         ];
         for (closed, code) in answers {
             // A partition silent past 1 s is hung: well past a dial on a loaded host, which a first read makes before the Closed.

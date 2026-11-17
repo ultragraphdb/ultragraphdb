@@ -19,6 +19,7 @@ use ultragraphdb_protocol_wire::{
     BodyView, Catalog, ErrorCode, ErrorReply, Members, MembersView, Placement, PlacementView,
 };
 
+use super::system_link_asks::last;
 use super::{SystemLink, unavailable};
 use crate::types::client_session::now;
 use crate::types::role_links::RoleLinks;
@@ -90,14 +91,12 @@ impl SystemLink {
     ///
     /// The group's refusal; code 17 when the link is closed or closes before the answer.
     pub async fn members(&self) -> Result<(), ErrorReply> {
-        let frames = self.ask(&Members::new()).await?;
-        let frame = frames
-            .last()
-            .ok_or_else(|| unavailable("a Members answer of no frame"))?;
-        let view = self.read(frame)?;
-        let members = MembersView::from_frame(&view).map_err(|rule| ErrorReply::protocol(&rule))?;
-        self.links().learned(&members);
-        Ok(())
+        let links = self.links();
+        self.ask(&Members::new(), |cluster, frames| {
+            links.learned(&MembersView::from_frame(&last(cluster, frames)?)?);
+            Ok(())
+        })
+        .await
     }
 
     /// The links Members is read into.
@@ -112,18 +111,17 @@ impl SystemLink {
     ///
     /// The group's refusal; code 17 when the link is closed or closes before the answer.
     pub async fn read_placement(&self) -> Result<(), ErrorReply> {
-        let frames = self.ask(&Placement::request(0)).await?;
-        let frame = frames
-            .last()
-            .ok_or_else(|| unavailable("a Placement answer of no frame"))?;
-        let view = self.read(frame)?;
-        let placed =
-            PlacementView::from_frame(&view).map_err(|rule| ErrorReply::protocol(&rule))?;
-        let map = map_of(&placed)?;
-        let tenants = (0..placed.run_count())
-            .filter_map(|at| placed.run(at))
-            .map(|run| run.tenant())
-            .collect();
+        let (map, tenants) = self
+            .ask(&Placement::request(0), |cluster, frames| {
+                let placed = PlacementView::from_frame(&last(cluster, frames)?)?;
+                let tenants: Vec<u64> = (0..placed.run_count())
+                    .filter_map(|at| placed.run(at))
+                    .map(|run| run.tenant())
+                    .collect();
+                Ok((map_of(&placed), tenants))
+            })
+            .await?;
+        let map = map?;
         self.links().set_map(map.clone());
         {
             let mut state = self.state.borrow_mut();

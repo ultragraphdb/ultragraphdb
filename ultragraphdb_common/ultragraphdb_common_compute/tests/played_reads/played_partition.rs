@@ -102,6 +102,8 @@ pub enum ClosedAnswer {
     NotClosed,
     /// Answers with a Closed whose body breaks its checksum.
     Corrupt,
+    /// Answers with an Error whose body breaks its rules.
+    BadError,
 }
 
 /// One played partition: its table, its scripts and what it took, shared by its connections and the test.
@@ -362,6 +364,11 @@ impl PartitionConnection {
                     frame
                 })
             }
+            Some(ClosedAnswer::BadError) => Header::new(self.cluster, Command::Error)
+                .with_stream(stream)
+                .with_flags(FLAG_LAST)
+                .encode_frame(&[0xFF; 8])
+                .map_err(|rule| ErrorReply::protocol(&rule)),
         };
         match built {
             Ok(replied) => Answer::Reply(replied),

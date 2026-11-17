@@ -224,8 +224,10 @@ async fn closed_epoch(core: &Rc<ComputeCore>, partition: u32) -> Result<u64, Err
         link.closed_under_read()
     })?;
     if view.command() == Command::Error {
-        let error =
-            ErrorReplyView::from_frame(&view).map_err(|rule| ErrorReply::protocol(&rule))?;
+        let error = ErrorReplyView::from_frame(&view).map_err(|rule| {
+            link.close(&rule);
+            link.closed_under_read()
+        })?;
         return Err(ErrorReply::new(error.code(), error.message()).with_detail(error.detail()));
     }
     let closed = ClosedView::from_frame(&view).map_err(|rule| {

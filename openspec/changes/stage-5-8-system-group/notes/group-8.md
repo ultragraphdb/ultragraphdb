@@ -470,6 +470,36 @@ connection. Fixed in `system_link_tasks.rs`; test first, `test_a_frame_the_link_
 "the Session was left unanswered", passes). Body-level refusals inside `deliver` are still dropped silently; other role readers
 not audited.
 
+Body-level refusals, and the other readers (follow-up). §13: the side that dialled closes the connection for any frame it
+refuses, body included, and answers what it carried with code 17; the side that accepted answers a frame-level rule on
+stream 0 and closes. Fixed, test first:
+- `SystemLink`: `deliver` refuses a frame on stream 0 or a stream not yet opened, a command its request is not answered
+  by (§2.5 step 3), and a subscription's close or Error, a Check reply or Error, whose body breaks its rules; an ask's
+  answer is read inside the ask, whose refusal closes the connection it came on (`refuse`, by connection number). Tests
+  `test_a_subscription_frame_the_link_refuses_closes_its_connection` (failed "the check refused: none"),
+  `test_a_check_reply_the_link_refuses_closes_its_connection` (failed code 1 for 17),
+  `test_an_answer_the_link_refuses_closes_its_connection` (failed "refused: none": a Session's body was never read),
+  `test_a_frame_on_a_stream_not_opened_closes_the_connection` (failed "the Session was left unanswered").
+- compute `closed_epoch`: an Error whose body does not read closes the link, 17 (was code 1, link kept); `ClosedAnswer::BadError`.
+- storage `StorageSession::answer`: a frame out of sequence closes the connection (`Answer::Close`), was a stream error.
+- Clippy in the system link: a type for a close's parts; no conversion of a PathBuf to itself; the test splice runs on
+  compio tasks rather than threads the workspace disallows.
+
+Found wanting by the audit:
+1. The frontend's client sessions read partition and compute replies without closing the `RoleLink` on a refused body or
+   command: a malformed Bind binds at read version 0; other commands are ignored or relayed verbatim.
+2. The client core checks a Result frame's chunks only when read: one dropped by a cancel, a dropped read or a
+   transaction's end, or read from a kept read on the live connection, closes nothing.
+3. The partition core refuses steps 9–12 as a stream error; it needs a `Push` that closes.
+4. `serve.rs` does not tell the session of a stream the machine refused (`Inbound::Refused`).
+5. Unreachable from a conforming peer, no fake yet: `RoleClient::request` takes a reply on any stream; compute's `Link`
+   drops frames on unknown streams unchecked; compute's `closes` drops unasked frames unchecked; storage's
+   `deliver_closes` reads frames of any stream and takes an Error 1 on stream 0 as the subscription's end.
+6. `serve.rs` answers an Ended arriving while stopping with Error 17 (§13.25: nothing answers it).
+7. `compute_core_catalog.rs` answers malformed frames with code 1 by documented intent, where §11.12 says 17.
+8. `system_books_bdd` "A failed log of the group stops the process" failed once in the gate: the log refused its write at
+   `rename`, the step expects `create`.
+
 ## Bite evidence (temporary edits, reverted)
 
 Counting assertions through `failure_order`: a predicate committed again fails "held once", a stray statement fails "no other

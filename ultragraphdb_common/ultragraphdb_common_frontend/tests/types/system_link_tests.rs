@@ -7,8 +7,13 @@
 //! §11.12; design D5 to D9): corner cases C5.2, C5.11, C5.13, C5.16, C5.17, C5.21 and C5.31 to C5.33 of
 //! `notes/corner-cases.md`.
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use compio::BufResult;
+use compio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use compio::net::{TcpListener, TcpStream};
 use compio::runtime::Runtime;
 use ultragraphdb_common_frontend::{RoleDouble, RoleLinks, SystemLink, SystemPlay};
 use ultragraphdb_common_role::{Answer, RoleCluster, RoleSecret};
@@ -18,7 +23,8 @@ use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_protocol_transport::{Address, Endpoint};
 use ultragraphdb_protocol_wire::{
     BodyView, CheckKind, CheckOutcome, CheckView, CloseRequestView, Command, Declared,
-    DeclaredPredicate, EndedView, ErrorCode, ErrorReply, FrameView, MAX_FRAME_SIZE, SubscribeView,
+    DeclaredPredicate, EndedView, ErrorCode, ErrorReply, FrameView, Header, MAX_FRAME_SIZE,
+    SubscribeView,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -40,8 +46,7 @@ const WAIT: Duration = Duration::from_secs(5);
 /// A cluster whose role secret is in a file of `name`.
 fn cluster(name: &str) -> TestResult<RoleCluster> {
     let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, Into::into);
-    let file =
-        std::path::PathBuf::from(root).join(format!("system-link-{name}-{}", std::process::id()));
+    let file = root.join(format!("system-link-{name}-{}", std::process::id()));
     std::fs::write(&file, "a role secret")?;
     Ok(RoleCluster::new(
         CLUSTER,
@@ -581,83 +586,101 @@ fn test_a_subscription_ended_is_opened_again() -> TestResult {
     })
 }
 
-/// A connection between the link and the double that loses the next frame the group sends of the command it is armed for, so
-/// every later frame on that connection arrives out of its sequence (`PROTOCOL.md` §2.5, step 13). It carries the frames
-/// whole, on threads of its own.
+/// A connection between the link and the double that loses, or moves to another stream, the next frame the group sends of
+/// the command it is armed for: after a lost one every later frame on that connection arrives out of its sequence
+/// (`PROTOCOL.md` §2.5, step 13). It carries the frames whole, on tasks of the test's runtime.
 struct Splice {
     address: String,
-    armed: std::sync::Arc<std::sync::Mutex<Option<Command>>>,
+    armed: Rc<RefCell<Option<Armed>>>,
 }
+
+/// The command a splice is armed for, and the stream its next frame moves to, `None` to lose it.
+type Armed = (Command, Option<u64>);
 
 impl Splice {
     /// A splice from a port of its own to the double at `to`.
-    fn to(to: &str) -> TestResult<Self> {
+    async fn to(to: &str) -> TestResult<Self> {
         let target: std::net::SocketAddr = to.trim_start_matches("tcp://").parse()?;
-        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = format!("tcp://{}", listener.local_addr()?);
-        let armed = std::sync::Arc::new(std::sync::Mutex::new(None));
-        let held = std::sync::Arc::clone(&armed);
-        drop(std::thread::spawn(move || {
-            for link in listener.incoming().flatten() {
-                drop(splice(link, target, &held));
+        let armed = Rc::new(RefCell::new(None));
+        let held = Rc::clone(&armed);
+        compio::runtime::spawn(async move {
+            while let Ok((link, _)) = listener.accept().await {
+                drop(splice(link, target, Rc::clone(&held)).await);
             }
-        }));
+        })
+        .detach();
         Ok(Self { address, armed })
     }
 
     /// The next frame the group sends of `command` is lost.
     fn lose_next(&self, command: Command) {
-        *self
-            .armed
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(command);
+        *self.armed.borrow_mut() = Some((command, None));
+    }
+
+    /// The next frame the group sends of `command` arrives on `stream`, its header checksum made good.
+    fn restream_next(&self, command: Command, stream: u64) {
+        *self.armed.borrow_mut() = Some((command, Some(stream)));
     }
 }
 
-/// Carries `link`'s connection to the double at `target`, a thread each way.
-fn splice(
-    link: std::net::TcpStream,
+/// Carries `link`'s connection to the double at `target`, a task each way.
+async fn splice(
+    link: TcpStream,
     target: std::net::SocketAddr,
-    armed: &std::sync::Arc<std::sync::Mutex<Option<Command>>>,
+    armed: Rc<RefCell<Option<Armed>>>,
 ) -> std::io::Result<()> {
-    let group = std::net::TcpStream::connect(target)?;
-    let (mut up_from, mut up_to) = (link.try_clone()?, group.try_clone()?);
-    drop(std::thread::spawn(move || {
-        drop(std::io::copy(&mut up_from, &mut up_to));
-        drop(up_to.shutdown(std::net::Shutdown::Both));
-    }));
-    let armed = std::sync::Arc::clone(armed);
-    drop(std::thread::spawn(move || {
-        let (mut from, mut to) = (group, link);
-        while let Some(frame) = whole_frame(&mut from) {
+    let group = TcpStream::connect(target).await?;
+    let (mut up_from, mut down_to) = link.into_split();
+    let (mut down_from, mut up_to) = group.into_split();
+    compio::runtime::spawn(async move {
+        // Until either side ends (Ultra rule 2).
+        loop {
+            let BufResult(read, bytes) = up_from.read(Vec::with_capacity(65_536)).await;
+            if !matches!(read, Ok(n) if n > 0) || up_to.write_all(bytes).await.0.is_err() {
+                break;
+            }
+        }
+        drop(up_to.shutdown().await);
+    })
+    .detach();
+    compio::runtime::spawn(async move {
+        // Until either side ends (Ultra rule 2).
+        while let Some(mut frame) = whole_frame(&mut down_from).await {
             let command = frame
                 .get(54..56)
                 .and_then(|number| number.try_into().ok())
                 .map(u16::from_le_bytes);
-            let mut held = armed
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if held.is_some_and(|lost| Some(lost.number()) == command) {
-                *held = None;
-                continue;
+            let held = *armed.borrow();
+            if let Some((_, moved)) = held.filter(|(armed, _)| Some(armed.number()) == command) {
+                *armed.borrow_mut() = None;
+                match moved {
+                    Some(stream) if Header::stamp_stream(&mut frame, stream).is_ok() => {}
+                    Some(_) | None => continue,
+                }
             }
-            drop(held);
-            if std::io::Write::write_all(&mut to, &frame).is_err() {
+            if down_to.write_all(frame).await.0.is_err() {
                 break;
             }
         }
-        drop(to.shutdown(std::net::Shutdown::Both));
-    }));
+        drop(down_to.shutdown().await);
+    })
+    .detach();
     Ok(())
 }
 
 /// One frame from `from`, whole: `None` at the close.
-fn whole_frame(from: &mut std::net::TcpStream) -> Option<Vec<u8>> {
-    let mut frame = vec![0; 256];
-    std::io::Read::read_exact(from, &mut frame).ok()?;
+async fn whole_frame(from: &mut TcpStream) -> Option<Vec<u8>> {
+    let BufResult(read, mut frame) = from.read_exact(Vec::with_capacity(256)).await;
+    read.ok()?;
     let size = u32::from_le_bytes(frame.get(40..44)?.try_into().ok()?);
-    frame.resize(usize::try_from(size).ok()?.max(256), 0);
-    std::io::Read::read_exact(from, frame.get_mut(256..)?).ok()?;
+    let rest = usize::try_from(size).ok()?.checked_sub(256)?;
+    if rest > 0 {
+        let BufResult(read, body) = from.read_exact(Vec::with_capacity(rest)).await;
+        read.ok()?;
+        frame.extend_from_slice(&body);
+    }
     Some(frame)
 }
 
@@ -674,7 +697,7 @@ fn test_a_frame_the_link_refuses_closes_its_connection() -> TestResult {
             script.answer(frame)
         })
         .await?;
-        let splice = Splice::to(double.address())?;
+        let splice = Splice::to(double.address()).await?;
         let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
         let address = Address::parse(&splice.address)?;
         let link = SystemLink::dial(address, cluster, links, 5_000, Readiness::default());
@@ -704,6 +727,158 @@ fn test_a_frame_the_link_refuses_closes_its_connection() -> TestResult {
         .await?;
         link.answering(now().await + WAIT).await.replied()?;
         link.session(session(6), ALICE).await.replied()?;
+        Ok(())
+    })
+}
+
+/// A link over a [`Splice`] to a played group of one partition, which answers: the group, its double, the splice and the link.
+async fn spliced(name: &str) -> TestResult<(SystemPlay, RoleDouble, Splice, SystemLink)> {
+    let cluster = cluster(name)?;
+    let play = SystemPlay::new(CLUSTER, 1);
+    let script = play.clone();
+    let double = RoleDouble::start(&cluster, Endpoint::Frontend, move |frame| {
+        script.answer(frame)
+    })
+    .await?;
+    let splice = Splice::to(double.address()).await?;
+    let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
+    let address = Address::parse(&splice.address)?;
+    let link = SystemLink::dial(address, cluster, links, 5_000, Readiness::default());
+    link.answering(now().await + WAIT).await.replied()?;
+    Ok((play, double, splice, link))
+}
+
+/// §2.5 step 3, §2.6: a frame on a stream the link holds no request on and has not yet opened, or on stream 0, closes its
+/// connection; the request waiting on it is refused with code 17, and the link dials again.
+#[test]
+fn test_a_frame_on_a_stream_not_opened_closes_the_connection() -> TestResult {
+    Runtime::new()?.block_on(async {
+        for (name, stream) in [("stream-ahead", 1_000), ("stream-zero", 0)] {
+            let (_play, double, splice, link) = spliced(name).await?;
+            splice.restream_next(Command::Session, stream);
+            let refused = compio::time::timeout(WAIT, link.session(session(5), ALICE))
+                .await
+                .map_err(|_| {
+                    TestError::new(format!("stream {stream}: the Session was left unanswered"))
+                })?
+                .err()
+                .context("the Session refused")?;
+            assert_eq!(
+                refused.code(),
+                ErrorCode::Unavailable,
+                "stream {stream}: {refused:?}"
+            );
+            until("a second Subscribe", || {
+                double.count(Command::Subscribe) == 2
+            })
+            .await?;
+            link.answering(now().await + WAIT).await.replied()?;
+            link.session(session(6), ALICE).await.replied()?;
+        }
+        Ok(())
+    })
+}
+
+/// A check refused with code 17 by the connection's close, then the link up again and a check passing on it.
+async fn refused_then_up_again(
+    at: &Played,
+    pending: compio::runtime::JoinHandle<Result<(), ErrorReply>>,
+    what: &str,
+) -> TestResult {
+    let refused = compio::time::timeout(WAIT, pending)
+        .await
+        .map_err(|_| TestError::new(format!("{what}: the check was left unanswered")))?
+        .map_err(|_| TestError::new("the check's task"))?
+        .err()
+        .context("the check refused")?;
+    assert_eq!(
+        refused.code(),
+        ErrorCode::Unavailable,
+        "{what}: {refused:?}"
+    );
+    link_up_again(at).await?;
+    at.link
+        .check(session(2), ALICE, CheckKind::Marks)
+        .await
+        .replied()?;
+    Ok(())
+}
+
+/// §2.6, §13: a frame on the subscription's stream the link refuses (a close or an Error whose body breaks its rules, or a
+/// command no Subscribe is answered by) closes the connection, so a check waiting on it is refused with code 17, and the
+/// link dials again.
+#[test]
+fn test_a_subscription_frame_the_link_refuses_closes_its_connection() -> TestResult {
+    Runtime::new()?.block_on(async {
+        for (name, reply) in [
+            ("close-body", Command::EpochClose),
+            ("subscription-error-body", Command::Error),
+            ("subscription-command", Command::Session),
+        ] {
+            let at = played(name, SystemPlay::new(CLUSTER, 1)).await?;
+            at.play.hold_checks();
+            let link = at.link.clone();
+            let pending = compio::runtime::spawn(async move {
+                link.check(session(1), ALICE, CheckKind::Marks).await
+            });
+            until("the Check frame", || at.double.count(Command::Check) == 1).await?;
+            at.play.push_garbled(reply);
+            at.play.release();
+            refused_then_up_again(&at, pending, &format!("{reply:?}")).await?;
+        }
+        Ok(())
+    })
+}
+
+/// §2.6, §13: a Check frame's reply the link refuses (a Check or an Error whose body breaks its rules, or a command no Check
+/// is answered by) closes the connection: each check it carried is refused with code 17, and the link dials again.
+#[test]
+fn test_a_check_reply_the_link_refuses_closes_its_connection() -> TestResult {
+    Runtime::new()?.block_on(async {
+        for (name, reply) in [
+            ("check-body", Command::Check),
+            ("check-error-body", Command::Error),
+            ("check-command", Command::Session),
+        ] {
+            let at = played(name, SystemPlay::new(CLUSTER, 1)).await?;
+            at.play.garble(Command::Check, reply);
+            let link = at.link.clone();
+            let pending = compio::runtime::spawn(async move {
+                link.check(session(1), ALICE, CheckKind::Marks).await
+            });
+            refused_then_up_again(&at, pending, &format!("{reply:?}")).await?;
+        }
+        Ok(())
+    })
+}
+
+/// §2.6, §13: an ask's answer the link refuses (a reply or an Error whose body breaks its rules, or a command the request is
+/// not answered by) closes the connection: the ask is refused with code 17, and the link dials again.
+#[test]
+fn test_an_answer_the_link_refuses_closes_its_connection() -> TestResult {
+    Runtime::new()?.block_on(async {
+        for (name, request, reply) in [
+            ("session-body", Command::Session, Command::Session),
+            ("session-error-body", Command::Session, Command::Error),
+            ("session-command", Command::Session, Command::Check),
+            ("challenge-body", Command::Challenge, Command::Challenge),
+        ] {
+            let at = played(name, SystemPlay::new(CLUSTER, 1)).await?;
+            at.play.garble(request, reply);
+            let asked = if request == Command::Session {
+                at.link.session(session(5), ALICE).await
+            } else {
+                at.link.challenge("ann").await.map(drop)
+            };
+            let refused = asked.err().context("refused")?;
+            assert_eq!(
+                refused.code(),
+                ErrorCode::Unavailable,
+                "{request:?} by {reply:?}: {refused:?}"
+            );
+            link_up_again(&at).await?;
+            at.link.session(session(6), ALICE).await.replied()?;
+        }
         Ok(())
     })
 }

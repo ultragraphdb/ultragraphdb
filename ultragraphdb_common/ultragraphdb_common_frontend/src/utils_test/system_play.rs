@@ -39,7 +39,12 @@ struct Played {
     principals: BTreeMap<String, (u64, ScramVerifier)>,
     refusals: BTreeMap<u16, ErrorReply>,
     silent: Vec<u16>,
+    /// The command each next request of a command is answered by, its body one that breaks its rules.
+    garbled: BTreeMap<u16, Command>,
 }
+
+/// A body no command's rules take: a frame of it passes every frame-level rule and is refused by its command's view.
+const GARBLED: [u8; 8] = [0xFF; 8];
 
 /// The system group a test plays at a [`crate::RoleDouble`]'s address (task 5.2): [`SystemPlay::answer`] is the double's
 /// script. It answers each command an endpoint core asks as `PROTOCOL.md` §11.12's table has the group serve the frontend,
@@ -144,6 +149,34 @@ impl SystemPlay {
         self.played.borrow_mut().silent.push(command.number());
     }
 
+    /// Answers the next request of `request` by a frame of `reply` flagged last, whose body breaks `reply`'s rules.
+    pub fn garble(&self, request: Command, reply: Command) {
+        let _replaced = self
+            .played
+            .borrow_mut()
+            .garbled
+            .insert(request.number(), reply);
+    }
+
+    /// Sends a frame of `reply` whose body breaks `reply`'s rules on every subscription.
+    pub fn push_garbled(&self, reply: Command) {
+        let subscriptions = self.played.borrow().subscriptions.clone();
+        for subscription in subscriptions {
+            if let Some(frame) = self.garbled(subscription.stream(), reply, 0) {
+                subscription.answer_with(frame);
+            }
+        }
+    }
+
+    /// A frame of `reply` on `stream` with `flags`, of the body [`GARBLED`].
+    fn garbled(&self, stream: u64, reply: Command, flags: u8) -> Option<Vec<u8>> {
+        Header::new(self.cluster, reply)
+            .with_stream(stream)
+            .with_flags(flags)
+            .encode_frame(&GARBLED)
+            .ok()
+    }
+
     /// `tenant`'s version `version` taking effect at `epoch` (0 while pending), its bytes `bytes`.
     pub fn version(&self, tenant: u64, version: u64, epoch: u64, bytes: Vec<u8>) {
         self.played
@@ -211,6 +244,12 @@ impl SystemPlay {
             return Answer::Refuse(refusal.clone());
         }
         let stream = frame.stream();
+        let garbled = self.played.borrow_mut().garbled.remove(&command.number());
+        if let Some(reply) = garbled {
+            return self
+                .garbled(stream, reply, FLAG_LAST)
+                .map_or(Answer::Done, Answer::Reply);
+        }
         if command == Command::Subscribe {
             self.subscribe(frame)
         } else if command == Command::Placement {

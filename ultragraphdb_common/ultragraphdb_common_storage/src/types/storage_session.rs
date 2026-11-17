@@ -80,10 +80,11 @@ impl StorageSession {
 
 impl Session for StorageSession {
     /// Hands the request to the core and answers it as open: its answer is pushed. A frame out of order is refused here, as the
-    /// connection's machine would refuse it on viewing it.
+    /// connection's machine would refuse it on viewing it: a frame-level rule, on stream 0, which closes the connection
+    /// (`PROTOCOL.md` §2.5, step 13; §2.6).
     async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
         if let Err(rule) = frame.check_order() {
-            return Answer::Refuse(ErrorReply::protocol(&rule));
+            return Answer::Close(rule);
         }
         let copy = ParkedFrame::copy(frame.bytes(), self.held.clone());
         // The connection's one buffer is free for its next frame.

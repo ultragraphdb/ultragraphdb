@@ -30,12 +30,16 @@ use crate::types::role_links::RoleLinks;
 use crate::types::system_turns::SystemTurns;
 use crate::utils::recall_order::check_refusal;
 
-/// An ask on its way: the frames of its answer read so far, and where the answer goes.
+/// An ask on its way: the command it asks by, the frames of its answer read so far, and where the answer goes.
 #[derive(Debug)]
 struct Ask {
+    command: Command,
     frames: Vec<Vec<u8>>,
     reply: oneshot::Sender<Result<Vec<Vec<u8>>, ErrorReply>>,
 }
+
+/// One frame of a close continuing past one: its epoch, its placement version, and the `(tenant, version)` it announces.
+type ClosePart = (u64, u64, Vec<(u64, u64)>);
 
 /// What a link holds, shared by its handles and its tasks on the core's one thread. Every borrow lasts one call, never
 /// across a wait (Ultra rule 9).
@@ -52,9 +56,13 @@ struct LinkState {
     asks: HashMap<u64, Ask>,
     /// The subscription's stream on the open connection, and the frames of a close continuing past one.
     subscription: Option<u64>,
-    close_parts: Vec<(u64, u64, Vec<(u64, u64)>)>,
+    close_parts: Vec<ClosePart>,
     /// Whether a connection is open, the frames waiting to leave on it, and its sending task's waker.
     open: bool,
+    /// The number of the connection open or last open, counted from 1, and whether an answer read on it was refused, which
+    /// closes it (`PROTOCOL.md` §2.6).
+    connection: u64,
+    refused: bool,
     outgoing: VecDeque<Vec<u8>>,
     sender: Option<Waker>,
     next_stream: u64,
@@ -142,6 +150,8 @@ impl SystemLink {
             subscription: None,
             close_parts: Vec::new(),
             open: false,
+            connection: 0,
+            refused: false,
             outgoing: VecDeque::new(),
             sender: None,
             next_stream: 1,

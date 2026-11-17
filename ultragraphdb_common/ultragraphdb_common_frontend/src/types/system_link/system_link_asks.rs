@@ -7,22 +7,28 @@
 
 use futures::channel::oneshot;
 use ultragraphdb_core_ids::Version;
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Catalog, CatalogFrames, Challenge, ChallengeView, Declare, DeclareView,
     Declared, Defaults, DefaultsFrames, DropKind, ErrorReply, FrameView, Header, MAX_FRAME_SIZE,
-    Session, Verify, VerifyView,
+    Session, SessionView, Verify, VerifyView,
 };
 
-use super::{Ask, SystemLink, unavailable};
+use super::{Ask, SystemLink, system_link_tasks, unavailable};
 
 impl SystemLink {
-    /// The frames answering `body`, asked on a stream of its own, read until the one flagged last.
+    /// The frames answering `body`, asked on a stream of its own, read until the one flagged last, and read by `read`: what
+    /// it reads. A refusal by `read` closes the connection the frames came on (`PROTOCOL.md` §2.6, §13).
     ///
     /// # Errors
     ///
-    /// The group's refusal; code 17 when the link is closed or closes before the answer.
-    pub(super) async fn ask<B: BodyBuilder>(&self, body: &B) -> Result<Vec<Vec<u8>>, ErrorReply> {
-        let (answer, sender) = {
+    /// The group's refusal; code 17 when the link is closed or closes before the answer, or `read` refuses it.
+    pub(super) async fn ask<B: BodyBuilder, T>(
+        &self,
+        body: &B,
+        read: impl FnOnce(u64, &[Vec<u8>]) -> Result<T, ProtocolError>,
+    ) -> Result<T, ErrorReply> {
+        let (answer, sender, connection) = {
             let mut state = self.state.borrow_mut();
             if !state.open {
                 return Err(unavailable("the connection to the system group is closed"));
@@ -36,32 +42,26 @@ impl SystemLink {
             let _none = state.asks.insert(
                 stream,
                 Ask {
+                    command: B::COMMAND,
                     frames: Vec::new(),
                     reply,
                 },
             );
-            (answer, state.queue(frame))
+            (answer, state.queue(frame), state.connection)
         };
         if let Some(sender) = sender {
             sender.wake();
         }
-        answer.await.map_err(|_| {
+        let frames = answer.await.map_err(|_| {
             unavailable("the connection to the system group closed under the request")
-        })?
+        })??;
+        read(self.cluster(), &frames)
+            .map_err(|rule| system_link_tasks::refuse(self, connection, &rule))
     }
 
     /// The cluster the link's frames name.
     pub(super) fn cluster(&self) -> u64 {
         self.state.borrow().cluster
-    }
-
-    /// The one frame answering `body`.
-    async fn ask_one<B: BodyBuilder>(&self, body: &B) -> Result<Vec<u8>, ErrorReply> {
-        self.ask(body)
-            .await?
-            .into_iter()
-            .next_back()
-            .ok_or_else(|| unavailable("an answer of no frame"))
     }
 
     /// Registers `session` for `principal` by a Session, once durable (`PROTOCOL.md` §13.23).
@@ -70,9 +70,10 @@ impl SystemLink {
     ///
     /// The group's refusal; code 17 when the link is closed or closes before the answer.
     pub async fn session(&self, session: [u8; 16], principal: u64) -> Result<(), ErrorReply> {
-        self.ask_one(&Session::new(session, principal))
-            .await
-            .map(drop)
+        self.ask(&Session::new(session, principal), |cluster, frames| {
+            SessionView::from_frame(&last(cluster, frames)?).map(drop)
+        })
+        .await
     }
 
     /// The salt and iteration count of `name` by a Challenge (`PROTOCOL.md` §13.8).
@@ -81,11 +82,12 @@ impl SystemLink {
     ///
     /// The group's refusal; code 17 when the link is closed or closes before the answer.
     pub async fn challenge(&self, name: &str) -> Result<(u32, Vec<u8>), ErrorReply> {
-        let frame = self.ask_one(&Challenge::request(name)).await?;
-        let view = self.read(&frame)?;
-        let challenge =
-            ChallengeView::from_frame(&view).map_err(|rule| ErrorReply::protocol(&rule))?;
-        Ok((challenge.iterations(), challenge.salt().to_vec()))
+        self.ask(&Challenge::request(name), |cluster, frames| {
+            let view = last(cluster, frames)?;
+            let challenge = ChallengeView::from_frame(&view)?;
+            Ok((challenge.iterations(), challenge.salt().to_vec()))
+        })
+        .await
     }
 
     /// Whether `proof` holds for `name` over `auth_message` by a Verify: the principal and the ServerSignature when it
@@ -100,15 +102,18 @@ impl SystemLink {
         auth_message: &str,
         proof: &[u8; 32],
     ) -> Result<Option<(u64, [u8; 32])>, ErrorReply> {
-        let frame = self
-            .ask_one(&Verify::request(name, auth_message, *proof))
-            .await?;
-        let view = self.read(&frame)?;
-        let verify = VerifyView::from_frame(&view).map_err(|rule| ErrorReply::protocol(&rule))?;
-        Ok(verify
-            .signature()
-            .filter(|_| verify.verified())
-            .map(|signature| (verify.principal(), *signature)))
+        self.ask(
+            &Verify::request(name, auth_message, *proof),
+            |cluster, frames| {
+                let view = last(cluster, frames)?;
+                let verify = VerifyView::from_frame(&view)?;
+                Ok(verify
+                    .signature()
+                    .filter(|_| verify.verified())
+                    .map(|signature| (verify.principal(), *signature)))
+            },
+        )
+        .await
     }
 
     /// A catalog version of `declared` built on `built_on` for `tenant` by a Declare of kind 1: the version and the first
@@ -125,10 +130,7 @@ impl SystemLink {
         declared: Vec<Declared>,
     ) -> Result<(u64, u64), ErrorReply> {
         let body = Declare::declarations(tenant, built_on, principal, declared);
-        let frame = self.ask_one(&body).await?;
-        let view = self.read(&frame)?;
-        let reply = DeclareView::from_frame(&view).map_err(|rule| ErrorReply::protocol(&rule))?;
-        let answered = (reply.version(), reply.commit_version());
+        let answered = self.ask(&body, declared_version).await?;
         // The version takes effect at the epoch of the first commit version it answers (`PROTOCOL.md` §11.13, *Its epoch*).
         let epoch = Version::from_u64(answered.1).epoch().get();
         self.state
@@ -152,12 +154,12 @@ impl SystemLink {
         kind: DropKind,
         target: Option<String>,
     ) -> Result<u64, ErrorReply> {
-        let frame = self
-            .ask_one(&Declare::drop(tenant, principal, kind, target))
+        let (version, _commit_version) = self
+            .ask(
+                &Declare::drop(tenant, principal, kind, target),
+                declared_version,
+            )
             .await?;
-        let view = self.read(&frame)?;
-        let reply = DeclareView::from_frame(&view).map_err(|rule| ErrorReply::protocol(&rule))?;
-        let version = reply.version();
         if version != 0 {
             // Committed as pending: no epoch is assigned to it yet (`PROTOCOL.md` §13.27).
             self.state.borrow_mut().view.declared(tenant, version, 0);
@@ -172,14 +174,14 @@ impl SystemLink {
     ///
     /// The group's refusal; code 17 when the link is closed or closes before the answer.
     pub async fn defaults(&self, tenant: u64) -> Result<Vec<String>, ErrorReply> {
-        let frames = self.ask(&Defaults::request(tenant)).await?;
-        let mut read = DefaultsFrames::new();
-        for frame in &frames {
-            let view = self.read(frame)?;
-            read.push(&view)
-                .map_err(|rule| ErrorReply::protocol(&rule))?;
-        }
-        Ok(read.predicates().to_vec())
+        self.ask(&Defaults::request(tenant), |cluster, frames| {
+            let mut read = DefaultsFrames::new();
+            for frame in frames {
+                read.push(&FrameView::validate(frame, cluster, MAX_FRAME_SIZE)?)?;
+            }
+            Ok(read.predicates().to_vec())
+        })
+        .await
     }
 
     /// The catalog version a client reads at `epoch` and its bytes, by a Catalog of `version` 0 naming `epoch`, read across
@@ -200,22 +202,32 @@ impl SystemLink {
         &self,
         request: &Catalog,
     ) -> Result<(u64, u64, Vec<u8>), ErrorReply> {
-        let frames = self.ask(request).await?;
-        let mut read = CatalogFrames::new();
-        for frame in &frames {
-            let view = self.read(frame)?;
-            read.push(&view)
-                .map_err(|rule| ErrorReply::protocol(&rule))?;
-        }
-        let version = read
-            .view()
-            .ok_or_else(|| unavailable("a Catalog answer of no frame"))?;
-        Ok((version.version(), version.epoch(), version.bytes().to_vec()))
+        self.ask(request, |cluster, frames| {
+            let mut read = CatalogFrames::new();
+            for frame in frames {
+                read.push(&FrameView::validate(frame, cluster, MAX_FRAME_SIZE)?)?;
+            }
+            Ok(read
+                .view()
+                .map(|version| (version.version(), version.epoch(), version.bytes().to_vec())))
+        })
+        .await?
+        .ok_or_else(|| unavailable("a Catalog answer of no frame"))
     }
+}
 
-    /// `frame` validated as a frame of the link's cluster.
-    pub(super) fn read<'a>(&self, frame: &'a [u8]) -> Result<FrameView<'a>, ErrorReply> {
-        FrameView::validate(frame, self.cluster(), MAX_FRAME_SIZE)
-            .map_err(|rule| ErrorReply::protocol(&rule))
-    }
+/// The last of `frames`, an answer's, validated as a frame of `cluster`: an answer holds its last frame, and an empty one is
+/// refused as short.
+pub(super) fn last(cluster: u64, frames: &[Vec<u8>]) -> Result<FrameView<'_>, ProtocolError> {
+    FrameView::validate(
+        frames.last().map_or(&[][..], Vec::as_slice),
+        cluster,
+        MAX_FRAME_SIZE,
+    )
+}
+
+/// The version and commit version a Declare's reply answers.
+fn declared_version(cluster: u64, frames: &[Vec<u8>]) -> Result<(u64, u64), ProtocolError> {
+    let reply = DeclareView::from_frame(&last(cluster, frames)?)?;
+    Ok((reply.version(), reply.commit_version()))
 }

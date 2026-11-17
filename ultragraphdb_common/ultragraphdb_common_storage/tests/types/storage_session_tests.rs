@@ -13,6 +13,7 @@ use ultragraphdb_common_role::{
     serve_connection,
 };
 use ultragraphdb_common_storage::{CoreMessage, ParkedFrame, RoleConnectionPhases, StorageSession};
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{BufferPool, Endpoint, Framer, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     Abort, BodyBuilder, BodyView, Cancel, Closed, Command, Commit, DirectWrite, ErrorCode,
@@ -156,7 +157,8 @@ fn test_a_session_counts_what_it_hands_its_core() -> TestResult {
     })
 }
 
-/// A request out of order on its connection is refused by the session, which hands the core nothing.
+/// A request out of order on its connection breaks a frame-level rule (`PROTOCOL.md` §2.5, step 13): the session refuses it
+/// on stream 0, which closes the connection (§2.6), and hands the core nothing.
 #[test]
 fn test_a_request_out_of_order_is_refused_at_once() -> TestResult {
     Runtime::new()?.block_on(async {
@@ -169,10 +171,12 @@ fn test_a_request_out_of_order_is_refused_at_once() -> TestResult {
                     .with_sequence(5),
             )?,
         )?;
-        let Answer::Refuse(refused) = session.answer(3, late).await else {
-            return Err(TestError::new("a refusal"));
-        };
-        assert_eq!(refused.code(), ErrorCode::Protocol, "{}", refused.message());
+        let answered = session.answer(3, late).await;
+        assert_eq!(
+            answered,
+            Answer::Close(ProtocolError::sequence_order(1, 5)),
+            "the connection's first frame, numbered 5"
+        );
         assert!(inbox.try_recv().is_err(), "nothing handed on");
         Ok(())
     })
