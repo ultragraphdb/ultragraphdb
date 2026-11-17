@@ -1,0 +1,48 @@
+ultragraphdb_common/ultragraphdb_common_frontend/src/utils_test/role_double.rs
+  s_21eff977e05256::t_dabd79a0b6cb9b 306-312
+  s_21eff977e05256::t_81b2cccce603bf 19-21,273-280,288-290
+ultragraphdb_common/ultragraphdb_common_frontend/src/lib.rs
+  s_21eff977e05256::t_f9245fa9ed1c51 49-50
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_bind.rs
+  s_21eff977e05256::t_e5fb9a0fa5d5c1 9,234-250,259,286,294
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_commit.rs
+  s_21eff977e05256::t_b3bc09d35d5802 229-234,236-246,248-249
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_one_frame.rs
+  s_21eff977e05256::t_6fe62da9919a43 16,278,280-289,296-310,322,444-457,461-466
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_reads.rs
+  s_21eff977e05256::t_9d30b142957b3d 14,356-362,364-365,417,427,432,442
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_session.rs
+  s_21eff977e05256::t_479f6cd7d88935 191
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_writes.rs
+  s_21eff977e05256::t_e073a205070e38 12-13,438,444-451
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/link_event.rs
+  s_21eff977e05256::t_e8e0c6b719c16b 6-9,12,14-21
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/role_link/mod.rs
+  s_21eff977e05256::t_a736b4ef8c488d 16,33-59,64,167,172-173,177-183,192,194-206,220,226-227,230,237-238
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/role_link/role_link_tasks.rs
+  s_21eff977e05256::t_cbcf928f669b12 15-18,120-124,128,135-142,145,148,150,154,159-202,210
+ultragraphdb_common/ultragraphdb_common_frontend/tests/endpoint_steps_requests.rs
+  s_21eff977e05256::t_e020914c4d658f 18-19,1036,2078
+ultragraphdb_common/ultragraphdb_common_frontend/tests/endpoint_steps_sessions.rs
+  s_21eff977e05256::t_913873a475f8cc 13-15,127,235
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/client_session_tests.rs
+  s_21eff977e05256::t_3edf01309d3bb4 6,8,15,26,29,34-37,746-1142
+ultragraphdb_common/ultragraphdb_common_frontend/tests/utils_test/role_double_tests.rs
+  s_21eff977e05256::t_edf9f3533a2e1b 9,12-15,57-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9af8c403ba85826c9508363a804b9a4ddb2696cb",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
