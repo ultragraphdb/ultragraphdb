@@ -1,0 +1,14 @@
+compio-driver 0.12.5: skip a stale event of a polling batch rather than leave the batch, losing every event after it.
+Upstream's fix of compio-rs/compio#1119, merged as PR #1121 (commit 5666663, 2026-10-30), in no release yet.
+
+--- a/src/sys/driver/poll/mod.rs
++++ b/src/sys/driver/poll/mod.rs
+@@ -481,7 +481,7 @@
+                     Some(OpType::Fd(_)) => {
+                         // FIXME: This should not happen
+                         let Some(fd) = op.extra().as_poll().next_fd() else {
+-                            return Ok(());
++                            continue;
+                         };
+                         drop(op);
+                         this.poll_one(event, fd)?;

@@ -157,6 +157,92 @@ fn test_dialling_where_nothing_listens_fails_as_io() -> TestResult {
     })
 }
 
+/// Fills `stream`'s send buffer: writes until the socket refuses more.
+fn fill(stream: &mut std::os::unix::net::UnixStream) -> TestResult {
+    use std::io::Write;
+    stream.set_nonblocking(true)?;
+    let block = [0u8; 4096];
+    // A loop bounded by the socket's buffer, a few hundred KiB: each pass writes or ends it.
+    loop {
+        match stream.write(&block) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+/// Reads everything `stream` holds, so its peer's send buffer has room again.
+fn drain(stream: &mut std::os::unix::net::UnixStream) -> TestResult {
+    use std::io::Read;
+    stream.set_nonblocking(true)?;
+    let mut block = [0u8; 4096];
+    // A loop bounded by what the peer wrote: each pass reads or ends it.
+    loop {
+        match stream.read(&mut block) {
+            Ok(0) => return Err(TestError::new("the peer closed while it was drained")),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+/// `future`'s output, or a [`TestError`] naming `what` when it is not ready within a second: it was never woken.
+async fn within<F: std::future::Future>(future: F, what: &str) -> TestResult<F::Output> {
+    compio::time::timeout(std::time::Duration::from_secs(1), future)
+        .await
+        .map_err(|_| TestError::new(format!("{what} was never woken within 1 s")))
+}
+
+/// A read waiting on one carrier takes its byte when, in the same wake-up, another carrier's write and read become ready
+/// together and its write is done first. On the polling driver over kqueue a socket's two waits share the write's key, so
+/// the read's event finds the write done; compio-driver 0.12.5 then left the whole batch, losing every later event of it,
+/// and a read whose event was lost waited forever (compio-rs/compio#1119): the system link's stall under frames of a
+/// megabyte, the group's read of a Declare never taken.
+#[test]
+fn test_a_read_waking_beside_a_split_carriers_write_and_read_takes_its_byte() -> TestResult {
+    use compio::io::AsyncRead;
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+    use std::pin::pin;
+    use std::task::Poll;
+    compio::runtime::Runtime::new()?.block_on(async {
+        let (mut both, mut both_peer) = UnixStream::pair()?;
+        fill(&mut both)?;
+        let (mut both_read, mut both_write) =
+            Carrier::Unix(compio::net::UnixStream::from_std(both)?).split();
+        let (other, mut other_peer) = UnixStream::pair()?;
+        let mut other = Carrier::Unix(compio::net::UnixStream::from_std(other)?);
+        let mut write = pin!(both_write.write(vec![1u8]));
+        let mut read = pin!(both_read.read(Vec::with_capacity(1)));
+        let mut other_read = pin!(other.read(Vec::with_capacity(1)));
+        // Polled once each, the three wait in the driver: the full socket's write and its read, and the other's read.
+        let waiting = std::future::poll_fn(|cx| {
+            Poll::Ready([
+                write.as_mut().poll(cx).is_pending(),
+                read.as_mut().poll(cx).is_pending(),
+                other_read.as_mut().poll(cx).is_pending(),
+            ])
+        })
+        .await;
+        assert_eq!(waiting, [true; 3], "write, read and the other read wait");
+        // Before the driver looks again, all three become ready, in this order: room for the write, a byte for its read,
+        // a byte for the other read. kqueue reports them in one batch, in the order they became ready.
+        drain(&mut both_peer)?;
+        both_peer.write_all(b"r")?;
+        other_peer.write_all(b"o")?;
+        let compio::BufResult(written, _) = within(write, "the write").await?;
+        assert_eq!(written?, 1, "the write");
+        let compio::BufResult(beside, _) = within(read, "the read beside it").await?;
+        assert_eq!(beside?, 1, "the read beside it");
+        let compio::BufResult(other, got) = within(other_read, "the other carrier's read").await?;
+        assert_eq!(other?, 1, "the other carrier's read");
+        assert_eq!(got, b"o");
+        Ok::<(), TestError>(())
+    })
+}
+
 /// A TCP carrier knows its peer's address; a Unix-domain carrier names no peer address and has neither keepalive nor
 /// `TCP_NODELAY` to report.
 #[test]

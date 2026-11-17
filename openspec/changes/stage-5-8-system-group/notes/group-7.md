@@ -306,10 +306,14 @@ Every remaining failure, root-caused:
    Members ask on the core's link answers nothing within 2 s, the client's connection to the frontend answers a Begin, and the
    view's closes keep arriving. So the frontend-to-group direction of the link stops while the group-to-frontend direction runs:
    the Declare of about 1 MiB is never taken by the group. The frontend and the group's sessions share one compio runtime there
-   (polling driver, kqueue), and the stall needs frames large enough to wait for a socket's room. Not root-caused; suspects are
-   the role server's read pinned across its pushes (`ultragraphdb_common_role`'s `serve.rs`, `next_frame`) and compio-driver
-   0.12.5's poll driver with a read and a write pending on one descriptor (`sys/driver/poll/mod.rs`: one key per descriptor,
-   and an event whose operation has no descriptor left returns from the whole batch). Over the binaries the scenario passed.
+   (polling driver, kqueue), and the stall needs frames large enough to wait for a socket's room. Over the binaries the
+   scenario passed. **Root-caused and fixed 2026-11-17:** compio-driver 0.12.5's polling driver registers a socket's read and
+   write under the write's key on kqueue; a write finished first turns the read's event stale, and the driver then returns
+   from the whole batch, losing every later event, the group's read of the Declare among them (compio-rs/compio#1119).
+   Upstream's fix (PR #1121, commit 5666663, in no release yet) is applied under Bazel as
+   `bazel/patches/compio_driver_poll_stale_event.patch`; `protocol_transport_compio`'s carrier tests pin the interleaving,
+   failing 10 of 10 before the patch, and `bdd_catalog_cap` passed 40 of 40 after it. The role server and the transport
+   were not at fault.
 
 ## Left for 7.5
 
