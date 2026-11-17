@@ -50,6 +50,10 @@ const CONNECTIONS_MAX_DEFAULT: u32 = 4_096;
 ///
 /// A future dropped at a listen leaves nothing running; one dropped at its wait or in the drain leaves the accepting tasks and
 /// the requests still open running until their runtime ends.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a deadline in the shell, which no simulation replays"
+)]
 pub(crate) async fn frontend_role(
     start: RoleStart,
     readiness: Readiness,

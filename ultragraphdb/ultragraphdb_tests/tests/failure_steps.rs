@@ -216,6 +216,10 @@ async fn commit_each(
 
 /// Resolves `writer`'s request in doubt by its resend, sent again after [`RESEND_DELAY`] while it stays in doubt, within
 /// [`resend_bound`]: its outcome and the resends it took.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 async fn resolved(writer: &mut Writer) -> TestResult<(Outcome, u32)> {
     let begun = Instant::now();
     let mut resends = 0;
@@ -317,6 +321,10 @@ async fn catalog_version(system: &str) -> TestResult<u64> {
 }
 
 /// Waits until the tenant's latest catalog version at `system` is `version`, within [`START_SECONDS`].
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 async fn until_version(system: &str, version: u64) -> TestResult {
     let begun = Instant::now();
     // Bounded by `START_SECONDS` (Ultra rule 2).
@@ -489,6 +497,10 @@ fn single_valued(predicate: &str) -> Write {
 }
 
 /// Whether Describe declares `predicate` single-valued, looked at until it does within [`START_SECONDS`].
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 async fn until_single(client: &mut TestClient, predicate: &str) -> TestResult<bool> {
     let begun = Instant::now();
     // Bounded by `START_SECONDS` (Ultra rule 2).
@@ -714,6 +726,10 @@ fn link_closed_once(w: &mut Steps) -> TestResult {
 
 /// A writer of `at` once an endpoint core there relays its authentication to the system group, within [`START_SECONDS`]: a
 /// core answers Error 17 until its connection to the group has opened (`PROTOCOL.md` §11.12).
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 async fn writer_once_relayed(at: &ClientAt) -> TestResult<Writer> {
     let begun = Instant::now();
     // Bounded by `START_SECONDS` (Ultra rule 2).
@@ -867,6 +883,10 @@ async fn declared_at_group(system: &str, built_on: u64, predicate: &str) -> Test
 
 /// Writes `subject` `predicate` and a new object through no session until the partition stamps a commit at or past `epoch`,
 /// within [`START_SECONDS`]: the epoch of the last, and the statements written.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 async fn committed_at_or_past(
     client: &mut TestClient,
     (subject, predicate): (&str, &str),
@@ -895,6 +915,10 @@ async fn committed_at_or_past(
 }
 
 /// Describe's catalog version through `client`, looked at until it is `version` within [`START_SECONDS`].
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 async fn until_described(client: &mut TestClient, version: u64) -> TestResult<u64> {
     let begun = Instant::now();
     // Bounded by `START_SECONDS` (Ultra rule 2).

@@ -232,6 +232,10 @@ fn logged(log: &str, marker: &str, key: &str) -> Vec<u64> {
 #[when(
     "32 clients each commit a write over a connection of their own to a frontend of two partitions"
 )]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 fn commits_on_every_core(w: &mut Steps) -> TestResult {
     own(w, &Spec::over(2))?;
     let at = cluster(w)?.client.clone();

@@ -19,6 +19,9 @@ rust_library(
     crate_features = ["test-utils"],
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
+    # lint_config turns cfg checking on (`--check-cfg=cfg(loom)`) without declaring the crate's features, which cargo
+    # declares from `[features]`: the same declaration here, so `#[cfg(feature = ...)]` is checked as under cargo.
+    rustc_flags = ["--check-cfg=cfg(feature, values(\"default\", \"test-utils\"))"],
     tags = ["ultragraphdb_common_system"],
     visibility = ["//visibility:public"],
     deps = LIBRARY_DEPS,

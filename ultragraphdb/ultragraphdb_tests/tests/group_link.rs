@@ -45,6 +45,10 @@ pub(crate) struct GroupLink {
 impl GroupLink {
     /// A link to the system group at `system`, a `tcp://127.0.0.1:port` address, listening at `[::1]` and that port. The group
     /// need not listen yet: a connection the link cannot carry on closes, and the frontend dials again.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the link carries bytes beside the scenarios, on threads of the test's own"
+    )]
     pub(crate) fn to(system: &str) -> TestResult<Self> {
         let target: SocketAddr = system
             .strip_prefix("tcp://")
@@ -135,6 +139,10 @@ fn locked(state: &Mutex<LinkState>) -> std::sync::MutexGuard<'_, LinkState> {
 }
 
 /// Starts carrying the frontend's connection `frontend` to the group at `target`, on a thread each way.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the link carries bytes beside the scenarios, on threads of the test's own"
+)]
 fn carry(
     frontend: TcpStream,
     target: SocketAddr,

@@ -677,6 +677,10 @@ fn start(layout: &Layout, spec: &Spec, util: ServiceUtil) -> TestResult<Cluster>
 
 /// Records that the system group of the cluster a client dials at `client` listened before now, so its quiet time ends by
 /// [`quiet_time`] from now.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 fn quiet_from_now(client: &str) {
     let quiet_ends = Instant::now() + quiet_time();
     QUIET_ENDS.with_borrow_mut(|ends| {
@@ -694,6 +698,10 @@ fn quiet_time() -> Duration {
 
 /// Waits until the system group of the cluster a client dials at `at` is past its quiet time, for a scene that resends a
 /// request through a session or fills the registry: a cluster this run started, at its start; any other, at once.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 pub(crate) fn after_quiet_time(at: &ClientAt) {
     let ends = QUIET_ENDS.with_borrow(|ends| {
         ends.iter()

@@ -303,6 +303,10 @@ fn books_held(w: &mut Steps) -> TestResult {
 /// Commits writes of distinct objects to `partition` at `address` until one commits at `epoch` or later, its epoch
 /// returned: what the partition's open epoch, one past the last close delivered to it, has reached. Gives up past
 /// [`START_SECONDS`].
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 fn committed_at_or_after(
     address: &str,
     (partition, partitions): (u32, u32),
@@ -334,6 +338,10 @@ fn committed_at_or_after(
 }
 
 #[when("a partition's log sync is delayed past `epoch_ms_max` while the group's logs sync at once")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 fn partition_delayed(w: &mut Steps) -> TestResult {
     let util = services()?;
     let host = with(

@@ -54,6 +54,10 @@ fn latest_version() -> TestResult<u64> {
 }
 
 /// Waits until the tenant's latest catalog version is `version`, within `within`: whether it came.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 fn until_version(version: u64, within: Duration) -> TestResult<bool> {
     let begun = Instant::now();
     while begun.elapsed() < within {
@@ -203,6 +207,10 @@ fn closed_epoch(frame: &ReceivedFrame) -> TestResult<u64> {
 }
 
 #[when("a session has committed in partition 1, and the registry evicts it")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test measures a wait its scenario names; no simulation replays it"
+)]
 fn session_evicted(w: &mut Steps) -> TestResult {
     let mut roles = Roles::default();
     // A registry of one session, so the next registration evicts the first; and closes far apart, 10 s at the most, so the
