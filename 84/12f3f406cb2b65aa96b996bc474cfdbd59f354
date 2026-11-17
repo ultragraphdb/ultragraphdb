@@ -1,0 +1,35 @@
+ultragraphdb/ultragraphdb_storage_tests/tests/drop_steps.rs
+  s_21eff977e05256::t_d06007ea3f1aa3 1-348
+  s_21eff977e05256::t_a841db626715e4 349-359
+ultragraphdb/ultragraphdb_storage_tests/tests/system_books_steps.rs
+  s_21eff977e05256::t_2baeee1f3b5c2f 1-562
+  s_21eff977e05256::t_505043003d4d07 563-640
+ultragraphdb/ultragraphdb_storage_tests/BUILD.bazel
+  s_21eff977e05256::t_215be839afc162 12-46,48,53-56,74
+ultragraphdb/ultragraphdb_storage_tests/features/schema-changes/drops.feature
+  s_21eff977e05256::t_d428dbafebce03 1-19
+ultragraphdb/ultragraphdb_storage_tests/features/system/books.feature
+  s_21eff977e05256::t_e3abf1436867ae 1-24
+ultragraphdb/ultragraphdb_storage_tests/features/system/pinned.feature
+  s_21eff977e05256::t_ba6d3eaa96b2f7 1-12
+ultragraphdb/ultragraphdb_storage_tests/tests/bdd.rs
+  s_21eff977e05256::t_75acaaade83462 9,71,1292-1293,1306-1317
+ultragraphdb/ultragraphdb_storage_tests/tests/system_bdd.rs
+  s_21eff977e05256::t_3be7caac94397f 11-12,41,44-45,48-49,59,68,75,77,85-89,92-98,103,129,149,190,202,219-223,266,702-703
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8412f3f406cb2b65aa96b996bc474cfdbd59f354",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
