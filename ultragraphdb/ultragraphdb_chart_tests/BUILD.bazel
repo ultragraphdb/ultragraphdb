@@ -1,0 +1,65 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@aspect_bazel_lib//lib:yq.bzl", "yq")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_helm//helm:helm_template.bzl", "helm_template")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+# The chart rendered by the Helm of rules_helm's toolchain as `scripts/cluster_local.sh` renders it, the release `ultragraphdb`
+# in its namespace, and as a release of another namespace, domain and partition count; each rendered object as a JSON document
+# on a line of its own, by the yq of aspect_bazel_lib's toolchain. Rendered here, not beside the chart, so `deploy/helm/` in
+# the test's runfiles holds the chart's sources alone, which a scenario searches for a secret.
+[
+    (
+        helm_template(
+            name = "rendered_{}".format(release),
+            chart = "//deploy/helm/ultragraphdb:chart",
+            opts = opts,
+        ),
+        yq(
+            name = "rendered_{}_json".format(release),
+            srcs = [":rendered_{}".format(release)],
+            args = [
+                "--output-format=json",
+                "--indent=0",
+            ],
+            outs = ["rendered_{}.jsonl".format(release)],
+        ),
+    )
+    for release, opts in [
+        (
+            "kube",
+            [
+                "--name-template=ultragraphdb",
+                "--namespace=ultragraphdb",
+            ],
+        ),
+        (
+            "graphs",
+            [
+                "--name-template=graphs",
+                "--namespace=graphs",
+                "--set=clusterDomain=example.internal",
+                "--set=partitions=2",
+            ],
+        ),
+    ]
+]
+
+# The chart's scenarios over the rendered objects and the chart's files: no process, no cluster, no network.
+rust_test(
+    name = "bdd",
+    srcs = ["tests/bdd.rs"],
+    crate_root = "tests/bdd.rs",
+    data = glob(["features/**/*.feature"]) + [
+        ":rendered_graphs_json",
+        ":rendered_kube_json",
+        "//deploy/helm/ultragraphdb:sources",
+    ],
+    tags = ["bdd-test"],
+    use_libtest_harness = False,
+    deps = all_crate_deps(normal_dev = True),
+)

@@ -143,3 +143,11 @@ apko.translate_lock(
     lock = "//bazel/oci_images/glibc_base:apko.lock.json",
 )
 use_repo(apko, "glibc_base_lock")
+
+###############################################################################
+# rules_helm: https://github.com/periareon/rules_helm
+# Packages and renders deploy/helm/ultragraphdb with the Helm its toolchain downloads (4.2.0, checksummed per platform),
+# so //ultragraphdb/ultragraphdb_chart_tests checks the rendered objects with no Helm on the host. The module registers its
+# toolchains itself.
+###############################################################################
+bazel_dep(name = "rules_helm", version = "0.34.0")

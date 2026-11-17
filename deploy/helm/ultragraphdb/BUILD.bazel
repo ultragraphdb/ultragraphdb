@@ -3,9 +3,28 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 #
 
+load("@rules_helm//helm:helm_package.bzl", "helm_package")
+
 # The chart's `kube` profile, which the config battery checks as it checks the shipped profiles.
 filegroup(
     name = "profile",
     srcs = glob(["profile/**/*.toml"]),
+    visibility = ["//visibility:public"],
+)
+
+# Every file of the chart, which the chart's suite searches for a secret.
+filegroup(
+    name = "sources",
+    srcs = glob(["**"]),
+    visibility = ["//visibility:public"],
+)
+
+# The chart packaged by the Helm of rules_helm's toolchain, as `helm package` makes it, which the chart's suite renders.
+helm_package(
+    name = "chart",
+    chart = "Chart.yaml",
+    files = [":profile"],
+    templates = glob(["templates/**"]),
+    values = "values.yaml",
     visibility = ["//visibility:public"],
 )
