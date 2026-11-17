@@ -21,8 +21,11 @@ rust_test(
     name = "bdd",
     srcs = [
         "tests/bdd.rs",
+        "tests/books_steps.rs",
         "tests/endpoint_steps.rs",
+        "tests/processes.rs",
         "tests/role_read_steps.rs",
+        "tests/system_steps.rs",
     ],
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]) + [

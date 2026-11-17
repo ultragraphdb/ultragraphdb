@@ -15,7 +15,9 @@ use ultragraphdb_common_role::{
     ConnectionBound, OpenRequests, RoleCluster, Server, finish_open, serve_connection_with,
     system_address,
 };
-use ultragraphdb_common_service::{CoreListener, Readiness, RoleStart, Stopping, core_runtime};
+use ultragraphdb_common_service::{
+    CoreListener, Readiness, RoleKind, RoleStart, Stopping, core_runtime,
+};
 use ultragraphdb_common_service_config::{EndpointSecurity, EndpointTable, ServiceConfig};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{AUTHENTICATION_TIMEOUT, Address, Endpoint};
@@ -86,6 +88,7 @@ pub(crate) async fn frontend_role(
     }
     readiness.set_listening();
     let deadline = cluster.deadline();
+    let mut lost = None;
     while !stopping.is_stopping() {
         // The phases of the writes the endpoint relays and its Checks' round trips, logged as they fall due.
         core.iter().for_each(EndpointCore::report_phases);
@@ -93,15 +96,23 @@ pub(crate) async fn frontend_role(
             .lost_since()
             .is_some_and(|since| since.elapsed() >= deadline)
         {
-            return Err(RoleError::unavailable(format!(
+            lost = Some(RoleError::unavailable(format!(
                 "the system group at {address} has been gone for join_deadline_ms, {} ms",
                 deadline.as_millis()
             )));
+            break;
         }
         compio::time::sleep(OWNER_POLL).await;
     }
+    // A lost group stops the role through the path a SIGTERM takes (system-group, "A lost system group is waited for until
+    // the deadline"): every core stops accepting, and the open requests are finished, before the process exits with code 69.
+    if let Some(failure) = &lost {
+        tracing::error!(%failure, "the system group is gone; stopping");
+        tracing::info!(role = %RoleKind::Frontend, "stopping");
+        stopping.set();
+    }
     let _left = finish_open(accepting, &open, FINISH_LIMIT).await;
-    Ok(())
+    lost.map_or(Ok(()), Err)
 }
 
 /// What every endpoint core serves its clients with: its handle of the client socket, the server, the transport's security, the

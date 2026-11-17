@@ -13,6 +13,14 @@ Feature: The frontend binary as a process
     When the frontend binary's dependency graph is listed
     Then it names neither `ultragraphdb_store_kv` nor fjall
 
+  Scenario: The frontend binary carries no book
+    When the frontend binary's dependency graph is listed
+    Then it names neither `ultragraphdb_common_system`, `ultragraphdb_cluster_metadata`, `ultragraphdb_cluster_sequencer` nor `ultragraphdb_transactions_log`
+
+  Scenario: The frontend is ready only once the books answer
+    When the frontend starts while the hosting storage process still recovers
+    Then the frontend's `/health` answers, and its `/ready` answers only after storage's
+
   Scenario: A frontend without the system group's address stops the start
     When the frontend binary receives settings with no `cluster.system_address`
     Then it exits with code 78 and an error naming `cluster.system_address`

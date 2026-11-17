@@ -6,8 +6,11 @@
 //! The frontend binary as a process, bound to `features/`, with no container. One scenario runs at a time: it listens at its
 //! declared ports.
 
+mod books_steps;
 mod endpoint_steps;
+mod processes;
 mod role_read_steps;
+mod system_steps;
 
 use compio::runtime::Runtime;
 use cucumber::{World, then, when};
@@ -33,8 +36,17 @@ const ROOT_PATH: &str = "ultragraphdb/ultragraphdb_frontend_tests";
 /// An address in TEST-NET-3, which no host's interface holds (RFC 5737).
 const NO_INTERFACE: &str = "203.0.113.1:18099";
 
-/// The addresses a role of these scenarios holds beyond those every suite declares: none.
-const OWN_ADDRESSES: [(&str, &str); 0] = [];
+/// The addresses a role of these scenarios holds beyond those every suite declares: the second storage process's.
+const OWN_ADDRESSES: [(&str, &str); 2] = [
+    (
+        processes::SECOND_ROLE_ADDRESS,
+        "the second storage process's partition",
+    ),
+    (
+        processes::SECOND_OBSERVABILITY,
+        "the second storage process's observability",
+    ),
+];
 
 pub(crate) fn services() -> TestResult<ServiceUtil> {
     Ok(ServiceUtil::new(
@@ -53,6 +65,10 @@ pub(crate) struct Steps {
     pub(crate) answered: role_read_steps::Answered,
     pub(crate) ids: Vec<Vec<u8>>,
     status: u16,
+    /// The processes of a scenario over the system group, which it starts, kills and starts again.
+    pub(crate) processes: processes::Roles,
+    /// What a scenario's When saw, for its Then to judge.
+    pub(crate) seen: Vec<String>,
 }
 
 /// A client's refusal as it reads it, logging in as `name` with `password`.
@@ -93,6 +109,33 @@ fn no_engine(w: &mut Steps) -> TestResult {
     }
     for engine in ["ultragraphdb_store_kv", "fjall"] {
         assert!(!w.graph.contains(engine), "{engine} is linked");
+    }
+    Ok(())
+}
+
+#[then(
+    "it names neither `ultragraphdb_common_system`, `ultragraphdb_cluster_metadata`, `ultragraphdb_cluster_sequencer` nor `ultragraphdb_transactions_log`"
+)]
+fn no_book(w: &mut Steps) -> TestResult {
+    if !w.graph.contains("ultragraphdb_common_service") {
+        return Err(TestError::new(format!(
+            "the graph is not the binary's: {}",
+            w.graph
+        )));
+    }
+    // A crate's target is named for it, so a label naming one ends in `:<crate>`.
+    for book in [
+        "ultragraphdb_common_system",
+        "ultragraphdb_cluster_metadata",
+        "ultragraphdb_cluster_sequencer",
+        "ultragraphdb_transactions_log",
+    ] {
+        let named: Vec<&str> = w
+            .graph
+            .lines()
+            .filter(|label| label.contains(&format!("/{book}:")))
+            .collect();
+        assert!(named.is_empty(), "{book} is in the graph: {named:?}");
     }
     Ok(())
 }

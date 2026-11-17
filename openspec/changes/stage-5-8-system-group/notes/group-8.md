@@ -208,3 +208,188 @@ Four commits, each over the files named (one file's hunks across two where marke
    wait), `tests/own_steps.rs` (the steps), `tests/request_steps.rs`, `tests/tightening_steps.rs`, and this file.
 
 Files to delete: none.
+
+# Wave A, part 2: `frontend_tests`, `storage_tests`, `compute_tests` (tasks 4.2, 5.1, 8.1 and 8.2 in these crates)
+
+Base `1be22e5b`, beside part 1 in the same tree; none of part 1's files is part of this record. Counts are those Bazel's test
+logs report; times are Bazel's for a run with `--nocache_test_results`. Every scenario below runs the built binaries as
+processes, settings served by the config double, a storage process hosting the system group by its `[system]` table.
+
+## Task 8.1 in the three crates
+
+### Before
+
+Each target once at the base, uncached (2026-11-17, 12:00):
+
+| Target | Scenarios | Time |
+|---|---|---|
+| `frontend_tests:bdd` | 18 of 18 | 14.0 s |
+| `storage_tests:bdd` | 98 of 98 | 95.4 s |
+| `storage_tests:system_bdd` | 7 of 7 | 5.0 s |
+| `storage_tests:system_partitions_bdd` | 4 of 4 | 11.1 s |
+| `compute_tests:bdd` | 89 of 90 | 32.0 s |
+
+The one failure, compute_tests' "A peer that stops answering without closing is a lost dependency": compute exited 69
+naming the system group's address, "compute lost the system group at tcp://127.0.0.1:17081, which did not return within
+800 ms", where the step asserts the storage partition's address.
+
+### The edited scenario
+
+| Scenario | Feature | The step that named the books' host, and the change |
+|---|---|---|
+| A peer that stops answering without closing is a lost dependency (and "A lost dependency exits with its code", which shares its When's setup) | `compute_tests/features/role_binaries/role_binaries.feature` | `lose_storage` (`tests/bdd.rs`) stopped or killed `storage`, which since the switch hosts the system group too, so compute lost both and named the group. **Text unchanged; the setup changed**: two storage processes, the first hosting the group and partition 1, the second (`127.0.0.1:17085`, observability `18085`) holding partition 2 alone; the signal goes to the second, and the Then asserts compute names `127.0.0.1:17085` |
+
+What compute must name, by the spec: system-group, "A lost system group is waited for until the deadline", has a process
+that dials the group exit 69 "once the group has been gone for `join_deadline_ms`, naming the address", and role-binaries'
+two scenarios name no address. A hung or killed host is the group gone, so compute naming the group's address there is the
+spec's (group 6's *Found wanting* 4); the scenario is about a hung peer found by a question with a limit, which a
+partition apart from the host isolates. The product is unchanged.
+
+Feature texts that still name the frontend where the system group is meant, green and **not edited** (each binding plays
+or starts the group's host; the change's spec modifies the first two): `storage_tests/features/role_binaries/role_binaries.feature`
+"A role with the wrong secret is refused" ("a storage process started with a different role secret connects to the
+frontend"; this change's text is "a frontend started with a different role secret connects to the system group"), "A
+subscription past the closes held exits with its code" ("the frontend ends a storage process's subscription …"; this
+change's text names the system group), "Storage stopped before it joined is never ready" ("while the frontend holds its
+Join's reply"), "A partition leases its blocks ahead of need" ("joins the frontend"); `compute_tests` "Compute is ready
+once a partition has joined" ("compute has joined a frontend no partition has joined"). Their text is the user's to bring
+to this change's.
+
+### After
+
+Each target once, `--nocache_test_results`, in one invocation after every change (no hang at a binary's end seen):
+
+| Target | Before | After | Steps | Time |
+|---|---|---|---|---|
+| `frontend_tests:bdd` | 18 of 18 | **29 of 29** (11 added) | 58 | 46.8 s |
+| `storage_tests:bdd` | 98 of 98 | **98 of 98** | 196 | 98.5 s |
+| `storage_tests:drops_bdd` (new) | | **2 of 2** | 4 | 1.4 s |
+| `storage_tests:system_bdd` | 7 of 7 | **8 of 8** (1 added) | 16 | 6.3 s |
+| `storage_tests:system_books_bdd` (new) | | **4 of 4** | 8 | 3.5 s |
+| `storage_tests:system_partitions_bdd` | 4 of 4 | **4 of 4** | 8 | 9.2 s |
+| `compute_tests:bdd` | 89 of 90 | **90 of 90** | 180 | 27.5 s |
+
+## Task 4.2: the unbound scenarios over the storage binary (`storage_tests`)
+
+Bound by a delegated run, in `features/system/books.feature` (`@system @books`, a new target `system_books_bdd`) and
+`features/system/pinned.feature` (`@system @hosting`, in `system_bdd`), steps in `tests/system_books_steps.rs`:
+
+| Scenario | Bound as |
+|---|---|
+| The books recover in the storage process | the host at `sequencer.epoch_ms_max` 10,000, its closes driven one by one with CloseRequest to exactly 12 after a Declare of kind 1, two Leases; Catalog, a Challenge of the bootstrap `admin` and Placement read before a kill -9 and after the restart: equal values, the latest close 12, a third lease at or past the second's end |
+| A partition's sync holds up no close | partition 2 in a non-hosting process stopped by SIGSTOP for ten times `epoch_ms_max` (50 ms): the closes go on in order meanwhile, and once it runs again a commit lands past the last close sent during the stop |
+| A partition recovers from the group of its own process | three Declares of kind 1 as role `frontend`, a commit at partition 1 at or past version 3's effective epoch, kill -9, restart: the log's order "the system group listens", "a catalog version read … version=3", the partition's recovery with rounds above 0 |
+| A failed log of the group stops the process | `metadata.snapshot_rounds = 1`, `system.data_dir/meta/` made read-only once ready, a Lease: the snapshot's trim fails creating `superblock.X.tmp` (EACCES); exit 74, "a partition or the system group stopped; stopping the rest", "stopping role=storage", "failure=io: ordered log: storage create failed". No product hook |
+| Every runtime of a pinned role holds a CPU of its own | five partitions, `pin_cores` and `pin_skip = 1`: on macOS each partition's runtime logs "unpinned: this platform cannot bind"; on Linux the expected CPUs are derived from `/proc/self/status`'s permitted set with `common_service::cpu_for`, refused naming the precondition below six CPUs |
+
+**Weaker than the text, the user's to accept:** (1) "read at the same log position": the restarted partition appends its
+catalog report to the metadata log before any read over a role connection can be made (before the restart the reads
+answered at positions 23 to 25, after it 28 to 29), so the binding asserts equal values at a position at or past every one
+before, not the same position; `common_system`'s binding over simulated storage keeps the equality. (2) the delayed sync is
+a whole non-hosting process stopped, not one partition's sync inside the hosting process, which the binary has no means to
+delay; the in-process isolation rests on `common_system`'s binding. (3) the Linux branch of the pinned scenario was not run
+(this machine is macOS), and nothing restricts the process to six CPUs. (4) as root, the read-only directory would not fail.
+No product defect was found; none was fixed. **4.2 is not ticked** for (1) to (3).
+
+| Target | Before | After | Time |
+|---|---|---|---|
+| `storage_tests:system_bdd` | 7 | 8 (the pinned scenario) | see *After* |
+| `storage_tests:system_books_bdd` (new) | | 4 | see *After* |
+
+## Task 5.1: the unbound scenarios over the binaries
+
+Bound in `frontend_tests` (`tests/processes.rs` starts, kills and restarts the host, a second storage process at
+`127.0.0.1:17085`, compute and the frontend; steps in `tests/system_steps.rs` and `tests/books_steps.rs`):
+
+| Scenario | Feature | First run |
+|---|---|---|
+| The frontend listens at no role address | `client-endpoint/system_group.feature` | the step's own error (`lsof` not on the sandbox's `PATH`, now `/usr/sbin/lsof`); then passes: the frontend's TCP listeners, read back from the OS (macOS `lsof -a -p`, Linux `/proc/<pid>/net/tcp` by the process's socket inodes, the Linux branch not run here), are exactly its client and observability addresses |
+| A restarted frontend serves the sessions it served before (also task 8.2's) | the same | passes: request 1 committed, the frontend killed and restarted, request 2 through the resumed session commits as request 2; the frontend's settings name no `data_dir`, and its restart's log says nothing of a recovery or a replay |
+| A storage process restarted at its address is dialled again | the same | passes: partition 2's process killed and started again at its address, Members lists it there, and the frontend's next write to an IRI of partition 2 is answered |
+| A check outlives the frontend that asked for it | `schema-changes/tightening.feature` | passes: `a` in partition 2, whose process is stopped (SIGSTOP); the declaring Commit sent and left, the version being checked held at the group, the frontend killed, partition 2 continued: its report `refused=true` in the host's log, the latest version two above the one before, and a Describe through a restarted frontend reports `nick` not single-valued. **Weaker than the text:** partition 1, in the hosting process, holds none of `nick`'s data and may report its pass before the frontend stops; "before any partition reports" holds for the partition whose data refuses it |
+| A partition purges an entry only after the registry's eviction | `transactions/sessions.feature` | passes: `sessions_max` 1, closes at most 10 s apart and asked for by the test; the quiet time waited out (twice `transaction_ms`, 20 s, no setting moves it); after a close the second Register evicts the first session, a Recall at partition 1 answers its stored reply (a Commit) with no close on the test's subscription meanwhile, and once the next close is asked for and arrives, the Recall answers 18 |
+| The frontend binary carries no book | `role_binaries/role_binaries.feature` | **failed**, then fixed (below) |
+| The frontend is ready only once the books answer | the same | the premise check failed on the first binding (storage ready before the frontend started, the frontend's start having waited for its `/health`); with both started unwaited after a kill -9 over 200 rounds, passes: storage not ready as the frontend started, the frontend's `/health` answering before its `/ready`, and storage's `/ready` answering when the frontend's first does |
+| Dropping a predicate removes it from the predicate lists; Dropping a graph keeps the other graphs | `storage_tests/features/schema-changes/drops.feature` (`@drops`, a new target `drops_bdd`, by a delegated run) | pass: each Drop sent by a client through the frontend; the partition's keys read back by a Scan of the tenant's range in every keyspace a Scan reads, decoded with `QuadKey::parse`, the subject-predicate lists as compute reads them; shown to bite by a temporary edit dropping `since` for `knows` and `<c>` for `<g1>` |
+
+Not bound, each a specification question for the user:
+
+- schema-changes "Dropping a vector predicate drops its vector index": the frontend refuses a vector-index declaration until
+  stage 8 (`client_session_writes.rs:293`, bound as "A vector index is refused"), so no vector-index key can exist over the
+  binaries.
+- schema-changes "Dropping a tenant's everything survives a restart" (tenant 3) and "A tenant's drop leaves a tenant sharing
+  its run" (tenants 7 and 8): this stage holds tenant 0 alone; metadata-group, "The metadata group holds the tenants", gives
+  further tenants stage 7's `operate` command, and no client or role path makes one.
+- role-binaries "A role with the wrong secret is refused", the frontend's text of this change: not bound in this run.
+
+**5.1 is not ticked**: three scenarios cannot be bound in this stage.
+
+### Product fixes, each failing first
+
+1. **The frontend binary's graph named the books.** "The frontend binary carries no book" failed: "ultragraphdb_common_system
+   is in the graph: [//ultragraphdb_common/ultragraphdb_common_system:src/lib.rs, …]", and `bazel query somepath` led from
+   the frontend binary through `ultragraphdb_common_frontend` to `common_system`, `cluster_metadata`, `cluster_sequencer` and
+   `transactions_log`. Root cause: rules_rs's `aliases()` names every dependency's label, the dev-dependencies' among them
+   (the system group `common_frontend`'s tests run), and `aliases` is a label-keyed attribute, so Bazel takes each label as a
+   dependency of the library and of every binary over it. Nothing of them was linked: `nm` of the frontend binary finds 0
+   symbols of each, 6,487 of `common_frontend`. Fixed in `ultragraphdb_common_frontend/BUILD.bazel`: the library's aliases are
+   those of its normal dependencies alone. After: no path from the frontend binary to any of the four, the scenario passes,
+   and the non-integration targets stay cached (the rename was a no-op: each target is named for its crate).
+   The same `aliases()` stands in `ultragraphdb_common_system` (its dev-dependencies `store_sim` and `tool_bdd` in the storage
+   binary's graph) and `ultragraphdb_transactions_log` (`tool_bdd`); not changed here.
+2. **A lost system group ended the frontend outside its ordinary path.** system-group, "A group gone past the deadline ends
+   its dependants", the frontend's part, failed at "stopping role=frontend": the log held only "unavailable: the system group
+   at tcp://127.0.0.1:17081 has been gone for join_deadline_ms, 800 ms". `frontend_role` returned its error at once, so no core
+   stopped accepting and no open request was finished, against role-binaries' SIGTERM path and the function's own comment.
+   Fixed in `ultragraphdb_frontend/src/service.rs`: the loss logs the failure and "stopping role=frontend", sets the stop every
+   core watches, finishes the open requests as a SIGTERM does, and then returns the error (exit 69). After: passes.
+   **The same gap in compute, not changed:** `compute_role` returns `hold_peers`' error through `?`, skipping `finish_open`
+   and logging no stop; compute_tests' scenarios assert only the code and the address. Group 6's binary; the user's to direct.
+
+## Task 8.2: system-group, "A lost system group is waited for until the deadline"
+
+`frontend_tests/features/system-group/lost_group.feature`, the frontend's part (compute's is `compute_tests`'):
+
+| Scenario | First run |
+|---|---|
+| A frontend started before storage waits | passes: the frontend's `/ready` 503 at its start and 500 ms on, the host started, storage's `/ready` answering when the frontend's first does |
+| A group gone past the deadline ends its dependants (the frontend's part) | **failed**, fixed (*Product fixes* 2): exit 69 naming `127.0.0.1:17081`, "stopping role=frontend" |
+| A commit during the outage is refused, not lost | passes: partition 2 in a non-hosting process, the host killed; the session's one-frame write answered code 17; a Recall at partition 2 answers 18 (its table holds nothing of it); the host started again, the client's resend of the same request commits it |
+| An outage bans no source | passes: the host killed, 80 authentications each answered Error 17 on stream 0; the host started again, the endpoint cores answer 17 until their links have dialled it, and the first other answer authenticates (80 counted failures would have banned the address past 70) |
+| A restarted frontend serves the sessions it served before (client-endpoint) | bound once, with task 5.1 |
+
+Not bound: "A partition without closes commits until its epoch is full". An epoch holds `Version::COMMIT_SEQUENCE_MAX`,
+4,194,302 commit sequences (`ultragraphdb_core_ids`), and no setting lowers it, so filling one over the binaries takes four
+million commits. **8.2 is not ticked.**
+
+## The gate
+
+`make build` passes. `bazel test //... --test_tag_filters=-integration_test`: 179 of 179 pass (all cached: the
+`common_frontend` BUILD change renames nothing a compile action reads). The seven integration targets of the three crates
+pass uncached (*After*).
+
+## Found wanting
+
+1. **The frontend's `/ready` cannot tell a client its link is back** (part 1's *Found wanting* 2 seen again): "An outage bans
+   no source" waits for the group by authenticating until a core relays, each refusal a 17 that counts nothing.
+2. **`frontend_tests:bdd` and `storage_tests:bdd` past the bound** (deferred by the user): see *After*.
+3. **Spec scenarios this stage cannot hold**: the vector-index drop (stage 8), tenants 3, 7 and 8 (stage 7), an epoch
+   filled (four million commits): the change's delta needs them scoped, the user's to decide.
+
+## Notes for the commit
+
+Files to delete: none. Commits, by task:
+
+1. compute_tests (8.1): `ultragraphdb/ultragraphdb_compute_tests/tests/bdd.rs`.
+2. frontend, its library's graph and frontend_tests (5.1 and 8.2): `ultragraphdb_common/ultragraphdb_common_frontend/BUILD.bazel`,
+   `ultragraphdb/ultragraphdb_frontend/src/service.rs`, `ultragraphdb/ultragraphdb_frontend_tests/` (`BUILD.bazel`,
+   `features/role_binaries/role_binaries.feature`, the new `features/client-endpoint/system_group.feature`,
+   `features/system-group/lost_group.feature`, `features/schema-changes/tightening.feature`,
+   `features/transactions/sessions.feature`, `tests/bdd.rs`, `tests/endpoint_steps.rs`, the new `tests/processes.rs`,
+   `tests/system_steps.rs`, `tests/books_steps.rs`).
+3. storage_tests, task 4.2: `features/system/books.feature`, `features/system/pinned.feature`, `tests/system_books_steps.rs`,
+   `tests/system_bdd.rs`, and `BUILD.bazel`'s `system_*` hunks.
+4. storage_tests, the Drops (5.1): `features/schema-changes/drops.feature`, `tests/drop_steps.rs`, `tests/bdd.rs`, and
+   `BUILD.bazel`'s `bdd`/`drops_bdd` hunk.
+
+This section goes with whichever commit takes this file. `Cargo.lock` is unchanged.

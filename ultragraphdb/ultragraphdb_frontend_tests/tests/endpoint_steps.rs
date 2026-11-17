@@ -34,8 +34,8 @@ use ultragraphdb_transport_tls::TestPki;
 
 use crate::{Steps, services};
 
-const ADMIN: &str = "admin";
-const PASSWORD: &str = "the administrator's password";
+pub(crate) const ADMIN: &str = "admin";
+pub(crate) const PASSWORD: &str = "the administrator's password";
 
 /// The settings of the storage process hosting the system group, which bootstraps the administrator (design D11).
 pub(crate) fn bootstrapping() -> TestResult<Vec<(String, String)>> {
