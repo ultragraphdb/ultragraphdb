@@ -35,13 +35,14 @@ use ultragraphdb_common_system::{SystemSession, SystemShared, SystemStart, start
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_error_role::{RoleError, RoleErrorEnum};
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError, TransportErrorEnum};
 use ultragraphdb_protocol_transport_compio::{AcceptPace, Listener};
 use ultragraphdb_protocol_wire::{
     BodyView, Catalog, CatalogFrames, CloseRequest as CloseRequestBody, Command, Credit,
-    DefaultEntry, EpochCloseView, ErrorCode, ErrorReplyView, FLAG_LAST, Join, Lease, LeaseView,
-    Placement, PlacementView, Report, Subscribe,
+    DefaultEntry, EpochCloseView, ErrorCode, ErrorReplyView, FLAG_LAST, FrameView, Join, Lease,
+    LeaseView, Placement, PlacementView, Report, Subscribe,
 };
 use ultragraphdb_store_apply::ChangesetApplier;
 use ultragraphdb_store_kv::{Durability, FjallStore, MokaListCache, ThreadExecutor};
@@ -725,19 +726,12 @@ async fn serve_partition(
     let own = start.id;
     let cluster = &start.cluster;
     let name = RoleKind::Storage.to_string();
-    let address =
-        partition_address(&start.base, start.first, own.get()).map_err(RoleError::configuration)?;
     // Each connection's requests within its credit and its `held_bytes` of frames parked, its few messages of opening,
     // ending and cancelling, and the catalog versions a close announces.
     let (to_core, inbox) = unbounded();
     // What the connections' sessions time their requests into, which the core logs beside its commits' phases.
     let role_phases = RoleConnectionPhases::new(now());
-    accept_connections(
-        listen(&address).await?,
-        start,
-        to_core.clone(),
-        role_phases.clone(),
-    )?;
+    let address = accept_at(start, to_core.clone(), role_phases.clone()).await?;
     // Each ask comes from an epoch or a catalog event, not from a request: a close request per epoch the commit step
     // holds on, a default entry per declaration taking effect, a report per catalog version.
     let (asks_tx, asks) = unbounded();
@@ -890,6 +884,21 @@ fn open_partition(
     Ok(Partition::new(id, placement.clone(), applier))
 }
 
+/// Listens at the partition's address, each connection served by a session handing its requests to `core` and timing them into
+/// `phases`: the address.
+///
+/// A future dropped at the bind leaves nothing listening.
+async fn accept_at(
+    start: &CoreStart,
+    core: UnboundedSender<CoreMessage>,
+    phases: RoleConnectionPhases,
+) -> Result<String, RoleError> {
+    let address = partition_address(&start.base, start.first, start.id.get())
+        .map_err(RoleError::configuration)?;
+    accept_connections(listen(&address).await?, start, core, phases)?;
+    Ok(address)
+}
+
 fn accept_connections(
     listener: Listener,
     start: &CoreStart,
@@ -977,7 +986,14 @@ async fn held_versions(
 }
 
 /// Version `version` of `tenant` read on `client` across its Catalog frames, credit granted for each frame after the first
-/// (`PROTOCOL.md` §13.7, design D13), at most [`CATALOG_FRAMES_MAX`] of them.
+/// (`PROTOCOL.md` §13.7, design D13), at most [`CATALOG_FRAMES_MAX`] of them. A late frame among them is checked whole and
+/// dropped, as [`RoleClient::request`] drops one before the first (§2.5, step 3; §11.2).
+///
+/// # Errors
+///
+/// The group's Error on stream 0 or the version's stream, and a frame this process refuses (§2.6, §13): one breaking a
+/// frame-level rule or its body's, one on stream 0 or a stream it has not opened, which answers no request, or a command a Catalog
+/// is not answered by. The caller drops the client, which closes the connection, as the side that dialled refusing a frame does.
 ///
 /// A future dropped at a send or a read leaves the connection part way through the answer: the caller drops it.
 async fn catalog_read(
@@ -988,7 +1004,10 @@ async fn catalog_read(
     let mut frames = CatalogFrames::new();
     let first = client.request(&Catalog::request(tenant, version)).await?;
     let stream = client.last_stream();
-    let mut last = taken(&mut frames, &first)?;
+    let mut last = taken(
+        &mut frames,
+        &first.view().map_err(TransportError::protocol)?,
+    )?;
     drop(first);
     // At most `CATALOG_FRAMES_MAX` frames, each read once its credit is granted (Ultra rule 2).
     for _ in 1..CATALOG_FRAMES_MAX {
@@ -996,8 +1015,7 @@ async fn catalog_read(
             return Ok(frames);
         }
         client.send_on(stream, &Credit::new(1)).await?;
-        let next = client.next_frame().await?;
-        last = taken(&mut frames, &next)?;
+        last = next_taken(client, &mut frames, stream).await?;
     }
     if last {
         return Ok(frames);
@@ -1007,13 +1025,62 @@ async fn catalog_read(
     )))
 }
 
-/// Takes `frame` into `frames`: whether it was the answer's last.
-fn taken(
+/// Reads the next frame of the Catalog answer on `stream` into `frames`, each late frame before it checked whole and dropped:
+/// whether it was the answer's last.
+///
+/// # Errors
+///
+/// As [`catalog_read`] says.
+///
+/// A future dropped at a read leaves the connection part way through the answer, as [`catalog_read`] says.
+async fn next_taken(
+    client: &mut RoleClient,
     frames: &mut CatalogFrames,
-    frame: &ultragraphdb_protocol_transport::ReceivedFrame,
+    stream: u64,
 ) -> Result<bool, TransportError> {
+    // An event loop: a frame of the answer, a refusal or the connection's end ends it, as `RoleClient::request`'s (Ultra rule 2).
+    loop {
+        let next = client.next_frame().await?;
+        if let Some(view) = catalog_frame(&next, stream)? {
+            return taken(frames, &view);
+        }
+    }
+}
+
+/// `frame`, read for the Catalog answer on `stream`, the last stream the connection opened: its view, or `None` for a frame
+/// of a stream this process has ended, checked whole and dropped (`PROTOCOL.md` §2.5, step 3).
+///
+/// # Errors
+///
+/// As [`catalog_read`] says.
+fn catalog_frame(
+    frame: &ultragraphdb_protocol_transport::ReceivedFrame,
+    stream: u64,
+) -> Result<Option<FrameView<'_>>, TransportError> {
     let view = frame.view().map_err(TransportError::protocol)?;
-    frames.push(&view).map_err(TransportError::protocol)?;
+    let on = view.header().stream();
+    if on != 0 && on < stream {
+        return Ok(None);
+    }
+    let command = view.command();
+    if command == Command::Error && (on == 0 || on == stream) {
+        let refused = ErrorReplyView::from_frame(&view).map_err(TransportError::protocol)?;
+        return Err(TransportError::refused(refused.code(), refused.message()));
+    }
+    if on != stream {
+        return Err(TransportError::protocol(ProtocolError::command_not_served(
+            command.number(),
+        )));
+    }
+    let _answer: Command = command
+        .answering(Command::Catalog)
+        .map_err(TransportError::protocol)?;
+    Ok(Some(view))
+}
+
+/// Takes `view` into `frames`: whether it was the answer's last.
+fn taken(frames: &mut CatalogFrames, view: &FrameView<'_>) -> Result<bool, TransportError> {
+    frames.push(view).map_err(TransportError::protocol)?;
     Ok(view.header().flags() & FLAG_LAST != 0)
 }
 
@@ -1104,7 +1171,8 @@ async fn joined_subscription(
 }
 
 /// Hands each close the subscription brings to the partition's mailbox, joining and subscribing again when the group
-/// goes away, from the last close it holds, until the deadline; past it, `lost` ends the core.
+/// goes away, from the last close it holds, until the deadline; past it, `lost` ends the core. A connection whose frame this
+/// process refuses is closed, as the side that dialled closes it (`PROTOCOL.md` §2.6, §13), and joined again on a new one.
 ///
 /// A future dropped at a read, a catalog version's fetch or a rejoin leaves the closes handed on so far delivered and
 /// the one under way undelivered, its catalog versions dropped; `lost` dropped with it ends nothing.
@@ -1120,86 +1188,158 @@ async fn deliver_closes(
     lost: oneshot::Sender<RoleError>,
     stopping: Stopping,
 ) {
+    let mut subscription = client.last_stream();
     while !stopping.is_stopping() {
-        let read = client.next_frame().await;
-        // Asking again finds the same: the group no longer holds the close this partition needs (`PROTOCOL.md` §13.3).
-        if let Some(ended) = read.as_ref().ok().and_then(subscription_end) {
-            // A core gone has already stopped.
-            drop(lost.send(RoleError::unavailable(format!(
+        let read = client
+            .next_frame()
+            .await
+            .and_then(|frame| subscribed(&frame, subscription));
+        let failure = match read {
+            Ok(Subscribed::Late) => continue,
+            // Asking again finds the same: the group no longer holds the close this partition needs (`PROTOCOL.md` §13.3).
+            Ok(Subscribed::Ended(ended)) => RoleError::unavailable(format!(
                 "the system group ended this process's subscription: {ended}"
-            ))));
-            return;
-        }
-        let close = read.and_then(|frame| close_of(&frame));
-        match close {
-            Ok(close) => {
-                if close.epoch().get() != after.get() + 1 {
-                    // A core gone has already stopped.
-                    drop(lost.send(RoleError::software(format!(
-                        "the system group delivered close {} after close {}: a close follows the last by one epoch",
-                        close.epoch().get(),
-                        after.get()
-                    ))));
-                    return;
-                }
-                // A close is delivered once the process holds every catalog version it announces (`PROTOCOL.md` §11.12).
-                let mut fetched = Vec::new();
-                for version in close.catalog() {
-                    match announced_catalog(&peers, version).await {
-                        Ok(contents) => fetched.push(contents),
-                        Err(error) => {
-                            // A core gone has already stopped.
-                            drop(lost.send(RoleError::unavailable(format!(
-                                "a catalog version a close announces: {error}"
-                            ))));
-                            return;
-                        }
+            )),
+            Ok(Subscribed::Close(close)) => {
+                match delivered(close, after, &peers, (&closes, &to_core)).await {
+                    Ok(epoch) => {
+                        after = epoch;
+                        continue;
                     }
+                    Err(failure) => failure,
                 }
-                for contents in fetched {
-                    // A core gone holds nothing to install.
-                    drop(to_core.unbounded_send(CoreMessage::Catalog(contents)));
-                }
-                after = close.epoch();
-                // A core gone holds nothing to deliver to.
-                drop(closes.send(PartitionMessage::Close(close)));
             }
             Err(error) => {
                 tracing::warn!(%error, "the connection to the system group ended; joining again");
-                let name = peers.name().to_string();
-                let cluster = peers.cluster().clone();
-                let again = retry_until(&cluster, &name, &stopping, || {
-                    joined_subscription(&peers, &join, after)
-                })
-                .await;
-                match again {
-                    Ok(Some(next)) => client = next,
-                    Ok(None) => return,
-                    Err(failure) => {
-                        // A core gone has already stopped.
-                        drop(lost.send(naming(peers.system(), failure)));
-                        return;
+                // Closed before the next is dialled, so no connection outlives the one replacing it.
+                drop(client);
+                match rejoined(&peers, &join, after, &stopping).await {
+                    Ok(Some(next)) => {
+                        client = next;
+                        subscription = client.last_stream();
+                        continue;
                     }
+                    Ok(None) => return,
+                    Err(failure) => failure,
                 }
             }
-        }
+        };
+        // A core gone has already stopped.
+        drop(lost.send(failure));
+        return;
     }
 }
 
-/// What the group said, when `frame` is the Error 1 ending the subscription; a group refusing as it stops is joined again.
-fn subscription_end(frame: &ultragraphdb_protocol_transport::ReceivedFrame) -> Option<String> {
-    let view = frame.view().ok()?;
-    (view.command() == Command::Error).then_some(())?;
-    let refused = ErrorReplyView::from_frame(&view).ok()?;
-    (refused.code() == ErrorCode::Protocol).then(|| refused.message().to_string())
+/// Joins for this partition and subscribes from `after` again, until the deadline: the new connection, or `None` once the
+/// service stops.
+///
+/// A future dropped at a dial or a request drops the connection under way, as [`joined_subscription`] says.
+async fn rejoined(
+    peers: &Peers,
+    join: &Join,
+    after: Epoch,
+    stopping: &Stopping,
+) -> Result<Option<RoleClient>, RoleError> {
+    let name = peers.name().to_string();
+    let cluster = peers.cluster().clone();
+    retry_until(&cluster, &name, stopping, || {
+        joined_subscription(peers, join, after)
+    })
+    .await
+    .map_err(|failure| naming(peers.system(), failure))
 }
 
-/// The close `frame` carries. A close always fits one frame (`PROTOCOL.md` §13.4 allows more, the group sends one).
-fn close_of(
+/// Delivers `close`, the one after close `after`, once the process holds every catalog version it announces (`PROTOCOL.md`
+/// §11.12): its epoch.
+///
+/// # Errors
+///
+/// [`RoleError::software`] for a close not one epoch past `after`; [`RoleError::unavailable`] for a catalog version it
+/// announces that could not be read.
+///
+/// A future dropped at a catalog version's fetch delivers nothing, the versions read so far dropped.
+async fn delivered(
+    close: Close,
+    after: Epoch,
+    peers: &Peers,
+    (closes, to_core): (
+        &std::sync::mpsc::Sender<PartitionMessage>,
+        &UnboundedSender<CoreMessage>,
+    ),
+) -> Result<Epoch, RoleError> {
+    if close.epoch().get() != after.get() + 1 {
+        return Err(RoleError::software(format!(
+            "the system group delivered close {} after close {}: a close follows the last by one epoch",
+            close.epoch().get(),
+            after.get()
+        )));
+    }
+    let mut fetched = Vec::new();
+    for version in close.catalog() {
+        let contents = announced_catalog(peers, version).await.map_err(|error| {
+            RoleError::unavailable(format!("a catalog version a close announces: {error}"))
+        })?;
+        fetched.push(contents);
+    }
+    for contents in fetched {
+        // A core gone holds nothing to install.
+        drop(to_core.unbounded_send(CoreMessage::Catalog(contents)));
+    }
+    let epoch = close.epoch();
+    // A core gone holds nothing to deliver to.
+    drop(closes.send(PartitionMessage::Close(close)));
+    Ok(epoch)
+}
+
+/// What a frame read on the connection a subscription is on is.
+enum Subscribed {
+    /// A close.
+    Close(Close),
+    /// The subscription's end by the group's Error 1, what it said: the close it would send next is no longer held.
+    Ended(String),
+    /// A frame of a stream this process has ended, checked whole and dropped (`PROTOCOL.md` §2.5, step 3).
+    Late,
+}
+
+/// `frame`, read on the connection whose subscription is on stream `subscription`, the last stream it opened.
+///
+/// # Errors
+///
+/// The group's Error on stream 0, its connection error, or of a code other than 1 on the subscription's stream, a group
+/// refusing as it stops, either joined again; and a frame this process refuses (`PROTOCOL.md` §2.6, §13): one breaking a
+/// frame-level rule or its body's, one on stream 0 or on a stream it has not opened, which answers no request, or a command a
+/// Subscribe is not answered by (§2.5, step 3).
+fn subscribed(
     frame: &ultragraphdb_protocol_transport::ReceivedFrame,
-) -> Result<Close, TransportError> {
+    subscription: u64,
+) -> Result<Subscribed, TransportError> {
     let view = frame.view().map_err(TransportError::protocol)?;
-    let close = EpochCloseView::from_frame(&view).map_err(TransportError::protocol)?;
+    let stream = view.header().stream();
+    if stream != 0 && stream < subscription {
+        return Ok(Subscribed::Late);
+    }
+    let command = view.command();
+    if command == Command::Error && (stream == 0 || stream == subscription) {
+        let refused = ErrorReplyView::from_frame(&view).map_err(TransportError::protocol)?;
+        if stream == subscription && refused.code() == ErrorCode::Protocol {
+            return Ok(Subscribed::Ended(refused.message().to_string()));
+        }
+        return Err(TransportError::refused(refused.code(), refused.message()));
+    }
+    if stream != subscription {
+        return Err(TransportError::protocol(ProtocolError::command_not_served(
+            command.number(),
+        )));
+    }
+    let _answer: Command = command
+        .answering(Command::Subscribe)
+        .map_err(TransportError::protocol)?;
+    close_of(&view).map(Subscribed::Close)
+}
+
+/// The close `view` carries. A close always fits one frame (`PROTOCOL.md` §13.4 allows more, the group sends one).
+fn close_of(view: &FrameView<'_>) -> Result<Close, TransportError> {
+    let close = EpochCloseView::from_frame(view).map_err(TransportError::protocol)?;
     let wrong = |what: String| TransportError::authentication(what);
     let epoch = Epoch::new(close.epoch()).map_err(|error| wrong(error.to_string()))?;
     let catalog: Vec<CatalogVersion> = (0..close.announcement_count())

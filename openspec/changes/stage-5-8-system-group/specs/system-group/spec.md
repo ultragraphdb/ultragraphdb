@@ -278,3 +278,28 @@ A process that dials the system group, a storage process not hosting it, a compu
 #### Scenario: An outage bans no source
 - **WHEN** one address authenticates 80 times while the system group cannot be reached, and once after it answers again
 - **THEN** each of the 80 is answered Error 17 and counted as no failure, and the last authenticates
+
+#### Scenario: A connection error ending a subscription's connection is joined again
+- **WHEN** the system group ends the connection a storage process that does not host it subscribes on with Error 1 on
+  stream 0
+- **THEN** the process joins and subscribes again on a new connection, and runs on
+
+#### Scenario: A frame on a stream storage has not opened closes the subscription's connection
+- **WHEN** the system group sends a storage process that does not host it a frame on a stream it has not opened, on the
+  connection it subscribes on
+- **THEN** the process closes that connection before it joins again on a new one, subscribes again, and runs on
+
+#### Scenario: A late frame among a catalog version's frames is dropped
+- **WHEN** the system group answers a storage process that does not host it a catalog version in two Catalog frames,
+  and sends between them an Error on a stream the process has ended
+- **THEN** the process reads the version whole on that connection, joins, and runs on
+
+#### Scenario: A catalog version's frame on stream 0 closes the connection
+- **WHEN** the system group sends a storage process that does not host it the second of a catalog version's Catalog
+  frames on stream 0
+- **THEN** the process closes that connection before it reads the catalog again on a new one, joins, and runs on
+
+#### Scenario: A catalog version's frame on a stream storage has not opened closes the connection
+- **WHEN** the system group sends a storage process that does not host it the second of a catalog version's Catalog
+  frames on a stream it has not opened
+- **THEN** the process closes that connection before it reads the catalog again on a new one, joins, and runs on

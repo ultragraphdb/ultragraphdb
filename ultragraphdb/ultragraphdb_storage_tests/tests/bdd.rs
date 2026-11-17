@@ -7,6 +7,7 @@
 //! at their declared ports.
 
 mod drop_steps;
+mod lost_group_steps;
 mod one_frame_steps;
 mod parked_steps;
 mod played_frontend;
@@ -75,6 +76,7 @@ struct Steps {
     graph: String,
     kernel: read_kernel_steps::KernelSteps,
     log: String,
+    lost: lost_group_steps::LostSteps,
     parked: parked_steps::ParkedSteps,
     pid: u32,
     played: Option<Arc<Played>>,

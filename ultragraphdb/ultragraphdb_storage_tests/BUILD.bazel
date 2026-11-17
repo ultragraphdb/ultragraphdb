@@ -17,6 +17,7 @@ load("@rules_rs//rs:rust_test.bzl", "rust_test")
         srcs = [
             "tests/bdd.rs",
             "tests/drop_steps.rs",
+            "tests/lost_group_steps.rs",
             "tests/one_frame_steps.rs",
             "tests/parked_steps.rs",
             "tests/played_frontend.rs",
