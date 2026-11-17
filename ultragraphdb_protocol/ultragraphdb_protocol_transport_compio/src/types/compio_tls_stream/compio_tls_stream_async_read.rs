@@ -6,7 +6,7 @@
 use std::io;
 
 use compio::BufResult;
-use compio::buf::IoBufMut;
+use compio::buf::{IoBufMut, IoBufMutExt};
 use compio::io::{AsyncRead, AsyncWrite};
 use ultragraphdb_transport_tls::{Plaintext, READ_TURNS_MAX};
 

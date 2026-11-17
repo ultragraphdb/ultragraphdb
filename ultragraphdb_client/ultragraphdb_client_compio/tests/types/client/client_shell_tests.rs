@@ -685,10 +685,10 @@ impl compio::io::AsyncWrite for Trickling {
         let Some(left) = self.allowance.get() else {
             return self.inner.write(buf).await;
         };
-        let part = left.min(compio::buf::IoBuf::buf_len(&buf));
+        let part = left.min(compio::buf::IoBufExt::buf_len(&buf));
         let compio::BufResult(wrote, cut) = self
             .inner
-            .write(compio::buf::IoBuf::slice(buf, ..part))
+            .write(compio::buf::IoBufExt::slice(buf, ..part))
             .await;
         if let Ok(wrote) = &wrote {
             self.allowance.set(Some(left.saturating_sub(*wrote)));

@@ -4,7 +4,7 @@
  */
 
 use compio::BufResult;
-use compio::buf::{IntoInner, IoBuf};
+use compio::buf::{IntoInner, IoBufExt};
 use compio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use ultragraphdb_protocol_transport::{
     BufferPool, ClientHandshake, FrameStep, Framer, ReceivedFrame, ServerHandshake, TransportError,

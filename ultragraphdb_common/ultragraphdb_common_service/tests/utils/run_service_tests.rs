@@ -281,7 +281,7 @@ fn test_an_address_taken_is_unavailable() -> TestResult {
     );
     // Past the 5 s of retries a port in use is given.
     let refused = runtime
-        .block_on(compio::time::timeout(2 * WAIT, serving))
+        .block_on(async { compio::time::timeout(2 * WAIT, serving).await })
         .map_err(|_| TestError::new("a refusal past the retries"))?
         .err()
         .context("a refusal")?;
@@ -652,16 +652,19 @@ fn test_an_admin_listener_s_refused_settings_stop_the_start() -> TestResult {
                 .with_bootstrap(bootstrap.clone());
         let stop = AtomicBool::new(false);
         let refused = runtime
-            .block_on(compio::time::timeout(
-                WAIT,
-                serve_service(
-                    RoleKind::Storage,
-                    &start,
-                    CpuBinding::NotAsked,
-                    &stop,
-                    role_ready(true, false),
-                ),
-            ))
+            .block_on(async {
+                compio::time::timeout(
+                    WAIT,
+                    serve_service(
+                        RoleKind::Storage,
+                        &start,
+                        CpuBinding::NotAsked,
+                        &stop,
+                        role_ready(true, false),
+                    ),
+                )
+                .await
+            })
             .map_err(|_| TestError::new("a refusal within the wait"))?
             .err()
             .context("a refusal")?;

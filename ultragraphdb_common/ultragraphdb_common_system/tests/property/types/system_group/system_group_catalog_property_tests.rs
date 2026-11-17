@@ -375,7 +375,7 @@ impl Catalog {
                     self.waiting.push((version, task));
                 } else {
                     self.runtime
-                        .block_on(compio::time::sleep(Duration::from_millis(1)));
+                        .block_on(async { compio::time::sleep(Duration::from_millis(1)).await });
                     drop(task);
                 }
                 self.synced();
@@ -384,7 +384,7 @@ impl Catalog {
                 // L3.18, L3.19, L3.23: refused at once, the current version kept.
                 let answer = self
                     .runtime
-                    .block_on(compio::time::timeout(Duration::from_secs(2), task));
+                    .block_on(async { compio::time::timeout(Duration::from_secs(2), task).await });
                 let got = answer.ok().and_then(Result::ok).map(outcome_of);
                 assert_eq!(got, Some(said));
             }
@@ -469,7 +469,7 @@ impl Catalog {
         let waiting = std::mem::take(&mut self.waiting);
         for (version, task) in waiting {
             self.runtime
-                .block_on(compio::time::sleep(Duration::from_millis(1)));
+                .block_on(async { compio::time::sleep(Duration::from_millis(1)).await });
             self.waiting.push((version, task));
         }
         self.answered(true);

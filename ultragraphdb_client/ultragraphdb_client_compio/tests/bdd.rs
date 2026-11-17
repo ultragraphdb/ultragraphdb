@@ -385,10 +385,9 @@ fn main() -> TestResult {
         eprintln!("the scenarios did not end within {BOUND:?}");
         std::process::exit(1);
     });
-    let started = watchdog.block_on(compio::time::timeout(
-        std::time::Duration::from_millis(10),
-        sleeping,
-    ));
+    let started = watchdog.block_on(async {
+        compio::time::timeout(std::time::Duration::from_millis(10), sleeping).await
+    });
     assert!(started.is_err(), "the watchdog sleeps");
     futures::executor::block_on(
         Steps::cucumber()

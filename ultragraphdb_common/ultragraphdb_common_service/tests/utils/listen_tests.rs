@@ -28,7 +28,7 @@ const LISTEN_WAIT: Duration = Duration::from_secs(8);
 /// What listening at `text` is refused with, within [`LISTEN_WAIT`].
 fn refused(text: &str) -> TestResult<RoleError> {
     let refusal = Runtime::new()?
-        .block_on(compio::time::timeout(LISTEN_WAIT, listen(text)))
+        .block_on(async { compio::time::timeout(LISTEN_WAIT, listen(text)).await })
         .map_err(|_| TestError::new(format!("listening at {text} within {LISTEN_WAIT:?}")))?
         .err();
     refusal.context("a refusal")
@@ -113,7 +113,7 @@ fn test_a_unix_socket_is_private_and_a_stale_one_replaced() -> TestResult {
     for _ in 0..2 {
         // The first listen makes the socket; the second finds it left behind by the first, dropped.
         let listener = runtime
-            .block_on(compio::time::timeout(LISTEN_WAIT, listen(&text)))
+            .block_on(async { compio::time::timeout(LISTEN_WAIT, listen(&text)).await })
             .map_err(|_| TestError::new(format!("listening at {text} within {LISTEN_WAIT:?}")))??;
         let made = std::fs::symlink_metadata(&path)?;
         assert!(made.file_type().is_socket());

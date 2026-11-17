@@ -8,7 +8,7 @@ use std::io;
 use std::rc::Rc;
 
 use compio::BufResult;
-use compio::buf::{IntoInner, IoBuf};
+use compio::buf::{IntoInner, IoBuf, IoBufExt};
 use compio::io::{AsyncWrite, AsyncWriteExt};
 use ultragraphdb_transport_tls::{RECORD_SIZE_MAX, TlsSession};
 

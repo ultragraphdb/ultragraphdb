@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use compio::BufResult;
-use compio::buf::{IoBuf, IoBufMut};
+use compio::buf::{IoBuf, IoBufExt, IoBufMut, IoBufMutExt};
 use compio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use compio::net::{TcpListener, TcpStream};
 use compio::runtime::{Runtime, spawn};

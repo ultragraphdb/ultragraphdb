@@ -5,7 +5,7 @@
 
 use std::io;
 
-use compio::buf::{BufResult, IntoInner, IoBuf};
+use compio::buf::{BufResult, IntoInner, IoBufExt};
 use compio::io::{AsyncReadAtExt, AsyncWriteAtExt};
 
 use crate::traits::durable_file::DurableFile;

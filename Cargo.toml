@@ -119,7 +119,7 @@ arbitrary = { version = "1.5", features = ["derive"] }
 async-trait = { version = "0.1", default-features = false }
 base64 = { version = "0.23", default-features = false }
 bcrypt = { version = "0.19" }
-compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "polling", "fs", "net", "time"] }
+compio = { git = "https://github.com/compio-rs/compio", rev = "d52b87b816014604306cbea0e06a56333bd9a021", default-features = false, features = ["runtime", "io-uring", "polling", "fs", "net", "time"] }
 criterion = { version = "0.8" }
 cucumber = { version = "0.23" }
 fjall = { version = "3.1", default-features = false }

@@ -6,7 +6,7 @@
 use std::future::poll_fn;
 
 use compio::BufResult;
-use compio::buf::IoBufMut;
+use compio::buf::{IoBufExt, IoBufMut, IoBufMutExt};
 use compio::io::AsyncRead;
 
 use crate::types::compio_sim_stream::CompioSimStream;

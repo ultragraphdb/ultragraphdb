@@ -85,8 +85,12 @@ RUST_PLATFORMS = [
 ]
 
 crate = use_extension("@rules_rs//rs:extensions.bzl", "crate")
+# compio comes from GitHub at a pinned commit: rules_rs fetches the commit's archive from codeload.github.com and pins its
+# SHA-256 in MODULE.bazel.lock. With `allow_git_cli` off, a failed or changed download fails the fetch instead of falling
+# back to the host's `git`.
 crate.from_cargo(
     name = "crates",
+    allow_git_cli = False,
     cargo_lock = "//:Cargo.lock",
     cargo_toml = "//:Cargo.toml",
     generate_lint_config = True,
@@ -106,18 +110,6 @@ crate.annotation(
 crate.annotation(
     crate = "sha2",
     rustc_flags = ["-Copt-level=3"],
-)
-
-# compio-driver 0.12.5's polling driver leaves a whole batch of events at a stale one, and on kqueue a socket with a read and
-# a write waiting reports both under the write's key: a write done first turns the read's event stale, and every later
-# event of the batch is lost with it, a read on another socket waiting forever (compio-rs/compio#1119). The patch is
-# upstream's fix (#1121, merged after 0.12.5, in no release yet): it skips the stale event alone. Bound to 0.12.5, so an
-# upgrade drops it; `ultragraphdb_protocol_transport_compio`'s carrier tests show whether the new release holds the fix.
-crate.annotation(
-    crate = "compio-driver",
-    patch_args = ["-p1"],
-    patches = ["//bazel/patches:compio_driver_poll_stale_event.patch"],
-    version = "0.12.5",
 )
 use_repo(crate, "crates")
 

@@ -56,7 +56,7 @@ ultragraphdb_transactions_log = { path = "../ultragraphdb_transactions/ultragrap
 libfuzzer-sys = "=0.4.13"
 # The root workspace's pins.
 arbitrary = { version = "1.5.0", features = ["derive"] }
-compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "fs", "net", "time"] }
+compio = { git = "https://github.com/compio-rs/compio", rev = "d52b87b816014604306cbea0e06a56333bd9a021", default-features = false, features = ["runtime", "io-uring", "fs", "net", "time"] }
 xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
 
 # Clippy as in the root workspace. `unsafe_code` cannot be forbidden here: `fuzz_target!` expands to `#[no_mangle]`.
