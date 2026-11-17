@@ -8,15 +8,19 @@ load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
 
+# The library's dependencies, and the aliases of those alone: `aliases()` names the dev-dependencies too, and every label it
+# names is a dependency of the library in Bazel's graph, and so of every binary over it.
+LIBRARY_DEPS = all_crate_deps(normal = True)
+
 rust_library(
     name = "ultragraphdb_error_invariant",
     srcs = glob(["src/**/*.rs"]),
-    aliases = aliases(),
+    aliases = {label: name for label, name in aliases().items() if label in LIBRARY_DEPS},
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
     tags = ["ultragraphdb_error_invariant"],
     visibility = ["//visibility:public"],
-    deps = all_crate_deps(normal = True),
+    deps = LIBRARY_DEPS,
 )
 
 rust_doc(
@@ -53,13 +57,13 @@ rust_library(
     name = "ultragraphdb_error_invariant_release",
     testonly = True,
     srcs = glob(["src/**/*.rs"]),
-    aliases = aliases(),
+    aliases = {label: name for label, name in aliases().items() if label in LIBRARY_DEPS},
     crate_name = "ultragraphdb_error_invariant",
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
     rustc_flags = ["-Cdebug-assertions=off"],
     tags = ["ultragraphdb_error_invariant"],
-    deps = all_crate_deps(normal = True),
+    deps = LIBRARY_DEPS,
 )
 
 # The same suite against the release build, compiled with debug assertions off itself, so its release-build tests run.

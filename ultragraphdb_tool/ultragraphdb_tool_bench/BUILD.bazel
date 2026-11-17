@@ -11,18 +11,22 @@ load("@rules_rust//rust:defs.bzl", "rust_doc")
 load("//bazel:binary.bzl", "static_binary")
 load("//bazel/container:img.bzl", "glibc_multiarch_img", "scratch_multiarch_img", "sha256_tag")
 
+# The library's dependencies, and the aliases of those alone: `aliases()` names the dev-dependencies too, and every label it
+# names is a dependency of the library in Bazel's graph, and so of every binary over it.
+LIBRARY_DEPS = all_crate_deps(normal = True)
+
 rust_library(
     name = "ultragraphdb_tool_bench",
     srcs = glob(
         ["src/**/*.rs"],
         exclude = ["src/bin/**"],
     ),
-    aliases = aliases(),
+    aliases = {label: name for label, name in aliases().items() if label in LIBRARY_DEPS},
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
     tags = ["ultragraphdb_tool_bench"],
     visibility = ["//visibility:public"],
-    deps = all_crate_deps(normal = True),
+    deps = LIBRARY_DEPS,
 )
 
 # The measurements of stage 2, task 10.2, run by hand with `bazel run -c opt :store_bench -- <run>`; no test runs it.

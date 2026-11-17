@@ -8,15 +8,19 @@ load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("@rules_rust//rust:defs.bzl", "rust_doc")
 
+# The library's dependencies, and the aliases of those alone: `aliases()` names the dev-dependencies too, and every label it
+# names is a dependency of the library in Bazel's graph, and so of every binary over it.
+LIBRARY_DEPS = all_crate_deps(normal = True)
+
 rust_library(
     name = "ultragraphdb_protocol_transport",
     srcs = glob(["src/**/*.rs"]),
-    aliases = aliases(),
+    aliases = {label: name for label, name in aliases().items() if label in LIBRARY_DEPS},
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
     tags = ["ultragraphdb_protocol_transport"],
     visibility = ["//visibility:public"],
-    deps = all_crate_deps(normal = True),
+    deps = LIBRARY_DEPS,
 )
 
 rust_doc(
@@ -52,7 +56,7 @@ rust_library(
     name = "ultragraphdb_protocol_transport_loom",
     testonly = True,
     srcs = glob(["src/**/*.rs"]),
-    aliases = aliases(),
+    aliases = {label: name for label, name in aliases().items() if label in LIBRARY_DEPS},
     crate_name = "ultragraphdb_protocol_transport",
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
@@ -60,7 +64,7 @@ rust_library(
         "--cfg",
         "loom",
     ],
-    deps = all_crate_deps(normal = True) + ["@crates//:loom"],
+    deps = LIBRARY_DEPS + ["@crates//:loom"],
 )
 
 # The Loom tests, under `tests/loom/`, mirroring `src/`: every interleaving of each model's threads, against the
