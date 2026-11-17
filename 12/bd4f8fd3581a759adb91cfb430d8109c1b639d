@@ -1,0 +1,33 @@
+openspec/changes/stage-5-8-system-group/specs/client-endpoint/spec.md
+  s_21eff977e05256::t_cf21bafb60932c 48-49
+  s_21eff977e05256::t_43ed9d31c609a8 50-51
+  s_21eff977e05256::t_87707382fefa70 52
+openspec/changes/stage-6-5-tile-store/specs/ingest/spec.md
+  s_21eff977e05256::t_6398330eac9b25 45-46
+  s_21eff977e05256::t_55c6737e69f4d0 44,47-48,51-52,55-58
+  s_21eff977e05256::t_55ae02b7bff1ec 59
+openspec/changes/stage-6-6-ugs-data-definition/specs/schema-changes/spec.md
+  s_21eff977e05256::t_939a2b5f232f3f 18-23
+specification/binary_protocol/PROTOCOL.md
+  s_21eff977e05256::t_d95efaba72c585 2898-2900
+  s_21eff977e05256::t_d3900155aacfce 1050-1059
+  s_21eff977e05256::t_b10e8462f70be0 2558-2559
+  s_21eff977e05256::t_3d970596dc1697 2560
+  s_21eff977e05256::t_136f5e30847ce3 2561-2564
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "12bd4f8fd3581a759adb91cfb430d8109c1b639d",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
