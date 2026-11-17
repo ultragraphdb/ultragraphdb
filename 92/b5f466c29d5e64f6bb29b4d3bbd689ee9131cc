@@ -1,0 +1,74 @@
+BUILD.bazel
+  s_21eff977e05256::t_075cae7c6c6e34 15-18
+ultragraphdb/ultragraphdb_storage_tests/tests/drop_steps.rs
+  s_21eff977e05256::t_32f426cfe1fc31 17
+  s_21eff977e05256::t_0aeb978fa766f8 225,228-231,233
+.bazelrc
+  s_21eff977e05256::t_0b458c530f051a 42-46
+ultragraphdb/ultragraphdb_chart_tests/tests/bdd.rs
+  s_21eff977e05256::t_5ea552e1f7add1 69,77-78,85-89,552,554,556
+ultragraphdb/ultragraphdb_frontend_tests/tests/books_steps.rs
+  s_21eff977e05256::t_114d6d168c8214 68-69,76,84-98
+ultragraphdb/ultragraphdb_frontend_tests/tests/system_steps.rs
+  s_21eff977e05256::t_552f2ec7fb1dc3 385-402
+ultragraphdb/ultragraphdb_storage_tests/tests/system_books_steps.rs
+  s_21eff977e05256::t_82fb96dea6fd87 134-136,149,151-153,198,205,207,235-269,461-462
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/src/types/metadata_state/metadata_state_apply.rs
+  s_21eff977e05256::t_a665cc1929798a 136,154-155,157
+ultragraphdb_cluster/ultragraphdb_cluster_partition/tests/bdd.rs
+  s_21eff977e05256::t_42136d8ad23bff 1868,1878,1880-1882,1894-1895
+ultragraphdb_cluster/ultragraphdb_cluster_partition/tests/property/types/partition_host/partition_host_bound_property_tests.rs
+  s_21eff977e05256::t_76010428e830c8 82
+ultragraphdb_common/ultragraphdb_common_config_check/tests/property/utils/cross_checks_property_tests.rs
+  s_21eff977e05256::t_e5f17e6c3d5819 82
+ultragraphdb_common/ultragraphdb_common_config_check/tests/property/utils/drawn_target.rs
+  s_21eff977e05256::t_b4af31a967785d 24,34,97,106,113-115,146,155-156,166
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/property/types/scram_relay_property_tests.rs
+  s_21eff977e05256::t_124afaa3bdc3ab 154,163,288-289
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_relay/scram_relay_debug_tests.rs
+  s_21eff977e05256::t_6a880d2bf37b51 62-63,70,74-75,83,85
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_relay/scram_relay_tests.rs
+  s_21eff977e05256::t_c2f55f364f9651 417,420-421
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/tests/types/carrier/carrier_tests.rs
+  s_21eff977e05256::t_80833e1ae1fa27 239-241
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/property/types/catalog_view_property_tests.rs
+  s_21eff977e05256::t_88a9fca7be314e 66
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/property/types/challenge_view_property_tests.rs
+  s_21eff977e05256::t_15e0c10b9eecda 86
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/property/types/check_view_property_tests.rs
+  s_21eff977e05256::t_9e53fc5d3a82f5 125,292-293
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/property/types/close_request_view_property_tests.rs
+  s_21eff977e05256::t_ce9639f6fcc68b 51
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/property/types/declare_view_property_tests.rs
+  s_21eff977e05256::t_55a783fd09d427 127,129,308
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/property/types/defaults_view_property_tests.rs
+  s_21eff977e05256::t_7edfc2dfeaa4de 27,34,62,74,117,155,180
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/property/types/describe_view_property_tests.rs
+  s_21eff977e05256::t_e9a6b28425fe9e 73
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/property/types/ended_view_property_tests.rs
+  s_21eff977e05256::t_89a89a41d674e6 40
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/property/types/session_view_property_tests.rs
+  s_21eff977e05256::t_3ddf859b26b39d 49
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/property/types/subscribe_view_property_tests.rs
+  s_21eff977e05256::t_7807bee8211bbd 53
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/property/types/verify_view_property_tests.rs
+  s_21eff977e05256::t_bed481c3928832 72,95,100
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/system_steps.rs
+  s_21eff977e05256::t_e24d0ac5711c0a 373-379,408-412,447-451
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "92b5f466c29d5e64f6bb29b4d3bbd689ee9131cc",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
