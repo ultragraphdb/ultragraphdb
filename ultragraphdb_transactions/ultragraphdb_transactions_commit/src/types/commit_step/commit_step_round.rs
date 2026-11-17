@@ -643,7 +643,7 @@ impl<P: Proposal> CommitStep<P> {
                 .stamp_catalog(in_effect)
                 .and_then(|()| WriteSetRecordView::new(proposal.record()));
             match stamped {
-                Ok(record) => record,
+                Ok(view) => view,
                 Err(cause) => return Decided::Refused(CommitError::malformed(cause)),
             }
         } else {

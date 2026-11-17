@@ -30,7 +30,7 @@ fn faults() -> FaultConfig {
 fn seed_keeps_every_invariant(seed: u64) -> TestResult {
     assert!(SEEDS.contains(&seed), "seed {seed} is not one of {SEEDS:?}");
     let seeds = SEEDS.end() - SEEDS.start() + 1;
-    let partitions = if seed % 2 == 0 { 2 } else { 3 };
+    let partitions = if seed.is_multiple_of(2) { 2 } else { 3 };
     let counts = PartitionWorkload::run(seed, partitions, faults(), 300)?.counts();
     println!("seed {seed} over {partitions}: {counts:?}");
     assert!(counts.commits > 20, "seed {seed}: {counts:?}");

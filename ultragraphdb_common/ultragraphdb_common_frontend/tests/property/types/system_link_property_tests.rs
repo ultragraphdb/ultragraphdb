@@ -33,8 +33,7 @@ async fn core() -> Option<(SystemPlay, RoleDouble, SystemLink, Address)> {
     let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, Into::into);
     static FILES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let numbered = FILES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let file =
-        std::path::PathBuf::from(root).join(format!("link-law-{}-{numbered}", std::process::id()));
+    let file = root.join(format!("link-law-{}-{numbered}", std::process::id()));
     std::fs::write(&file, "a role secret").ok()?;
     let cluster = RoleCluster::new(
         CLUSTER,

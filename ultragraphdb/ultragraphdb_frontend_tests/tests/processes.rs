@@ -22,10 +22,9 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
-    CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, FRONTEND_BINARY,
-    FRONTEND_OBSERVABILITY, SECRET, START_SECONDS, STORAGE_BINARY, STORAGE_OBSERVABILITY,
-    SYSTEM_ROLE_ADDRESS, answering, compute_on_one_host, holding, not_hosting, role, scratch,
-    storage_holding, until_answering, with,
+    CLIENT_ADDRESS, CLUSTER, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, SECRET, START_SECONDS,
+    STORAGE_BINARY, STORAGE_OBSERVABILITY, SYSTEM_ROLE_ADDRESS, answering, not_hosting, role,
+    scratch, storage_holding, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -105,14 +104,6 @@ impl Roles {
         Ok(())
     }
 
-    /// Starts compute, once its `/ready` answers.
-    pub(crate) fn start_compute(&mut self) -> TestResult {
-        let settings = holding(compute_on_one_host(), SECRET)?;
-        let wait = answering(COMPUTE_OBSERVABILITY, "/ready");
-        let _pid: u32 = self.start(COMPUTE_BINARY, &settings, "compute", wait)?;
-        Ok(())
-    }
-
     /// Starts the frontend on `settings`, once its `/health` answers, and when `ready` until its client endpoint listens and its
     /// `/ready` answers.
     pub(crate) fn start_frontend(
@@ -171,13 +162,6 @@ impl Roles {
             .as_ref()
             .map(|(pid, _)| *pid)
             .context("the frontend")
-    }
-
-    /// Kills the host and starts it again on its settings, over the same data directories, waiting for its `/ready`.
-    pub(crate) fn restart_host(&mut self) -> TestResult {
-        let (pid, settings) = self.host.take().context("the host")?;
-        let _killed = self.kill(pid)?;
-        self.start_host(settings, true)
     }
 
     /// Kills the second storage process and starts it again at its address, waiting for its `/ready`.

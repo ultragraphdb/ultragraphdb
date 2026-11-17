@@ -9,9 +9,7 @@
 use hegel::TestCase;
 use hegel::generators as gs;
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Command, Describe, DescribeView, FrameView,
-};
+use ultragraphdb_protocol_wire::{BodyBuilder, Command, Describe, DescribeView, FrameView};
 
 use crate::utils::layout::{
     CLUSTER, FRAME_MAX, built, command_header, field, frame, header, nonzero_byte, read_back,

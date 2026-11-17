@@ -30,7 +30,7 @@ fn fits(max_frame: u32, build: impl Fn(usize) -> Option<usize>) -> usize {
     let within = |count: usize| build(count).is_some_and(|len| len <= max_frame as usize);
     let (mut low, mut high) = (1usize, max_frame as usize);
     while low < high {
-        let middle = low + (high - low + 1) / 2;
+        let middle = low + (high - low).div_ceil(2);
         if within(middle) {
             low = middle;
         } else {
