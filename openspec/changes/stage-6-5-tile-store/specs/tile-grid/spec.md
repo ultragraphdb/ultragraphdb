@@ -18,7 +18,9 @@ settings of the `[tiles]` table as u64s in the table's order, as `specification/
 ### Requirement: The grid file
 A replica's grid SHALL be the file `grid` in `<data_dir>/p{partition}/r{replica}/`, of exactly
 `extent_bytes × grid_extents` bytes, created whole and zeroed at first open, with `fallocate` where the file system
-supports it, and never resized; on Linux it SHALL be opened with `O_DIRECT`, and every read and write SHALL be a whole
+supports it, and never resized; under the object binding it SHALL be sparse instead, created at that size with no
+block reserved, a node holding bytes for at most `present_extents` extents (`STORAGE.md` sections 12.1 and 12.5;
+decided 2026-11-17); on Linux it SHALL be opened with `O_DIRECT`, and every read and write SHALL be a whole
 number of 4,096-byte blocks at a block boundary, as `specification/storage/STORAGE.md` sections 12.1 and 17.3 state.
 Extent 0 SHALL hold the superblock's four copies in blocks 0 to 3, its other blocks zero and never written; extents 1
 to `grid_extents − 1` hold tiles, each starting at a block boundary with the bytes from its end to the next boundary

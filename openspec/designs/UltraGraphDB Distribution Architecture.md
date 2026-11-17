@@ -449,10 +449,10 @@ The engine is one. Its grid's shell binds it to a medium, and a cluster chooses 
 |  | Direct-attached | Object store |
 | --- | --- | --- |
 | Authority for tiles | The replica's grid on local NVMe | The object store |
-| The local grid | Holds every extent | Holds every open extent, every extent of the manifest and hot streams, every extent not yet published, and as many published cold extents as the node keeps |
+| The local grid | Holds every extent | Sparse; holds every open extent, every extent of the manifest stream, every extent not yet published, and as many published hot and cold extents as `present_extents` leaves room for, hot ones kept first (decided 2026-11-17) |
 | The log | Local, synced per round | Local, synced per round |
 | A commit is acknowledged | Once its round is durable in the log; from stage 8, committed by its group | The same. A commit never waits on the object store |
-| Data is bounded by | The local drive | The object store, with the local drive bounding the cache, once the grid's size under this binding is decided (review of 2026-11-12, U1) |
+| Data is bounded by | The local drive | The object store, within the grid's address space, `grid_extents`; the local drive bounds the extents a node holds present, `present_extents`, the grid being sparse under this binding (decided 2026-11-17, the review of 2026-11-12's U1) |
 | Object-store credentials | None | Write credentials held by storage alone; compute holds credentials that read and list, from the stage that has it read published checkpoints (decided 2026-11-17) |
 | A lost node recovers | From its group's replicas, from stage 8 | Tiles from the object store; the log's tail from its group's replicas, from stage 8 |
 | Suits | Lowest latency, on premises, air-gapped | Elastic cloud, large data, low storage cost; MinIO or Ceph on premises |
@@ -871,6 +871,7 @@ Settle before it is specified:
 | The log under the object binding | Local, synced per round; no commit waits on the object store | 2026-11-17 |
 | Compute and the object store | Compute reads published checkpoints itself, read-only, at a checkpoint's position, from a stage after stage 8; storage alone writes and deletes (`STORAGE.md` section 12.5) | 2026-11-17 |
 | Failover by the object store's conditional writes | None: with the log local it cannot recover the rounds above a published checkpoint; stage 8's replication covers a lost node | 2026-11-17 |
+| The grid under the object binding | Sparse; `present_extents` bounds a node's local use, a fetch or a placement at the bound punching a published extent first, and admission stopping when nothing can be punched (`STORAGE.md` sections 12.1 and 12.5) | 2026-11-17 |
 | The end of `asserted` | Appended by the retraction as a class I value, so a `@bitemporal` type is wholly class I (`STORAGE.md` section 14.3) | 2026-11-17 |
 | The check of Dec 31 | A decision point on a query through the whole stack, on tiles; movable | 2026-11-12 |
 | Placement | One owner per fact; bucket ranges per partition, one partition per core | 2026-11-02 |

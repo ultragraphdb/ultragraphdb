@@ -149,7 +149,7 @@ refuses a revision changing it before stage 9.5, since a node's recovery depends
 | `object_credentials_file` | none | an absolute path | per node | Where the node reads the store's credentials |
 | `object_checkpoints` | 8 | 2 to 4,096 | equal across the cluster | The latest published checkpoint records a partition retains (section 12.5) |
 | `object_fetch_ms` | 30,000 | 1,000 to 600,000 | per node | How long a request to the object store may go unanswered before the store counts as unreachable |
-| `cache_extents` | none | at least 16 | per node | The published cold extents a node keeps present |
+| `present_extents` | none | 64 to `grid_extents` | equal across the cluster | The most extents of a grid a node holds bytes for at once, open, unpublished and published alike (section 12.5, *Present extents*); it bounds a partition's use of the local drive, where `grid_extents` bounds its data |
 
 ### 3.2 The derivation version
 
@@ -756,7 +756,11 @@ position have one identity (section 2), which stage 8 carries on `Prepare`, `Pre
 
 A replica's grid is the file `grid` in its data directory, `<data_dir>/p{partition}/r{replica}/`, of exactly
 `extent_bytes × grid_extents` bytes. It is created whole at first open (section 17.3), with `fallocate` where the file
-system supports it, and never changes size. On Linux it is opened with `O_DIRECT`; every read and write is a whole
+system supports it, and never changes size. Under the object binding it is sparse instead: created at that size with
+no block reserved, an extent's blocks allocated by its first write and given back by its punch, so the file's size is
+the grid's address space and the drive holds the present extents alone (section 12.5; decided 2026-11-17). Such a grid
+needs a file system that keeps holes and reports them; on one that does not, the instance refuses to start under
+`object`. On Linux it is opened with `O_DIRECT`; every read and write is a whole
 number of blocks at a block boundary.
 
 ### 12.2 Extent 0
@@ -882,7 +886,7 @@ extent records.
 | | `direct` | `object` |
 |---|---|---|
 | The authority for a closed extent's bytes | the grid file | the object store, once the extent is published |
-| The grid file | holds every extent | holds every open extent, every extent of streams 0 and 1, every extent not yet published, and as many published extents of stream 2 as the node keeps |
+| The grid file | holds every extent | sparse; holds every open extent, every extent of stream 0, every extent not yet published, and as many published extents of streams 1 and 2 as `present_extents` leaves room for, stream 1's kept before stream 2's |
 | A commit is acknowledged | as the log's rule states | the same: no commit waits on the object store |
 
 **Objects.** Under `object` two kinds of object exist, each written only where no object of its key exists.
@@ -915,14 +919,31 @@ publication lags, the log grows; at the log's bound admission stops, as it does 
 `detail` 3.
 
 **Absent extents.** A node may punch a closed extent of stream 2, the cold stream, once a read of its object, other
-than the answer to its own write, has confirmed it; it keeps as many present as `cache_extents` allows and chooses
-among them itself, since the choice changes no answer. Extents of streams 0 and 1, the manifest, the extent records
-and the tiles rewritten lately, are never punched by the node, and are absent only after a restore, until read
+than the answer to its own write, has confirmed it; it keeps as many present as `present_extents` allows and chooses
+among them itself, since the choice changes no answer. An extent of stream 1, the tiles rewritten lately, is punched
+only at the bound, after every extent of stream 2 that may be, and on the same confirmation. Extents of stream 0, the
+manifest and the extent records, are never punched by the node, and are absent only after a restore, until read
 (section 17.7). A node keeps no record of what it punched. A punched extent reads as zero, a tile read from it fails
 its check, and the read repairs it from the object store (section 17.4): it fetches the extent's object by the key its
 extent record gives, checks it, writes it at the extent's address and syncs. What a node remembers of its punches in
 memory only spares that first read. A tile whose blocks read all zero in a published extent is absent; that test is
 the one place absent is told from damaged, and a scrub uses it to pass absent tiles over (section 17.5).
+
+**Present extents.** An extent is *present* while the grid file holds blocks for it: an open extent, and a closed or
+released one not punched. A node holds at most `present_extents` of them. It counts them in memory, and at open takes
+the count from the file's holes, a local fact no logged decision reads. An extent is *held* while the node may not
+punch it: an open extent, an extent of stream 0, and a closed extent not yet published and confirmed. At the bound:
+
+- a fetch of an absent extent, and a placement that opens an extent, first punch a present extent that is not held,
+  of stream 2 before stream 1, and with none wait for a publication to confirm one, as a read waits for a fetch;
+- admission keeps the held extents and the reserve (section 12.4) within the bound, each round's own changes counted
+  as section 15.6 counts them, so a checkpoint's drain always finds room to place what it must; while they are not,
+  the partition admits no commit and refuses with code 5 (Busy), `detail` 3.
+
+A wait at the bound changes when a placement happens and never where: the extent a tile is placed in stays a function
+of the log (section 12.4), so replicas hold the same grids whatever each holds present. `grid_extents` therefore
+bounds what a partition may hold, the extent root's one tile bounds what a checkpoint can record of it (*Extent
+records*), and the drive bounds neither (decided 2026-11-17, the review of 2026-11-12's U1).
 
 **Waiting on the object store.** A read of a tile in an absent extent yields while the fetch runs, as a read yields
 while a tile loads, and the turn goes on. Apply, compaction, the cleaner and a checkpoint's drain wait for a fetch as
@@ -1210,7 +1231,9 @@ changes counted (section 12.4). An entry that does not join waits for compaction
 transaction's commit until its transaction's deadline, and a one-frame write, a Drop or an Ingest share until
 `transaction_ms` from its arrival, as `PROTOCOL.md` section 11.12's rule for one-frame writes in a queue counts it
 (T48); past that it is refused with code 5 (Busy), retryable, `detail` 1 for delta admission and 2 for
-grid admission (`GridFull`) (`PROTOCOL.md` section 9.4; T48, C12). The delta therefore never holds more than the
+grid admission (`GridFull`) (`PROTOCOL.md` section 9.4; T48, C12). Under the object binding admission also keeps the
+held extents and the reserve within `present_extents` (section 12.5, *Present extents*), an entry that does not join
+for it waiting likewise and refused with `detail` 3. The delta therefore never holds more than the
 watermark's share at a round boundary, and the pool's headroom above it, `delta_entries_max × (100 −
 delta_watermark_percent) / 100` entries, at least 3,277 at the settings' bounds, is no round's to fill: a round of the
 log's round bound adds only what admission counted, so `PoolBound` holds whatever a round derives.
@@ -1403,7 +1426,8 @@ checks is repaired (section
 
 ### 17.3 A new grid
 
-A new grid is created whole and zeroed, extent 0 all zero, and holds no checkpoint: its recovery replays the log from
+A new grid is created whole and zeroed, under the object binding sparse and reading as zero (section 12.1), extent 0
+all zero, and holds no checkpoint: its recovery replays the log from
 position 1, and its first checkpoint, sequence 1, is the first section 17.1 makes (T48, C7).
 
 ### 17.4 Repair
@@ -1653,6 +1677,7 @@ A run is a function of its seed: the simulator's clock, random source and comple
 | The interval index | A relational interval tree's tokens (section 5.3.1), beside the two plain range tokens on the bounds this file first gave it: a point's read over those scanned every start at or below the point, which over a history kept for ever is most of the index. The tree keeps two tokens an interval and reads a range per level. A grid of time cells, as the geo tokenizer's, was not taken: several tokens an interval, lossy matches, and a list apart for open ends (decided 2026-11-17) |
 | A read as of an epoch below `H` | Answered by compute from stored epochs, for the two classes whose history is kept: a `@bitemporal` type's start and end, and a start column on every `@append_only` type, 8 bytes an instance. The design note's section 4.8 kept each class I entry's creation version through the fold instead; that changes every tile shape's version sections, the fold and the lanes' refusal, where one column changes none, and `H` stays the only bound on the versions a read may take (decided 2026-11-17) |
 | A retracted edge | Moved by its retraction from the relation's live families to its closed families, a delete and an insert in one round, beside one family holding every instance ever asserted: a read at the present would filter each entry by the end column of its statement, a column value an entry, and a hub's row would hold its whole history. The live families are class M for it, and the round carries each moved entry, since apply reads no tile. Moving at the fold instead would need no derivation, and was not taken: between a retraction and its fold a read of history would have to read deleted entries of the live family (sections 13.4, 14.3 and 15.2; decided 2026-11-17) |
+| The grid under the object binding | Sparse, with `present_extents` bounding the extents a node holds bytes for, beside a grid allocated whole in both bindings: allocated whole, a partition's data is bounded by its drive, and history that no delete removes fills it however much the object store holds. The bound is equal across a cluster, so the primary's admission keeps every replica's drain within it; it stops admission and delays fetches and placements, and decides no placement. `cache_extents`, which counted published cold extents alone, gives way to it, and an extent of stream 1 may be punched at the bound (sections 12.1 and 12.5; decided 2026-11-17) |
 | The end of `asserted` | A class I value written once by the retraction, beside the class M column this file first gave it: the slot goes from absent to a value and never changes again, which is an insert, so a `@bitemporal` type's families are all class I, none of its tiles holds a deleted version, and a read finding the end records nothing (sections 13.4 and 14.3; decided 2026-11-17) |
 | Who reads the object store | A partition's replicas, which alone write and delete, and compute, which only reads published checkpoints, from the stage that builds it (section 12.5; decided 2026-11-17) |
 | Failover by the object store's conditional writes | None: the log is local, so a replica taking a partition over by a conditional write would hold no round above the published checkpoint. A lost node's tail comes from its group, from stage 8 (section 12.5; decided 2026-11-17) |
