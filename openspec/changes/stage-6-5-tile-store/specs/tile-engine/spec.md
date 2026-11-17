@@ -107,12 +107,36 @@ apply nothing of it (`PROTOCOL.md` section 12.1).
 - **WHEN** a replayed round's `horizon` is below the round before's
 - **THEN** replay refuses it naming both horizons and applies nothing of it
 
+### Requirement: An append-only instance holds the epoch it was inserted at
+An `@append_only` type that is not `@bitemporal` SHALL hold a class I column chunk family of
+`ugdb:asserted_start_epoch`, the epoch of the commit inserting each instance, and no `ugdb:asserted_end_epoch`
+(`STORAGE.md` section 13.4; `SCHEMA.md` section 12.4; decided 2026-11-17). A read below the latest logged `H` SHALL be
+refused whatever the class of what it reads; a read as of an epoch below `H` of `@bitemporal` and `@append_only`
+types is compute's, at a version at or above `H`, by the epochs those types store.
+
+#### Scenario: As of an epoch below the horizon
+- **WHEN** instances of an `@append_only` type are inserted at epochs 3 and 9, the horizon passes epoch 9, and a query
+  reads the type as of epoch 5
+- **THEN** compute reads at a version at or above `H` and answers the first instance alone
+
+#### Scenario: A mutable type below the horizon is refused
+- **WHEN** the same query also reads a type that is neither `@bitemporal` nor `@append_only`
+- **THEN** it is refused with code 3 (TooOld), naming the window
+
 ### Requirement: Storage classes decide which versions a tile keeps
 A family SHALL take its storage class from the layout: class I holds instances of `@append_only` types with their
 attributes and keys, `@bitemporal` content as version runs, and the record kinds `STORAGE.md` section 9.2 makes class I,
 and keeps only the created version while above `H`; class M holds everything else, the term-to-ID dictionary among it,
 and keeps created and deleted versions while either is above `H` (`STORAGE.md` section 14.3). A class I entry SHALL be
 removed only by a purge. A predicate held by types of both classes SHALL be two families of every shape, one per class.
+The end of a `@bitemporal` instance's `asserted` SHALL be a class I column value, written once by the retraction into
+a slot that held none. An edge-encoded `@bitemporal` relation SHALL hold its forward and its reverse family twice, the
+live families in class M and the closed families in class I (decided 2026-11-17).
+
+#### Scenario: A retraction writes no deleted version in a column
+- **WHEN** an instance of a `@bitemporal` type is retracted and compaction writes its `ugdb:asserted_end_epoch` column
+- **THEN** the chunk's header carries `class_i`, the slot holds the retraction's epoch, and no overlay record of the
+  slot holds an absence
 
 #### Scenario: A class I tile holds no deleted versions
 - **WHEN** compaction writes a tile of an `@append_only` type's family holding an entry created above `H`
@@ -165,6 +189,33 @@ names; and an entry per token in each index family the
 layout declares for `p`; each carrying the statement's slot pair or `ABSENT`, the inline values the layout places and
 `v` (`STORAGE.md` section 15.2). A compiled single-valued attribute SHALL be a column overlay record, a `@bitemporal`
 revision SHALL append to its version run, and a deleted statement SHALL be the same changes as deletes.
+
+A statement of an edge-encoded `@bitemporal` relation SHALL be inserted into the relation's live families with the
+round's epoch in its `ugdb:asserted_start_epoch` column. For each closed entry a round's derivations name (derivation
+kind 4), apply SHALL delete the statement's forward and reverse entries from the live families at the retraction's
+version `v` and insert, at `v`, entries of the same row key, neighbour and statement into the closed families, holding
+the inline values and the asserted start the derivation carries and the round's epoch as `ugdb:asserted_end_epoch`,
+reading no tile (`STORAGE.md` section 15.2; decided 2026-11-17).
+
+#### Scenario: A retracted edge leaves the live row
+- **WHEN** an instance of an edge-encoded `@bitemporal` relation is inserted at a version of epoch 7 and retracted at
+  version 40 of epoch 9
+- **THEN** a read of the live families at 40 finds neither its forward nor its reverse entry, a read of them at 39
+  finds both, and a read of the closed families at 40 finds both, each with start 7 and end 9
+
+#### Scenario: Believed at an epoch between the two
+- **WHEN** the same instance is read `believed at` epoch 8, at a version at or above 40
+- **THEN** the live families' request with its start filter answers nothing of it, and the closed families' request
+  with start at most 8 and end above 8 answers its entry
+
+#### Scenario: A hub's live row holds no history
+- **WHEN** 1,000 instances naming one participant are inserted, 900 of them are retracted, and compaction folds past
+  the retractions
+- **THEN** the participant's live reverse row holds 100 entries and its closed reverse row 900
+
+#### Scenario: Replay moves the same entries
+- **WHEN** a replica replays a round holding a retraction
+- **THEN** it writes the same deletes and inserts from the round's derivations, and its grid equals the first apply's
 
 #### Scenario: A deleted statement is deleted in every family
 - **WHEN** a statement with an index family of `p` is inserted at 10 and deleted at 20

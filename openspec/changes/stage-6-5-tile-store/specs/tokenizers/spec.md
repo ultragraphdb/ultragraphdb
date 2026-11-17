@@ -34,7 +34,7 @@ written from `STORAGE.md` section 5.3 and this capability's rules.
   byte, or is a hashed token beginning with `0xFF`
 
 ### Requirement: Sortable tokens preserve order
-A token of a `range` or `interval` index over a declared attribute SHALL be the tokenizer's identifier byte
+A token of a `range` index over a declared attribute SHALL be the tokenizer's identifier byte
 followed by the comparison form of the value's sortable encoding (`STORAGE.md` sections 5.2 and 5.3), exact, so tokens
 compare as bytes as the values compare and a range of values is a range of tokens; the tokenizer an attribute's type
 takes is `SCHEMA.md` section 6.10's. In the generic layout a literal's datatype SHALL pick the sortable type of its

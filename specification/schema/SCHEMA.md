@@ -428,7 +428,8 @@ A bound stated at `T`'s precision has `a₀ = a` and `a₁` one unit of `T` late
 A lone temporal literal where an interval is expected is the interval of its unit, `a₀ .. a₁`, exact. Every interval
 operator comes in three forms: `a certainly R b` holds when `R` holds for every completion of the bounds within their
 units, `a possibly R b` when it holds for at least one, and `a R b` means `possibly`. `@index(interval)` stores the
-outer extent: a `possibly` form is a range scan over it, and a `certainly` form scans the same candidates and keeps
+outer extent, each interval filed under a node of an interval tree (`../storage/STORAGE.md` section 5.3.1): a `possibly`
+form reads the tree's ranges for its point or interval, and a `certainly` form reads the same candidates and keeps
 those the inner extent satisfies, since whatever certainly holds possibly holds.
 
 ### 5.6 Vectors
@@ -808,7 +809,7 @@ standard views do not expose them.
 |---|---|---|
 | `@index(range)` | An ordered field | The datatype's sortable tokenizer, whose token is its identifier byte followed by the value's sortable encoding (`../storage/STORAGE.md` section 5.3, T37), exact, so tokens order as the values (T48, C28): `int` for the integer types, `float` for `Float32`, `Float64` and `Measure<K, u>`, `bool`, `datetime` for `Date`, `Time`, `DateTime` and `LocalDateTime`, a value with an offset compared by its UTC instant (section 5.5), `exact` for `String`, `Text`, enums, `Iri` and `Unit`, `decimal` for `Decimal(p, s)`, the value scaled by 10^s, and `measure` for `Measure<K>` and `Measure`, its token the value in the quantity kind's canonical unit as a `Float64` (sections 5.8 and 15); a token longer than 256 bytes is stored hashed and a match confirmed against the value (`STORAGE.md` section 5.3) |
 | `@index(fulltext)` | `Text` | The `fulltext` tokenizer, analyzer by language tag |
-| `@index(interval)` | `Interval` | Range indexes on the outer extent's two bounds (section 5.5) |
+| `@index(interval)` | `Interval` | An interval tree over the outer extent (section 5.5), two tokens an interval (`../storage/STORAGE.md` section 5.3.1) |
 | `@index(geo)` | `Geo` | The `geo` tokenizer |
 | `@index(ann, metric: m, quantization: q)` | `Vector` | The `hnsw` factory with `metric` `cosine`, `dotproduct` or `euclidean` for `cosine`, `dot`, `l2`; `quantization: int8` quantizes the index and rescores the top candidates in the stored precision **[stage 8]**. The factory's build parameters take the store's defaults; a schema naming a search-time parameter such as `ef_search` is refused (`UGS0524`), since it belongs to the query |
 | implicit | Every `@unique` attribute and every single-attribute `@key` | The predicate's `unique` flag; lookup by value through the value's claim (`../storage/STORAGE.md` section 9.3, record kind 4 or 5; T48, C32). A composite key's claim is on the key as a whole, and its components' predicates carry no `unique` flag |
@@ -980,7 +981,7 @@ never appear in IRIs; a handle shows a bucket and nothing else of the ID.
 | A graph | `{base}{graph}` |
 | An interval bound | `{base}{attribute}_start`, `{base}{attribute}_end`, `{base}{attribute}_start_precision`, `{base}{attribute}_end_precision` |
 | A built-in field of section 5.11 in the view | `ugdb:asserted_start`, `ugdb:asserted_end`, `ugdb:live`, one predicate each for every schema |
-| `asserted` as stored (section 12.4) | `ugdb:asserted_start_epoch`, `ugdb:asserted_end_epoch`, `UInt64`: Predicate entries the compiler declares in a version holding a `@bitemporal` type, which the store keeps and the view converts to `ugdb:asserted_start` and `ugdb:asserted_end` (T48, C30) |
+| `asserted` as stored (section 12.4) | `ugdb:asserted_start_epoch`, `ugdb:asserted_end_epoch`, `UInt64`: Predicate entries the compiler declares in a version holding a `@bitemporal` type, which the store keeps and the view converts to `ugdb:asserted_start` and `ugdb:asserted_end` (T48, C30). A version holding an `@append_only` type that is not `@bitemporal` declares `ugdb:asserted_start_epoch` for it, stored and in no view (section 12.4) |
 
 Two terms minting one IRI are refused (`UGS0801`), as are two terms differing only in a way the GQL view cannot tell
 apart (`UGS0802`: a label and a relation node type of one name). Names are compared byte for byte, the GQL core's identifiers
@@ -1156,7 +1157,11 @@ abstract statement Asserted : Statement @bitemporal(valid: valid) {
 `@bitemporal` or `@append_only` type: a legal purge removes named instances (section 8.8), and a Drop removes a
 container, a graph or a tenant's data, with everything in it, history included, under the action `drop`, naming the
 catalog version it drops under and recorded as an audit event (`../binary_protocol/PROTOCOL.md` section 6.5). So `believed at`,
-`as of epoch` and `as of time` are answered for these types at any past point of a graph that stands. Other types keep
+`as of epoch` and `as of time` are answered for these types at any past point of a graph that stands. Below the fold
+horizon they are answered from what is stored and not from versions the store kept: an instance of either class
+holds the epoch of the commit that inserted it (section 12.4), so a read as of epoch `e` keeps the instances inserted
+at or before `e`, reads an `asserted` that ended after `e` as open, and takes each revision current at `e` (decided
+2026-11-17). Other types keep
 their versions down to the partition's latest logged fold horizon, which `retention_ms` bounds
 (`../storage/STORAGE.md` section 14.2), and a read below it is refused with `../binary_protocol/PROTOCOL.md` code 3
 (TooOld) (T48, C34).
@@ -1271,7 +1276,12 @@ their index entries and marks. A relation instance in the list is removed with t
 group records the purge as a **purge epoch** with the SHA-256 of each purged IRI, never the IRI, which may itself be
 personal data; an auditor verifies that an IRI was purged by hashing it. Reads at epochs before the purge epoch answer
 from the remaining data, and a monotonic-fast read never combines data from both sides of a purge boundary. Backups
-taken before the purge epoch hold the data and are the operator's to retire. **[stage 8]**; with one partition holding
+taken before the purge epoch hold the data and are the operator's to retire. Under the object binding the object store
+holds the instance's bytes after the purge too, in the extents published before compaction removed them: an extent's
+object is deleted when the last retained checkpoint record naming it expires, `object_checkpoints` publications after
+the rewrite that left the instance out (`../storage/STORAGE.md` section 12.5). A restore continues from the latest
+published record, never an earlier one (section 17.7 there), so it brings back nothing a published rewrite removed. A
+purge is complete in the object store at that expiry, and the operator reads it from the partition's retained records. **[stage 8]**; with one partition holding
 the tenant's run the command executes locally.
 
 ## 9. Placement and write classification
@@ -1819,7 +1829,8 @@ and `{attr}_end_precision` hold the precision as a `ugdb:precision` literal (`mi
 coarser than `T`'s; an open end stores no `{attr}_end` and an open start no `{attr}_start`. Each of the four is an
 attribute of the store's layout, the bounds under `T`'s descriptor and the precisions under the `Precision` descriptor,
 one byte (`CATALOG.md` section 3.1, tag 37; T48, C30). `@index(interval)` indexes
-each instance under two range tokens, the outer extent's bounds (section 5.5), derived as `range` indexes derive them.
+each instance under two tokens, its interval tree node with the outer extent's start and with its end (section 5.5;
+`../storage/STORAGE.md` section 5.3.1), an open bound among them; a change of either bound rewrites both.
 
 ### 12.3 Relations
 
@@ -1847,10 +1858,18 @@ type prefix.
 `asserted` is stored as `ugdb:asserted_start_epoch` and `ugdb:asserted_end_epoch`, `xsd:unsignedLong` quads on the
 instance, converted to `xsd:dateTimeStamp` on read from the sequencer's close times; `live` is the absence of the end.
 The compiler declares both as `UInt64` Predicate entries in a version holding a `@bitemporal` type (section 7.4), and
-the version's Layout gives each `@bitemporal` type a column of each, the start's in storage class I and the end's in
-class M, since a retraction writes the end (`CATALOG.md` section 5.11; T48, C30). Each
+the version's Layout gives each `@bitemporal` type a column of each, both in storage class I: a retraction writes the
+end once, into a slot that held none, and nothing writes it again, so a retraction appends and rewrites nothing
+(`CATALOG.md` section 5.11; `../storage/STORAGE.md` section 14.3; T48, C30; decided 2026-11-17). Each
 revision of a `@bitemporal` attribute or role is kept with the commit version of the transaction that asserted it, so a
-read at any asserted time finds the revision then current, and no revision changes after its commit but by a purge. A
+read at any asserted time finds the revision then current, and no revision changes after its commit but by a purge. An
+edge-encoded `@bitemporal` relation's instances are kept in two sets of rows, the live ones and the retracted ones,
+each entry holding its asserted epochs, and a retraction moves an instance's entries from the first to the second
+(`../storage/STORAGE.md` sections 13.4 and 15.2), so a read of the live slice reads no history and filters nothing
+(decided 2026-11-17). An
+`@append_only` type that is not `@bitemporal` takes the start alone, `ugdb:asserted_start_epoch`, a class I column the
+engine writes at the insert: its instances have no `asserted` and no `live` in any view, and the column is what a
+read as of a past epoch below the fold horizon keeps them by (section 8.4, *History retention*; decided 2026-11-17). A
 tombstone, the delete's version, is kept at the entity's home under its ID. A materialized derivation stores its
 result as quads under the derived name's predicate, written in the same commit as the write that changes it, within the
 anchor partition. Count indexes serve cardinality checks, and a `@limit`'s aggregates, one per group, serve its
@@ -2151,7 +2170,7 @@ that begin with one, `Asset.all_parts` and `Company.suppliers`.
 | `rdf:type` of declared types | Answered from the type prefix; no stored quad |
 | `Iri` and enum values | Literals (`xsd:anyURI`, `xsd:string`), so a value creates no entity, no referrer set and no registration; the note's "IRI term" and "one IRI per member" are kept as vocabulary, not as object terms |
 | `DateTime` and `LocalDateTime` | `xsd:dateTimeStamp` and `xsd:dateTime` without a timezone, which keeps the offset requirement in the datatype |
-| Interval precision | Stored as the unit's first instant plus a precision predicate per bound. Decided 2026-11-08: the outer extent alone is indexed, and a `certainly` form filters its candidates, which halves the interval index |
+| Interval precision | Stored as the unit's first instant plus a precision predicate per bound. Decided 2026-11-08: the outer extent alone is indexed, and a `certainly` form filters its candidates, which halves the interval index. Decided 2026-11-17: the two tokens file the interval under its node of an interval tree, so a read of the intervals holding a point takes a range per level of the tree and not every earlier start |
 | Named attribute types | A reusable declaration whose values are literals. Decided 2026-11-08: every value is found through its index or claim when declared, otherwise by a Scan of the attribute's family (T48, C32), and ordered by `@index(range)`, so no value becomes an entity; a value with relations of its own is an entity, a `Concept` |
 | The `schema` prefix | Reserved for the catalog qualifier; the example imports schema.org as `sdo` |
 | Keyless names | A handle, the bucket and 104 random bits, minted into the type's IRI space, held in the dictionary both ways as a reifier's skolem IRI already is, and presented as an IRI. Chosen over D6's keyed encryption, which puts a key service on the read path of every keyless IRI and ties each such IRI to key retention, at the price of two dictionary entries the design already pays per reifier; revisited only if stage 7's dictionary-growth measurement shows those entries dominating |

@@ -335,9 +335,10 @@ one value, while the stored value keeps all 18 bytes and its offset round-trips 
 
 ### 5.3 Tokens
 
-An index row's key is a token. A token of a `range` or `interval` index over a declared attribute is the
+An index row's key is a token. A token of a `range` index over a declared attribute is the
 tokenizer's identifier byte (`tokenizers` capability) followed by the comparison form of the value's sortable encoding
-(section 5.2), exact, so a range of values is a range of tokens (T37; T48, C28); a `Measure<K>` value's token holds the
+(section 5.2), exact, so a range of values is a range of tokens (T37; T48, C28); an `interval` index's token is section
+5.3.1's; a `Measure<K>` value's token holds the
 value converted to the quantity kind's canonical unit, as a `Float64`'s sortable encoding: the exact rational value in
 the canonical unit, rounded once to the nearest `Float64`, ties to even (T48). In the generic layout a literal's
 datatype picks the sortable type its range token takes (T48): `xsd:integer` and the integer types derived from it
@@ -356,6 +357,44 @@ tokenizer's identifier byte and token bytes as that capability gives them. A tok
 identifier byte included, is stored as the byte `0xFF` followed by the XXH3-128 of all its bytes as 16 big-endian bytes,
 17 bytes in all, and is lossy: a reader confirms every match against the value it indexes. No tokenizer's identifier
 byte is `0xFF`.
+
+#### 5.3.1 Interval tokens
+
+An `@index(interval)` files each interval under a node of a binary tree over its bound type's values, the relational
+interval tree of Kriegel, Pötke and Seidl (VLDB 2000), so a read of the intervals holding a point, or meeting an
+interval, takes one short range of tokens per level of the tree and never the starts before it (decided 2026-11-17).
+The tree is not stored: a node is a value, and only tokens are written.
+
+**Bounds.** The index holds an interval's outer extent (`SCHEMA.md` section 5.5), its start `a₀` and its end `b₁`. A
+bound is `w + 1` bytes, `w` the width of `T`'s comparison form: the byte `0x01` and the comparison form for a bound
+that is present, `0x00` and `w` zero bytes for an open start, `0x02` and `w` zero bytes for an open end. Bounds compare
+as bytes, an open start below every value and an open end above every one. `L` is the start's bound and `U` the end's;
+`L ≤ U`, since a write with `start > end` is refused (`SCHEMA.md` section 5.5).
+
+**The node.** An interval's node `N` is `w + 1` bytes: `L` when `L = U`; otherwise the bits `L` and `U` share from the
+most significant on, then a 1 bit, then zero bits to the width. So `L < N ≤ U` whenever `L < U`.
+
+**Tokens.** Each indexed interval takes two tokens, both beginning with the identifier byte of `T`'s tokenizer: the
+lower token, the byte, `N`, then `L`, in the index family of the attribute's `{attr}_start` predicate; and the upper
+token, the byte, `N`, then `U`, in the index family of its `{attr}_end` predicate. Each row's neighbours are the
+instances it indexes, as any index row's. An absent interval takes no token. A change of either bound deletes both
+tokens and inserts both, since `N` follows from the two together.
+
+**A read.** For the intervals meeting `[A, B]`, `A ≤ B` bounds built as above, a point being `A = B`, a reader takes
+the rows of these token ranges, each inclusive, `min` and `max` the least and greatest bounds, `w + 1` bytes of `0x00`
+and of `0xFF`:
+
+1. in the lower family, from the byte, `A`, `min` to the byte, `B`, `max`: every interval whose node lies in `[A, B]`;
+2. for each bit position `i` of `A` from the most significant, with `n` the bits of `A` before `i`, then a 1 bit, then
+   zero bits: when `n < A`, in the upper family from the byte, `n`, `A` to the byte, `n`, `max`;
+3. for each bit position `i` of `B`, with `n` built from `B` likewise: when `n > B`, in the lower family from the byte,
+   `n`, `min` to the byte, `n`, `B`.
+
+That is at most `2 × 8 × (w + 1) + 1` ranges, 273 for a temporal type, each a seek that finds nothing at a node no
+interval is filed under; a reader sends them as one request. Every interval they answer has `L ≤ B` and `U ≥ A`, and
+every such interval is answered once. A reader then keeps the instances its operator holds for, on the stored bounds
+and precisions: the end is exclusive, and a `certainly` form reads the inner extent (`SCHEMA.md` section 5.5), so
+the ranges give candidates and the stored interval decides.
 
 ### 5.4 Canonical keys
 
@@ -904,7 +943,18 @@ by a listing of the partition's `x/`, paced beside the scrub.
 **What it promises with one replica.** Tiles survive the loss of the node through the latest published checkpoint. The
 log above that checkpoint's `position` is on the node alone. Bringing a partition back from the object store is a
 restore to that checkpoint (section 17.7), an operator's act and never the store's own, since it gives up acknowledged
-commits. From stage 8 the log is replicated, and a lost node's tail comes from its group.
+commits. From stage 8 the log is replicated, and a lost node's tail comes from its group. No stage decides a
+partition's failover by a conditional write to the object store: the log is local under both bindings, so the store
+holds no round above a published checkpoint (decided 2026-11-17).
+
+**Compute as a reader.** From the stage that builds it, after stage 8, compute reads a partition's published
+checkpoints from the object store itself: a checkpoint record, then the extents its leaves and records name, each
+checked as section 6.5 states and against the checksum in its key. It holds credentials that read and list alone, and
+writes and deletes nothing. What it reads is a state at a checkpoint's `position`, never the partition's latest, so
+no read of a transaction and no read at an epoch is answered from it; a projection (section 14.6) and a replay of a
+past state are. A record or an extent that retention removed while compute read it (*Retention*) fails the read,
+which starts again from the latest record. Until that stage storage alone reaches the object store (decided
+2026-11-17).
 
 ## 13. The manifest and the directory
 
@@ -957,9 +1007,11 @@ lives in:
 | A `Set<T>` attribute | a forward family of kind 2, an entry per element, the elements as sortable values |
 | An `Interval<T>` attribute | its four bound attributes (`SCHEMA.md` section 12.2), each a single-valued attribute as above: `{attr}_start` and `{attr}_end` of `T`'s tag, `{attr}_start_precision` and `{attr}_end_precision` of tag 37 (T48, C30) |
 | A revisable attribute or role of a `@bitemporal` type | a version run family (kind 5) |
-| A `@bitemporal` type | column chunk families of kind 1 for `ugdb:asserted_start_epoch`, class I, and `ugdb:asserted_end_epoch`, class M, `UInt64` attributes whose Predicate entries the catalog version declares (`CATALOG.md` sections 5.5 and 5.11; T48, C30) |
+| A `@bitemporal` type | column chunk families of kind 1 for `ugdb:asserted_start_epoch` and `ugdb:asserted_end_epoch`, both class I, `UInt64` attributes whose Predicate entries the catalog version declares (`CATALOG.md` sections 5.5 and 5.11; T48, C30). A retraction writes the end once, into a slot that held none, and nothing writes it again (section 14.3) |
+| An `@append_only` type that is not `@bitemporal` | a column chunk family of kind 1 for `ugdb:asserted_start_epoch`, class I, the epoch of the commit inserting the instance, written as a `@bitemporal` type's start is (decided 2026-11-17) |
 | An attribute with `@index(range)`, `@index(interval)`, `@index(geo)` or `@index(fulltext)`, or a `count` index | an index family (kind 4) per tokenizer, the tokenizer's identifier in its key |
 | An edge-encoded relation | on its anchor, a forward family of kind 1 (the other participant's ID) with inline columns chosen so: the family's ordering attribute (T16, the row below) first, when it has one; then the relation's other fixed-width attributes in declaration order, each taken while the columns' total stays at most 18 bytes and their count at most 8, an attribute that would exceed either skipped and the next considered; the rest stay in the statement record (section 9.3, kind 18) (T48); and a reverse family of kind 3; when the anchor's navigation cardinality is at most one (`?` or `{0,1}`) and the relation is not `@bitemporal`, a column chunk family of kind 1 on the anchor's type holding the other participant's ID instead of the forward family (T48, C23) |
+| An edge-encoded `@bitemporal` relation | its forward family (kind 1) and its reverse family (kind 3) twice each (decided 2026-11-17): the *live* families, class M, holding the instances whose `asserted` is open, and the *closed* families, class I, holding the retracted ones. Each family's inline columns are its ordering attribute first, when it has one; then `ugdb:asserted_start_epoch`, and in a closed family `ugdb:asserted_end_epoch` after it, each a `UInt64` of width 8 and outside the 18 bytes the row above bounds; then the relation's other fixed-width attributes as that row chooses them, the family's columns at most 8. A live and a closed family of one direction hold the same columns in the same order but for the end |
 | A node-encoded relation | as an entity type, its roles as attributes holding participants' IDs, each with a reverse family of kind 3 |
 | A row's order (T16) | by neighbour, `order` 0, unless a required `@immutable` attribute with `@index(range)`, declared by a common supertype of every participant the row can hold, orders it: in a forward family a relation attribute inline on the edge; in a reverse family an attribute of the local subject, which the reverse family carries as a denormalised inline column written with each reverse entry. Among several, the first declared orders the row. An `Interval`'s bound attributes order no row, since its start may be absent (T48). A temporal one, `Date`, `Time`, `DateTime` or `LocalDateTime`, orders newest first, `order` `0x81 + i`; any other ascending, `1 + i` (T48). Values compare in their comparison form (section 5.2), never by a lossy token, and entries equal in it are ordered by neighbour, statement and created version (section 7.4) (T48, C25) |
 | A type or relation of storage class I (section 14.3) | `class_i` on each of its families; an attribute name shared across classes gives a family per class |
@@ -1010,6 +1062,13 @@ horizon answers `TooOld` (section 18.6).
 | M | Everything else, an `@immutable` attribute of a deletable instance and the term-to-ID dictionary (kind 1) among it (T48, C16) | created and deleted versions while either is above `H` |
 
 The layout gives each family its class, and a predicate shared by types of both classes is two families (T36).
+
+A retraction appends: the end of an instance's `asserted` is a class I value, written once into a slot that held none
+(section 13.4), so a `@bitemporal` type's column chunks and version runs are class I and no tile of them holds a deleted
+version (decided 2026-11-17). The live adjacency families of an edge-encoded `@bitemporal` relation alone are class M:
+a retraction deletes the instance's entries there and inserts them into the closed families, class I (sections 13.4
+and 15.2), so a row read at the present holds no history. A read that finds the end records nothing and one that finds it absent records the absence (section 18.4),
+so a retraction committed meanwhile conflicts as before.
 
 ### 14.4 Visibility
 
@@ -1095,6 +1154,15 @@ changes. A compiled
 attribute of a single value is a column overlay record `(slot, v, value)`; a `@bitemporal` revision appends to its
 version run (kind 5); a role declared `-> _` keeps its reverse change, joining no referrer set. A deleted statement is
 the same changes as deletes.
+
+A statement of an edge-encoded `@bitemporal` relation is inserted into the relation's live families, its
+`ugdb:asserted_start_epoch` column holding the round's epoch. Its retraction at version `v` moves it: for each closed
+entry the round's derivations name (`PROTOCOL.md` section 12.1, derivation kind 4), apply deletes the forward and the
+reverse entry from the live families at `v`, and inserts into the closed families, at `v`, entries of the same row key,
+neighbour and statement, holding the inline values and the asserted start the derivation carries and the round's epoch
+as `ugdb:asserted_end_epoch`. Apply reads no tile for it: execution read the live entry, and the round carries what it
+held. At every version a read may take, an instance's entry is then in exactly one of the two families: live below
+`v`, closed from `v` on. An index entry of the relation's attributes is not moved (decided 2026-11-17).
 
 ### 15.3 Records
 
@@ -1443,7 +1511,12 @@ every graph the replica holds the family in, read in tile-key order likewise, ea
 ID before its neighbour, and before the predicate's when both are named, and in lane X recording the tenant's whole
 range (T48). The resume key names the graph already (section 18.3). One naming an attribute's column
 chunks reads, for each row, an instance's system ID, the family of the attribute and of the instance's type in its
-bucket group, and answers the value its slot holds as the row's one entry. One naming a version run (kind 5) reads,
+bucket group, and answers the value its slot holds as the row's one entry. One naming an edge-encoded `@bitemporal` relation reads the slice its request names (`PROTOCOL.md` section 13.21,
+`slice`): the live families, which a read at the present takes and filters nothing in, or the closed families. A read
+`believed at` an epoch `e` is two requests, the live families' entries whose asserted start is at most `e` and the
+closed families' whose start is at most `e` and whose end is above it, each an inline filter that skips the blocks
+no entry of which can pass; `with retracted` is both slices unfiltered. Compute merges the two (decided 2026-11-17).
+One naming a version run (kind 5) reads,
 for each row, an instance's system ID, and answers its entries, each the revision's asserted start as a big-endian u64
 and its value; compute selects the revision current as of its time (T48, C39). It names a set of row keys, each at
 most once, an optional neighbour type range, optional inline-column filters, and an optional top-k, and answers the
@@ -1454,7 +1527,10 @@ row in its order and stops at k. Its wire form, and its refusal of a row named t
 
 ### 18.6 Refusals
 
-A read below the latest logged `H` answers `TooOld`; a lane L request that has gone back to loading twice is answered in
+A read below the latest logged `H` answers `TooOld`, whatever the class of what it reads: a read as of an epoch below
+`H` of `@bitemporal` and `@append_only` types is compute's, at a version at or above `H`, by the start and end epochs
+those types store (`SCHEMA.md` section 8.4, *History retention*), and the store keeps no version for it (decided
+2026-11-17). A lane L request that has gone back to loading twice is answered in
 lane S at the replica's latest applied version at that moment, and from then pins that version as lane S does, holding
 `H` on the primary (section 14.2; T48); a request past its deadline ends with an error naming
 the partition.
@@ -1574,6 +1650,12 @@ A run is a function of its seed: the simulator's clock, random source and comple
 | Temporal values | Stored in 18 bytes, so the offset round-trips, and compared by their first 16, the instant, for order, equality, claims and tokens: `12:00Z` and `13:00+01:00` are one value and one claim. Inline columns take up to 18 bytes, so a temporal attribute can order a row (T16; T48, C25) |
 | A slot outside its replica | Only inside its bucket group's tiles, which travel as bytes to peers, the object store, a move's destination and, for a projection, compute; never in a round, a log record, an answer, a resume key or anything compute writes (section 14.6), where the design note's T3 kept every slot in its partition: T12's projections are built from tiles, and tiles hold slots. A projection built from system IDs alone would renumber every vertex through a hash and carry each edge at four times the bytes |
 | What names an extent's object | A record per closed extent, its placed blocks and their checksum (kinds 21 and 22), written in both bindings: a tile's reference names no extent, so a node that punched an extent needs its key from somewhere durable, and a record kind added after tiles exist would be a second format. The checksum is in the checkpoint identity, so two replicas whose extents differ in any byte disagree at the next checkpoint |
+| The interval index | A relational interval tree's tokens (section 5.3.1), beside the two plain range tokens on the bounds this file first gave it: a point's read over those scanned every start at or below the point, which over a history kept for ever is most of the index. The tree keeps two tokens an interval and reads a range per level. A grid of time cells, as the geo tokenizer's, was not taken: several tokens an interval, lossy matches, and a list apart for open ends (decided 2026-11-17) |
+| A read as of an epoch below `H` | Answered by compute from stored epochs, for the two classes whose history is kept: a `@bitemporal` type's start and end, and a start column on every `@append_only` type, 8 bytes an instance. The design note's section 4.8 kept each class I entry's creation version through the fold instead; that changes every tile shape's version sections, the fold and the lanes' refusal, where one column changes none, and `H` stays the only bound on the versions a read may take (decided 2026-11-17) |
+| A retracted edge | Moved by its retraction from the relation's live families to its closed families, a delete and an insert in one round, beside one family holding every instance ever asserted: a read at the present would filter each entry by the end column of its statement, a column value an entry, and a hub's row would hold its whole history. The live families are class M for it, and the round carries each moved entry, since apply reads no tile. Moving at the fold instead would need no derivation, and was not taken: between a retraction and its fold a read of history would have to read deleted entries of the live family (sections 13.4, 14.3 and 15.2; decided 2026-11-17) |
+| The end of `asserted` | A class I value written once by the retraction, beside the class M column this file first gave it: the slot goes from absent to a value and never changes again, which is an insert, so a `@bitemporal` type's families are all class I, none of its tiles holds a deleted version, and a read finding the end records nothing (sections 13.4 and 14.3; decided 2026-11-17) |
+| Who reads the object store | A partition's replicas, which alone write and delete, and compute, which only reads published checkpoints, from the stage that builds it (section 12.5; decided 2026-11-17) |
+| Failover by the object store's conditional writes | None: the log is local, so a replica taking a partition over by a conditional write would hold no round above the published checkpoint. A lost node's tail comes from its group, from stage 8 (section 12.5; decided 2026-11-17) |
 | A record of which extents a node holds | None: an extent a node punched reads as zero, fails its tile's check and is repaired from the object store as any damaged tile is (section 17.4), so no state can say present over a hole |
 
 ## 21. What this specification asks of the others

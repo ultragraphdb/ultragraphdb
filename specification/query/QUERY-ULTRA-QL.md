@@ -447,7 +447,8 @@ Scheme(id = $scheme) {
 
 A read point is the protocol's read version and level (`../binary_protocol/PROTOCOL.md` section 6.2). `as of` before the retention window
 of a type that is neither `@bitemporal` nor `@append_only` is refused naming the window (`PROTOCOL.md` code 3); for
-those two classes every past point is answered (`SCHEMA.md` section 8.4). `as of` a point before a namespace's migration
+those two classes every past point is answered (`SCHEMA.md` section 8.4): below the window compute reads at a version
+inside it and keeps, by the epochs those types store, what stood at the point asked for. `as of` a point before a namespace's migration
 cutover reads the source in the source's schema, as every read compiles against the version in effect at its epoch;
 `believed at` before the cutover reads the target's history through the migration (section 11.2). Every result carries
 the epoch it was read at and, for a monotonic-fast read of mutable data, the flag `SCHEMA.md` section 9.6 states.
@@ -485,7 +486,8 @@ instance carries the IRI it carries in the present, so one query reads both (`..
 - **Functions.** `intersection(a, b)`, an optional interval; `span(a, b)`; `date(t)`; `start_of_day(d, zone)`;
   `distinct(a, b)`, which compares two optional values treating absence as a value; `today()` and `now()`, the date and
   time of the read point's epoch close, so a monotonic-fast read uses its replica's epoch.
-- **Execution.** An interval operator on an attribute with `@index(interval)` is a range scan on the indexed bounds;
+- **Execution.** An interval operator on an attribute with `@index(interval)` reads the interval tree's ranges for its
+  point or interval (`../storage/STORAGE.md` section 5.3.1) and keeps the candidates the operator holds for;
   temporal predicates are comparisons and leave a query's monotonicity unchanged.
 
 ## 12. Mutations

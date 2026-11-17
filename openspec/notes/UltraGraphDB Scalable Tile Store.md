@@ -345,7 +345,7 @@ storage class each lands. The compiler takes it from what UGS already declares; 
 | Relation attributes of fixed width, at most 18 bytes together | Inline in the neighbour entry; the rest in the statement columns |
 | `@immutable` attribute of the local subject, `@index(range)` on it | Denormalised into the reverse entry and ordering the reverse row, so "the latest messages of a person" is a top-k scan |
 | `@append_only` type, `@immutable` attribute | `@append_only` type: class I; `@immutable` attribute: class M unless its type is `@append_only` (*Versions*, `STORAGE.md` section 14.3) |
-| `@bitemporal` | Revisable attributes and roles as version runs per slot, appended by each revision; content in class I; `asserted_end` a class M column written once |
+| `@bitemporal` | Revisable attributes and roles as version runs per slot, appended by each revision; content in class I; `asserted_end` a class I column written once, by the retraction (decided 2026-11-17; `STORAGE.md` section 14.3) |
 | An attribute name shared by types of different storage classes (`CATALOG.md` predicate mutability 0) | Index relations and reverse rows split per (predicate, class), so a tile holds one class (T36) |
 | `@index(range)`, `@index(fulltext)`, `@index(interval)`, `@index(geo)` | An index relation in adjacency blocks, rows the tokens |
 | `@key`, `@unique` | Claim records at the owner P24 names |

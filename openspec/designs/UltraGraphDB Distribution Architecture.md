@@ -453,7 +453,7 @@ The engine is one. Its grid's shell binds it to a medium, and a cluster chooses 
 | The log | Local, synced per round | Local, synced per round |
 | A commit is acknowledged | Once its round is durable in the log; from stage 8, committed by its group | The same. A commit never waits on the object store |
 | Data is bounded by | The local drive | The object store, with the local drive bounding the cache, once the grid's size under this binding is decided (review of 2026-11-12, U1) |
-| Object-store credentials | None | Held by storage alone |
+| Object-store credentials | None | Write credentials held by storage alone; compute holds credentials that read and list, from the stage that has it read published checkpoints (decided 2026-11-17) |
 | A lost node recovers | From its group's replicas, from stage 8 | Tiles from the object store; the log's tail from its group's replicas, from stage 8 |
 | Suits | Lowest latency, on premises, air-gapped | Elastic cloud, large data, low storage cost; MinIO or Ceph on premises |
 
@@ -649,7 +649,7 @@ endpoint a requirement of storage, which moves the resolver from an option to a 
 | Tier | Exposure | Controls |
 | --- | --- | --- |
 | Compute | Client-facing parsers and protocols; the largest code surface; no durable state | TLS 1.3 and SCRAM in the handshake; every inbound frame bounds-checked before a view is handed out; clear text only as a declared setting |
-| Storage | The durability boundary; holds all data, the system group with the principals' verifiers and, in the object binding, the object store's credentials | No client reaches it; role connections authenticated; the object store's write credentials on these nodes alone |
+| Storage | The durability boundary; holds all data, the system group with the principals' verifiers and, in the object binding, the object store's credentials | No client reaches it; role connections authenticated; the object store's write credentials on these nodes alone, compute's reading and listing only |
 | Config service | Every target's settings; never a secret's contents | A read key and an admin key, each node verifying the admin key by its digest |
 
 Roles authenticate each other with one shared role secret over connections in clear text. Stage 8 gives each role a
@@ -867,6 +867,11 @@ Settle before it is specified:
 | The system group's move | Stage 5.8, a change set of its own, before the merge of stage 5.9 | 2026-11-12 |
 | Sequencer and metadata state machine | One group at every cluster size | 2026-11-12 |
 | The object-store client | A dependency behind the object store's interface first; a client of the project's own later | 2026-11-12 |
+| The client's crate | longshore, pinned by commit. Its `aws-lc-sys`, which seals TLS records and compiles C, is an accepted exception to the pure-Rust rule, as verified cryptographic code | 2026-11-17 |
+| The log under the object binding | Local, synced per round; no commit waits on the object store | 2026-11-17 |
+| Compute and the object store | Compute reads published checkpoints itself, read-only, at a checkpoint's position, from a stage after stage 8; storage alone writes and deletes (`STORAGE.md` section 12.5) | 2026-11-17 |
+| Failover by the object store's conditional writes | None: with the log local it cannot recover the rounds above a published checkpoint; stage 8's replication covers a lost node | 2026-11-17 |
+| The end of `asserted` | Appended by the retraction as a class I value, so a `@bitemporal` type is wholly class I (`STORAGE.md` section 14.3) | 2026-11-17 |
 | The check of Dec 31 | A decision point on a query through the whole stack, on tiles; movable | 2026-11-12 |
 | Placement | One owner per fact; bucket ranges per partition, one partition per core | 2026-11-02 |
 | Storage engine | The KV store now; the tile store at stage 6.5 | 2026-11-10 |
@@ -878,14 +883,16 @@ Settle before it is specified:
 
 ## Open questions
 
-- [ ] Does a compute node ever read tiles from the object store itself, with a cache of its own, or does storage alone?
+- [x] Does a compute node ever read tiles from the object store itself, with a cache of its own, or does storage alone?
+  It reads published checkpoints itself, read-only, after stage 8 (decided 2026-11-17).
 - [ ] Does the config service fold into the system group, or take replicas of its own?
 - [ ] Do the sequencer and the metadata state machine share one log inside the system group, or keep two?
 
 - [ ] How is a quota for a tenant held across the whole cluster, if one is wanted?
 - [ ] Does a group ever change its members, or do new groups and replacement cover every case?
-- [ ] In the object binding, can a partition run on two replicas, with the object store's conditional writes
-  deciding its failover?
+- [x] In the object binding, can a partition run on two replicas, with the object store's conditional writes
+  deciding its failover? No: the log is local, so the store holds no round above a published checkpoint (decided
+  2026-11-17).
 - [ ] Do groups larger than three take TigerBeetle's flexible quorums?
 - [ ] What are the epoch length's bounds for the adaptive sequencer?
 - [ ] What extent size suits the object binding?

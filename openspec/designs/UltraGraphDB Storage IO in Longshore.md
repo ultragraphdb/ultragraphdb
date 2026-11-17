@@ -48,7 +48,9 @@ from offset 0 of a registered path. It has no file writes, no positional reads, 
 `fallocate`, no O_DIRECT, and its pool has byte alignment only. A seeded simulator (`sim`) models sockets, time and
 whole-file reads, with no disk writes, syncs, crashes or torn writes; it is the only backend on macOS. longshore holds
 33 `unsafe` sites, which this repository's crates cannot hold (`Cargo.toml`'s workspace lints, `AGENTS.md`): a raw
-`io_uring` driver for ultragraphdb lives outside this workspace either way.
+`io_uring` driver for ultragraphdb lives outside this workspace either way. Its TLS records are sealed by AWS-LC
+through `aws-lc-sys`, which compiles C: an accepted exception to this repository's pure-Rust rule, as verified
+cryptographic code (decided 2026-11-17).
 
 ## Scope of the stage
 

@@ -256,7 +256,8 @@ range of space 2, a key not beginning with the range's graph, when it names one.
 Frontier (532) and Neighbours (533) SHALL be role commands, read and built as `PROTOCOL.md` sections 13.21 and 13.22 lay
 them out and refused in those sections' order, before any frame. A Frontier SHALL carry its `lane`, 1 L, 2 S or 3 X; its
 `kind`, 1 to 6, and for kind 4 its `tokenizer`; its `filters`, 0 to 8; its partition, tenant, `read_version`, principal
-and, in lane X alone, `transaction`; a neighbour type range for kind 1; `top`; its `graph`, a valid system ID, 16 zero
+and, in lane X alone, `transaction`; a neighbour type range for kind 1; `top`; its `slice`, 0 or, for kinds 1 and 3 of
+an edge-encoded `@bitemporal` relation, 1 for the relation's closed families (decided 2026-11-17); its `graph`, a valid system ID, 16 zero
 bytes for the default graph or 16 bytes of `0xFF` for every graph the partition holds the family in; its `predicate`, a
 valid system ID or 16 bytes of `0xFF` for every predicate of the kind; its rows' logical keys, each at least one byte and none
 equal to an earlier row's; its 48-byte filters; and its resume key. A Neighbours frame SHALL carry its rows and entries

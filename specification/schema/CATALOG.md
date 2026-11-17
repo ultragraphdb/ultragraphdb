@@ -427,7 +427,9 @@ A version holding a `@bitemporal` type holds two Predicate entries no Attribute 
 `ugdb:asserted_start_epoch` and `ugdb:asserted_end_epoch`, which the compiler declares for `asserted` as stored
 (`SCHEMA.md` sections 7.4 and 12.4; T48, C30): single-valued properties of datatype `xsd:unsignedLong`, their domains
 the `@bitemporal` types, with no flag and no fact, since the engine alone writes them, and `mutability` as their
-domains give it.
+domains give it. A version holding an `@append_only` type that is not `@bitemporal` holds
+`ugdb:asserted_start_epoch` likewise, those types among its domains, and no `ugdb:asserted_end_epoch` for them
+(decided 2026-11-17).
 
 ### 5.6 Role (7) and Navigation (8)
 
@@ -617,9 +619,13 @@ family, in section 1's order, which is the order its `order` field counts them b
 names a required attribute (`SCHEMA.md` section 5.2).
 
 A version holding a `@bitemporal` type lists, for each `@bitemporal` type, a fixed-width column
-chunk family of `ugdb:asserted_start_epoch` in storage class I and one of `ugdb:asserted_end_epoch` in class M, each of
+chunk family of `ugdb:asserted_start_epoch` and one of `ugdb:asserted_end_epoch`, both in storage class I, each of
 descriptor `UInt64`, among the type's column chunks and in their order, as any attribute's (`SCHEMA.md` section 12.4;
-T48, C30). The four bound attributes of an `Interval` attribute are listed as attributes too: the bounds of `T`'s
+T48, C30). It lists for each edge-encoded `@bitemporal` relation a forward and a reverse family of `class` 0, the
+live ones, and a forward and a reverse family of `class` 1, the closed ones, their inline columns as
+`../storage/STORAGE.md` section 13.4 gives them: `ugdb:asserted_start_epoch` in each, and `ugdb:asserted_end_epoch`
+after it in the closed ones (decided 2026-11-17). It lists for each `@append_only` type that is not `@bitemporal` a column chunk family of
+`ugdb:asserted_start_epoch` alone, in storage class I, likewise (decided 2026-11-17). The four bound attributes of an `Interval` attribute are listed as attributes too: the bounds of `T`'s
 descriptor, the precisions of tag 37's (`SCHEMA.md` section 12.2).
 
 ## 6. One encoding: what a decoder checks

@@ -28,8 +28,11 @@ refused with `FieldValue` `"flags"`, and one whose `horizon` is neither 0, a ver
 A partition's execution of a round's entries SHALL derive, and the round SHALL carry in its derivations section
 (`PROTOCOL.md` section 12.1, section 6), every value apply needs that the entries' records do not hold: each count row's
 degree before the round, one per count row the round's entries change, keyed by derivation kind 1 and the row's
-conflict key; each `@limit` aggregate's change, one per aggregate the round changes, keyed by derivation kind 2; and each
-statistics change, one per (graph, predicate) the round changes, keyed by derivation kind 3, each once and in ascending
+conflict key; each `@limit` aggregate's change, one per aggregate the round changes, keyed by derivation kind 2; each
+statistics change, one per (graph, predicate) the round changes, keyed by derivation kind 3; and each closed entry, one
+per statement of an edge-encoded `@bitemporal` relation the round's entries retract, keyed by derivation kind 4, the
+tenant, the statement's quad and its statement ID, its value the asserted start epoch and the inline values the
+statement's live forward and reverse entries held (decided 2026-11-17), each once and in ascending
 key order. Execution SHALL take every prior value, absence proof and duplicate check these need from the state at its
 read version, waiting for tiles where it must; apply SHALL add what the round carries and read no prior value
 (tile-engine, "Apply reads the round and adds"). A derivation entry whose key or value breaks its kind's rule

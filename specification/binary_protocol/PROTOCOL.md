@@ -3117,7 +3117,7 @@ and each tenant's records name the one catalog version in effect at it.
 | 3 | the dictionary entries the round creates, in the key-value layout of section 12.2: each its record kind (`../storage/STORAGE.md` section 9.3, kinds 1 to 3) as one byte followed by the record's key, and its value, each once, in ascending key order; an entry another partition's entity holds there, copied at the partition's first reference to it, counts in both directions as the round's |
 | 4 | the Ingest bodies, block-aligned (section 4.1): each committed share's body as its frame carried it, the data before any chunk table, each starting at a frame offset that is a multiple of 4,096, the bytes between zero |
 | 5 | the Ingest resolutions, one per Ingest body |
-| 6 | the derivations, in the key-value layout of section 12.2, each key starting with its derivation kind as one byte: 1 a count row's degree before the round, one entry per count row the round's entries change, the rest of its key the row's conflict key (section 12.2, conflict family 4), naming the tenant, the graph, the predicate, the direction and the counted node, its value the degree, a u64; 2 a `@limit` aggregate's delta, one entry per aggregate the round changes, the rest of its key the tenant as a big-endian u64 followed by the aggregate's key (`../storage/STORAGE.md` section 9.3, kind 19), its value the round's change in kind 19's value layout; 3 a statistics delta, one entry per (graph, predicate) the round changes, the rest of its key the tenant as a big-endian u64, the graph's and the predicate's system IDs, its value the round's change in `../storage/STORAGE.md` section 9.4's format; each once, in ascending key order (T48, C1) |
+| 6 | the derivations, in the key-value layout of section 12.2, each key starting with its derivation kind as one byte: 1 a count row's degree before the round, one entry per count row the round's entries change, the rest of its key the row's conflict key (section 12.2, conflict family 4), naming the tenant, the graph, the predicate, the direction and the counted node, its value the degree, a u64; 2 a `@limit` aggregate's delta, one entry per aggregate the round changes, the rest of its key the tenant as a big-endian u64 followed by the aggregate's key (`../storage/STORAGE.md` section 9.3, kind 19), its value the round's change in kind 19's value layout; 3 a statistics delta, one entry per (graph, predicate) the round changes, the rest of its key the tenant as a big-endian u64, the graph's and the predicate's system IDs, its value the round's change in `../storage/STORAGE.md` section 9.4's format; 4 a closed entry, one per statement of an edge-encoded `@bitemporal` relation the round's entries retract, the rest of its key the tenant as a big-endian u64, the statement's quad (section 12.2) and its statement ID, 16 bytes, its value the entry's asserted start epoch as a u64, then the forward entry's inline columns but the two epochs', in the layout's order, each one byte, 1 holding a value and 0 none, followed by the column's width of bytes, its sortable encoding or zero, then the reverse entry's likewise (`../storage/STORAGE.md` sections 13.4 and 15.2; decided 2026-11-17); each once, in ascending key order (T48, C1) |
 | 7 | the evictions, 16 bytes each: the sessions the close delivered before the round evicted (section 11.5), each a session's identity (section 1), ascending; empty in every round but the first the partition logs after such a close (T48, C3) |
 
 | Decision offset | Width | Field | Type |
@@ -3142,7 +3142,8 @@ each of the three sections ends with its last record.
 A round's derivations are every additive delta apply cannot compute from the write-set records alone, and what
 execution read that apply needs: each count row's degree before the round, which apply adds the round's changes to;
 each `@limit` aggregate's change, which needs the value an instance held before the round, a sum's attribute or a
-grouping's; and each statistics change, which needs execution's check of whether an inserted statement's quad is new,
+grouping's; and each closed entry, the inline values and the asserted start a retracted statement's live entries held, which apply
+writes into the closed families; and each statistics change, which needs execution's check of whether an inserted statement's quad is new,
 since an entry of section 0 holding a statement ID adds it to a quad held already or not (section 12.2), and of how
 many statements an emptied object held (T48). Apply writes each `@limit` and statistics delta as the additive record
 the store folds (`../storage/STORAGE.md` section 9.3, kinds 19 and 9), and derives referrer-set members (kind 7) from the
@@ -3304,7 +3305,11 @@ entry whatever its object holds, and `statements_per_object_max` (section 11.9) 
   holds is cross-partition, code 23, until stage 8 sends each member a sequenced share that fences the ID there.
 - **A retraction**, which a transaction asks for by Operation kind 6 (section 7.3), is statements alone and has no
   operation of its own: sections 0 and 2 hold the `asserted` end it writes on the instance and on each relation
-  instance its `@on_retract` actions retract in the partition (`../schema/SCHEMA.md` sections 8.4 and 12.4). A relation
+  instance its `@on_retract` actions retract in the partition (`../schema/SCHEMA.md` sections 8.4 and 12.4). For each
+  instance of an edge-encoded `@bitemporal` relation among them the round's derivations hold a closed entry (section
+  12.1, kind 4), by which apply moves its forward and reverse entries to the relation's closed families, and section 7
+  holds the forward and the reverse row's conflict statements, as a delete's does (`../storage/STORAGE.md` section
+  15.2). A relation
   instance's delete is statements alone likewise, in sections 1 and 2.
 - **A purge** (operation 9), a Purge's record (section 8.5), removes at the instance's home every version of its
   attributes, its statement record, its index and derived entries, its dictionary entries and its referrer set, and at a
@@ -3920,7 +3925,8 @@ so resolving a batch of terms costs one frame and not one per term.
 
 **A range of space 2** reads one predicate's family of its kind, or every predicate's, the tokenizer's for an index
 relation and every type's declaring the attribute for kind 6, in its graph or in every graph, in every bucket group the
-partition holds and in both storage classes: the families in the order of their family keys (`../storage/STORAGE.md`
+partition holds and in both storage classes, an edge-encoded `@bitemporal` relation in its live families alone, its
+closed ones being a Frontier's to read (section 13.21, `slice`; decided 2026-11-17): the families in the order of their family keys (`../storage/STORAGE.md`
 section 13.1), and each in its own order, its rows by their keys and a row's entries as section 7.4 there orders them, a
 forward row and a column chunk's by slot, so no order holds across bucket groups or partitions (T38). It answers each
 row holding an entry at the version as one entry of the answer, at most `limit` rows. A row of kind 5 is an instance's
@@ -4326,7 +4332,8 @@ is read in each family whose layout names rows in its form, so a key of the othe
 | 48 | 2 | `prefix_first` | u16 | kind 1: the first type prefix of the neighbours' type range; 0 with no range |
 | 50 | 2 | `prefix_past` | u16 | kind 1: one past its last, above `prefix_first`; 0 with no range (`FieldValue` `"prefix"`) |
 | 52 | 4 | `top` | u32 | the most entries answered per row, read in the row's answer order below; 0 for every entry |
-| 56 | 8 | zero | 0 | |
+| 56 | 1 | `slice` | u8 | kinds 1 and 3 of an edge-encoded `@bitemporal` relation: 0 its live families, 1 its closed families (`../storage/STORAGE.md` sections 13.4 and 18.5); 0 for any other family; with `predicate` every predicate, 0 (`FieldValue` `"slice"`) |
+| 57 | 7 | zero | 0 | |
 | 64 | 16 | `graph` | system ID (section 1) | the graph's; 16 zero bytes for the default graph; or 16 bytes of `0xFF` for every graph the partition holds the family in (T48) (`FieldValue` `"graph"`) |
 | 80 | 16 | `predicate` | system ID (section 1) | the relation's predicate, a valid system ID, or 16 bytes of `0xFF` for every predicate of the kind the partition holds (T48, C38) (`FieldValue` `"predicate"`) |
 
@@ -4357,7 +4364,8 @@ The partition answers the rows in the request's order, and each row's entries in
 of kinds 1, 2 and 5 is read by its family in its subject's bucket group, and a row of kind 6 in the column chunk family
 of the attribute and of the type its system ID's prefix names, which holds no inline column; a row of kinds 3 and 4 is
 read in every bucket group of the partition and in both storage classes, groups ascending, each in its family's order,
-so no order holds across its groups (T38; T48, C36). A predicate held in both storage classes is read in both families,
+so no order holds across its groups (T38; T48, C36). An edge-encoded `@bitemporal` relation is read in the families
+`slice` names, live or closed, never both (decided 2026-11-17). Any other predicate held in both storage classes is read in both families,
 merged in the family's order (`../storage/STORAGE.md` sections 13.1 and 14.3). With `predicate` every predicate, a row
 is read in each predicate's family in the order of their family keys, each entry's neighbour bytes begin with its
 predicate's system ID, and the request names no filter and is answered without inline values, since its families'

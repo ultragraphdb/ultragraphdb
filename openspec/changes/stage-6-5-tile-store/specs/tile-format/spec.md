@@ -128,7 +128,7 @@ claims and tokens SHALL compare it. A fixed-width value SHALL be small when its 
 - **THEN** both have one comparison form, as the list in `equal` of `vectors/sortable.json` states
 
 ### Requirement: Tokens are exact and long tokens are hashed
-A token of a `range` or `interval` index SHALL be the tokenizer's identifier byte followed by the comparison
+A token of a `range` index SHALL be the tokenizer's identifier byte followed by the comparison
 form of the value's sortable encoding, exact, a `Measure<K>` value converted to its quantity kind's canonical unit as a
 `Float64`'s sortable encoding, the exact rational value rounded once to the nearest `Float64`, ties to even, and a
 generic-layout literal taking the sortable type its datatype picks; a `count` index's token SHALL be the identifier
@@ -149,6 +149,40 @@ every match of such a token against the value it indexes. No tokenizer's identif
 #### Scenario: The hashing bound
 - **WHEN** the cases `token of exactly 256 bytes` and `token of 301 bytes` are built
 - **THEN** the first is stored as its 256 bytes, and the second as 17 bytes starting with `0xFF`
+
+### Requirement: An interval index files each interval under its tree node
+An `@index(interval)` SHALL index an interval's outer extent under two tokens, as `specification/storage/STORAGE.md`
+section 5.3.1 states (decided 2026-11-17). A bound SHALL be one byte and the comparison form's width: `0x01` and the
+comparison form when present, `0x00` and zero bytes for an open start, `0x02` and zero bytes for an open end. The node
+SHALL be the start's bound when the two bounds are equal, and otherwise the bits the two bounds share from the most
+significant on, then a 1 bit, then zero bits. The lower token SHALL be the tokenizer's identifier byte, the node and the
+start's bound, in the index family of the `{attr}_start` predicate; the upper token the byte, the node and the end's
+bound, in the family of `{attr}_end`. A change of either bound SHALL delete both tokens and insert both. A read of the
+intervals meeting `[A, B]` SHALL take the token ranges section 5.3.1 lists, at most two per bit of a bound and one
+more, and SHALL answer every interval whose start's bound is at most `B` and whose end's bound is at least `A`, each
+once, and no other.
+
+#### Scenario: An interval of small integers
+- **WHEN** an `Interval<Int8>` from 3 to 10 is indexed under a tokenizer of identifier byte `t`
+- **THEN** its bounds are `01 83` and `01 8A`, its node is `01 88`, its lower token is `t 01 88 01 83` and its upper
+  token `t 01 88 01 8A`
+
+#### Scenario: An open end
+- **WHEN** an `Interval<Int8>` from 3 with an open end is indexed
+- **THEN** its end's bound is `02 00`, its node is `02 00`, and its lower token is `t 02 00 01 83`
+
+#### Scenario: A point finds both intervals
+- **WHEN** the intervals of the two scenarios above are indexed and a read asks for the intervals meeting the point 5
+- **THEN** the ranges it takes include the lower family's from `t 01 88 00 00` to `t 01 88 01 85` and from
+  `t 02 00 00 00` to `t 02 00 01 85`, and it answers both intervals, each once
+
+#### Scenario: A point before every start finds none
+- **WHEN** the same two intervals are indexed and a read asks for the intervals meeting the point 2
+- **THEN** it answers neither
+
+#### Scenario: A change of the end moves both tokens
+- **WHEN** the interval from 3 to 10 has its end changed to 4
+- **THEN** both tokens of node `01 88` are deleted, and the tokens `t 01 84 01 83` and `t 01 84 01 84` are inserted
 
 ### Requirement: Escaped components compare as tuples
 `esc(x)` SHALL write every byte of `x`, each `0x00` as `0x00 0xFF`, then `0x00 0x00`, so a concatenation of escaped
