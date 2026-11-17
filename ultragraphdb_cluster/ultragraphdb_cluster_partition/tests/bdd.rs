@@ -29,7 +29,8 @@ use std::ops::ControlFlow;
 use cucumber::{World, then, when};
 use oxrdf::{GraphName, Literal, NamedNode};
 use ultragraphdb_cluster_partition::{
-    Answer, BoundStep, Fanout, PartitionError, Reference, ReverseQuery,
+    Answer, BoundStep, Fanout, PartitionError, PartitionHost, PartitionMailbox, Reference,
+    ReverseQuery,
 };
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId, PlacementMap};
 use ultragraphdb_common_storage::{error_reply, registration_outcome};
@@ -42,14 +43,16 @@ use ultragraphdb_store_apply::Operation;
 use ultragraphdb_store_quads::{KernelScan, tenant_base};
 use ultragraphdb_store_sim::Fault;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
-use ultragraphdb_transactions_commit::{CommitError, CommitErrorEnum};
+use ultragraphdb_transactions_commit::{
+    CloseRequest, CommitError, CommitErrorEnum, Pipeline, RoundBounds,
+};
 use ultragraphdb_transactions_txn::{Commit, TxnError};
 
 use crate::cluster::{
     Cluster, Outcome, TENANT, Written, as_of, begin, bucket, changeset, epoch, ex, group, insert,
-    insert_literal, pid,
+    insert_literal, node, pid,
 };
-use crate::hosts::{Host, holds, on_hosts, turn_all};
+use crate::hosts::{Host, holds, on_hosts, sim_log, turn_all};
 
 #[derive(Default, World)]
 struct Steps {
@@ -1922,6 +1925,127 @@ fn seventeen_ends_it(w: &mut Steps) -> TestResult {
         );
     }
     assert_eq!(w.numbers, [1, 1], "both transactions ended");
+    Ok(())
+}
+
+/// The commit sequences the partition's open epoch has left when the scenario starts: those of two commits, each taking the
+/// next even sequence (commit-rounds, "Versions increase within an epoch").
+const SEQUENCES_LEFT: u32 = 4;
+
+/// When the scenario's writes are taken, in the host's clock: a second in, so a wait counted from it is not one counted from 0.
+const WRITTEN_US: u64 = SECOND_US;
+
+/// Runs `body` on the host of a partition whose store applied the version [`SEQUENCES_LEFT`] below the last of its open epoch,
+/// epoch 2, epoch 1 the latest close it holds, waiting `close_request` for a close it asks for.
+fn on_a_nearly_full_epoch(
+    close_request: CloseRequest,
+    body: impl FnOnce(&mut Host<'_>) -> TestResult,
+) -> TestResult {
+    let placement = PlacementMap::even(1, NodeId::new(1))?;
+    let id = pid(1)?;
+    let part = node(id, &placement, epoch(1)?)?;
+    let applier = part.applier();
+    let nothing = applier
+        .begin(TENANT, applier.quads().lists().applied_ts())?
+        .finish()?;
+    let near = Version::commit(epoch(2)?, Version::COMMIT_SEQUENCE_MAX - SEQUENCES_LEFT)?;
+    let _applied = applier.apply_round(vec![(near.to_u64(), nothing)])?;
+    let pipeline = Pipeline::new(applier, sim_log(id)?, RoundBounds::new(u32::MAX, u32::MAX))?
+        .with_partition(id.get(), epoch(1)?, close_request, &[])
+        .bound(id, part.placement());
+    let mailbox = PartitionMailbox::mesh(&[id])
+        .into_iter()
+        .next()
+        .context("a mailbox")?;
+    let mut host = PartitionHost::new(&part, pipeline, mailbox);
+    body(&mut host)
+}
+
+/// The outcome of the write `ticket`, `host` turned at `now_us` until it has one; `None` when ten turns end none.
+fn ended_at(
+    host: &mut Host<'_>,
+    ticket: u64,
+    now_us: u64,
+) -> TestResult<Option<Result<u64, PartitionError>>> {
+    for _ in 0..10 {
+        let ended = turn_all(std::slice::from_mut(host), 1, now_us)?;
+        if let Some(outcome) = ended.into_iter().find(|ended| ended.ticket() == ticket) {
+            return Ok(Some(outcome.outcome().clone()));
+        }
+    }
+    Ok(None)
+}
+
+#[when(
+    "the hosting storage process is killed, and a client commits through a session-less write to a partition of another storage process until that partition's open epoch is full"
+)]
+fn commits_without_closes(w: &mut Steps) -> TestResult {
+    let close_request = CloseRequest::default();
+    on_a_nearly_full_epoch(close_request, |host| {
+        // Session-less writes, each of a subject of its own, until one is not answered: its epoch is full. Two commits fill
+        // it, so a tenth is past any count the epoch's end could take.
+        let mut held = None;
+        for subject in 1..=10 {
+            let write = changeset(vec![insert_literal(&format!("s{subject}"), "p", "v")]);
+            let ticket = host.submit(write, WRITTEN_US)?;
+            match ended_at(host, ticket, WRITTEN_US)? {
+                Some(Ok(version)) => w.numbers.push(version),
+                Some(Err(refusal)) => {
+                    return Err(TestError::new(format!(
+                        "refused before its epoch was full: {refusal}"
+                    )));
+                }
+                None => {
+                    held = Some(ticket);
+                    break;
+                }
+            }
+        }
+        let held = held.context("a write held past the full epoch")?;
+        assert_eq!(
+            host.take_close_request(),
+            Some(epoch(2)?),
+            "the partition asks for the close of its full epoch"
+        );
+        // No close comes: the process hosting the group is gone.
+        let waited = WRITTEN_US + close_request.micros();
+        assert_eq!(
+            ended_at(host, held, waited - 1)?,
+            None,
+            "held within close_request_ms"
+        );
+        let refused = ended_at(host, held, waited)?.context("an outcome at close_request_ms")?;
+        w.errors.push(refused.err().context("a refusal")?);
+        Ok(())
+    })
+}
+
+#[then(
+    "each commit before that is acknowledged, and the first past it is refused with code 5 once `close_request_ms` has passed with no close"
+)]
+fn committed_until_full(w: &mut Steps) -> TestResult {
+    let open = epoch(2)?;
+    let versions: Vec<Version> = w.numbers.iter().map(|v| Version::from_u64(*v)).collect();
+    assert!(!versions.is_empty(), "a commit before the epoch was full");
+    assert!(
+        versions.iter().all(|version| version.epoch() == open),
+        "{versions:?}"
+    );
+    assert!(
+        versions
+            .windows(2)
+            .all(|pair| matches!(pair, [earlier, later] if earlier < later)),
+        "{versions:?}"
+    );
+    // The last acknowledged took the epoch's last commit sequence: the epoch was full, not the writes refused early.
+    assert_eq!(
+        versions.last().copied(),
+        Some(Version::commit(open, Version::COMMIT_SEQUENCE_MAX)?)
+    );
+    assert_eq!(w.errors.len(), 1, "{:?}", w.errors);
+    let refusal = w.errors.first().context("the refusal")?;
+    // Code 5, as the scenario names it: Busy (`PROTOCOL.md` §9.4).
+    assert_eq!(error_reply(refusal).code().number(), 5);
     Ok(())
 }
 

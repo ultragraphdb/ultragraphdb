@@ -31,8 +31,8 @@ use ultragraphdb_transactions_log::{GatedStorage, SimStorage, SyncGate, Wal, Wal
 
 use crate::Steps;
 use crate::bdd_stage::{
-    CLUSTER, Clock, EPOCH_US, HOLD_US, Stage, error_of, heard, next_frame, recovered, refused,
-    start_of,
+    CLUSTER, Clock, EPOCH_US, HOLD_US, Stage, WAITED, error_of, heard, next_frame, recovered,
+    refused, start_of,
 };
 
 /// Runs `scenario` on a runtime of its own and records that it ran.
@@ -223,9 +223,19 @@ fn partition_sync_delayed(w: &mut Steps) -> TestResult {
     use ultragraphdb_traits_log::{OrderedLog, RoundRef};
     run(w, || async {
         let stage = Stage::new(3, &start_of(1, 8)?).await?;
-        // A partition's log of its own, its sync held: the group shares no log with it.
+        // Partition 1 of the hosting process dials the group as any partition does, joins and subscribes from 0 (design D4).
+        let mut partition = stage.dial("storage").await?;
+        let joined = partition
+            .request(&Join::storage("tcp://127.0.0.1:7203", vec![1]))
+            .await?
+            .view()?
+            .command();
+        assert_eq!(joined, Command::Join);
+        partition.send_only(&Subscribe::new(0)).await?;
+        // Its log lies on the disk the group's logs lie on, the hosting process's, and its file syncs alone are held: the
+        // group shares no log with it (design D3).
         let gate = SyncGate::default();
-        let storage = GatedStorage::new(SimStorage::new(33), gate.clone());
+        let storage = GatedStorage::new(stage.storage.clone(), gate.clone());
         let (mut partition_log, _) =
             Wal::open(storage, "/p1", WalConfig::new(CLUSTER, false)).await?;
         gate.hold();
@@ -240,26 +250,36 @@ fn partition_sync_delayed(w: &mut Steps) -> TestResult {
             &[1, 2, 3],
         );
         let _ticket = partition_log.append(round)?;
-        let pending = spawn(async move { partition_log.sync().await });
+        let mut pending = spawn(async move { partition_log.sync().await });
         gate.until_waiting().await?;
+        // Each close comes once the clock has passed an epoch past `epoch_ms_max`, within a bounded wait, the partition's
+        // sync held throughout: a close waiting on that sync fails here rather than hanging.
         let mut closed = 0;
-        for _ in 0..3 {
-            closed = stage.close_after(closed).await?;
+        for expected in 1..=3 {
+            closed = compio::time::timeout(WAITED, stage.close_after(closed))
+                .await
+                .map_err(|_| TestError::new("a close waited on the partition's sync"))??;
+            assert_eq!(closed, expected, "the closes come in order, on time");
         }
-        assert_eq!(
-            closed, 3,
-            "the closes came on time, the partition's sync held"
+        assert!(
+            futures::future::poll_immediate(&mut pending)
+                .await
+                .is_none(),
+            "the partition's sync is still held"
         );
         gate.release();
         let _synced = pending
             .await
             .map_err(|error| TestError::new(format!("{error:?}")))??;
-        // The delayed partition reads again from the last close it held, 0, and receives every close in order.
-        let mut read = 0;
-        for expected in 1..=3 {
-            read = heard(stage.handle.next_close(read).await)?.epoch().get();
-            assert_eq!(read, expected);
+        // The delayed partition reads again on its subscription and receives every close, in order.
+        let mut received = Vec::new();
+        while received.len() < 3 {
+            let frame = next_frame(&mut partition).await?;
+            received.push(EpochCloseView::from_frame(&frame.view()?)?.epoch());
         }
+        assert_eq!(received, [1, 2, 3]);
+        // The group's run ends once every connection holding a way to it has closed.
+        drop(partition);
         let _ended = stage.stop().await?;
         Ok(())
     })
