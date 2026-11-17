@@ -9,9 +9,11 @@ set -o nounset
 set -o pipefail
 
 
-# Check for outdated dependencies
+# Check for outdated dependencies, the direct ones of each workspace member: cargo-outdated walks the full tree from every
+# member, which on this workspace did not finish in 30 minutes (2026-11-17), while scripts/update.sh's cargo update keeps
+# the transitive ones current.
 # https://github.com/kbknapp/cargo-outdated
-command cargo outdated --workspace
+command cargo outdated --workspace --root-deps-only
 
 # Scan for unused dependencies
 command cargo machete-nk
