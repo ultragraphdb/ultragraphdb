@@ -1,0 +1,108 @@
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/property/types/mod.rs
+  s_21eff977e05256::t_f8b019069322f8 23-24
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/describe/mod.rs
+  s_21eff977e05256::t_82b264414b5e1d 21-22
+  s_21eff977e05256::t_edd1f3a53aa3e2 23-24
+  s_21eff977e05256::t_fb82c5a62f1b95 30,47,58,64,87-98
+openspec/changes/stage-5-8-system-group/specs/wire-protocol/spec.md
+  s_21eff977e05256::t_d9ff02e34c5912 104-107
+  s_21eff977e05256::t_a4c0096c493878 80-82
+  s_21eff977e05256::t_676caec02f2bab 83,108-113
+specification/binary_protocol/PROTOCOL.md
+  s_21eff977e05256::t_c043d515ede554 1328-1329
+  s_21eff977e05256::t_c3ae97a07e2b3b 1401-1402
+  s_21eff977e05256::t_d521503383aa80 1334-1338
+  s_21eff977e05256::t_336503c6c6d7c4 1416-1417
+  s_21eff977e05256::t_af280cdf46864d 2888-2890
+  s_21eff977e05256::t_cb3346c074a2c3 801
+  s_21eff977e05256::t_2adf8ad3f86309 1319-1320
+  s_21eff977e05256::t_c628e582096517 2884-2885
+  s_21eff977e05256::t_28d6fbf8410e45 845-848
+  s_21eff977e05256::t_270a13823d423b 1464
+  s_21eff977e05256::t_4f8c590447d307 1326-1327
+  s_21eff977e05256::t_b1eadabfcb142b 829-830
+  s_21eff977e05256::t_e100c30a92dbe3 833-844
+  s_21eff977e05256::t_03d5d976c3643c 965
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/property/types/describe_view_property_tests.rs
+  s_21eff977e05256::t_53011c491517a4 1-115
+AGENTS.md
+  s_21eff977e05256::t_0347a85c184b03 237,244,253
+fuzz/ultragraphdb_protocol_wire/fuzz_targets/body.rs
+  s_21eff977e05256::t_0ec37b91d9af23 121-123
+fuzz/ultragraphdb_protocol_wire/fuzz_targets/body_fields.rs
+  s_21eff977e05256::t_91f5aa40530790 264,1424,1428-1430
+openspec/changes/stage-5-8-system-group/notes/group-7.md
+  s_21eff977e05256::t_30b082705ad52e 296-306,312-317
+openspec/changes/stage-5-8-system-group/specs/schema-changes/spec.md
+  s_21eff977e05256::t_6313d07e7f75d9 20-24,31-47
+ultragraphdb/ultragraphdb_tests/tests/own_steps.rs
+  s_21eff977e05256::t_864d0a8d8bef8b 1532-1536,1545
+ultragraphdb_client/ultragraphdb_client_compio/tests/types/client/client_conformance_tests.rs
+  s_21eff977e05256::t_118edcf591096c 220-221
+ultragraphdb_client/ultragraphdb_client_core/tests/types/client_core/client_core_describe_tests.rs
+  s_21eff977e05256::t_b2d1812f3cb4e7 87-110
+ultragraphdb_client/ultragraphdb_client_tokio/tests/types/client/client_conformance_tests.rs
+  s_21eff977e05256::t_9b2081fc94b2a7 225-226
+ultragraphdb_common/ultragraphdb_common_frontend/features/schema-changes/drops.feature
+  s_21eff977e05256::t_4f79b2d44eb7d3 6,19-30
+ultragraphdb_common/ultragraphdb_common_frontend/features/wire-protocol/server_rules.feature
+  s_21eff977e05256::t_84166f92c2d83d 6,44-51
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_one_frame.rs
+  s_21eff977e05256::t_2856581f82fbbc 12-13,349-353,371-378,512-521
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_requests.rs
+  s_21eff977e05256::t_29e1ac748a3fe1 295-297,299,304-311,313,324-325
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/endpoint_view.rs
+  s_21eff977e05256::t_76cf0291013fd4 24-26,42-44,88-101,119-120,125-131,139,143-145,147,217-240,298-311
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/system_link/system_link_asks.rs
+  s_21eff977e05256::t_eedbb16875f58b 9,132-137,162-163,192-194,197-198,202,213
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/system_link/system_link_reads.rs
+  s_21eff977e05256::t_efa3eb83574840 62-66
+ultragraphdb_common/ultragraphdb_common_frontend/tests/endpoint_steps_requests.rs
+  s_21eff977e05256::t_bf67df7de2f590 1693-1778
+ultragraphdb_common/ultragraphdb_common_frontend/tests/link_steps.rs
+  s_21eff977e05256::t_137a92d9716eaf 20-21,494,520,541,546,740,743-744,785-945
+ultragraphdb_common/ultragraphdb_common_frontend/tests/property/types/endpoint_view_property_tests.rs
+  s_21eff977e05256::t_6fb1af2ae7b315 60,85,187-188
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/endpoint_view_tests.rs
+  s_21eff977e05256::t_cd425ffd850b0d 164,177,184-248,270,272,285-288
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/describe/describe_body_builder.rs
+  s_21eff977e05256::t_6af9ddf3679005 105
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/describe_frames/mod.rs
+  s_21eff977e05256::t_527f5175e595a1 105
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/describe_view/describe_view_body_view.rs
+  s_21eff977e05256::t_3519d86e733066 32,52,64-75,77-84,86-90,126
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/describe_view/mod.rs
+  s_21eff977e05256::t_93a23db148406e 22,46-51
+ultragraphdb_protocol/ultragraphdb_protocol_wire/testdata/golden/bodies/generate_bodies.py
+  s_21eff977e05256::t_f6e7181135bd2d 362-365,373,377,379
+ultragraphdb_protocol/ultragraphdb_protocol_wire/testdata/seeds.py
+  s_21eff977e05256::t_2d1530744f9d75 180-183,196
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/traits/body_view_tests.rs
+  s_21eff977e05256::t_1ba9f0a1c625c8 59
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/describe/describe_tests.rs
+  s_21eff977e05256::t_d80a18aa03b5f6 17,20,44-48,54-57,74-78
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/describe_frames/describe_frames_tests.rs
+  s_21eff977e05256::t_6d7b74d768bf95 149-201
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/describe_view/describe_view_tests.rs
+  s_21eff977e05256::t_53c483e8866986 15-16,27-31,49,190-269
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/utils/golden_bodies.rs
+  s_21eff977e05256::t_27a8a616d7871c 78
+doc/notes/bi-temporal.txt
+  s_21eff977e05256::t_2d7ffaddd2eec6 1-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1be22e5b8f221ae7c729c4e9afcfdc8d6abbdb68",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
