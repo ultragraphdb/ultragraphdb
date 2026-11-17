@@ -17,6 +17,9 @@
 # in more than it argues for hides caught mutants. Entries anchored by line say so; the check shows them matching
 # nothing once their file moves.
 
+# The workspace's `[profile.mutants]`: the test profile without debug information, so each mutant links faster.
+profile = "mutants"
+
 exclude_re = [
     # ===========================================================================================
     # Core: terms and the UID algorithms

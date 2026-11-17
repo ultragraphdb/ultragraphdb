@@ -200,6 +200,12 @@ unused_must_use = "deny"
 unused_results = "deny"
 missing_docs = "deny"
 
+[profile.mutants]
+# Mutation testing (scripts/mutants.sh, .cargo/mutants.toml): the test profile without debug information, so each
+# mutant's build links faster; assertions and overflow checks stay as the test profile has them.
+inherits = "test"
+debug = "none"
+
 [profile.release]
 # Bazel needs these options seperately for its release build configuration
 # in file .bazelrc and bazel/binary.bzl
