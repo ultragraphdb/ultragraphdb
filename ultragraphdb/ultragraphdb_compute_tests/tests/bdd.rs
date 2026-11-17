@@ -385,6 +385,8 @@ fn storage_hangs(w: &mut Steps) -> TestResult {
 fn lost_storage(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 69)?;
     assert!(w.log.contains(LOST_ROLE_ADDRESS), "{}", w.log);
+    // The ordinary path is the one SIGTERM takes, which logs the role's stop before it drains its reads.
+    assert!(w.log.contains("stopping role=compute"), "{}", w.log);
     w.roles = None;
     Ok(())
 }

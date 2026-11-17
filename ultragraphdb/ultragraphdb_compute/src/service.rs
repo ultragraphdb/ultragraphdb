@@ -63,8 +63,8 @@ fn required<'a>(value: Option<&'a str>, setting: &str) -> Result<&'a str, RoleEr
     value.ok_or_else(|| RoleError::configuration(format!("the setting {setting} is required")))
 }
 
-/// Joins at `own`, serves on every core, holds the peers until the service stops, then drains the reads still
-/// open. A future dropped at any await leaves the cores accepting, their tasks detached on their own runtimes, and
+/// Joins at `own`, serves on every core, holds the peers until the service stops or one is lost, then drains the reads
+/// still open. A future dropped at any await leaves the cores accepting, their tasks detached on their own runtimes, and
 /// readiness as it was set; dropped in the drain, it leaves the reads still open to their runtimes' end.
 async fn join_as(
     endpoint: Endpoint,
@@ -102,14 +102,22 @@ async fn join_as(
     readiness.set(true);
     let origin = now();
     let clock = move || now().saturating_duration_since(origin);
-    hold_peers(&group, join, partitions, &cluster, stopping, clock).await?;
+    let held = hold_peers(&group, join, partitions, &cluster, stopping, clock).await;
+    // A lost peer stops the role through the path a SIGTERM takes (role-binaries, "A lost dependency exits with its code";
+    // system-group, "A lost system group is waited for until the deadline"): no core takes a new read, and the reads still
+    // open are drained, before the process exits with code 69.
+    if let Err(failure) = &held {
+        tracing::error!(%failure, "a peer is gone; stopping");
+        tracing::info!(role = %RoleKind::Compute, "stopping");
+        stopping.set();
+    }
     let _left = finish_open(
         Vec::<compio::runtime::JoinHandle<()>>::new(),
         &open,
         FINISH_LIMIT,
     )
     .await;
-    Ok(())
+    held
 }
 
 /// What each core accepts and reads with.

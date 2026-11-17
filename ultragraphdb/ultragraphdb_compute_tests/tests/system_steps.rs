@@ -146,6 +146,8 @@ fn joined_again_at_once(w: &mut Steps) -> TestResult {
 fn ended_naming_the_group(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 69)?;
     assert!(w.log.contains(SYSTEM_ROLE_ADDRESS), "{}", w.log);
+    // The ordinary path is the one SIGTERM takes, which logs the role's stop before it drains its reads.
+    assert!(w.log.contains("stopping role=compute"), "{}", w.log);
     w.roles = None;
     Ok(())
 }
