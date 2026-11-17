@@ -15,7 +15,3 @@ Feature: The metadata group holds the tenants
   Scenario: An unknown name keeps one salt across a restart
     When a client authenticates as the unknown name `nobody`, the frontend restarts, and a client authenticates as `nobody` on another core
     Then both challenges carry one salt, and the metadata group's log holds the secret it derives from
-
-  Scenario: A catalog version past its cap is refused at its Commit
-    When a transaction's declarations build a catalog version of 16,777,217 bytes, and the client commits it
-    Then the Commit is refused with code 7, `detail` 16,777,216, the message naming the size, and the current version stays

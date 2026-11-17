@@ -22,7 +22,7 @@ use crate::client_reads::{
     Answer, GraphAt, Pattern, TENANT, batch_of, commit_a_write, direct_of, drain, edge_of, integer,
     iri, read_whole, refusal_of, refused_with, string, text_of, typed, write_of,
 };
-use crate::endpoint_steps::{declare, declaring};
+use crate::endpoint_steps::declare;
 use crate::read_steps::{in_graph, until_rows};
 use crate::shells::{TestClient, pause};
 use crate::transaction_steps::{committed, in_shared, nothing};
@@ -2358,46 +2358,5 @@ fn statement_named(w: &mut Steps) -> TestResult {
     let of_subject =
         ultragraphdb_store_quads::iri_bucket(TENANT, &w.iri("a")).context("the subject's")?;
     assert_eq!(bucket.get(), of_subject.get(), "{reifier} {}", w.over());
-    Ok(())
-}
-
-#[when(
-    "a transaction's declarations build a catalog version of 16,777,217 bytes, and the client commits it"
-)]
-fn version_past_cap(w: &mut Steps) -> TestResult {
-    // 19 Writes of a predicate of 900,000 bytes each declare 17,100,000 bytes, past `catalog_bytes_max`, 16,777,216 bytes
-    // (`PROTOCOL.md` §11.9), each Write within a frame.
-    let predicates: Vec<String> = (0..19)
-        .map(|index| format!("{}/{index}/{}", w.iri("long"), "n".repeat(900_000)))
-        .collect();
-    let predicate = predicates.first().cloned().unwrap_or_default();
-    let (refused, described) = in_shared(w, async |client| {
-        let own = client.begin(TENANT, false).await?;
-        for declared in &predicates {
-            client
-                .write(&own, &declaring(DeclaredPredicate::new(declared)))
-                .await?;
-        }
-        let refused = client.commit(own, None).await.err().context("a refusal")?;
-        Ok((refused, client.describe(TENANT).await?))
-    })?;
-    w.seen.refusals = vec![refused];
-    w.committed = described
-        .predicates()
-        .iter()
-        .all(|declared| declared.predicate() != predicate);
-    Ok(())
-}
-
-#[then(
-    "the Commit is refused with code 7, `detail` 16,777,216, the message naming the size, and the current version stays"
-)]
-fn version_refused(w: &mut Steps) -> TestResult {
-    let refused = w.seen.refusals.first().context("the refusal")?;
-    let (code, detail, message) = refusal_of(refused)?;
-    assert_eq!(code, ErrorCode::Refused, "{refused:?}");
-    assert_eq!(detail, 16_777_216, "{refused:?}");
-    assert!(message.chars().any(|c| c.is_ascii_digit()), "{message}");
-    assert!(w.committed, "the catalog unchanged {}", w.over());
     Ok(())
 }

@@ -12,10 +12,6 @@ Feature: The metadata group in the system group
       When version 3 of `t1` is current, a first write of `score` records its default entry, and a client offers version 4 built on version 3
       Then the default-entry record of (`t1`, `score`) is held, version 4 is accepted, and no prepared statement of `t1` is stale
 
-    Scenario: A catalog version past its cap is refused at its Commit
-      When a transaction's declarations build a catalog version of 16,777,217 bytes, and the client commits it
-      Then the Commit is refused with code 7, `detail` 16,777,216, the message naming the size, and the current version stays
-
     Scenario: A catalog version past one frame travels in several
       When a catalog version of 523,001 bytes is committed, and a storage process at the floor of `max_frame` reads it with Catalog
       Then two Catalog frames hold its bytes, the second alone flagged `LAST`, and the bytes read equal the bytes committed

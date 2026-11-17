@@ -300,6 +300,16 @@ Every remaining failure, root-caused:
    carries entries, not the version's fixed part (§8.3, `CATALOG.md` §2). A client of a tenant declared through Writes learns
    the number only by counting its own declarations from none, as "A tenant's data drop keeps its catalog" does. The user's
    to decide.
+9. **A system link stalls under frames of a megabyte.** `common_frontend:bdd_catalog_cap` failed 2 of 16, 1 of 10, 2 of 30,
+   7 of 60 and 9 of 40 runs (several runs at once, under another agent's load), and 0 of 34 in other batches: a declaring
+   Commit is never answered (`no frame came` after 5 s), at Commits 0 to 4. At the stall the group holds no new version, a
+   Members ask on the core's link answers nothing within 2 s, the client's connection to the frontend answers a Begin, and the
+   view's closes keep arriving. So the frontend-to-group direction of the link stops while the group-to-frontend direction runs:
+   the Declare of about 1 MiB is never taken by the group. The frontend and the group's sessions share one compio runtime there
+   (polling driver, kqueue), and the stall needs frames large enough to wait for a socket's room. Not root-caused; suspects are
+   the role server's read pinned across its pushes (`ultragraphdb_common_role`'s `serve.rs`, `next_frame`) and compio-driver
+   0.12.5's poll driver with a read and a write pending on one descriptor (`sys/driver/poll/mod.rs`: one key per descriptor,
+   and an event whose operation has no descriptor left returns from the whole batch). Over the binaries the scenario passed.
 
 ## Left for 7.5
 

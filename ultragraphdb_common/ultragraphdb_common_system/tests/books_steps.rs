@@ -23,14 +23,14 @@ use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_protocol_wire::{
-    BodyView, Catalog, CatalogFrames, Challenge, ChallengeView, CloseRequest, Command, Credit,
-    Declared, DeclaredPredicate, EpochCloseView, ErrorCode, FLAG_LAST, MAX_FRAME_FLOOR_U32,
-    Placement, PlacementView, Subscribe,
+    BodyBuilder, BodyView, CATALOG_BYTES_MAX, Catalog, CatalogFrames, Challenge, ChallengeView,
+    CloseRequest, Command, Credit, Declare, Declared, DeclaredPredicate, EpochCloseView, ErrorCode,
+    FLAG_LAST, Header, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE, Placement, PlacementView, Subscribe,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::Steps;
-use crate::bdd_stage::{Stage, heard, next_frame, recovered, refused, start_of};
+use crate::bdd_stage::{Stage, heard, next_frame, recovered, start_of};
 use crate::system_steps::run;
 
 /// The length of the encoding of a version of tenant 0 numbered `version` holding one predicate of an IRI of `length` bytes, by
@@ -144,32 +144,62 @@ fn default_no_version_held(w: &mut Steps) {
 }
 
 #[when(
-    "a transaction's declarations build a catalog version of 16,777,217 bytes, and the client commits it"
+    "declaring Commits, each within one Declare frame, build a tenant's catalog version until one more would pass 16,777,216 bytes, and the client commits that one"
 )]
 fn past_cap(w: &mut Steps) -> TestResult {
     run(w, || async {
         let stage = Stage::new(42, &start_of(1, 8)?).await?;
-        let refusal = refused(
-            stage
-                .handle
-                .declare_version(0, 0, declaring(16_777_217)?)
-                .await,
-        )?;
-        // `catalog_bytes_max`, 16,777,216 bytes (`PROTOCOL.md` §11.9).
+        // A Declare is one frame within the role connection's `max_frame`, at most `MAX_FRAME_SIZE` (`PROTOCOL.md` §11.13, *A new
+        // version*): each Declare here holds one predicate whose IRI fills such a frame but for 4 KiB, built on the version before,
+        // until the group refuses one. The versions grow by one declaration of one length each, so the version the refused
+        // Declare would build is the last one's bytes and that growth again.
+        let length = MAX_FRAME_SIZE - 4_096;
+        let mut sizes: Vec<usize> = Vec::new();
+        let mut version = 0;
+        let mut refusal = None;
+        for at in 0..CATALOG_BYTES_MAX / length + 2 {
+            let stem = format!("http://ex.org/{at:02}/");
+            let iri = format!("{stem}{}", "a".repeat(length - stem.len()));
+            let one = vec![Declared::Predicate(DeclaredPredicate::new(iri))];
+            let frame = Declare::declarations(0, version, 0, one.clone())
+                .frame(Header::new(0, Command::Declare))?;
+            assert!(frame.len() <= MAX_FRAME_SIZE, "one Declare frame");
+            match stage
+                .closing(stage.handle.declare_version(0, version, one))
+                .await?
+            {
+                Ok((built, _)) => {
+                    version = built;
+                    sizes.push(heard(stage.handle.catalog(0, built).await)?.bytes().len());
+                }
+                Err(refused) => {
+                    refusal = Some(refused);
+                    break;
+                }
+            }
+        }
+        let refusal = refusal.context("a Declare refused")?;
+        let [.., before, last] = sizes.as_slice() else {
+            return Err(TestError::new(format!("two versions built: {sizes:?}")));
+        };
+        let would = last + (last - before);
+        assert!(
+            *last <= CATALOG_BYTES_MAX && would > CATALOG_BYTES_MAX,
+            "the Declare refused is the first past the cap: {sizes:?}"
+        );
         assert_eq!(
             (refusal.code(), refusal.detail()),
-            (ErrorCode::Refused, 16_777_216)
+            (ErrorCode::Refused, CATALOG_BYTES_MAX as u64) // lossless: a `usize` is at most 64 bits
         );
         assert!(
-            refusal.message().contains("16777217"),
-            "{}",
+            refusal.message().contains(&would.to_string()),
+            "{} names {would}",
             refusal.message()
         );
-        let current = refused(stage.handle.catalog(0, 0).await)?;
         assert_eq!(
-            (current.code(), current.detail()),
-            (ErrorCode::Refused, 0),
-            "no version"
+            heard(stage.handle.catalog(0, 0).await)?.version(),
+            version,
+            "the current version stays"
         );
         let _ended = stage.stop().await?;
         Ok(())

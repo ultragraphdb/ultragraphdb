@@ -110,7 +110,7 @@ Scenarios retired, superseded by this change's text (as group 3 retired one): "A
 partition; its replacement is "A token ahead of the core's view waits and is not refused") and "A Describe past the client's
 frame is refused" (`features/wire-protocol/server_rules.feature`; §8.3's *Continuation*; its replacements are "A Describe
 continues across frames" and "A Describe past the catalog's bound is refused"). The scenario "A catalog version past its cap is
-refused at its Commit" keeps its assertion and builds its version within the one-frame rule (Found wanting 1).
+refused at its Commit" builds its version through declaring Commits within the one-frame rule (Found wanting 1).
 
 `ultragraphdb_client_tokio` and `ultragraphdb_client_compio`: their conformance test served the golden `describe_reply`, which
 holds flags 0 (Found wanting 4); a client reading a continued Describe waits for a frame flagged `LAST`, so each now serves it
@@ -251,6 +251,16 @@ starting the frontend binary fail until task 7.4 rewrites the profiles (design D
    D13: "one transaction adds at most a frame of declarations to the version it builds on". Implemented: the scenario's
    version builds on one of 16,002,000 bytes declared in the group itself, and the transaction's one Write adds 896,000; the
    assertion (code 7, `detail` 16,777,216, the current version unchanged) stands. The scenario's text is the user's to decide.
+   **Resolved by the user's decision, 2026-11-16, option (a).** The scenario reaches the cap as a client does: "When declaring
+   Commits, each within one Declare frame, build a tenant's catalog version until one more would pass 16,777,216 bytes, and the
+   client commits that one", the change's spec and the three features taking the text. Each Commit declares one predicate whose
+   IRI fills a Declare frame within `max_frame` but for 4 KiB, until one is refused; the refusal is asserted against the wire's
+   `CATALOG_BYTES_MAX` (`detail`), the size the message names (the last version's bytes and one declaration's growth again, read
+   from the group; over the binaries, a size past the cap holding every IRI declared) and the version before it current. No
+   cheaper client path exists: a Commit adds at most a frame, so about 17 Commits build versions of 136 MiB together. Each level's
+   scenario runs in a target of its own: `common_frontend:bdd_catalog_cap` (8.7 s alone, uncached) and
+   `common_system:bdd_catalog_cap` (9.4 to 17.9 s alone, uncached, under a load average of 8 to 10 from another agent; past the
+   10 s bound under load), both CPU-bound in the group's version building in a fastbuild.
 2. **A Begin that asks no other process, and a tenant read at its first use.** client-endpoint, "A Begin asks no other process"
    against §11.13, *The frontend's reads*: a tenant's current version comes "from one Catalog read when a tenant is first used".
    A Catalog at a Begin's first use of a tenant is a frame to the system group. Implemented: a core uses a tenant first when its

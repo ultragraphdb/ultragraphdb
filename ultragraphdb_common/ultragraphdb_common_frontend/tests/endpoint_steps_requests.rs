@@ -15,8 +15,8 @@ use compio::runtime::Runtime;
 use cucumber::{then, when};
 use oxrdf::Literal;
 use ultragraphdb_common_frontend::{
-    Authorizer, DoubleFrame, EndpointLimits, IriPlace, RoleDouble, batch_frame, empty_batch,
-    iri_place, last_frame, partition_answer,
+    Authorizer, DoubleFrame, EndpointLimits, IriPlace, RoleDouble, batch_frame, declare_fits,
+    empty_batch, iri_place, last_frame, partition_answer,
 };
 use ultragraphdb_common_role::{Answer, RoleClient};
 use ultragraphdb_core_ids::{Bucket, Epoch, Sequence, SystemId, Tenant, TypePrefix, Version};
@@ -27,13 +27,13 @@ use ultragraphdb_protocol_transport::{
 };
 use ultragraphdb_protocol_transport_compio::{Carrier, Connection};
 use ultragraphdb_protocol_wire::{
-    Abort, Action, AuthenticateView, BindView, BodyBuilder, BodyView, Cancel, ColumnType, Command,
-    Commit, CommitOperation, CommitView, ComputeReadView, ConditionalWrite, Declared, DeclaredKind,
-    DeclaredPredicate, DefaultEntry, Describe, DescribeView, DirectWrite, DropCommand, ErrorCode,
-    ErrorReply, Execute, FLAG_LAST, Header, Held, Hello, Join, MAX_FRAME_SIZE, MAX_FRAME_SIZE_U32,
-    Operation, PatternSlot, Prepare, PrepareView, QuadPattern, Read, ReadLevel, ReferenceView,
-    Report, RequestTerm, RequestTermView, ResultBatch, ResultView, TenantRun, TermTable, Write,
-    WriteChange, xxh3_64,
+    Abort, Action, AuthenticateView, BindView, BodyBuilder, BodyView, CATALOG_BYTES_MAX, Cancel,
+    ColumnType, Command, Commit, CommitOperation, CommitView, ComputeReadView, ConditionalWrite,
+    Declared, DeclaredKind, DeclaredPredicate, DefaultEntry, Describe, DescribeView, DirectWrite,
+    DropCommand, ErrorCode, ErrorReply, Execute, FLAG_LAST, Header, Held, Hello, Join,
+    MAX_FRAME_SIZE, MAX_FRAME_SIZE_U32, Operation, PatternSlot, Prepare, PrepareView, QuadPattern,
+    Read, ReadLevel, ReferenceView, Report, RequestTerm, RequestTermView, ResultBatch, ResultView,
+    TenantRun, TermTable, Write, WriteChange, xxh3_64,
 };
 use ultragraphdb_store_sim::LogCapture;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -2254,56 +2254,88 @@ fn two_tenants_share_a_run_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
+/// A predicate of an IRI of exactly `length` bytes, distinct for each `at` below 100.
+fn filling(at: usize, length: usize) -> Declared {
+    let stem = format!("http://ex.org/{at:02}/");
+    let pad = length.saturating_sub(stem.len());
+    Declared::Predicate(DeclaredPredicate::new(format!("{stem}{}", "a".repeat(pad))))
+}
+
 #[when(
-    "a transaction's declarations build a catalog version of 16,777,217 bytes, and the client commits it"
+    "declaring Commits, each within one Declare frame, build a tenant's catalog version until one more would pass 16,777,216 bytes, and the client commits that one"
 )]
 fn a_catalog_version_past_its_cap_is_refused_at_its_commit(w: &mut Steps) -> TestResult {
     let options = Options::default();
     run(w, options, |stage| async move {
         let _whole = &stage;
-        // A Declare is one frame (`PROTOCOL.md` §11.13), so one transaction adds at most a frame of declarations: the version it
-        // builds on holds 1,143 declarations of 14,000 bytes each, 16,002,000 bytes of IRIs, declared in the group itself, and the
-        // transaction's one Write of 64 more, 896,000 bytes within a frame, takes the version past `catalog_bytes_max`, 16,777,216
-        // bytes (`PROTOCOL.md` §11.9).
-        let base: Vec<Declared> = (0..1_143)
-            .map(|at| {
-                let long = format!("http://ex.org/base/{at}/{}", "a".repeat(14_000));
-                Declared::Predicate(DeclaredPredicate::new(long))
-            })
-            .collect();
-        let _version = stage
-            .owner
-            .declare(0, 0, base)
-            .await
-            .map_err(|refusal| TestError::new(refusal.message().to_string()))?;
-        until("the core's view holding version 1", || {
-            stage.system.view().current_version(0) == 1
-        })
-        .await?;
+        // A Declare is one frame (`PROTOCOL.md` §11.13, *A new version*), so a Commit adds at most a frame of declarations to
+        // the version it builds on: each Commit here declares one predicate whose IRI fills a Declare frame within the link's
+        // `max_frame` but for 4 KiB, and the Commits go on until one is refused. The versions grow by one declaration of one
+        // length each, so the version the refused Commit would build is the last one's bytes and that growth again.
+        let max_frame = stage.system.max_frame();
+        let length = usize::try_from(max_frame)? - 4_096;
         let mut client = stage.ann().await?;
-        let transaction = client.begin(0).await?;
-        let declared = (0..64)
-            .map(|at| {
-                let long = format!("http://ex.org/added/{at}/{}", "a".repeat(14_000));
-                WriteChange::Declare(Declared::Predicate(DeclaredPredicate::new(long)))
-            })
-            .collect();
-        client
-            .on(transaction, &Write::new(TermTable::new(), declared))
-            .await?;
-        client.commit(transaction).await?;
-        let got = client.got(transaction).await?;
+        let mut sizes: Vec<usize> = Vec::new();
+        let mut version = 0;
+        let mut refused = None;
+        for at in 0..CATALOG_BYTES_MAX / length + 2 {
+            let one = filling(at, length);
+            declare_fits(0, version, 0, std::slice::from_ref(&one), max_frame)
+                .map_err(|refusal| TestError::new(refusal.message().to_string()))?;
+            let transaction = client.begin(0).await?;
+            client
+                .on(
+                    transaction,
+                    &Write::new(TermTable::new(), vec![WriteChange::Declare(one)]),
+                )
+                .await?;
+            client.commit(transaction).await?;
+            let got = client.got(transaction).await?;
+            if got.command != Command::Commit {
+                refused = Some(got);
+                break;
+            }
+            version = stage
+                .owner
+                .tenant_facts(0)
+                .await
+                .map_err(|refusal| TestError::new(refusal.message().to_string()))?
+                .current_version();
+            let held = stage
+                .owner
+                .catalog(0, version)
+                .await
+                .map_err(|refusal| TestError::new(refusal.message().to_string()))?;
+            sizes.push(held.bytes().len());
+        }
+        let got = refused.context("a Commit refused")?;
+        let [.., before, last] = sizes.as_slice() else {
+            return Err(TestError::new(format!("two versions built: {sizes:?}")));
+        };
+        let would = last + (last - before);
+        assert!(
+            *last <= CATALOG_BYTES_MAX && would > CATALOG_BYTES_MAX,
+            "the Commit refused is the first past the cap: {sizes:?}"
+        );
         assert_eq!(
             (got.code, got.detail),
-            (Some(ErrorCode::Refused), 16_777_216)
+            (Some(ErrorCode::Refused), CATALOG_BYTES_MAX as u64) // lossless: a `usize` is at most 64 bits
         );
-        assert!(got.message.contains("bytes"), "{}", got.message);
+        assert!(
+            got.message.contains(&would.to_string()),
+            "{} names {would}",
+            got.message
+        );
         let facts = stage
             .owner
             .tenant_facts(0)
             .await
             .map_err(|refusal| TestError::new(refusal.message().to_string()))?;
-        assert_eq!(facts.current_version(), 1, "the current version stays");
+        assert_eq!(
+            facts.current_version(),
+            version,
+            "the current version stays"
+        );
         Ok(())
     })
 }

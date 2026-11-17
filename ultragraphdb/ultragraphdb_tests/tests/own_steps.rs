@@ -13,7 +13,8 @@ use ultragraphdb_client_compio::{ClientError, ClientErrorEnum, Login};
 use ultragraphdb_protocol_scram::{ScramError, ScramLogin, system_nonce};
 use ultragraphdb_protocol_transport::{Address, ClientMechanism, TransportError};
 use ultragraphdb_protocol_wire::{
-    Begin, Command, DeclaredKind, DeclaredPredicate, DropCommand, ErrorCode,
+    Begin, BodyBuilder, CATALOG_BYTES_MAX, Command, Declare, Declared, DeclaredKind,
+    DeclaredPredicate, DropCommand, ErrorCode, Header, MAX_FRAME_SIZE,
 };
 use ultragraphdb_tests::CLUSTER;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -1587,6 +1588,96 @@ fn data_gone_catalog_kept(w: &mut Steps) -> TestResult {
     nothing(w.seen.answers.first().context("what is held")?)?;
     assert!(w.committed, "Describe lists the declaration {}", w.over());
     release(w)
+}
+
+#[when(
+    "declaring Commits, each within one Declare frame, build a tenant's catalog version until one more would pass 16,777,216 bytes, and the client commits that one"
+)]
+fn version_past_cap(w: &mut Steps) -> TestResult {
+    own(w, &own_catalog())?;
+    // The tenant's catalog ends near its cap, which would slow every later scenario of the spec: the cluster goes with this one.
+    w.named = None;
+    let at = cluster(w)?.client.clone();
+    // A Declare is one frame within the role connection's `max_frame`, the system group's host's `MAX_FRAME_SIZE` (`PROTOCOL.md`
+    // §11.13, *A new version*): each Commit declares one predicate whose IRI fills such a frame but for 4 KiB, and the Commits go
+    // on until one is refused. Each version holds every IRI declared in it, so the one the refused Commit would build holds at
+    // least the IRIs of every Commit so far.
+    let length = MAX_FRAME_SIZE - 4_096;
+    let stem = w.iri("cap");
+    let (declared, refused, listed) = with_client(&at, async |client| {
+        let mut declared: Vec<String> = Vec::new();
+        for at in 0..CATALOG_BYTES_MAX / length + 2 {
+            let head = format!("{stem}/{at:02}/");
+            let iri = format!("{head}{}", "a".repeat(length - head.len()));
+            let one = DeclaredPredicate::new(&iri);
+            let frame = Declare::declarations(TENANT, 0, 0, vec![Declared::Predicate(one.clone())])
+                .frame(Header::new(CLUSTER, Command::Declare))?;
+            assert!(frame.len() <= MAX_FRAME_SIZE, "one Declare frame");
+            let own = client.begin(TENANT, false).await?;
+            client
+                .write(&own, &crate::endpoint_steps::declaring(one))
+                .await?;
+            declared.push(iri);
+            if let Err(refused) = client.commit(own, None).await {
+                // Describe reads at the latest close, which a version takes effect after its Commit's answer: the versions
+                // committed are listed once the last of them is.
+                let last = declared
+                    .len()
+                    .checked_sub(2)
+                    .and_then(|at| declared.get(at));
+                for _ in 0..500 {
+                    let described = client.describe(TENANT).await?;
+                    let names: Vec<String> = described
+                        .predicates()
+                        .iter()
+                        .map(|held| held.predicate().to_string())
+                        .collect();
+                    if last.is_none_or(|last| names.contains(last)) {
+                        return Ok((declared, refused, names));
+                    }
+                    pause(Duration::from_millis(10)).await;
+                }
+                return Err(TestError::new(
+                    "no Describe listed the last version within 5 s",
+                ));
+            }
+        }
+        Err(TestError::new("no Commit was refused"))
+    })?;
+    let (code, detail, message) = refusal_of(&refused)?;
+    assert_eq!(
+        (code, detail),
+        (ErrorCode::Refused, CATALOG_BYTES_MAX as u64),
+        "{message}"
+    ); // lossless: a `usize` is at most 64 bits
+    let least = declared.len() * length;
+    let sizes: Vec<usize> = message
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|digits| digits.parse().ok())
+        .collect();
+    assert!(
+        sizes
+            .iter()
+            .any(|size| *size > CATALOG_BYTES_MAX && *size >= least),
+        "the message names a size past the cap and at least {least}: {message}"
+    );
+    let (refused_iri, committed) = declared.split_last().context("a Commit")?;
+    w.committed = committed.iter().all(|iri| listed.contains(iri)) && !listed.contains(refused_iri);
+    w.seen.refusals = vec![refused];
+    Ok(())
+}
+
+#[then(
+    "the Commit is refused with code 7, `detail` 16,777,216, the message naming the size, and the current version stays"
+)]
+fn version_refused(w: &mut Steps) -> TestResult {
+    assert!(!w.seen.refusals.is_empty(), "{}", w.over());
+    assert!(
+        w.committed,
+        "the version before the refused Commit is current {}",
+        w.over()
+    );
+    Ok(())
 }
 
 #[when(

@@ -86,6 +86,7 @@ BDD_FEATURES = {
         "schema-changes/declaring.feature",
         "schema-changes/drops.feature",
     ],
+    "bdd_catalog_cap": ["metadata-group/catalog_cap.feature"],
     "bdd_compute": ["client-endpoint/compute.feature"],
     "bdd_endpoint": [
         "client-endpoint/connections.feature",

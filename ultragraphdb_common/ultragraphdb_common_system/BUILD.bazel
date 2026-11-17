@@ -84,18 +84,41 @@ rust_test(
     ]
 ]
 
+# The scenarios' sources, which both BDD targets below compile.
+BDD_SRCS = [
+    "tests/bdd.rs",
+    "tests/bdd_stage.rs",
+    "tests/books_steps.rs",
+    "tests/system_steps.rs",
+]
+
+# The feature building a catalog version to its cap, which takes a target of its own: a target's runfiles hold its feature
+# files alone, and cucumber runs what `features/` holds.
+CATALOG_CAP = "features/metadata-group/catalog_cap.feature"
+
 # cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
 rust_test(
     name = "bdd",
-    srcs = [
-        "tests/bdd.rs",
-        "tests/bdd_stage.rs",
-        "tests/books_steps.rs",
-        "tests/system_steps.rs",
-    ],
+    srcs = BDD_SRCS,
     crate_root = "tests/bdd.rs",
     # The manifest is read by the scenarios naming what the group's host links.
-    data = glob(["features/**/*.feature"]) + ["Cargo.toml"],
+    data = glob(
+        ["features/**/*.feature"],
+        exclude = [CATALOG_CAP],
+    ) + ["Cargo.toml"],
+    tags = ["bdd-test"],
+    use_libtest_harness = False,
+    deps = [":ultragraphdb_common_system"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+rust_test(
+    name = "bdd_catalog_cap",
+    srcs = BDD_SRCS,
+    crate_root = "tests/bdd.rs",
+    data = [CATALOG_CAP],
     tags = ["bdd-test"],
     use_libtest_harness = False,
     deps = [":ultragraphdb_common_system"] + all_crate_deps(
