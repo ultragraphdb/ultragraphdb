@@ -66,6 +66,8 @@ pub struct PlayedFrontend {
     answering: Rc<Cell<bool>>,
     /// The frames each version is answered in, or `None` for as many as its bytes take within `max_frame`.
     split: Rc<Cell<Option<usize>>>,
+    /// Whether a split version's frames past the first name the next version.
+    torn: Rc<Cell<bool>>,
     counts: Rc<Counts>,
     /// Every request taken and not yet answered on the wire.
     open: OpenRequests,
@@ -95,6 +97,7 @@ impl PlayedFrontend {
             catalog_delay: Rc::default(),
             answering: Rc::new(Cell::new(true)),
             split: Rc::default(),
+            torn: Rc::default(),
             counts: Rc::default(),
             open,
             connections: Rc::default(),
@@ -174,6 +177,12 @@ impl PlayedFrontend {
     /// `LAST`: a group splitting a version as far as the protocol lets it.
     pub fn answer_in(&self, frames: usize) {
         self.split.set(Some(frames));
+    }
+
+    /// Whether each version `answer_in` splits is torn: its frames past the first name the next version, which breaks
+    /// `PROTOCOL.md` §13.7's rule that a version's frames each carry the first's command header.
+    pub fn answer_torn(&self, torn: bool) {
+        self.torn.set(torn);
     }
 
     /// Answers each Members `delay` after it arrives.
@@ -310,7 +319,7 @@ impl FrontendSession {
         };
         let header = Header::new(view.header().cluster(), Command::Catalog).with_stream(stream);
         let built = match self.played.split.get() {
-            Some(count) => split(&version, header, count),
+            Some(count) => split(&version, header, count, self.played.torn.get()),
             None => version.frames(header, self.max_frame),
         };
         let mut frames = match built {
@@ -326,11 +335,12 @@ impl FrontendSession {
 }
 
 /// `version` in `count` frames of `header`, one byte to a frame, the frames past its bytes empty, the last alone flagged
-/// `LAST`.
+/// `LAST`; `torn`, the frames past the first naming the next version.
 fn split(
     version: &Catalog,
     header: Header,
     count: usize,
+    torn: bool,
 ) -> Result<Vec<Vec<u8>>, ultragraphdb_error_protocol::ProtocolError> {
     (0..count)
         .map(|index| {
@@ -341,7 +351,7 @@ fn split(
                 .to_vec();
             let part = Catalog::reply(
                 version.tenant(),
-                version.version(),
+                version.version() + u64::from(torn && index > 0),
                 version.epoch(),
                 version.position(),
                 byte,

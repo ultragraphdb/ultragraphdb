@@ -279,7 +279,7 @@ Bound by a delegated run, in `features/system/books.feature` (`@system @books`, 
 | The books recover in the storage process | the host at `sequencer.epoch_ms_max` 10,000, its closes driven one by one with CloseRequest to exactly 12 after a Declare of kind 1, two Leases; Catalog, a Challenge of the bootstrap `admin` and Placement read before a kill -9 and after the restart: equal values, the latest close 12, a third lease at or past the second's end |
 | A partition's sync holds up no close | partition 2 in a non-hosting process stopped by SIGSTOP for ten times `epoch_ms_max` (50 ms): the closes go on in order meanwhile, and once it runs again a commit lands past the last close sent during the stop |
 | A partition recovers from the group of its own process | three Declares of kind 1 as role `frontend`, a commit at partition 1 at or past version 3's effective epoch, kill -9, restart: the log's order "the system group listens", "a catalog version read … version=3", the partition's recovery with rounds above 0 |
-| A failed log of the group stops the process | `metadata.snapshot_rounds = 1`, `system.data_dir/meta/` made read-only once ready, a Lease: the snapshot's trim fails creating `superblock.X.tmp` (EACCES); exit 74, "a partition or the system group stopped; stopping the rest", "stopping role=storage", "failure=io: ordered log: storage create failed". No product hook |
+| A failed log of the group stops the process | `metadata.snapshot_rounds = 1`, a directory made at `system.data_dir/meta/superblock.{a,b}.tmp` once ready, a Lease: the snapshot's trim fails creating the superblock's temporary file (EISDIR); exit 74, "a partition or the system group stopped; stopping the rest", "stopping role=storage", "failure=io: ordered log: storage create failed". No product hook |
 | Every runtime of a pinned role holds a CPU of its own | five partitions, `pin_cores` and `pin_skip = 1`: on macOS each partition's runtime logs "unpinned: this platform cannot bind"; on Linux the expected CPUs are derived from `/proc/self/status`'s permitted set with `common_service::cpu_for`, refused naming the precondition below six CPUs |
 
 **Weaker than the text, the user's to accept:** (1) "read at the same log position": the restarted partition appends its
@@ -288,7 +288,7 @@ answered at positions 23 to 25, after it 28 to 29), so the binding asserts equal
 before, not the same position; `common_system`'s binding over simulated storage keeps the equality. (2) the delayed sync is
 a whole non-hosting process stopped, not one partition's sync inside the hosting process, which the binary has no means to
 delay; the in-process isolation rests on `common_system`'s binding. (3) the Linux branch of the pinned scenario was not run
-(this machine is macOS), and nothing restricts the process to six CPUs. (4) as root, the read-only directory would not fail.
+(this machine is macOS), and nothing restricts the process to six CPUs.
 No product defect was found; none was fixed. **4.2 is not ticked** for (1) to (3).
 
 | Target | Before | After | Time |
@@ -496,9 +496,19 @@ Found wanting by the audit:
    drops frames on unknown streams unchecked; compute's `closes` drops unasked frames unchecked; storage's
    `deliver_closes` reads frames of any stream and takes an Error 1 on stream 0 as the subscription's end.
 6. `serve.rs` answers an Ended arriving while stopping with Error 17 (§13.25: nothing answers it).
-7. `compute_core_catalog.rs` answers malformed frames with code 1 by documented intent, where §11.12 says 17.
-8. `system_books_bdd` "A failed log of the group stops the process" failed once in the gate: the log refused its write at
-   `rename`, the step expects `create`.
+7. **Fixed, test first.** `compute_core_catalog.rs` answers every frame it refuses on the catalog read with code 17, as
+   §11.12 (*Errors*) has the side that dialled answer a request whose connection closed on a refused frame; §13.7 still
+   classes the frame (`FieldValue` `"catalog"`). The six refusals (a frame that does not read, an Error body that does not
+   read, a wrong stream, past credit, `CatalogFrames::push`, past `CATALOG_FRAMES_MAX`) go through one `refused`; the
+   group's own Error passes through unchanged. Tests: `test_a_version_in_the_most_frames_is_read_and_one_more_refused`
+   (failed `Protocol` for `Unavailable`) and the new `test_a_frame_breaking_the_first_ones_header_is_refused_with_code_17`
+   (failed the same way; the played group's `answer_torn` names the next version in frames past the first).
+8. **Fixed (harness).** `system_books_bdd` "A failed log of the group stops the process" made `meta/` read-only while the
+   group ran; a superblock write past its create when the mode changed failed at `rename`. The step now leaves the
+   directory writable and makes a directory at `superblock.a.tmp` and `superblock.b.tmp`, waiting (at most
+   `START_SECONDS`) while a write's temporary file stands there. The next superblock write fails at its create
+   (`storage create failed (is a directory)`), and only the superblock write fails, as root too. The exit-74 and
+   stop-path assertions are unchanged. 20 of 20 uncached under 12 `yes` processes on 16 CPUs (3.4–7.3 s).
 
 ## Bite evidence (temporary edits, reverted)
 

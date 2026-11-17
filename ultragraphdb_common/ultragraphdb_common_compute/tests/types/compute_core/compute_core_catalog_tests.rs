@@ -132,7 +132,8 @@ fn test_a_group_that_does_not_answer_refuses_with_code_17() -> TestResult {
 const FRAMES_MAX: usize = 65;
 
 /// A version answered in the most frames compute takes, one byte to a frame, is read whole; one frame more is refused with
-/// Error 1 naming the catalog, past which compute reads no further frame.
+/// code 17 naming the catalog, past which compute reads no further frame: the connection compute dialled closes on a frame
+/// it refused (`PROTOCOL.md` §11.12, *Errors*).
 #[test]
 fn test_a_version_in_the_most_frames_is_read_and_one_more_refused() -> TestResult {
     run(async {
@@ -144,8 +145,28 @@ fn test_a_version_in_the_most_frames_is_read_and_one_more_refused() -> TestResul
         assert_eq!(read_back(&most)?, (TENANT, 1, 2, pattern(FRAMES_MAX)));
         group.answer_in(FRAMES_MAX + 1);
         let past = core.catalog(TENANT, 2).await.err().context("a refusal")?;
-        assert_eq!(past.code(), ErrorCode::Protocol);
+        assert_eq!(past.code(), ErrorCode::Unavailable);
         assert!(past.message().contains("catalog"), "{}", past.message());
+        Ok(())
+    })
+}
+
+/// A frame breaking the first's command header, a version's second frame naming another version, is refused with code 17
+/// naming the catalog, as is every frame compute refuses on the connection it dialled (`PROTOCOL.md` §11.12, *Errors*;
+/// §13.7); the same version answered whole is read.
+#[test]
+fn test_a_frame_breaking_the_first_ones_header_is_refused_with_code_17() -> TestResult {
+    run(async {
+        let (group, core) = group_and_core(quiet_times()).await?;
+        group.hold_version(TENANT, 1, 2, pattern(3));
+        group.answer_in(3);
+        group.answer_torn(true);
+        let torn = core.catalog(TENANT, 1).await.err().context("a refusal")?;
+        assert_eq!(torn.code(), ErrorCode::Unavailable);
+        assert!(torn.message().contains("catalog"), "{}", torn.message());
+        group.answer_torn(false);
+        let whole = core.catalog(TENANT, 1).await.map_err(refused)?;
+        assert_eq!(read_back(&whole)?, (TENANT, 1, 2, pattern(3)));
         Ok(())
     })
 }

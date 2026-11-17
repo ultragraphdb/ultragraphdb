@@ -8,7 +8,6 @@
 //! where each runtime of a pinned role runs. Bound to `features/system/books.feature` and
 //! `features/system/pinned.feature`.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -513,24 +512,43 @@ fn metadata_write_fails(w: &mut Steps) -> TestResult {
     let log = scratch("storage-failed-log.log");
     let pid = started(&util, &settings, &log, FIRST_OBSERVED)?;
     let meta = Path::new(&system).join("meta");
-    // The log's directory made read-only, as a file system remounted so: its next superblock cannot be created.
-    std::fs::set_permissions(&meta, std::fs::Permissions::from_mode(0o555))?;
+    // The log writes a superblock copy through a temporary file beside it, created and then renamed over the copy: a
+    // directory standing at both copies' temporary paths makes the log's next superblock write fail at its create, the
+    // first of its operations, while every other operation of the log goes on.
+    occupied(&meta.join("superblock.a.tmp"))?;
+    occupied(&meta.join("superblock.b.tmp"))?;
     // A lease is a round of the metadata group, so a snapshot falls due at the next close.
-    // The group may stop before it answers, at a snapshot that fell due as the directory turned read-only: the failure
-    // the scenario asks for, so the lease's own outcome tells nothing.
+    // The group may stop before it answers, at a snapshot that fell due as the paths were taken: the failure the scenario
+    // asks for, so the lease's own outcome tells nothing.
     let asked = Runtime::new()?.block_on(async {
         let mut storage = group_as("storage").await?;
         drop(leased(&mut storage).await);
         TestResult::Ok(())
     });
     let exited = util.wait_for_exit(pid, Duration::from_secs(START_SECONDS));
-    // Given back before anything is judged, so the test's directory can be removed.
-    std::fs::set_permissions(&meta, std::fs::Permissions::from_mode(0o755))?;
     asked?;
     w.exited = Some(exited?);
     w.logs = vec![std::fs::read_to_string(&log)?];
     w.roles = Some(util);
     Ok(())
+}
+
+/// A directory made at `path`, waiting while a file stands there: a superblock write past its create, whose rename takes
+/// the file away, so no write is left between its create and its rename once the directory stands (Ultra rule 2: at most
+/// `START_SECONDS`).
+fn occupied(path: &Path) -> TestResult {
+    for _ in 0..START_SECONDS * 1_000 {
+        match std::fs::create_dir(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            made => return Ok(made?),
+        }
+    }
+    Err(TestError::new(format!(
+        "{} was never free of the log's write",
+        path.display()
+    )))
 }
 
 #[then("the hosting process shuts down through its ordinary path and exits with code 74")]

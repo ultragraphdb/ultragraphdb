@@ -28,7 +28,9 @@ impl ComputeCore {
     /// # Errors
     ///
     /// The group's Error, its code, message and detail, as code 7 for a version the tenant never held; code 17 for a group
-    /// that cannot be reached or answers past the answer bound; Error 1 for frames breaking `PROTOCOL.md` §13.7's rules.
+    /// that cannot be reached or answers past the answer bound, and for a frame compute refuses, one breaking `PROTOCOL.md`
+    /// §13.7's rules among them: the connection compute dialled closes under the read, which the side that dialled answers
+    /// with code 17 (§11.12, *Errors*).
     pub async fn catalog(&self, tenant: u64, version: u64) -> Result<CatalogFrames, ErrorReply> {
         let read = async {
             let mut client = self
@@ -55,6 +57,8 @@ async fn read_catalog(
     request: &Catalog,
 ) -> Result<CatalogFrames, ErrorReply> {
     let lost = |error: &dyn std::fmt::Display| unavailable(format!("the catalog: {error}"));
+    let refused =
+        |rule: &ProtocolError| unavailable(format!("a frame of the catalog was refused: {rule}"));
     client
         .send_only(request)
         .await
@@ -64,16 +68,13 @@ async fn read_catalog(
     let mut frames = CatalogFrames::new();
     for _ in 0..CATALOG_FRAMES_MAX {
         let received = client.next_frame().await.map_err(|error| lost(&error))?;
-        let view = received
-            .view()
-            .map_err(|rule| ErrorReply::protocol(&rule))?;
+        let view = received.view().map_err(|rule| refused(&rule))?;
         if view.command() == Command::Error {
-            let error =
-                ErrorReplyView::from_frame(&view).map_err(|rule| ErrorReply::protocol(&rule))?;
+            let error = ErrorReplyView::from_frame(&view).map_err(|rule| refused(&rule))?;
             return Err(ErrorReply::new(error.code(), error.message()).with_detail(error.detail()));
         }
         if view.header().stream() != stream {
-            return Err(ErrorReply::protocol(&ProtocolError::field_value(
+            return Err(refused(&ProtocolError::field_value(
                 Command::Catalog.number(),
                 "stream",
                 view.header().stream(),
@@ -81,10 +82,8 @@ async fn read_catalog(
         }
         credit = credit
             .checked_sub(1)
-            .ok_or_else(|| ErrorReply::protocol(&ProtocolError::past_credit(stream)))?;
-        frames
-            .push(&view)
-            .map_err(|rule| ErrorReply::protocol(&rule))?;
+            .ok_or_else(|| refused(&ProtocolError::past_credit(stream)))?;
+        frames.push(&view).map_err(|rule| refused(&rule))?;
         if frames.is_last() {
             return Ok(frames);
         }
@@ -96,7 +95,7 @@ async fn read_catalog(
             credit = 1;
         }
     }
-    Err(ErrorReply::protocol(&ProtocolError::field_value(
+    Err(refused(&ProtocolError::field_value(
         Command::Catalog.number(),
         "catalog",
         CATALOG_FRAMES_MAX as u64, // lossless: a `usize` is at most 64 bits
