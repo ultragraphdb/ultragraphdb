@@ -722,8 +722,8 @@ fn role_tail(role: &str, image: Image) -> Vec<String> {
     .collect()
 }
 
-/// The config service and the three role images in four containers of a network of their own, over `tcp://` alone, each
-/// role ready, the frontend last.
+/// The config service and the three role images in four containers of a network of their own, over `tcp://` alone, started
+/// in the start order of design D10: the config service, storage, compute, the frontend, each ready before the next starts.
 pub(crate) fn start_three_hosts(c: &mut Containers) -> TestResult {
     for image in [CONFIG_IMAGE, FRONTEND_IMAGE, STORAGE_IMAGE, COMPUTE_IMAGE] {
         load(image)?;
@@ -739,33 +739,38 @@ pub(crate) fn start_three_hosts(c: &mut Containers) -> TestResult {
     ];
     let config = start_on_network(c, ("config", "65534"), &["8090"], &config_tail)?;
     until_answering(&published(&config, "8090")?, "/ready")?;
-    let frontend = start_on_network(
-        c,
-        ("frontend", NONROOT),
-        &[ENDPOINT_PORT, "8081"],
-        &role_tail("frontend", FRONTEND_IMAGE),
-    )?;
     let storage = start_on_network(
         c,
         ("storage", NONROOT),
         &["8083"],
         &role_tail("storage", STORAGE_IMAGE),
     )?;
+    until_ready(&storage, "8083")?;
     let compute = start_on_network(
         c,
         ("compute", NONROOT),
         &["8082"],
         &role_tail("compute", COMPUTE_IMAGE),
     )?;
-    for (container, port) in [(&storage, "8083"), (&compute, "8082"), (&frontend, "8081")] {
-        let at = published(container, port)?;
-        until_answering(&at, "/ready").map_err(|error| {
-            TestError::new(format!("{error}: {}", logs(container).unwrap_or_default()))
-        })?;
-    }
+    until_ready(&compute, "8082")?;
+    let frontend = start_on_network(
+        c,
+        ("frontend", NONROOT),
+        &[ENDPOINT_PORT, "8081"],
+        &role_tail("frontend", FRONTEND_IMAGE),
+    )?;
+    until_ready(&frontend, "8081")?;
     assert_eq!(http_status(&published(&frontend, "8081")?, "/ready")?, 200);
     c.endpoint = published(&frontend, ENDPOINT_PORT)?;
     Ok(())
+}
+
+/// Waits for `container`'s `/ready` at its published `port`, its log in the error when it does not come.
+fn until_ready(container: &str, port: &str) -> TestResult {
+    let at = published(container, port)?;
+    until_answering(&at, "/ready").map_err(|error| {
+        TestError::new(format!("{error}: {}", logs(container).unwrap_or_default()))
+    })
 }
 
 /// The supervisor stood at PID 1 and named itself to everything it started, which each role reads as its parent: past the time a

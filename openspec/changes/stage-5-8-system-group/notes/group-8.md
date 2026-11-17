@@ -411,3 +411,33 @@ No binary hung at its end. With it, tasks 4.2, 5.1, 7.6, 8.1 and 8.2 are complet
 work moved to `openspec/notes/backlog.md` (items 21 and 22); "A partition without closes commits until its epoch is full"
 is bound at the partition; "A partition's sync holds up no close" is bound in-process in `common_system` beside the
 process-level binding in `storage_tests`.
+
+## 8.4 The development image booted once per architecture
+
+Machine: this Mac (Apple M3 Max), Docker 29.8.2 in OrbStack 2.2.5 (`linux/arm64` daemon, kernel 7.2.12-orbstack, amd64 by
+Rosetta), the runtime `image_bdd` uses. Build: `bazel build -c opt //ultragraphdb/ultragraphdb_supervisor:development_multiarch`
+at `7316c828`, index `sha256:fcf7b9ef…` (amd64 `sha256:6eafd3cd…`, arm64 `sha256:87ac04d4…`). Each platform loaded with
+`development_test_load -- --platform linux/<arch>` under a repository of the run's own, and started with `docker run
+--platform linux/<arch>` on its default `dev` profile under the shipped seccomp profile, the client endpoint published. The
+image holds no shell, so `/data` was listed through `docker cp <container>:/data - | tar -tv`.
+
+| | arm64 (native) | amd64 (Rosetta) |
+|---|---|---|
+| Order in the supervisor's log | config `/ready`, storage started, storage `/ready`, compute started, compute `/ready`, frontend started, frontend `/ready`, every role is ready | the same |
+| Container start to "every role is ready" | 532 ms | 1,134 ms |
+| Supervisor's first line to it | 457 ms | 1,052 ms |
+| Started to `/ready`: config, storage, compute, frontend | 21, 192, 20, 213 ms | 81, 598, 87, 264 ms |
+| Driver of every runtime (11) | io_uring | polling |
+| SIGTERM (`docker stop`) | frontend, compute, storage, config stopped, each 0; exit 0 | the same |
+
+`/data` (65532, mode 0700) held exactly `config/`, `storage/` and `system/` on both: `system/meta/` and `system/seq/`, each a
+segment and its superblock, and `storage/p1/r1/` with `store/` and `wal/`; no directory of the frontend's (design D11). The
+storage process logged the system group listening at `unix:///run/ultragraph/system.sock` before its partition recovered.
+
+Under the shipped profile, which lets the arm64 image start on io_uring, every amd64 runtime started on the polling driver:
+the refusal is the emulation's, as stage 5.5 task 12.6 found, and the fallback served readiness with no warning or error.
+The errno is not logged. The amd64 image on io_uring stays for physical Linux.
+
+`start_three_hosts` (`supervisor_tests/tests/images.rs`, the role images of "The same frames cross TCP") started the
+frontend's container before storage's (group 7, task 7.5, found wanting 3). It now starts storage, compute and the frontend
+in D10's order, each ready before the next; `image_bdd` passes, 17.3 s uncached.
