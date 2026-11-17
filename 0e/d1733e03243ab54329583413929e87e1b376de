@@ -1,0 +1,45 @@
+ultragraphdb_common/ultragraphdb_common_role/tests/utils/serve_tests.rs
+  s_21eff977e05256::t_678b7127e9f8d8 484-579,581,588,592-593,598-600,603,605,612-614,617,621,1094,1101,1106-1107,1119,1121,1123-1124,1129,1131,1133-1134
+  s_21eff977e05256::t_dd4c6c14b3b3b6 19-20,22,30-33,55,580,582-587,589-591,594-597,601-602,604,606-611,615-616,618-620,622,1095-1100,1102-1105,1108-1118,1120,1122,1125-1128,1130,1132,1135-1136
+ultragraphdb_common/ultragraphdb_common_storage/tests/types/partition_core/partition_core_frames_tests.rs
+  s_21eff977e05256::t_9d4190c31426ad 387-389,391,394,396-402
+  s_21eff977e05256::t_03ae2e53818601 12-13,403-404,425,430-480
+ultragraphdb_common/ultragraphdb_common_role/src/types/role_client/mod.rs
+  s_21eff977e05256::t_d5fe566c1d9246 98-99,103-106,117-147,149-152,155
+  s_21eff977e05256::t_777266e9459878 8,27-33,148,154
+ultragraphdb_common/ultragraphdb_common_role/src/utils/serve.rs
+  s_21eff977e05256::t_e94f02797af7a8 441-442
+  s_21eff977e05256::t_606da9aca9140a 297-298
+  s_21eff977e05256::t_1f47c804e08398 467-468,475,478,481
+  s_21eff977e05256::t_795d0dcc3ab2d3 361-365
+  s_21eff977e05256::t_16aebc3112fa37 459-461
+  s_21eff977e05256::t_cba4d41b4dcc33 420-423
+ultragraphdb_common/ultragraphdb_common_role/src/traits/session.rs
+  s_21eff977e05256::t_4f4ad1359a9875 41-44
+ultragraphdb_common/ultragraphdb_common_role/tests/types/role_client_tests.rs
+  s_21eff977e05256::t_ef02b408bea5d8 7-8,10-12,14-26,67-238
+ultragraphdb_common/ultragraphdb_common_storage/src/types/partition_core/mod.rs
+  s_21eff977e05256::t_ba0d0b672a2078 275-277,439
+ultragraphdb_common/ultragraphdb_common_storage/src/types/partition_core/partition_core_frames.rs
+  s_21eff977e05256::t_905754ea8ad62c 11,42-43,46,66,87-88,91,117-124,131-132,301-302,306
+ultragraphdb_common/ultragraphdb_common_storage/tests/types/partition_core/played_answers.rs
+  s_21eff977e05256::t_e2e979438c9fab 19,85-95,197-210,250-251,256
+ultragraphdb_common/ultragraphdb_common_storage/tests/types/partition_core/played_cores.rs
+  s_21eff977e05256::t_b6a1d89d853b97 32,101-105,111-115,154-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0ed1733e03243ab54329583413929e87e1b376de",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
