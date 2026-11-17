@@ -1,0 +1,21 @@
+Cargo.lock
+  s_21eff977e05256::t_ceab18f7cb4bb5 325,327,348,350,360,362,1152,1154,1163,1165,1181,1183,4381,4383
+MODULE.bazel.lock
+  s_21eff977e05256::t_d8e0854366c2a2 1057,1062,1064,1171-1173,1504
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "af7169482859c1f2d57f47fd4fb2fdd2cd60b130",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
