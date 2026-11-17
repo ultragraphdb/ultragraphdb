@@ -306,6 +306,19 @@ impl Stage {
         self.compute_with(answer_empty).await
     }
 
+    /// Two compute processes taking each read and answering none, joined, in the order the frontend's turn tries them: Members
+    /// lists compute processes by address (`PROTOCOL.md` §13.2), and an ephemeral port past the top of its range wraps to the
+    /// bottom, so the process joined second may be listed first.
+    pub(crate) async fn computes_in_turn(&self) -> TestResult<(RoleDouble, RoleDouble)> {
+        let one = self.compute_with(|_| Answer::Open).await?;
+        let two = self.compute_with(|_| Answer::Open).await?;
+        Ok(if two.address() < one.address() {
+            (two, one)
+        } else {
+            (one, two)
+        })
+    }
+
     /// An IRI of the tenant 0 that the stage's map places in `partition`.
     pub(crate) fn on(&self, partition: u32) -> TestResult<String> {
         self.on_tagged(partition, "")

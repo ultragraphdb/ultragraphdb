@@ -684,13 +684,17 @@ fn a_closed_compute_process_is_skipped(w: &mut Steps) -> TestResult {
     let options = Options::default();
     run(w, options, |stage| async move {
         let _whole = &stage;
-        let closing = stage.compute_with(|_| Answer::Open).await?;
-        let other = stage.compute().await?;
+        let (closing, other) = stage.computes_in_turn().await?;
         let mut client = stage.ann().await?;
         let transaction = client.begin_read_only(ReadLevel::Snapshot).await?;
         let read = client.read(transaction, OBJECT).await?;
         until("the read", || closing.count(Command::ComputeRead) == 1).await?;
         closing.close();
+        until("the read sent again", || {
+            other.count(Command::ComputeRead) == 1
+        })
+        .await?;
+        answer_frame(&other, 0, &empty_batch(4, 1), true)?;
         assert_eq!(client.got(read).await?.command, Command::Result, "its rows");
         assert_eq!(other.count(Command::ComputeRead), 1);
         Ok(())
@@ -726,8 +730,7 @@ fn a_read_is_never_resent_after_a_frame(w: &mut Steps) -> TestResult {
     let options = Options::default();
     run(w, options, |stage| async move {
         let _whole = &stage;
-        let closing = stage.compute_with(|_| Answer::Open).await?;
-        let other = stage.compute().await?;
+        let (closing, other) = stage.computes_in_turn().await?;
         let mut client = stage.ann().await?;
         let transaction = client.begin_read_only(ReadLevel::Snapshot).await?;
         let read = client.read(transaction, OBJECT).await?;
@@ -821,8 +824,7 @@ fn a_hung_compute_process_answers_code_17(w: &mut Steps) -> TestResult {
     };
     run(w, options, |stage| async move {
         let _whole = &stage;
-        let hung = stage.compute_with(|_| Answer::Open).await?;
-        let other = stage.compute().await?;
+        let (hung, other) = stage.computes_in_turn().await?;
         let mut client = stage.ann().await?;
         let begin = Begin::new(0, 0, true).with_deadline_ms(50);
         let transaction = client.send(&begin).await?;
