@@ -1,0 +1,29 @@
+specification/binary_protocol/PROTOCOL.md
+  s_dbb544771cb1e2::t_a731c2ea0f47b5 1712
+"openspec/designs/UltraGraphDB Temporal Tile Store on Object Storage.md"
+  s_dbb544771cb1e2::t_a731c2ea0f47b5 144,162
+"openspec/designs/UltraGraphDB Distribution Architecture.md"
+  s_dbb544771cb1e2::t_a731c2ea0f47b5 455,874
+  s_dbb544771cb1e2::t_555c158dcc8cb1 452
+openspec/changes/stage-6-5-tile-store/specs/tile-grid/spec.md
+  s_dbb544771cb1e2::t_a731c2ea0f47b5 21-23
+specification/storage/STORAGE.md
+  s_dbb544771cb1e2::t_a731c2ea0f47b5 152,759-763,922-925,932-947,1234-1236,1429-1430,1680
+  s_dbb544771cb1e2::t_555c158dcc8cb1 889
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ab34e98970ba51250220cfedcdf972e6af12aed8",
+  "prompts": {},
+  "sessions": {
+    "s_dbb544771cb1e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e471a51-799d-4147-84ac-86dfaaa66de3",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
