@@ -131,9 +131,12 @@ SHALL also serve `/ready`, answering once its dependencies are reachable: storag
 their logs and joined, and in the hosting instance once the system group has recovered and listens before them
 (system-group, "The hosting process starts the group first and stops it last"); compute once the system group and a
 storage process answer; the frontend once the system group answers it, its view holds a placement and a close, Members
-lists every partition of the placement and a storage partition answers. On SIGTERM the frontend SHALL stop accepting
-connections and finish its open requests, compute SHALL drain, and storage SHALL apply and sync what its partitions'
-logs hold, then stop the system group it hosts, before it exits.
+lists every partition of the placement and a storage partition answers. The frontend's `/ready` SHALL answer 503 from the
+moment its connection to the system group closes until the group answers it again, its view holds a close, Members lists
+every partition of the placement and a storage partition answers, and 200 again from then (system-group, "A lost system
+group is waited for until the deadline"); its `/health` is unaffected, and compute's and storage's `/ready` stay as stated
+above. On SIGTERM the frontend SHALL stop accepting connections and finish its open requests, compute SHALL drain, and
+storage SHALL apply and sync what its partitions' logs hold, then stop the system group it hosts, before it exits.
 
 #### Scenario: Storage is not ready before recovery
 - **WHEN** a storage process restarts with 10,000 rounds to replay
@@ -142,6 +145,12 @@ logs hold, then stop the system group it hosts, before it exits.
 #### Scenario: The frontend is ready only once the books answer
 - **WHEN** the frontend starts while the hosting storage process still recovers
 - **THEN** the frontend's `/health` answers, and its `/ready` answers only after storage's
+
+#### Scenario: The frontend is unready while its system group is unreachable
+- **WHEN** the frontend is ready, and the hosting storage process is killed and started again within `join_deadline_ms`
+- **THEN** the frontend's `/ready` answers 503 once its connection to the system group has closed while its `/health`
+  answers 200, and its `/ready` answers 200 again once the group answers it, Members lists every partition and one
+  answers
 
 #### Scenario: Storage flushes on shutdown
 - **WHEN** storage receives SIGTERM after acknowledging commits

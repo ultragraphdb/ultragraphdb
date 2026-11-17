@@ -36,6 +36,8 @@ struct Routes {
     next: u64,
     open: HashMap<u64, RouteSink>,
     closed: bool,
+    /// Whether the peer answered the dial: its Welcome and its proof of the secret came.
+    answered: bool,
     /// Each frame is counted in its client connection's bytes on their way, whose bound stops that connection's reads, so
     /// the connections' bounds limit its length.
     outgoing: VecDeque<Outgoing>,
@@ -113,6 +115,13 @@ impl RoleLink {
     #[must_use]
     pub fn is_closed(&self) -> bool {
         self.routes.borrow().closed
+    }
+
+    /// Whether the peer answers: it answered the dial, and the connection has not closed since.
+    #[must_use]
+    pub fn answers(&self) -> bool {
+        let routes = self.routes.borrow();
+        routes.answered && !routes.closed
     }
 
     /// A header of `command` on `stream` of this connection.

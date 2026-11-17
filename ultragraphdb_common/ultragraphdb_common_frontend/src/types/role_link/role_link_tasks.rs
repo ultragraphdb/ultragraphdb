@@ -57,6 +57,7 @@ pub(super) fn spawn_over(link: RoleLink, client: RoleClient) {
 async fn run(link: RoleLink, client: RoleClient) {
     let (reader, writer, welcome) = client.split();
     link.max_frame.set(welcome.max_frame());
+    link.routes.borrow_mut().answered = true;
     spawn(write(link.clone(), writer)).detach();
     read(link, reader).await;
 }

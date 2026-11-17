@@ -328,6 +328,9 @@ fn closed(link: &SystemLink) {
         let mut state = link.state.borrow_mut();
         state.open = false;
         state.lost_since = Some(now());
+        // The frontend is unready from the connection's loss until the group answers again (role-binaries, "Readiness,
+        // health and shutdown").
+        state.readiness.set(false);
         state.subscription = None;
         state.outgoing.clear();
         state.checks_out.clear();

@@ -76,6 +76,8 @@ struct LinkState {
     round_trips: CheckRoundTrips,
     /// The core's links, which Members is read into.
     links: RoleLinks,
+    /// The role's readiness, withdrawn when the connection closes and set again by the Members task (design D10).
+    readiness: Readiness,
 }
 
 impl LinkState {
@@ -119,7 +121,8 @@ pub struct SystemLink {
 impl SystemLink {
     /// The link to the system group at `address`, dialled on a task of this core as the frontend of `cluster` within
     /// `dial_ms` milliseconds, reading Members into `links` (design D9) and setting `readiness` once the view holds a close
-    /// and a placement and Members lists every partition of it.
+    /// and a placement, Members lists every partition of it and a partition answers (design D10); readiness is withdrawn
+    /// while its connection is closed, and set again once all of that holds again.
     #[must_use]
     pub fn dial(
         address: Address,
@@ -155,6 +158,7 @@ impl SystemLink {
             stopped: false,
             round_trips: round_trips.clone(),
             links: links.clone(),
+            readiness: readiness.clone(),
         };
         let link = Self {
             state: Rc::new(RefCell::new(state)),

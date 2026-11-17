@@ -5,9 +5,13 @@
 
 //! What the view reads with Placement and Catalog, and the roles read with Members (design D6, D9).
 
+use std::future::poll_fn;
+use std::pin::pin;
+use std::task::Poll;
 use std::time::Duration;
 
 use compio::runtime::spawn;
+use futures::future::{Either, select};
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_service::Readiness;
 use ultragraphdb_core_ids::Epoch;
@@ -207,34 +211,89 @@ fn map_of(placed: &PlacementView<'_>) -> Result<PlacementMap, ErrorReply> {
     }
 }
 
-/// Reads Members at the start until it lists every partition of the placement or the cluster's deadline passes, then each
-/// time the links find a role connection closed (design D9); `readiness` is set once every partition is listed and the view
-/// answers. Spawned detached for the core's lifetime: a future dropped at the runtime's end reads nothing more.
+/// Reads Members at the start until it lists every partition of the placement and one of them answers, or the cluster's
+/// deadline passes, then each time the links find a role connection closed (design D9); `readiness` is set once every
+/// partition is listed, the view answers and a partition answers (design D10). Once set, readiness is withdrawn when the
+/// connection to the system group closes, and this task sets it again once all of that holds again (role-binaries,
+/// "Readiness, health and shutdown"). Spawned detached for the core's lifetime: a future dropped at the runtime's end reads
+/// nothing more.
 pub(super) fn spawn_members(link: SystemLink, links: RoleLinks, readiness: Readiness) {
     spawn(async move {
-        let started = now();
-        // Until every partition is listed, or the deadline (Ultra rule 2).
-        loop {
-            let listed = link.members().await.is_ok() && link.view().answers() && every_partition(&links);
-            if listed {
-                readiness.set(true);
-                break;
-            }
-            if now().saturating_duration_since(started) >= links.deadline() {
-                tracing::warn!("Members did not list every partition of the placement by the cluster's deadline");
-                break;
-            }
-            compio::time::sleep(MEMBERS_RETRY).await;
+        let ready = until_ready(&link, &links, &readiness, Some(links.deadline())).await;
+        if !ready {
+            tracing::warn!("Members did not list every partition of the placement, or no partition answered, by the cluster's deadline");
         }
-        // An event loop: it reads Members each time the links find a role connection closed, for the core's lifetime.
+        // An event loop, for the core's lifetime: Members read again each time the links find a role connection closed,
+        // and readiness, once withdrawn, set again (Ultra rule 2).
         loop {
-            links.closed_found().await;
-            if let Err(refusal) = link.members().await {
-                tracing::debug!(reason = refusal.message(), "Members could not be read again");
+            let found = pin!(links.closed_found());
+            let withdrawn = pin!(withdrawn(&link, ready));
+            match select(found, withdrawn).await {
+                Either::Left(_) => {
+                    if let Err(refusal) = link.members().await {
+                        tracing::debug!(reason = refusal.message(), "Members could not be read again");
+                    }
+                }
+                Either::Right(_) => {
+                    let _ready = until_ready(&link, &links, &readiness, None).await;
+                }
             }
         }
     })
     .detach();
+}
+
+/// Reads Members every [`MEMBERS_RETRY`] until the connection to the group is open, the group answers it, the view answers,
+/// Members lists every partition of the placement and one of them answers, then sets `readiness`: whether it did, `false`
+/// once `limit` has passed first.
+async fn until_ready(
+    link: &SystemLink,
+    links: &RoleLinks,
+    readiness: &Readiness,
+    limit: Option<Duration>,
+) -> bool {
+    let started = now();
+    // Until all of it holds, or the limit (Ultra rule 2).
+    loop {
+        let holds = link.members().await.is_ok()
+            && link.is_up()
+            && link.view().answers()
+            && every_partition(links)
+            && a_partition_answers(links);
+        if holds {
+            readiness.set(true);
+            return true;
+        }
+        if limit.is_some_and(|limit| now().saturating_duration_since(started) >= limit) {
+            return false;
+        }
+        compio::time::sleep(MEMBERS_RETRY).await;
+    }
+}
+
+/// Waits until the role's readiness, once set, has been withdrawn by the connection's close; never for a role that was not
+/// ready by its deadline (`was_ready` false), which stays unready as before. A dropped future leaves its waker, which the
+/// next change wakes for nothing.
+async fn withdrawn(link: &SystemLink, was_ready: bool) {
+    poll_fn(|cx| {
+        let mut state = link.state.borrow_mut();
+        if was_ready && !state.readiness.is_ready() {
+            return Poll::Ready(());
+        }
+        state.watchers.push(cx.waker().clone());
+        Poll::Pending
+    })
+    .await;
+}
+
+/// Whether a partition Members listed answers, each dialled when its link is not open: the dial is the question, as
+/// compute's is (`PROTOCOL.md` §11.4, §11.12).
+fn a_partition_answers(links: &RoleLinks) -> bool {
+    links.partitions().into_iter().any(|partition| {
+        links
+            .partition(partition)
+            .is_some_and(|link| link.answers())
+    })
 }
 
 /// Whether Members listed every partition of the links' placement.

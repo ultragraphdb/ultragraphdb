@@ -555,3 +555,54 @@ fn outage_bans_nothing(w: &mut Steps) -> TestResult {
     w.processes = Roles::default();
     Ok(())
 }
+
+#[when(
+    "the frontend is ready, and the hosting storage process is killed and started again within `join_deadline_ms`"
+)]
+fn group_lost_and_back(w: &mut Steps) -> TestResult {
+    let mut roles = Roles::default();
+    roles.start_host(host_of(1)?, true)?;
+    roles.start_frontend(frontend_holding()?, true)?;
+    let ready_before = http_status(FRONTEND_OBSERVABILITY, "/ready")?;
+    let (host, settings) = roles.host.take().context("the host")?;
+    let _killed = roles.kill(host)?;
+    // The frontend's `/ready` once its link has found the connection closed, and its `/health` then; the default deadline,
+    // 60 s, leaves the frontend running throughout.
+    let mut withdrawn = None;
+    for _ in 0..START_SECONDS * 100 {
+        let ready = http_status(FRONTEND_OBSERVABILITY, "/ready")?;
+        if ready != 200 {
+            withdrawn = Some((ready, http_status(FRONTEND_OBSERVABILITY, "/health")?));
+            break;
+        }
+        std::thread::sleep(LOOK);
+    }
+    let (unready, healthy) = withdrawn.context("the frontend's /ready withdrawn")?;
+    roles.start_host(settings, true)?;
+    until_answering(FRONTEND_OBSERVABILITY, "/ready")?;
+    let ready_after = http_status(FRONTEND_OBSERVABILITY, "/ready")?;
+    w.seen = vec![
+        ready_before.to_string(),
+        unready.to_string(),
+        healthy.to_string(),
+        ready_after.to_string(),
+        roles.last_log("frontend")?,
+    ];
+    w.processes = roles;
+    Ok(())
+}
+
+#[then(
+    "the frontend's `/ready` answers 503 once its connection to the system group has closed while its `/health` answers 200, and its `/ready` answers 200 again once the group answers it, Members lists every partition and one answers"
+)]
+fn unready_while_lost(w: &mut Steps) -> TestResult {
+    let [before, unready, healthy, after, log] = w.seen.as_slice() else {
+        return Err(TestError::new(format!("{:?}", w.seen)));
+    };
+    assert_eq!(before, "200", "ready before the loss: {log}");
+    assert_eq!(unready, "503", "{log}");
+    assert_eq!(healthy, "200", "{log}");
+    assert_eq!(after, "200", "{log}");
+    w.processes = Roles::default();
+    Ok(())
+}

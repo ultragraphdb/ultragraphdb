@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use compio::runtime::Runtime;
 use ultragraphdb_common_frontend::{RoleDouble, RoleLinks, SystemLink, SystemPlay};
-use ultragraphdb_common_role::{RoleCluster, RoleSecret};
+use ultragraphdb_common_role::{Answer, RoleCluster, RoleSecret};
 use ultragraphdb_common_service::Readiness;
 use ultragraphdb_core_catalog::{CatalogContents, describe_of};
 use ultragraphdb_protocol_scram::ScramVerifier;
@@ -68,6 +68,11 @@ struct Played {
 }
 
 async fn played(name: &str, play: SystemPlay) -> TestResult<Played> {
+    played_with(name, play, Readiness::default()).await
+}
+
+/// As [`played`], the link setting `readiness`.
+async fn played_with(name: &str, play: SystemPlay, readiness: Readiness) -> TestResult<Played> {
     let cluster = cluster(name)?;
     let script = play.clone();
     let double = RoleDouble::start(&cluster, Endpoint::Frontend, move |frame| {
@@ -76,7 +81,7 @@ async fn played(name: &str, play: SystemPlay) -> TestResult<Played> {
     .await?;
     let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
     let address = Address::parse(double.address())?;
-    let link = SystemLink::dial(address, cluster, links.clone(), 5_000, Readiness::default());
+    let link = SystemLink::dial(address, cluster, links.clone(), 5_000, readiness);
     link.answering(now().await + WAIT).await.replied()?;
     Ok(Played {
         play,
@@ -419,6 +424,103 @@ fn test_members_are_read_into_the_links() -> TestResult {
         assert_eq!(at.links.compute_count(), 1);
         assert!(at.links.partition(1).is_some());
         assert!(at.links.partition(2).is_some());
+        Ok(())
+    })
+}
+
+/// Design D10, role-binaries "Readiness, health and shutdown": the frontend is ready once the group answers it, its view
+/// holds a placement and a close, Members lists every partition of the placement and a storage partition answers. Every
+/// partition listed where nothing listens leaves it unready.
+#[test]
+fn test_readiness_waits_for_a_partition_to_answer() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let readiness = Readiness::default();
+        let play = SystemPlay::new(CLUSTER, 2);
+        // Port 1 refuses every connection: both partitions are listed, and neither answers.
+        play.storage(1, "tcp://127.0.0.1:1");
+        play.storage(2, "tcp://127.0.0.1:1");
+        let at = played_with("unready", play, readiness.clone()).await?;
+        until("every partition listed", || {
+            at.links.lists(1) && at.links.lists(2)
+        })
+        .await?;
+        // Members is read again every 100 ms until the frontend is ready: five of those rounds pass unready.
+        compio::time::sleep(Duration::from_millis(500)).await;
+        assert!(!readiness.is_ready(), "no partition answers");
+        Ok(())
+    })
+}
+
+/// As above: every partition listed and one of them answering makes the frontend ready, the other listed where nothing
+/// listens.
+#[test]
+fn test_readiness_comes_once_a_partition_answers() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let partition =
+            RoleDouble::start(&cluster("ready-partition")?, Endpoint::Partition, |_| {
+                Answer::Open
+            })
+            .await?;
+        let readiness = Readiness::default();
+        let play = SystemPlay::new(CLUSTER, 2);
+        play.storage(1, "tcp://127.0.0.1:1");
+        play.storage(2, partition.address());
+        let _at = played_with("ready", play, readiness.clone()).await?;
+        until("readiness", || readiness.is_ready()).await?;
+        Ok(())
+    })
+}
+
+/// A ready frontend over a played group of one partition, which a double answers for: the group, its link, and readiness.
+async fn ready(name: &str) -> TestResult<(Played, RoleDouble, Readiness)> {
+    let partition = RoleDouble::start(
+        &cluster(&format!("{name}-partition"))?,
+        Endpoint::Partition,
+        |_| Answer::Open,
+    )
+    .await?;
+    let readiness = Readiness::default();
+    let play = SystemPlay::new(CLUSTER, 1);
+    play.close(40, 0, &[]);
+    play.storage(1, partition.address());
+    let at = played_with(name, play, readiness.clone()).await?;
+    until("readiness", || readiness.is_ready()).await?;
+    Ok((at, partition, readiness))
+}
+
+/// Role-binaries "Readiness, health and shutdown": the frontend's `/ready` is withdrawn from the moment its connection to
+/// the system group closes, and set again once the group answers it, its view holds a close, Members lists every partition
+/// and one answers.
+#[test]
+fn test_readiness_is_withdrawn_while_the_link_is_down_and_set_again_after() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let (at, _partition, readiness) = ready("withdrawn").await?;
+        at.double.drop_connections();
+        // The link dials again 100 ms after its close at the earliest: readiness is withdrawn well before.
+        until("readiness withdrawn", || !readiness.is_ready()).await?;
+        link_up_again(&at).await?;
+        until("readiness again", || readiness.is_ready()).await?;
+        assert!(at.link.is_up());
+        Ok(())
+    })
+}
+
+/// As above: a connection open again is not enough; while the group sends no close on it, the view does not answer and the
+/// frontend stays unready.
+#[test]
+fn test_readiness_waits_for_the_view_after_the_link_returns() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let (at, _partition, readiness) = ready("view-again").await?;
+        at.play.silence(Command::Subscribe);
+        at.double.drop_connections();
+        until("a second Subscribe", || {
+            at.double.count(Command::Subscribe) == 2
+        })
+        .await?;
+        assert!(at.link.is_up(), "the connection is open again");
+        // Members is read again every 100 ms while the frontend is unready: five of those rounds pass unready.
+        compio::time::sleep(Duration::from_millis(500)).await;
+        assert!(!readiness.is_ready(), "no close on the new subscription");
         Ok(())
     })
 }
