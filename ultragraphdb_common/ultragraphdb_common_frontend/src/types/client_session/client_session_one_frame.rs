@@ -13,7 +13,7 @@ use ultragraphdb_protocol_wire::{
     Header, WriteChange, xxh3_64,
 };
 
-use super::client_session_bind::{command_of, cross_partition, error_of};
+use super::client_session_bind::cross_partition;
 use super::client_session_writes::{changes_destination, operation_destination};
 use super::{ClientSession, DropRelay, OneFrame, now};
 use crate::traits::authorizer::Authorizer;
@@ -275,17 +275,39 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return;
         }
         let mut frame = match event {
+            // The Commit answering it, relayed as it came.
             LinkEvent::Frame(frame) => frame,
-            LinkEvent::Closed => {
+            LinkEvent::Refused(refusal) => {
+                self.one_frame_refused(stream, &refusal);
+                return;
+            }
+            // A one-frame write is answered by a Commit or an Error; the link closes on any other answer, which stands as its
+            // close.
+            LinkEvent::Closed
+            | LinkEvent::Bound(_)
+            | LinkEvent::Held
+            | LinkEvent::Registered(_) => {
                 let refusal = self.unavailable();
                 self.one_frame_answered(stream);
                 self.push_error(stream, &refusal);
                 return;
             }
         };
-        if command_of(&frame) == Some(Command::Error)
-            && let Some(refusal) = error_of(self.cluster(), &frame)
-            && refusal.code() == ErrorCode::WrongPartition
+        if let Some(one) = self.one_frames.get(&stream)
+            && let Some(relayed) = one.relayed
+        {
+            self.core.phases().record(one.began, relayed, now());
+        }
+        self.one_frame_answered(stream);
+        // A frame the framer took holds its header.
+        drop(Header::stamp_stream(&mut frame, stream));
+        self.push(stream, frame);
+    }
+
+    /// The partition refused the one-frame write of `stream` with `refusal`: naming another owner, resent there once; otherwise
+    /// the client's.
+    fn one_frame_refused(&mut self, stream: u64, refusal: &ErrorReply) {
+        if refusal.code() == ErrorCode::WrongPartition
             && refusal.detail() >> 32 != 0
             && let Some(one) = self.one_frames.get_mut(&stream)
             && !one.resent
@@ -296,16 +318,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             self.refresh_map(stream);
             return;
         }
-        if command_of(&frame) == Some(Command::Commit)
-            && let Some(one) = self.one_frames.get(&stream)
-            && let Some(relayed) = one.relayed
-        {
-            self.core.phases().record(one.began, relayed, now());
-        }
         self.one_frame_answered(stream);
-        // A frame the framer took holds its header.
-        drop(Header::stamp_stream(&mut frame, stream));
-        self.push(stream, frame);
+        self.push_error(stream, refusal);
     }
 
     /// The map a refusal asked for is here: the write goes to the owner it named.
@@ -427,32 +441,30 @@ impl<A: Authorizer + Clone> ClientSession<A> {
 
     /// What a Drop's Bind stream said: the Bind's answer sends the Drop, and its reply awaits the catalog step.
     pub(super) fn drop_event(&mut self, stream: u64, event: LinkEvent) {
-        let frame = match event {
-            LinkEvent::Frame(frame) => frame,
-            LinkEvent::Closed => {
+        match event {
+            LinkEvent::Bound(_) => {
+                if let Some(dropping) = self.drops.get_mut(&stream) {
+                    let mut relayed = dropping.frame.clone();
+                    drop(Header::stamp_stream(&mut relayed, dropping.stream));
+                    dropping
+                        .link
+                        .send(dropping.stream, CountedFrame::uncounted(relayed));
+                    dropping.sent = true;
+                }
+            }
+            // The Drop's reply, relayed as it came.
+            LinkEvent::Frame(frame) => self.drop_replied(stream, frame),
+            LinkEvent::Refused(refusal) => {
+                self.drop_answered(stream);
+                self.push_error(stream, &refusal);
+            }
+            // A Drop's stream is answered by a Bind, the Drop's reply or an Error; the link closes on any other answer, which
+            // stands as its close.
+            LinkEvent::Closed | LinkEvent::Held | LinkEvent::Registered(_) => {
                 let refusal = self.unavailable();
                 self.drop_answered(stream);
                 self.push_error(stream, &refusal);
-                return;
             }
-        };
-        let command = command_of(&frame);
-        if command == Some(Command::Bind) {
-            if let Some(dropping) = self.drops.get_mut(&stream) {
-                let mut relayed = dropping.frame.clone();
-                drop(Header::stamp_stream(&mut relayed, dropping.stream));
-                dropping
-                    .link
-                    .send(dropping.stream, CountedFrame::uncounted(relayed));
-                dropping.sent = true;
-            }
-        } else if command == Some(Command::Drop) {
-            self.drop_replied(stream, frame);
-        } else {
-            self.drop_answered(stream);
-            let mut frame = frame;
-            drop(Header::stamp_stream(&mut frame, stream));
-            self.push(stream, frame);
         }
     }
 

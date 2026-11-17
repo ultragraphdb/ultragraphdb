@@ -13,7 +13,7 @@ use std::task::Waker;
 use ultragraphdb_common_role::{ParkedBytes, RoleClient};
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Cancel, Command, Credit, Header, MAX_FRAME_SIZE_U32,
+    BodyBuilder, Cancel, Command, Credit, Header, HeaderView, MAX_FRAME_SIZE_U32,
 };
 
 use crate::types::commit_hold::CommitHold;
@@ -30,11 +30,38 @@ struct Outgoing {
     frame: CountedFrame,
 }
 
+/// A stream open on a link: who reads it, and the requests sent on it, which each frame on it answers (`PROTOCOL.md` §2.5,
+/// step 3).
+#[derive(Debug)]
+struct Route {
+    sink: RouteSink,
+    /// The request that opened it.
+    opened: Command,
+    /// The other requests sent on it, each once: a Bind's stream carries its transaction's Writes, Operations and Commit, or
+    /// its Drop.
+    sent: Vec<Command>,
+}
+
+impl Route {
+    /// Whether a frame of `command` answers a request sent on the stream: an Error, or a command one of them is answered by.
+    fn answers(&self, command: Command) -> bool {
+        std::iter::once(&self.opened)
+            .chain(&self.sent)
+            .any(|request| command.answering(*request).is_ok())
+    }
+}
+
+/// The command `frame` holds, by its header.
+fn command_of(frame: &CountedFrame) -> Option<Command> {
+    let header = HeaderView::new(frame.bytes()).ok()?;
+    Command::from_number(header.command()).ok()
+}
+
 /// The streams of a link and who reads each, and what waits to leave, first in, first out.
 #[derive(Debug, Default)]
 struct Routes {
     next: u64,
-    open: HashMap<u64, RouteSink>,
+    open: HashMap<u64, Route>,
     closed: bool,
     /// Whether the peer answered the dial: its Welcome and its proof of the secret came.
     answered: bool,
@@ -137,17 +164,23 @@ impl RoleLink {
     }
 
     /// Opens the stream `frame`, built on [`RoleLink::next_stream`], asks on, whose frames go to `sink`; a closed connection tells
-    /// `sink` so at once. The stream's number.
+    /// `sink` so at once, as does a frame naming no command, which nothing could answer. The stream's number.
     pub(crate) fn open(&self, frame: CountedFrame, sink: RouteSink) -> u64 {
         let mut routes = self.routes.borrow_mut();
         let stream = routes.next;
         routes.next = stream.saturating_add(1);
-        if routes.closed {
+        let opened = command_of(&frame);
+        let Some(opened) = opened.filter(|_| !routes.closed) else {
             drop(routes);
             sink.tell(LinkEvent::Closed);
             return stream;
-        }
-        let _none = routes.open.insert(stream, sink);
+        };
+        let route = Route {
+            sink,
+            opened,
+            sent: Vec::new(),
+        };
+        let _none = routes.open.insert(stream, route);
         let writer = routes.queue(stream, true, frame);
         drop(routes);
         if let Some(writer) = writer {
@@ -156,8 +189,21 @@ impl RoleLink {
         stream
     }
 
-    /// Sends `frame` on `stream`, already open.
+    /// Sends the request `frame` on `stream`, already open, which the stream's frames may answer from here on.
     pub(crate) fn send(&self, stream: u64, frame: CountedFrame) {
+        if let (Some(route), Some(command)) = (
+            self.routes.borrow_mut().open.get_mut(&stream),
+            command_of(&frame),
+        ) && route.opened != command
+            && !route.sent.contains(&command)
+        {
+            route.sent.push(command);
+        }
+        self.leave(stream, frame);
+    }
+
+    /// `frame` of `stream` waits to leave: a request, or a Credit or a Cancel, which no frame answers.
+    fn leave(&self, stream: u64, frame: CountedFrame) {
         let writer = self.routes.borrow_mut().queue(stream, false, frame);
         if let Some(writer) = writer {
             writer.wake();
@@ -171,25 +217,25 @@ impl RoleLink {
             return;
         }
         if let Ok(frame) = Cancel.frame(self.header(Command::Cancel, stream)) {
-            self.send(stream, CountedFrame::uncounted(frame));
+            self.leave(stream, CountedFrame::uncounted(frame));
         }
     }
 
     /// Grants `stream` credit for `frames` more frames, counted here before they can be spent, its frame counted in `count`.
     pub fn credit(&self, stream: u64, frames: u32, count: &ParkedBytes) {
-        if let Some(sink) = self.routes.borrow_mut().open.get_mut(&stream) {
-            sink.grant_credit(frames);
+        if let Some(route) = self.routes.borrow_mut().open.get_mut(&stream) {
+            route.sink.grant_credit(frames);
         }
         if let Ok(frame) = Credit::new(frames).frame(self.header(Command::Credit, stream)) {
-            self.send(stream, CountedFrame::new(frame, count));
+            self.leave(stream, CountedFrame::new(frame, count));
         }
     }
 
     /// Keeps `hold` with `stream` until the stream ends, by its last frame or the connection's close; a stream already ended
     /// lets it go at once.
     pub(crate) fn hold(&self, stream: u64, hold: CommitHold) {
-        if let Some(sink) = self.routes.borrow_mut().open.get_mut(&stream) {
-            sink.hold(hold);
+        if let Some(route) = self.routes.borrow_mut().open.get_mut(&stream) {
+            route.sink.hold(hold);
         }
     }
 

@@ -15,8 +15,8 @@ use compio::runtime::Runtime;
 use cucumber::{then, when};
 use oxrdf::Literal;
 use ultragraphdb_common_frontend::{
-    Authorizer, DoubleFrame, EndpointLimits, IriPlace, RoleDouble, batch_frame, declare_fits,
-    empty_batch, iri_place, last_frame, partition_answer,
+    Authorizer, DoubleFrame, EndpointLimits, IriPlace, RoleDouble, batch_frame, committed,
+    declare_fits, empty_batch, iri_place, last_frame, partition_answer,
 };
 use ultragraphdb_common_role::{Answer, RoleClient};
 use ultragraphdb_core_ids::{Bucket, Epoch, Sequence, SystemId, Tenant, TypePrefix, Version};
@@ -1033,7 +1033,7 @@ fn a_stored_reply_outranks_every_other_recall_answer(w: &mut Steps) -> TestResul
         let _whole = &stage;
         let stored = stage
             .partition_with(1, |frame| {
-                let commit = Commit::new([3; 16], 1, BIND_VERSION);
+                let commit = committed([3; 16], 1, BIND_VERSION);
                 last_frame(CLUSTER, frame.stream(), &commit).map_or(Answer::Done, Answer::Reply)
             })
             .await?;
@@ -2075,7 +2075,7 @@ fn a_request_behind_its_transaction_s_commit_is_late(w: &mut Steps) -> TestResul
         held.answer_with(last_frame(
             CLUSTER,
             held.stream(),
-            &Commit::new(session, 1, BIND_VERSION),
+            &committed(session, 1, BIND_VERSION),
         )?);
         let got = client.got(transaction).await?;
         assert_eq!(

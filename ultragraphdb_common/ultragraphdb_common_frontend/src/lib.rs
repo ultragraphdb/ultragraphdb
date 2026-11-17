@@ -46,7 +46,8 @@ pub use crate::utils::term_rules::{check_change, check_operation, check_table};
 pub use crate::utils_test::double_frame::DoubleFrame;
 #[cfg(feature = "test-utils")]
 pub use crate::utils_test::role_double::{
-    RoleDouble, batch_frame, empty_batch, last_frame, partition_answer, refusal_of, view_of,
+    RoleDouble, batch_frame, committed, empty_batch, last_frame, partition_answer, refusal_of,
+    view_of,
 };
 #[cfg(feature = "test-utils")]
 pub use crate::utils_test::system_play::SystemPlay;

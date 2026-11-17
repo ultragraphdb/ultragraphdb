@@ -12,7 +12,10 @@ use compio::time::timeout;
 use ultragraphdb_common_role::{RoleClient, RoleReader, RoleWriter};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
-use ultragraphdb_protocol_wire::{Command, FLAG_LAST};
+use ultragraphdb_protocol_wire::{
+    BindView, BodyView, Command, CommitView, DropCommandView, ErrorReplyView, FLAG_LAST, FrameView,
+    HeldView, ReferenceView,
+};
 
 use crate::types::link_event::LinkEvent;
 use crate::types::role_link::RoleLink;
@@ -114,36 +117,87 @@ async fn read(link: RoleLink, mut reader: RoleReader) {
     }
 }
 
-/// Hands `frame` to the session whose stream it answers: a frame on a stream that has ended is late, and dropped; a stream not
-/// yet opened answers nothing, and a Result or Entries frame past its stream's credit breaks the rule that meters them, each of
-/// which ends the connection (`PROTOCOL.md` §2.5, step 3, §11.3).
+/// Hands `frame` to the session whose stream it answers, read: a frame on a stream that has ended is late, and dropped. A
+/// frame the link refuses ends the connection, as the side that dialled refusing a frame does (`PROTOCOL.md` §2.6, §13): one on
+/// a stream not yet opened, which answers nothing, or by a command no request of its stream is answered by (§2.5, step 3); a
+/// Result or Entries frame past its stream's credit, which breaks the rule that meters them (§11.3); a control reply whose body
+/// breaks its command's rules (§2.5, step 16).
 fn deliver(link: &RoleLink, frame: &ReceivedFrame) -> Result<(), String> {
     let view = frame.view().map_err(|rule| rule.to_string())?;
     let stream = view.header().stream();
+    let command = view.command();
     let mut routes = link.routes.borrow_mut();
     if stream == 0 || stream >= routes.next {
         return Err(format!(
             "a frame on stream {stream}, which it holds no request on"
         ));
     }
-    let metered = matches!(view.command(), Command::Result | Command::Entries);
-    if metered
-        && let Some(sink) = routes.open.get_mut(&stream)
-        && !sink.spend_credit()
-    {
+    let Some(route) = routes.open.get_mut(&stream) else {
+        return Ok(());
+    };
+    if !route.answers(command) {
+        return Err(ProtocolError::command_not_served(command.number()).to_string());
+    }
+    let metered = matches!(command, Command::Result | Command::Entries);
+    if metered && !route.sink.spend_credit() {
         return Err(ProtocolError::past_credit(stream).to_string());
     }
+    let event = event_of(&view, frame).map_err(|rule| rule.to_string())?;
     let last = view.header().flags() & FLAG_LAST != 0;
     let sink = if last {
-        routes.open.remove(&stream)
+        routes.open.remove(&stream).map(|ended| ended.sink)
     } else {
-        routes.open.get(&stream).cloned()
+        routes.open.get(&stream).map(|open| open.sink.clone())
     };
     drop(routes);
     if let Some(sink) = sink {
-        sink.tell(LinkEvent::Frame(frame.bytes().to_vec()));
+        sink.tell(event);
     }
     Ok(())
+}
+
+/// What `frame`, validated as `view` and answering a request of its stream, tells the stream's session: a control reply read, its
+/// body checked by its command's rules; a Commit's or a Drop's reply checked so and relayed as it came; a Result relayed as it
+/// came, whose chunks and body the client checks.
+///
+/// # Errors
+///
+/// The rule its body breaks; a Reference that is no reply; a command the link reads no frame of, which answers no request it
+/// sends.
+fn event_of(view: &FrameView<'_>, frame: &ReceivedFrame) -> Result<LinkEvent, ProtocolError> {
+    let command = view.command();
+    if command == Command::Result {
+        return Ok(LinkEvent::Frame(frame.bytes().to_vec()));
+    }
+    if command == Command::Error {
+        return Ok(LinkEvent::Refused(
+            ErrorReplyView::from_frame(view)?.to_body()?,
+        ));
+    }
+    if command == Command::Bind {
+        return Ok(LinkEvent::Bound(BindView::from_frame(view)?.read_version()));
+    }
+    if command == Command::Held {
+        let _held = HeldView::from_frame(view)?;
+        return Ok(LinkEvent::Held);
+    }
+    if command == Command::Commit {
+        let _reply = CommitView::from_frame(view)?;
+        return Ok(LinkEvent::Frame(frame.bytes().to_vec()));
+    }
+    if command == Command::Drop {
+        let _reply = DropCommandView::from_frame(view)?;
+        return Ok(LinkEvent::Frame(frame.bytes().to_vec()));
+    }
+    if command == Command::Reference {
+        let reply = ReferenceView::from_frame(view)?;
+        // A Reference holds at least one registration by its rules (`PROTOCOL.md` §13.15).
+        return match reply.registration(0).filter(|_| reply.is_reply()) {
+            Some(registration) => Ok(LinkEvent::Registered(registration)),
+            None => Err(ProtocolError::field_value(command.number(), "reply", 0)),
+        };
+    }
+    Err(ProtocolError::command_not_served(command.number()))
 }
 
 /// Marks the connection closed, lets go of what waits to leave and tells each stream on it; the write task, finding it closed, shuts
@@ -153,7 +207,7 @@ fn closed(link: &RoleLink) {
     routes.closed = true;
     routes.outgoing.clear();
     let writer = routes.writer.take();
-    let sinks: Vec<_> = routes.open.drain().map(|(_, sink)| sink).collect();
+    let sinks: Vec<_> = routes.open.drain().map(|(_, route)| route.sink).collect();
     drop(routes);
     if let Some(writer) = writer {
         writer.wake();

@@ -10,7 +10,9 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use cucumber::{then, when};
-use ultragraphdb_common_frontend::{DoubleFrame, RoleDouble, last_frame, partition_answer};
+use ultragraphdb_common_frontend::{
+    DoubleFrame, RoleDouble, committed, last_frame, partition_answer,
+};
 use ultragraphdb_common_role::Answer;
 use ultragraphdb_protocol_wire::{
     BodyView, Cancel, Command, Commit, CommitView, DirectWrite, ErrorCode, Register, RegisterView,
@@ -122,7 +124,7 @@ fn answer_commit(partition: &RoleDouble, session: [u8; 16]) -> TestResult {
     held.answer_with(last_frame(
         CLUSTER,
         held.stream(),
-        &Commit::new(session, 1, BIND_VERSION),
+        &committed(session, 1, BIND_VERSION),
     )?);
     Ok(())
 }
@@ -230,7 +232,7 @@ fn answer_write(partition: &RoleDouble, session: [u8; 16]) -> TestResult {
     held.answer_with(last_frame(
         CLUSTER,
         held.stream(),
-        &Commit::new(session, 1, BIND_VERSION),
+        &committed(session, 1, BIND_VERSION),
     )?);
     Ok(())
 }

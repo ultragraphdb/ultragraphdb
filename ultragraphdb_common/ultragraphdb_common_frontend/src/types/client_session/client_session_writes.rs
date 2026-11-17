@@ -9,12 +9,11 @@ use ultragraphdb_core_ids::{Bucket, Tenant};
 use ultragraphdb_core_terms::{EncodedTerm, TermError};
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Command, CommitOperation, Declared, Direction, ErrorCode, ErrorReply,
-    FrameView, Header, MAX_FRAME_SIZE, OperationView, Reference, ReferenceView, RequestTermView,
-    StatementTarget, TermTableView, WriteChange, WriteView,
+    FrameView, Header, OperationView, Reference, RequestTermView, StatementTarget, TermTableView,
+    WriteChange, WriteView,
 };
 
 use super::ClientSession;
-use super::client_session_bind::command_of;
 use crate::traits::authorizer::Authorizer;
 use crate::types::bind_state::BindState;
 use crate::types::claim::Claim;
@@ -436,18 +435,20 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     }
 
     /// The home's answer: the partition owning the claim's bucket.
-    pub(super) fn claim_event(&mut self, stream: u64, event: LinkEvent) {
+    pub(super) fn claim_event(&mut self, stream: u64, event: &LinkEvent) {
         let Some(claim) = self.claims.remove(&stream) else {
             return;
         };
         let tenant = self.claim_tenant(stream);
         let registered = match event {
-            LinkEvent::Frame(frame) if command_of(&frame) == Some(Command::Reference) => {
-                FrameView::validate(&frame, self.cluster(), MAX_FRAME_SIZE)
-                    .ok()
-                    .and_then(|view| ReferenceView::from_frame(&view).ok()?.registration(0))
-            }
-            LinkEvent::Frame(_) | LinkEvent::Closed => None,
+            LinkEvent::Registered(registration) => Some(*registration),
+            // A Reference is answered by a Reference or an Error, which the claim cannot be learned from; the link closes on any
+            // other answer, which stands as its close.
+            LinkEvent::Refused(_)
+            | LinkEvent::Closed
+            | LinkEvent::Frame(_)
+            | LinkEvent::Bound(_)
+            | LinkEvent::Held => None,
         };
         // A home refusing the claim's predicate refuses the write, as its partition would (`PROTOCOL.md` §13.15): code 7, not in
         // doubt.

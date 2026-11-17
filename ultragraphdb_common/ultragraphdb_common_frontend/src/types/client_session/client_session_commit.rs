@@ -10,7 +10,6 @@ use ultragraphdb_protocol_wire::{
     ErrorReply, FrameView, Header, MAX_FRAME_SIZE, Recall,
 };
 
-use super::client_session_bind::{command_of, error_of};
 use super::{ClientSession, Recalling};
 use crate::traits::authorizer::Authorizer;
 use crate::types::bind_state::BindState;
@@ -222,31 +221,32 @@ impl<A: Authorizer + Clone> ClientSession<A> {
 
     /// A partition's answer to a Recall.
     pub(super) fn recall_event(&mut self, stream: u64, partition: u32, event: LinkEvent) {
-        let cluster = self.cluster();
         let Some(recalling) = self.recalls.get_mut(&stream) else {
             return;
         };
         recalling.unanswered = recalling.unanswered.saturating_sub(1);
         let answer = match event {
-            LinkEvent::Closed => RecallAnswer::Unavailable,
+            // A Recall is answered by a Commit's or a Drop's stored reply, the frame relayed as it came, or an Error; the link
+            // closes on any other, so a Bind's, a Held or a Reference's answer stands as its close.
+            LinkEvent::Closed
+            | LinkEvent::Bound(_)
+            | LinkEvent::Held
+            | LinkEvent::Registered(_) => RecallAnswer::Unavailable,
             LinkEvent::Frame(frame) => {
-                let command = command_of(&frame);
-                if command == Some(Command::Commit) || command == Some(Command::Drop) {
-                    let _first = recalling.stored.get_or_insert(frame);
-                    RecallAnswer::Stored
+                let _first = recalling.stored.get_or_insert(frame);
+                RecallAnswer::Stored
+            }
+            LinkEvent::Refused(refusal) => {
+                let code = refusal.code();
+                if code == ErrorCode::SessionBusy {
+                    RecallAnswer::Busy
+                } else if code == ErrorCode::RequestOutOfOrder {
+                    RecallAnswer::OutOfOrder(refusal.detail())
+                } else if code == ErrorCode::NotCommitted {
+                    RecallAnswer::NotCommitted
                 } else {
-                    let refusal = error_of(cluster, &frame);
-                    match refusal.as_ref().map(ErrorReply::code) {
-                        Some(ErrorCode::SessionBusy) => RecallAnswer::Busy,
-                        Some(ErrorCode::RequestOutOfOrder) => {
-                            RecallAnswer::OutOfOrder(refusal.map_or(0, |reply| reply.detail()))
-                        }
-                        Some(ErrorCode::NotCommitted) => RecallAnswer::NotCommitted,
-                        Some(_) | None => {
-                            tracing::debug!(partition, "a Recall was refused otherwise");
-                            RecallAnswer::Unavailable
-                        }
-                    }
+                    tracing::debug!(partition, "a Recall was refused otherwise");
+                    RecallAnswer::Unavailable
                 }
             }
         };

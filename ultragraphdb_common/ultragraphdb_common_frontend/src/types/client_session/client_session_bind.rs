@@ -6,8 +6,7 @@
 use compio::runtime::spawn;
 use ultragraphdb_cluster_placement::PlacementMap;
 use ultragraphdb_protocol_wire::{
-    Bind, BindKind, BindView, BodyBuilder, BodyView, Command, ErrorCode, ErrorReply,
-    ErrorReplyView, FrameView, Header, HeaderView, MAX_FRAME_SIZE,
+    Bind, BindKind, BodyBuilder, Command, ErrorCode, ErrorReply, Header, HeaderView,
 };
 
 use super::ClientSession;
@@ -46,12 +45,6 @@ pub(super) fn cross_partition(partition: u32, other: u32) -> ErrorReply {
         format!("the request reaches partitions {partition} and {other}"),
     )
     .with_detail(u64::from(partition) | (u64::from(other) << 32))
-}
-
-/// An Error frame's reply.
-pub(super) fn error_of(cluster: u64, frame: &[u8]) -> Option<ErrorReply> {
-    let view = FrameView::validate(frame, cluster, MAX_FRAME_SIZE).ok()?;
-    ErrorReplyView::from_frame(&view).ok()?.to_body().ok()
 }
 
 /// The command `frame` holds, by its header.
@@ -238,43 +231,32 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         if !current {
             return;
         }
-        let frame = match event {
-            LinkEvent::Frame(frame) => frame,
-            LinkEvent::Closed => {
+        match event {
+            LinkEvent::Bound(read_version) => self.bound(transaction, read_version),
+            LinkEvent::Held => {
+                if let Some(txn) = self.transactions.get_mut(&transaction) {
+                    txn.write_out = None;
+                    txn.first_open = false;
+                }
+                self.pump(transaction);
+            }
+            // A Commit's reply, the one frame a Bind's stream relays.
+            LinkEvent::Frame(frame) => self.commit_reply(transaction, frame),
+            LinkEvent::Refused(refusal) => {
+                self.stream_ended(transaction);
+                self.bind_refused(transaction, &refusal);
+            }
+            // A Reference answers no request of a Bind's stream, so the link closes on one: as its close.
+            LinkEvent::Closed | LinkEvent::Registered(_) => {
                 let refusal = self.unavailable();
                 self.stream_ended(transaction);
                 self.end_transaction(transaction, &refusal);
-                return;
             }
-        };
-        let command = command_of(&frame);
-        if command == Some(Command::Bind) {
-            self.bound(transaction, &frame);
-        } else if command == Some(Command::Held) {
-            if let Some(txn) = self.transactions.get_mut(&transaction) {
-                txn.write_out = None;
-                txn.first_open = false;
-            }
-            self.pump(transaction);
-        } else if command == Some(Command::Commit) {
-            self.commit_reply(transaction, frame);
-        } else if command == Some(Command::Error) {
-            self.stream_ended(transaction);
-            self.bind_refused(transaction, &frame);
         }
     }
 
     /// The Bind's answer: the version the transaction reads at.
-    fn bound(&mut self, transaction: u64, frame: &[u8]) {
-        let cluster = self.cluster();
-        let read_version = FrameView::validate(frame, cluster, MAX_FRAME_SIZE)
-            .ok()
-            .and_then(|view| {
-                BindView::from_frame(&view)
-                    .ok()
-                    .map(|bind| bind.read_version())
-            })
-            .unwrap_or(0);
+    fn bound(&mut self, transaction: u64, read_version: u64) {
         if let Some(txn) = self.transactions.get_mut(&transaction)
             && let BindState::Binding {
                 link,
@@ -301,12 +283,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
 
     /// A partition's Error on the Bind stream. A first request refused naming another owner is resent there once, what followed
     /// it kept; anything else is the client's, a code 26 naming no owner among it, a home's refusal of a registration.
-    fn bind_refused(&mut self, transaction: u64, frame: &[u8]) {
-        let Some(refusal) = error_of(self.cluster(), frame) else {
-            let refusal = self.unavailable();
-            self.end_transaction(transaction, &refusal);
-            return;
-        };
+    fn bind_refused(&mut self, transaction: u64, refusal: &ErrorReply) {
         let resend = self.transactions.get(&transaction).is_some_and(|txn| {
             refusal.code() == ErrorCode::WrongPartition
                 && refusal.detail() >> 32 != 0
@@ -314,7 +291,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 && !txn.resent
         });
         if !resend {
-            self.end_transaction(transaction, &refusal);
+            self.end_transaction(transaction, refusal);
             return;
         }
         let owner = (refusal.detail() >> 32) as u32; // a `u64`'s high half, lossless

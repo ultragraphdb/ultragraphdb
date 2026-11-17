@@ -16,9 +16,9 @@ use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Endpoint};
 use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::{
-    Bind, BindView, BodyBuilder, BodyView, Command, Commit, CommitView, ConditionalWriteView,
-    DirectWriteView, DropCommandView, ErrorCode, ErrorReply, ErrorReplyView, FLAG_LAST, FrameView,
-    Header, Held, Join, MAX_FRAME_SIZE, Monotonic, ResultBatch, TermTable,
+    Bind, BindKind, BindView, BodyBuilder, BodyView, Command, Commit, CommitView,
+    ConditionalWriteView, DirectWriteView, DropCommandView, ErrorCode, ErrorReply, ErrorReplyView,
+    FLAG_LAST, FrameView, Header, Held, Join, MAX_FRAME_SIZE, Monotonic, ResultBatch, TermTable,
 };
 
 use crate::utils_test::double_frame::DoubleFrame;
@@ -270,11 +270,14 @@ pub fn partition_answer(frame: &DoubleFrame, cluster: u64, version: u64) -> Answ
         let Ok(body) = asked.to_body() else {
             return Answer::Done;
         };
-        return built(last_frame(
-            cluster,
-            stream,
-            &body.with_commit_version(version),
-        ));
+        let reply = body.with_commit_version(version);
+        // A reply through a session carries the session's token, of the reply's epoch (`PROTOCOL.md` §6.5).
+        let reply = if asked.session() == [0; 16] {
+            reply
+        } else {
+            reply.with_token(SessionToken::new(1, 1, Version::from_u64(version).epoch()))
+        };
+        return built(last_frame(cluster, stream, &reply));
     }
     if command == Command::Recall {
         return Answer::Refuse(ErrorReply::new(ErrorCode::NotCommitted, "not held").with_detail(0));
@@ -282,8 +285,9 @@ pub fn partition_answer(frame: &DoubleFrame, cluster: u64, version: u64) -> Answ
     Answer::Done
 }
 
-/// A Commit reply at `version`, through a session its token, of the version's epoch.
-fn committed(session: [u8; 16], request: u64, version: u64) -> Commit {
+/// A Commit reply at `version`, through a session its token, of the version's epoch (`PROTOCOL.md` §6.3).
+#[must_use]
+pub fn committed(session: [u8; 16], request: u64, version: u64) -> Commit {
     let reply = Commit::new(session, request, version);
     if session == [0; 16] {
         return reply;
@@ -299,7 +303,13 @@ fn bind_reply(
     version: u64,
 ) -> Result<Vec<u8>, ultragraphdb_error_protocol::ProtocolError> {
     let bind = BindView::from_frame(view)?;
-    let reply: Bind = bind.to_body()?.with_read_version(version);
+    // A Drop's Bind is answered with `read_version` 0 (`PROTOCOL.md` §13.10).
+    let read_version = if bind.kind() == BindKind::Transaction {
+        version
+    } else {
+        0
+    };
+    let reply: Bind = bind.to_body()?.with_read_version(read_version);
     reply.frame(Header::new(cluster, Command::Bind).with_stream(stream))
 }
 

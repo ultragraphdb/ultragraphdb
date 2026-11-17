@@ -6,10 +6,13 @@
 use std::time::Duration;
 
 use compio::runtime::Runtime;
-use ultragraphdb_common_frontend::{RoleDouble, partition_answer, refusal_of};
+use ultragraphdb_common_frontend::{RoleDouble, committed, partition_answer, refusal_of};
 use ultragraphdb_common_role::{RoleCluster, RoleSecret};
 use ultragraphdb_protocol_transport::Endpoint;
-use ultragraphdb_protocol_wire::{BodyBuilder, Command, ErrorCode, ErrorReply, Header};
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, BodyView, Command, CommitView, ErrorCode, ErrorReply, FrameView, Header,
+    MAX_FRAME_SIZE,
+};
 use ultragraphdb_tool_bdd::TestResult;
 
 const CLUSTER: u64 = 7;
@@ -49,5 +52,22 @@ fn test_an_error_frames_refusal_is_read_back() -> TestResult {
         (read.code(), read.detail(), read.message()),
         (refusal.code(), refusal.detail(), refusal.message())
     );
+    Ok(())
+}
+
+/// A Commit reply keeps its rules (`PROTOCOL.md` §6.3): through a session it carries a token of its version's epoch, the
+/// version's bits above its 22 low ones; through none, no token.
+#[test]
+fn test_a_commit_reply_carries_a_token_through_a_session_alone() -> TestResult {
+    // Epoch 5 is the version's bits above its low 22.
+    let version = (5 << 22) | 9;
+    // A request numbered through a session, 0 through none.
+    for (session, request, epoch) in [([3; 16], 1, Some(5)), ([0; 16], 0, None)] {
+        let frame =
+            committed(session, request, version).frame(Header::new(CLUSTER, Command::Commit))?;
+        let reply = CommitView::from_frame(&FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)?)?;
+        assert_eq!(reply.commit_version(), version);
+        assert_eq!(reply.token().map(|token| token.epoch().get()), epoch);
+    }
     Ok(())
 }

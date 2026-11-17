@@ -11,7 +11,7 @@ use ultragraphdb_protocol_wire::{
     ReadView, RequestTermView, ResultBatch, TermTable, TermTableView,
 };
 
-use super::client_session_bind::{command_of, error_of};
+use super::client_session_bind::command_of;
 use super::{ClientSession, now};
 use crate::traits::authorizer::Authorizer;
 use crate::types::bind_state::BindState;
@@ -353,14 +353,16 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return;
         }
         match event {
-            LinkEvent::Closed => self.read_closed(read),
-            LinkEvent::Frame(frame) if command_of(&frame) == Some(Command::Error) => {
-                self.read_refused(read, &frame);
+            // A ComputeRead is answered by Result frames, relayed as they came, or an Error; the link closes on any other, so a
+            // Bind's, a Held or a Reference's answer stands as its close.
+            LinkEvent::Closed
+            | LinkEvent::Bound(_)
+            | LinkEvent::Held
+            | LinkEvent::Registered(_) => {
+                self.read_closed(read);
             }
-            LinkEvent::Frame(frame) if command_of(&frame) == Some(Command::Result) => {
-                self.relay_result(read, frame);
-            }
-            LinkEvent::Frame(_) => {}
+            LinkEvent::Refused(refusal) => self.read_refused(read, &refusal),
+            LinkEvent::Frame(frame) => self.relay_result(read, frame),
         }
     }
 
@@ -412,12 +414,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     }
 
     /// Compute refused `read`.
-    fn read_refused(&mut self, read: u64, frame: &[u8]) {
-        let Some(refusal) = error_of(self.cluster(), frame) else {
-            let refusal = self.unavailable();
-            self.refuse_read(read, &refusal);
-            return;
-        };
+    fn read_refused(&mut self, read: u64, refusal: &ErrorReply) {
         let Some(state) = self.reads.get_mut(&read) else {
             return;
         };
@@ -427,12 +424,12 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             .transactions
             .get(&transaction)
             .is_some_and(|txn| !txn.read_only);
-        if read_write && is_not_held(&refusal) {
+        if read_write && is_not_held(refusal) {
             // The stream's Error, or the code 23 that cancelled it, is the read's answer: it waits for the transaction's end.
             return;
         }
         if read_write && refusal.code() == ErrorCode::CrossPartition {
-            self.read_crossed(read, transaction, &refusal);
+            self.read_crossed(read, transaction, refusal);
             return;
         }
         if let Some(txn) = self.transactions.get_mut(&transaction)
@@ -442,7 +439,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             // A first read refused leaves the next read first.
             txn.first_sent = false;
         }
-        self.refuse_read(read, &refusal);
+        self.refuse_read(read, refusal);
     }
 
     /// Compute answered `read` code 23: the Bind stream is cancelled, which aborts the transaction at its partition. A first read

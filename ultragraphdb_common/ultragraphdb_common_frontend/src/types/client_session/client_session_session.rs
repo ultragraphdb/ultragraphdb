@@ -188,7 +188,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             RouteKey::OneFrame { stream, attempt } => self.one_frame_event(stream, attempt, event),
             RouteKey::Drop { stream } => self.drop_event(stream, event),
             RouteKey::Recall { stream, partition } => self.recall_event(stream, partition, event),
-            RouteKey::Claim { stream } => self.claim_event(stream, event),
+            RouteKey::Claim { stream } => self.claim_event(stream, &event),
         }
     }
 
