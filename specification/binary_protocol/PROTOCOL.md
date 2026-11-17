@@ -1047,8 +1047,16 @@ index). The term table's order stays the sender's convention (section 4.7).
 
 The frontend checks the session and the rights as for a Commit (section 11.5), and each term as section 4.4 states,
 refusing the frame whole as that section says. It refuses with code 2 (Conflict), kind 5 (Catalog), before any
-partition sees it, a frame whose `catalog` is not the tenant's current version, the message naming both versions: the
-client describes the catalog again (section 8.3) and encodes against the version in effect. It finds each row's
+partition sees it, a frame whose `catalog` is not the version in effect at its endpoint core's open epoch, the message
+naming both versions: the version a partition checks at a round of that epoch, which the core reads from its view as
+section 6.5 states. Where the view cannot name that version, it refuses nothing. So the frontend never refuses a frame
+whose `catalog` a partition would take at a round of the core's open epoch. That is an early refusal: a share the
+frontend passes is still refused at its round when a version takes effect before the round's epoch, and the
+partition's check decides (below). Describe's `catalog` relates to that version as section 6.5 states: it is the
+version in effect at the open epoch unless the latest close announced a version taking effect at the open epoch, or a
+version in effect is being checked, which the partitions validate against and Describe does not name (section 11.13,
+*A tightening's check*), so a frame naming Describe's version is refused until the check ends. A client whose frame is
+refused describes the tenant again after the next close (section 8.3) and encodes against the version it names. It finds each row's
 partition as section 11.12 finds a first request's subject's (*Writes*). Every new blank node of the frame is created in
 exactly one share, so no share names a node another creates (T43): the frame's new blank nodes, joined wherever a row
 whose subject is one names another as a neighbour, form groups; a group goes to the partition of the buckets the
@@ -2547,7 +2555,13 @@ CloseRequest's `partition` keep their own `FieldValue` rules (sections 13.3 and 
 sends Join, naming its own role address and, for storage, the partitions it hosts. Storage and compute learn where each
 partition and each compute process
 listen from Members, and which partition owns a bucket at an epoch from Placement. Storage and compute retry Join until
-their deadline, so the system group's recovery need not have ended when they start.
+their deadline, so the system group's recovery need not have ended when they start. A storage or compute process whose
+connection to the system group closes dials again until its deadline and joins again on the new connection unless the
+group still lists it. Storage sends Join on each new connection, which replaces a registration the group still holds
+with the same (section 13.1), and subscribes again from its last close (*Epochs*); compute holds the connection it
+last asked the group's Members on, dials again as soon as that connection closes, asks Members, and sends Join when
+they no longer list its role address. So a restarted group, which holds no Join from before, lists both as soon as it
+answers.
 
 The frontend reads the addresses from Members: at its start, and again until Members lists every partition of the
 placement or `[cluster] join_deadline_ms` has passed; again
@@ -2881,9 +2895,9 @@ versions, and the application of declaration records and drops with their refusa
   current version, which a declaring transaction builds on (*A new version*) and a schema id follows (section 11.7), is
   the highest the process has learned: from one Catalog read when a tenant is first used, where code 7 with `detail` 0
   says the tenant holds none, from each close's announcements, and from each Declare's reply. It is never asked per
-  request, and nothing is decided from it apart from the early refusal of section 6.8, while that of section 6.5 reads
-  the version in effect at the core's open epoch from the same closes and replies: the system group
-  checks the version a Declare is built on. Which version a
+  request, and nothing is decided from it: the early refusals of sections 6.5 and 6.8 read the version in effect at
+  the core's open epoch from the same closes and replies, and the system group checks the version a Declare is built
+  on. Which version a
   Describe reports is the system group's to say, since only it knows a version being checked or withdrawn: the frontend
   asks with a Catalog request of `version` 0 naming the latest closed epoch (section 13.7), and names the version the
   reply holds in the answer's `catalog`, or 0 when the group answers code 7 with `detail` 0, the tenant holding none at

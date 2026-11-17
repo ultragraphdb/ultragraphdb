@@ -15,8 +15,12 @@ drop SHALL not remove dictionary entries, and only a drop of everything in a ten
 default-entry records, with its catalog (`PROTOCOL.md` section 11.13). In a tenant that holds a schema, a Drop of a
 predicate a schema declares SHALL be refused with code 7 (Refused), the message naming the predicate and stage 9.5, and
 SHALL remove nothing. A Drop of a tenant's data or of everything in a tenant SHALL name the catalog version it drops
-under, 0 for a tenant holding none, and SHALL be refused with code 2 (Conflict), kind 5 (Catalog), before any partition
-sees it, when that is not the tenant's current version. A Drop SHALL remove a container whole, the history of
+under, as a Describe names it, 0 for a tenant holding none. A partition SHALL refuse it with code 2 (Conflict), kind 5
+(Catalog), removing nothing, when that is not the version in effect at its round's epoch; the frontend SHALL refuse it
+the same way before any partition sees it, as an early refusal, when that is not the version in effect at the endpoint
+core's open epoch, the version a partition checks at a round of that epoch, and SHALL never refuse a Drop a partition
+would take at that epoch, a version committed as pending being in effect nowhere, nor refuse anything where its view
+cannot name that version (`PROTOCOL.md` section 6.5). A Drop SHALL remove a container whole, the history of
 `@bitemporal` and `@append_only` types with it, and a Drop of a tenant's data or of everything SHALL be an audit event
 naming the principal, the tenant and that version. A drop reaching several partitions is
 cross-partition (partitions, "A read-write transaction stays within one partition in this stage"). The frontend SHALL

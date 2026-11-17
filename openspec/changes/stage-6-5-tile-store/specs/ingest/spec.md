@@ -41,12 +41,21 @@ column's `present` SHALL equal its validity bits set. A reply SHALL be checked l
 ### Requirement: The frontend refuses a frame whole before any relay
 The frontend SHALL check the session and the rights as for a Commit (`PROTOCOL.md` section 11.5) and each term as
 `PROTOCOL.md` section 4.4 states, refusing the frame whole. It SHALL refuse with code 2 (Conflict), kind 5 (Catalog),
-before any partition sees it, a frame whose `catalog` is not the tenant's current version, the message naming both
-versions (`PROTOCOL.md` section 6.8).
+before any partition sees it, a frame whose `catalog` is not the version in effect at the endpoint core's open epoch,
+the message naming both versions: the version a partition checks at a round of that epoch, read from the core's view as
+for a Drop (`PROTOCOL.md` sections 6.5 and 6.8). It SHALL never refuse a frame whose `catalog` a partition
+would take at that epoch, a version committed as pending being in effect nowhere, and SHALL refuse nothing where its
+view cannot name that version. A share it passes MAY still be refused at its round, when a version takes effect first.
 
 #### Scenario: A stale catalog version is refused at the frontend
-- **WHEN** a tenant's current catalog version is 7 and a client sends an Ingest whose `catalog` is 6
+- **WHEN** version 7 of a tenant is in effect at the endpoint core's open epoch and a client sends an Ingest whose
+  `catalog` is 6
 - **THEN** the frontend refuses it with code 2, kind 5, the message naming 6 and 7, and no partition sees it
+
+#### Scenario: A pending version leaves a frame naming the version in effect to the partitions
+- **WHEN** version 7 of a tenant is in effect at the endpoint core's open epoch, version 8 is committed as pending, and
+  a client sends an Ingest whose `catalog` is 7
+- **THEN** the frontend relays its shares
 
 ### Requirement: Each row goes to its subject's partition
 The frontend SHALL find each row's partition as `PROTOCOL.md` section 11.12, *Writes*, finds a first request's
