@@ -628,3 +628,97 @@ connection (the next Commit left in doubt). The host and frontend runs have no p
    `div_ceil`, unfulfilled expectations).
 3. The frontend-before-storage run sends no resend: the frontend holds a Commit for a partition not yet in Members until it
    joins.
+
+# The stage's final verification (2026-11-17)
+
+## The gate
+
+At 0ddd5a24, `make test` passed in every phase; the integration phase ran 19 of its 22 targets fresh. The clippy aspect over
+`//...` then failed once, on group 3's `SystemGroup::take`: 80 lines against `too_many_lines`' bound of 70, plus a `drop` of
+a `Copy` value. The catalog's asks moved to `take_catalog`, as the system commands' asks had moved to `take_system`
+(00e8dcfe). After that, the aspect over `//...` exits 0 and `make test` passes again. `make check` is no longer part of the
+gate: its `cargo outdated --workspace` ran 30 minutes in its own `resolve_status` without finishing, so `scripts/check.sh`
+now passes `--root-deps-only`; `cargo machete-nk` cannot parse edition 2024 (backlog item 24); `cargo audit` ignores
+RUSTSEC-2026-0542, humantime unmaintained and reached through cucumber alone (`.cargo/audit.toml`). The benchmark (tasks
+9.1 to 9.3) was dropped by the user: stage 6.5 replaces the storage engine it measures.
+
+## `common_frontend`'s mutation baseline under Cargo
+
+The four scenarios that stopped group 5's second run do not fail on today's code: 0 failures in 3 runs of `cargo test`
+(default profile), 3 runs with `--profile mutants` and 6 runs of the full bdd binary 3 at a time, at load averages of 41 to
+60. A different scenario failed instead: "A hung compute process answers code 17", in 1 of 3 runs with `--profile mutants`
+and 6 of 800 runs of that scenario alone.
+
+All 6 failures had the double that joined second on a lower port than the first (655xx, then 491xx). Members lists compute
+processes by address (`PROTOCOL.md` §13.2), and the frontend's turn starts at the first one listed. macOS takes ephemeral
+ports from one counter shared by every process, which wraps from 65535 to 49152. When it wrapped between the two binds, the
+read went to the "other" double. "A closed compute process is skipped" and "A read is never resent after a frame" make the
+same assumption: with the join order swapped, all three fail every time. Bazel has the same latent flake.
+
+The three steps now take their doubles from `Stage::computes_in_turn`, which orders them by address as the group does
+(7ce85c1c). Verified: 0 failures in 864 runs of the three scenarios across forced wraps, two of which crossed one;
+`cargo test` passes 5 of 5 in each profile; the crate's 13 Bazel targets and its clippy aspect pass.
+
+## Phase 5: the stage's final mutation runs (lane 2)
+
+Lane 2's first runs, `MUTANTS_SLOT=b MUTANTS_JOBS=4`, with the workspace's `[profile.mutants]` (the test profile without
+debug information):
+
+| Crate | Base | Run | Mutants | Caught | Missed | Unviable | Timeouts |
+|---|---|---|---|---|---|---|---|
+| `ultragraphdb_client_core` | 443a7f54 | 2 of 3 | 19 | 10 | 1 | 8 | 0 |
+| `ultragraphdb_cluster_metadata` | dbfd958e | 2 of 3 | 21 | 20 | 0 | 1 | 0 |
+| `ultragraphdb_common_compute` | dbfd958e | 1 of 3 | 53 | 37 | 2 | 12 | 2 |
+| `ultragraphdb_common_config_check` | 4c0e4a61 | 1 of 3 | 111 | 102 | 4 | 5 | 0 |
+| `ultragraphdb_common_role` | dbfd958e | 2 of 3 | 32 | 20 | 1 | 11 | 0 |
+| `ultragraphdb_common_storage` | dbfd958e | 2 of 3 | 29 | 16 | 0 | 7 | 6 |
+| `ultragraphdb_core_catalog` | dbfd958e | 2 of 3 | 30 | 8 | 20 | 2 | 0 |
+| `ultragraphdb_protocol_transport` | dbfd958e | 2 of 3 | 3 | 2 | 0 | 1 | 0 |
+| `ultragraphdb_supervisor` | 4c0e4a61 | 1 of 3 | 4 | 0 | 4 | 0 | 0 |
+
+The survivors (d13843fd holds the tests):
+
+- **`core_catalog`, 20 in `src/utils/describe_of.rs`** (`declared_predicate`, `preorder`, `kinds`): killed. Task 3.2c
+  moved the functions here, but their only tests were common_system's, through the system group's handle, which a run of
+  this crate does not execute. `tests/utils/describe_of_tests.rs` pins them directly:
+  - `test_a_predicate_is_described_as_declared`: a predicate described as declared, single-valued or not;
+  - `test_entity_types_are_numbered_in_preorder`: a forest of five entity types, declared in reverse, numbered in preorder
+    from 1;
+  - `test_kinds_take_declared_and_recorded_predicates`: edge, property and either predicates, with one declared and one
+    undeclared recorded predicate.
+
+  Rerun (run 3, `--re 'describe_of\.rs'`): 21 mutants, 20 caught, 1 unviable.
+- **`common_config_check`, 4 in `src/utils/cross_checks.rs`:** killed by four tests in `cross_checks_tests.rs`:
+  - `holds`' `role != name`, by a `[metadata]` in the role's file, held by the host and refused in the instance not hosting;
+  - `bounds`' `&&`, by a non-host's reversed `[sequencer]`, refused as a moved table with no bound defect;
+  - `role_addresses`' frontend arm, by an unparseable `[compute] role_address` in the frontend's file, which is not one of
+    its addresses;
+  - `listeners`' frontend arm, by a frontend endpoint on compute's role address.
+
+  Rerun (run 2): 4 mutants, 4 caught.
+- **`client_core`, `client_core_results.rs:100:63` `&&` with `||`:** killed by
+  `test_a_broken_frame_kept_from_a_lost_connection_leaves_the_next_connection_up`. A broken frame kept from a lost
+  connection, read after the client has connected again, answers its rule and leaves the new connection up. Rerun (run 3):
+  1 caught.
+- **`supervisor`, 4 in `src/service.rs`:** process-covered, as group 6 classed the compute binary's mutants. Each was
+  applied by hand and `ultragraphdb_supervisor_tests:bdd` run:
+  - `first_start` replaced by `true` fails "A bootstrap password removed after the first start stays removed" (the
+    password is drawn again);
+  - `first_start` replaced by `false`, and `delete !`, fail "The start order reaches readiness" (no role becomes ready);
+  - `start_all` replaced by `Ok(())` fails the same scenario (connection refused).
+- **`common_compute`, `link.rs:197:39` `==` with `!=` in `Link::deliver`:** process-covered. Applied by hand, it fails
+  compute_tests' "An Entries frame past its credit closes compute's role connection" ("the role connection's end did not
+  come to hold"), which passes on the real code. No crate test can send past credit: the crate's played partition answers
+  through `serve_connection`, whose `Outbound` holds a stream to its credit, while compute_tests' tap injects the Credit
+  compute never sent.
+- **`common_compute`, `joining.rs:216:43` `/` with `*` in `hold`:** open, as group 6 recorded. The pace is real time.
+- **`common_role`, `serve.rs:169:26` `==` with `!=` in `Server::machine_of`:** open, as group 5 recorded. The two branches
+  differ only in the idle limit, `IDLE_LIMIT` (600 s) against `Duration::MAX`, and the shell reads the real clock.
+- **Timeouts:**
+  - `common_storage`: `turn`, `take`, the `refused.contains` guard as `true`, `request`, `push_answer`, `serve_scans`;
+  - `common_compute`: `Link::deliver` as `Ok(())`, `read_frames` as `()`.
+
+  Each makes a loop wait forever. Each run had failing tests, each on its own bounded wait, before cargo-mutants cut it at
+  28 or 31 s: 33, 33, 32, 32, 21, 29; 57, 57. Each is a hang the suite notices, not a slow pass.
+
+No mutant was equivalent; `.cargo/mutants.toml` is unchanged. No product code changed.

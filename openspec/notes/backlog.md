@@ -317,6 +317,19 @@ task 8.3). These findings were not taken into that change, and stage 5.9 settles
   frame ends that tenant's versions quietly. Should it fail the read instead?
 - **`Push::Close` in a stream count.** `StorageSession::answered` does not count `Push::Close` as ending a stream. This is
   harmless today, since the connection closes.
+- **Behaviour only real time shows.** Stage 5.8's mutation runs left two survivors open. `Server::machine_of`'s idle limit
+  (`common_role`) and `hold`'s pace (`common_compute`) are told apart only by real time. Does each take a clock seam, so a
+  test pins it without a real-time wait?
+- **Past credit in `common_compute`'s own suite.** `Link::deliver`'s past-credit refusal is pinned only by
+  `compute_tests`' process scenario: the crate's played partition answers through `serve_connection`, whose `Outbound` holds
+  a stream to its credit. Should the played cluster gain a tap that grants more credit than compute sent?
+- **Which compute double a read reaches.** Members lists compute processes by address, and macOS's ephemeral ports wrap,
+  so a test assuming the first-joined double takes the first read fails at a wrap. `common_frontend`'s three scenarios are
+  fixed (`Stage::computes_in_turn`). Do `common_compute`'s played and apart clusters assume the same?
+- **Another role's table in a settings file.** A frontend file holding `[compute] role_address` is neither used nor
+  checked. Is a table of another role refused?
+- **An unused dependency.** `ultragraphdb_common_frontend/Cargo.toml` declares `ultragraphdb_traits_catalog`, which Cargo
+  reports unused.
 
 ### 24. The unused-dependency check reads no manifest
 
