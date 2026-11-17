@@ -1,0 +1,21 @@
+.cargo/audit.toml
+  s_21eff977e05256::t_dac285869ea630 1-10
+openspec/notes/backlog.md
+  s_21eff977e05256::t_012052c03545cf 321-326
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c6a32bd6687b27c092322248743aa788212b1857",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
