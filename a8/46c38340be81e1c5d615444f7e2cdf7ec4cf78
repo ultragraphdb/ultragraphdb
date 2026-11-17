@@ -1,0 +1,41 @@
+openspec/changes/stage-5-8-system-group/notes/group-8.md
+  s_21eff977e05256::t_019139459ac72c 473-502
+ultragraphdb_common/ultragraphdb_common_compute/src/utils/run_read.rs
+  s_21eff977e05256::t_7dff0358287e83 227-230
+ultragraphdb_common/ultragraphdb_common_compute/tests/played_reads/played_partition.rs
+  s_21eff977e05256::t_d2872434058f03 105-106,367-371
+ultragraphdb_common/ultragraphdb_common_compute/tests/utils/run_read_tests.rs
+  s_21eff977e05256::t_1bed1bff40252e 572-573,587
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/system_link/mod.rs
+  s_21eff977e05256::t_42b163a09c07c6 33,36,41-43,59,62-65,153-154
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/system_link/system_link_reads.rs
+  s_21eff977e05256::t_09f61634c52e2e 22,94-99,114-124
+ultragraphdb_common/ultragraphdb_common_frontend/src/utils_test/system_play.rs
+  s_21eff977e05256::t_2f91cb7cc42889 42-43,46-48,152-179,247-252
+ultragraphdb_common/ultragraphdb_common_storage/src/types/storage_session.rs
+  s_21eff977e05256::t_31e40d004916d4 83-84,87
+ultragraphdb_common/ultragraphdb_common_storage/tests/types/storage_session_tests.rs
+  s_21eff977e05256::t_65f6c660843955 16,160-161,174-179
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/system_link/system_link_asks.rs
+  s_21eff977e05256::t_0350c0d7e71101 10,14,17,20-21,25-31,45,50,55,57-59,73-76,85-90,105-116,133,157-161,177-184,205-215,217,219-232
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/system_link/system_link_tasks.rs
+  s_21eff977e05256::t_a941e9ba0a8134 16,19-20,73-74,90-91,95,181-183,188-194,197,210-218,221-230,239-240,242-248,252,254-262,266,276-287,291-306,315,317,328,333,337,341,344-350,353,356,358-365,367-371,373,375-376,390-407
+ultragraphdb_common/ultragraphdb_common_frontend/tests/types/system_link_tests.rs
+  s_21eff977e05256::t_2d6c140e3d77f9 10-11,14-16,26-27,49,589-591,594,597-599,602,604,606-610,612-613,619-624,628-630,632,634-650,655-661,663,667-669,674-676,678-683,700,733-884
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a846c38340be81e1c5d615444f7e2cdf7ec4cf78",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
