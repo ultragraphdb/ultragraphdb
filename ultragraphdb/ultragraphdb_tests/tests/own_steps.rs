@@ -12,7 +12,9 @@ use cucumber::{then, when};
 use ultragraphdb_client_compio::{ClientError, ClientErrorEnum, Login};
 use ultragraphdb_protocol_scram::{ScramError, ScramLogin, system_nonce};
 use ultragraphdb_protocol_transport::{Address, ClientMechanism, TransportError};
-use ultragraphdb_protocol_wire::{Begin, Command, ErrorCode};
+use ultragraphdb_protocol_wire::{
+    Begin, Command, DeclaredKind, DeclaredPredicate, DropCommand, ErrorCode,
+};
 use ultragraphdb_tests::CLUSTER;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -88,6 +90,13 @@ fn two_computes() -> Spec {
 /// A cluster of one compute process behind that frontend.
 fn stalling() -> Spec {
     Spec::one_partition().frontend("storage.scan_stall_ms", STALL_MS)
+}
+
+/// One partition and the harness's settings, `metadata.sessions_max` named at 4,096, the bound `PROTOCOL.md` §11.9 gives it
+/// unnamed, so the group runs as the harness's does: a spec no other scenario takes, whose tenant holds the catalog its own
+/// scenarios declare.
+fn own_catalog() -> Spec {
+    Spec::one_partition().host("metadata.sessions_max", 4_096)
 }
 
 /// Takes `spec`'s cluster for `w`, over TCP in clear text: this run holds one of each spec, and the scenarios of a spec take it
@@ -1513,18 +1522,40 @@ fn one_salt(w: &mut Steps) -> TestResult {
 
 #[when("a client drops a tenant's data after declaring `name` a property")]
 fn tenant_data_dropped(w: &mut Steps) -> TestResult {
-    own(w, &Spec::one_partition())?;
+    own(w, &own_catalog())?;
     let at = cluster(w)?.client.clone();
     let [a, name] = ["a", "name"].map(|n| w.iri(n));
     let (held, declared) = with_client(&at, async |client| {
-        let name_declared = ultragraphdb_protocol_wire::DeclaredPredicate::new(&name)
-            .with_kind(ultragraphdb_protocol_wire::DeclaredKind::Property);
+        let name_declared = DeclaredPredicate::new(&name).with_kind(DeclaredKind::Property);
         crate::endpoint_steps::declare(client, name_declared).await?;
+        // A Drop of a tenant's data names the catalog version it drops under, 0 for a tenant holding none, and a partition
+        // refuses one naming another than the version in effect at its round's epoch (`PROTOCOL.md` §6.5). The cluster is the
+        // scenario's own (`own_catalog`), so `name`'s declaration built the tenant's first version, one above none (§11.12): version 1. It is in
+        // effect from the epoch the declaring Commit's close assigned (§11.13, *Its epoch*), which a Describe listing `name` has
+        // reached.
+        let catalog = 1;
+        let mut listed = false;
+        for _ in 0..500 {
+            let described = client.describe(TENANT).await?;
+            listed = described
+                .predicates()
+                .iter()
+                .any(|declared| declared.predicate() == name);
+            if listed {
+                break;
+            }
+            pause(Duration::from_millis(10)).await;
+        }
+        if !listed {
+            return Err(TestError::new(
+                "no Describe listed `name` within 5 s of its declaration",
+            ));
+        }
         committed(client, &a, &name, &string("A")).await?;
         let session = client.register().await?;
         let dropped = client
             .drop_command(
-                ultragraphdb_protocol_wire::DropCommand::tenant_data(TENANT),
+                DropCommand::tenant_data(TENANT).with_catalog(catalog),
                 session,
             )
             .await?;

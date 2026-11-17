@@ -255,9 +255,14 @@ Every remaining failure, root-caused:
 4. **"A partition silent past the wait withdraws the tightening"**: the step stops the process `storage` with SIGSTOP,
    which is now the system group's host, so the frontend's Commit ends `OutcomeUnknown` instead of a code 24 from the group.
    It needs a partition silent in a storage process that does not host the group (task 8.3's failure runs).
-5. **"A tenant's data drop keeps its catalog"**: refused (2, 5), a conflict of the catalog version. Not root-caused; the
-   likely cause is design D14: the Drop names the version its endpoint core's view holds right after the declaration, before
-   that version takes effect at the partition's round. For groups 4 and 5.
+5. **"A tenant's data drop keeps its catalog"**: refused (2, 5), a conflict of the catalog version. **Root-caused
+   2026-11-16:** the step sent `DropCommand::tenant_data(TENANT)`, whose `catalog` is 0, "a tenant holding none" (`PROTOCOL.md`
+   §6.5), in a tenant holding version 1 after `name`'s declaration; the frontend relays the client's frame unchanged
+   (`client_session_one_frame.rs`, `drop_request`, `drop_event`) and the partition refused it as §6.5 requires
+   (`commit_step_round.rs`, `drop_stale`). Neither the frontend nor the partition was at fault. The step now names version 1,
+   the first one above none (§11.12), in a cluster of its own spec (`own_catalog`, so no earlier scenario's declaration moves
+   the number), and waits for a Describe listing `name`, the version in effect at the latest close (§11.13, *Its epoch*).
+   Passes over the binaries. `cluster_partition`'s C4.12/C4.13 test now names `catalog` 0 beside 3 and 5.
 6. **frontend_tests** "Epoch closes reach storage in order", "The frontend answers a partition's lease and its placement",
    "A frontend without its role address stops the start", "The frontend's /health answers once its listeners are bound":
    each feature text names the frontend's sequencer, its answers to a partition or its role address, which the frontend
@@ -285,6 +290,16 @@ Every remaining failure, root-caused:
    `START_SECONDS`; the integration targets take 4.6 s to 257 s, as before this group. Neither is split here.
 6. **`common_frontend:bdd_endpoint` under load.** The scenario of a silent role address failed once at 19 s in the full
    parallel run, with an error frame where silence was awaited; it passes alone. Not root-caused; not this group's crate.
+7. **The frontend's early refusal of a Drop's `catalog` is absent.** `PROTOCOL.md` §6.5: "The frontend refuses one whose
+   `catalog` is not the tenant's current version the same way, before any partition sees it"; design D14: "The frontend's
+   check stays as an early refusal". `drop_request` (`client_session_one_frame.rs`) relays the client's Drop unchanged and
+   checks nothing against its view; the partition's check alone decides. Not changed here.
+8. **No reply tells a client a tenant's catalog version.** A Drop of kind 3 or 4 names "the tenant's catalog version the
+   client drops under" (§6.5), an Ingest the version it encoded against (§6.8), an Install the version it builds on (§8.4);
+   only an Install's reply names a version. A declaring Commit answers `(c + 2) << 22` (§11.13, *Its epoch*), and Describe
+   carries entries, not the version's fixed part (§8.3, `CATALOG.md` §2). A client of a tenant declared through Writes learns
+   the number only by counting its own declarations from none, as "A tenant's data drop keeps its catalog" does. The user's
+   to decide.
 
 ## Left for 7.5
 

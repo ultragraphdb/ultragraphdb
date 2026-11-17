@@ -570,11 +570,11 @@ fn test_a_drop_naming_the_version_in_effect_commits() -> TestResult {
 }
 
 /// C4.12 and C4.13: version 4 in effect; a Drop of kind 3 or 4 naming version 3, one below, or 5, one above, is refused with
-/// code 2, kind 5, and removes nothing.
+/// code 2, kind 5, and removes nothing; so is one naming 0, a tenant holding none, the `catalog` a client leaving it unset sends.
 #[test]
 fn test_a_drop_naming_another_version_is_refused_and_removes_nothing() -> TestResult {
     for drop in [DropRequest::Data, DropRequest::Tenant] {
-        for catalog in [3, 5] {
+        for catalog in [0, 3, 5] {
             on_hosts(1, |hosts| {
                 written(hosts)?;
                 deliver_history(hosts, &HISTORY, 7)?;
