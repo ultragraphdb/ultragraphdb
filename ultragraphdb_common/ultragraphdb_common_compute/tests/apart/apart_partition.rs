@@ -45,6 +45,13 @@ pub enum Script {
     StallInList,
     /// Answers with a frame naming a range past the Scan's last, which no answer may hold.
     BreakOrder,
+    /// Sends an Error frame on a stream far above the Scan's, which compute has not opened, then answers.
+    StrayAhead,
+    /// Sends an Error frame on stream 1, which a test has let end, its body failing its checksum when `corrupted`, then
+    /// answers.
+    StrayLate { corrupted: bool },
+    /// Sends an Error frame on the stream just below the Scan's, its body failing its checksum, then answers.
+    StrayBelow,
 }
 
 /// One Scan the partition was asked, a pin's left out.
@@ -240,6 +247,20 @@ fn frame_of<B: BodyBuilder>(body: &B, stream: u64, last: bool) -> Result<Vec<u8>
         .map_err(|rule| ErrorReply::protocol(&rule))
 }
 
+/// An Error frame on `stream`, not flagged last, so it spends no credit and ends no stream where it leaves, its last byte
+/// changed when `corrupted`: its header holds, its body's checksum fails.
+fn stray(stream: u64, corrupted: bool) -> Result<Vec<u8>, ErrorReply> {
+    let mut frame = frame_of(
+        &ErrorReply::new(ErrorCode::Refused, "a stray refusal"),
+        stream,
+        false,
+    )?;
+    if corrupted && let Some(last) = frame.last_mut() {
+        *last ^= 0xFF;
+    }
+    Ok(frame)
+}
+
 /// Error 1 naming what the partition refuses before any frame.
 fn protocol(why: String) -> ErrorReply {
     ErrorReply::new(ErrorCode::Protocol, why)
@@ -363,6 +384,18 @@ impl PartitionConnection {
                 .with_detail(u64::from(self.played.partition))),
             Some(Script::StallPastKey) => self.stall(stream, &ranges, false),
             Some(Script::StallInList) => self.stall(stream, &ranges, true),
+            Some(Script::StrayAhead) => {
+                self.push(stream, stray(stream.saturating_add(1_000), false)?);
+                self.answer_scan(stream, &ranges, scan.limit())
+            }
+            Some(Script::StrayLate { corrupted }) => {
+                self.push(stream, stray(1, corrupted)?);
+                self.answer_scan(stream, &ranges, scan.limit())
+            }
+            Some(Script::StrayBelow) => {
+                self.push(stream, stray(stream.saturating_sub(1), true)?);
+                self.answer_scan(stream, &ranges, scan.limit())
+            }
             Some(Script::BreakOrder) => {
                 let past_last = u32::try_from(ranges.len()).unwrap_or(u32::MAX);
                 let entries =

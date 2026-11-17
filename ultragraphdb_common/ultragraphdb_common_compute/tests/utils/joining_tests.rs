@@ -14,14 +14,19 @@ use std::time::Duration;
 
 use compio::runtime::spawn;
 use ultragraphdb_common_compute::{hold_peers, join_group};
-use ultragraphdb_common_role::system_address;
+use ultragraphdb_common_role::{
+    Answer, Push, ROLE_ITERATIONS, Server, Session, serve_connection, system_address,
+};
 use ultragraphdb_common_service::{RoleIdentity, RoleStart, Stopping};
 use ultragraphdb_error_role::RoleError;
-use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_wire::Join;
+use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame};
+use ultragraphdb_protocol_transport_compio::Listener;
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, Command, ErrorCode, ErrorReply, FLAG_LAST, Header, Join, Members,
+};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-use crate::played::played_cluster::{SECRET, role_cluster, run};
+use crate::played::played_cluster::{CLUSTER, SECRET, role_cluster, run};
 use crate::played::played_frontend::{PlayedFrontend, even_ranges};
 
 /// Compute's own role address, which its Join names.
@@ -385,6 +390,157 @@ fn test_a_partition_lost_with_the_group_is_reported_as_the_group() -> TestResult
         let message = lost.to_string();
         assert!(message.contains("system group"), "{message}");
         assert!(message.contains(group.address()), "{message}");
+        Ok(())
+    })
+}
+
+/// What a [`StrayGroup`] sends unasked once it has answered a connection's Members.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stray {
+    /// An Error on a stream compute has not opened.
+    Ahead,
+    /// An Error on the Members' stream, which compute has ended, its body failing its checksum when `corrupted`.
+    Late { corrupted: bool },
+}
+
+/// A group listing compute in its Members, as one compute joined does, and sending `stray` after each Members it answers.
+#[derive(Debug)]
+struct StrayGroup {
+    stray: Stray,
+    members: Rc<Cell<u32>>,
+    then: Option<(u64, Push)>,
+}
+
+/// An Error frame on `stream`, flagged last, its last byte changed when `corrupted`: its header holds, its body's checksum
+/// fails.
+fn stray_error(stream: u64, corrupted: bool) -> TestResult<Vec<u8>> {
+    let mut frame = ErrorReply::new(ErrorCode::Refused, "a stray refusal").frame(
+        Header::new(CLUSTER, Command::Error)
+            .with_stream(stream)
+            .with_flags(FLAG_LAST),
+    )?;
+    if corrupted && let Some(last) = frame.last_mut() {
+        *last ^= 0xFF;
+    }
+    Ok(frame)
+}
+
+impl StrayGroup {
+    /// The Members of `stream`, compute listed, and what follows it: a late frame on its stream, which it leaves open for that
+    /// frame, or an Error on a stream compute has not opened.
+    fn members(&mut self, stream: u64) -> TestResult<Vec<u8>> {
+        self.members.set(self.members.get() + 1);
+        let mut members = Members::new();
+        members.push_compute(OWN);
+        let header = Header::new(CLUSTER, Command::Members).with_stream(stream);
+        let (header, then) = match self.stray {
+            Stray::Ahead => (
+                header.with_flags(FLAG_LAST),
+                (
+                    stream + 100,
+                    Push::Refuse(ErrorReply::new(ErrorCode::Refused, "a stray refusal")),
+                ),
+            ),
+            Stray::Late { corrupted } => (
+                header,
+                (stream, Push::Frame(stray_error(stream, corrupted)?)),
+            ),
+        };
+        self.then = Some(then);
+        Ok(members.frame(header)?)
+    }
+}
+
+impl Session for StrayGroup {
+    async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
+        if frame.command() != Command::Members.number() {
+            return Answer::Refuse(ErrorReply::new(ErrorCode::Unavailable, "not played"));
+        }
+        self.members(stream).map_or_else(
+            |error| Answer::Refuse(ErrorReply::new(ErrorCode::Unavailable, error.to_string())),
+            Answer::Reply,
+        )
+    }
+
+    async fn next_push(&mut self) -> (u64, Push) {
+        match self.then.take() {
+            Some(pushed) => pushed,
+            None => std::future::pending().await,
+        }
+    }
+}
+
+/// Holds a [`StrayGroup`] sending `stray` and a partition, compute's deadline 60 s, so its next ask is 30 s away and the clock
+/// stands at 0: the Members asked so far, and what stops holding.
+async fn holding_stray(stray: Stray) -> TestResult<(Rc<Cell<u32>>, Stopping)> {
+    let cluster = role_cluster(SECRET, Duration::from_secs(60))?;
+    let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
+    let group = listener.local_address()?;
+    let server =
+        Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+    let credentials = cluster.secret().credentials()?;
+    let members = Rc::new(Cell::new(0));
+    let counted = Rc::clone(&members);
+    spawn(async move {
+        while let Ok(carrier) = listener.accept().await {
+            let session = StrayGroup {
+                stray,
+                members: Rc::clone(&counted),
+                then: None,
+            };
+            let (server, credentials) = (server.clone(), credentials.clone());
+            spawn(async move { serve_connection(carrier, &server, credentials, session).await })
+                .detach();
+        }
+    })
+    .detach();
+    let partition = PlayedFrontend::start(&cluster, even_ranges(1)?).await?;
+    let partitions = vec![Address::parse(partition.address())?];
+    let stopping = Stopping::default();
+    let stops = stopping.clone();
+    spawn(async move {
+        let _held = hold_peers(
+            &group,
+            &Join::compute(OWN),
+            partitions,
+            &cluster,
+            &stops,
+            || Duration::ZERO,
+        )
+        .await;
+        drop(partition);
+    })
+    .detach();
+    Ok((members, stopping))
+}
+
+/// §2.5 step 3, §2.6, §13: a frame on a stream compute has not opened on the connection it holds the group by, or a late one
+/// whose body fails its checksum, is refused, which closes the connection: compute asks the group again at once.
+#[test]
+fn test_a_frame_the_held_connection_refuses_closes_it() -> TestResult {
+    run(async {
+        for stray in [Stray::Ahead, Stray::Late { corrupted: true }] {
+            let (members, stopping) = holding_stray(stray).await?;
+            until(&format!("{stray:?}: the group asked again"), || {
+                members.get() > 1
+            })
+            .await?;
+            stopping.set();
+        }
+        Ok(())
+    })
+}
+
+/// §2.5 step 3, §11.2: a whole frame on a stream compute has ended is late and dropped: the connection is kept, and the group
+/// is not asked again before the half deadline.
+#[test]
+fn test_a_late_frame_keeps_the_held_connection() -> TestResult {
+    run(async {
+        let (members, stopping) = holding_stray(Stray::Late { corrupted: false }).await?;
+        until("the group asked", || members.get() > 0).await?;
+        compio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(members.get(), 1, "the connection is kept");
+        stopping.set();
         Ok(())
     })
 }

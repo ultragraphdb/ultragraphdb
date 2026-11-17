@@ -192,3 +192,157 @@ fn test_a_links_first_close_logs_why_it_closed() -> TestResult {
     );
     Ok(())
 }
+
+/// A cluster of one partition naming [`NAME`] and [`SUBJECT`] and listing the subject under [`TOKEN`], and a core reading it.
+async fn named() -> TestResult<(
+    ApartCluster,
+    std::rc::Rc<ultragraphdb_common_compute::ComputeCore>,
+)> {
+    let cluster = ApartCluster::start(1).await?;
+    let partition = cluster.partition(1)?;
+    let (predicate, subject) = (id(900)?, id(901)?);
+    name(partition, NAME, predicate);
+    name(partition, SUBJECT, subject);
+    let key = QuadKey::ValueIndex {
+        tenant: TENANT,
+        graph: Graph::Default,
+        predicate,
+        tokenizer: TOKEN.0,
+        token: TOKEN.1.to_vec(),
+    }
+    .to_bytes();
+    partition.put(key, list_of(&[subject]));
+    let core = cluster.core(times(Duration::from_secs(1)));
+    Ok((cluster, core))
+}
+
+/// The lookup of [`TOKEN`] under [`NAME`] on `core`.
+async fn looked_up(
+    core: &std::rc::Rc<ultragraphdb_common_compute::ComputeCore>,
+) -> Result<Vec<String>, ultragraphdb_protocol_wire::ErrorReply> {
+    core.value_index(TENANT, LookupAt::new(1, 1_000), NAME, TOKEN)
+        .await
+}
+
+/// §2.5 step 3, §13: a frame on a stream compute has not opened answers no request; compute refuses it, which closes the link,
+/// so the lookup reading on it is refused with code 17, and the next dials anew.
+#[test]
+fn test_a_frame_on_a_stream_not_opened_closes_the_link() -> TestResult {
+    run(async {
+        let (cluster, core) = named().await?;
+        let partition = cluster.partition(1)?;
+        partition.script(term_key(TENANT, NAME), Script::StrayAhead, 1);
+        let refused = looked_up(&core)
+            .await
+            .err()
+            .context("the lookup's refusal")?;
+        assert_eq!(
+            refused.code(),
+            ErrorCode::Unavailable,
+            "{}",
+            refused.message()
+        );
+        assert_eq!(
+            looked_up(&core)
+                .await
+                .map_err(|reply| TestError::new(reply.message()))?,
+            [SUBJECT]
+        );
+        assert_eq!(partition.connections(), 2);
+        Ok(())
+    })
+}
+
+/// §2.5 step 3, §11.2: a frame on a stream compute has ended is late: checked whole and dropped, the link kept. One whose body
+/// fails its checksum (§2.5, steps 9 to 12) is refused, which closes the link (§2.6, §13).
+#[test]
+fn test_a_late_frame_is_checked_whole_and_dropped() -> TestResult {
+    run(async {
+        let (cluster, core) = named().await?;
+        let partition = cluster.partition(1)?;
+        assert_eq!(
+            looked_up(&core)
+                .await
+                .map_err(|reply| TestError::new(reply.message()))?,
+            [SUBJECT]
+        );
+        assert_eq!(
+            links_holding_streams(&core).await,
+            (1, 0),
+            "stream 1 has ended"
+        );
+        partition.script(
+            term_key(TENANT, NAME),
+            Script::StrayLate { corrupted: false },
+            1,
+        );
+        assert_eq!(
+            looked_up(&core)
+                .await
+                .map_err(|reply| TestError::new(reply.message()))?,
+            [SUBJECT]
+        );
+        assert_eq!(partition.connections(), 1, "a late frame keeps the link");
+        partition.script(
+            term_key(TENANT, NAME),
+            Script::StrayLate { corrupted: true },
+            1,
+        );
+        let refused = looked_up(&core)
+            .await
+            .err()
+            .context("the lookup's refusal")?;
+        assert_eq!(
+            refused.code(),
+            ErrorCode::Unavailable,
+            "{}",
+            refused.message()
+        );
+        assert_eq!(
+            looked_up(&core)
+                .await
+                .map_err(|reply| TestError::new(reply.message()))?,
+            [SUBJECT]
+        );
+        assert_eq!(partition.connections(), 2);
+        Ok(())
+    })
+}
+
+/// §2.5 step 3, §11.2: a frame of a stream whose holder is gone without letting it go, as a Scan that could not be sent leaves
+/// one, is late: checked whole and dropped. One whose body fails its checksum (§2.5, steps 9 to 12) is refused, which closes
+/// the link (§2.6, §13), so the lookup reading on it is refused with code 17, and the next dials anew.
+#[test]
+fn test_a_frame_of_a_stream_whose_holder_is_gone_is_checked_whole() -> TestResult {
+    run(async {
+        let (cluster, core) = named().await?;
+        let partition = cluster.partition(1)?;
+        // A token past the largest frame: the value index's Scan cannot be built, so its stream is opened and never sent.
+        let huge = vec![b'a'; ultragraphdb_protocol_wire::MAX_FRAME_SIZE];
+        let unsent = core
+            .value_index(TENANT, LookupAt::new(1, 1_000), NAME, (TOKEN.0, &huge))
+            .await
+            .err()
+            .context("the unsent lookup's refusal")?;
+        assert_eq!(unsent.code(), ErrorCode::Protocol, "{}", unsent.message());
+        partition.script(term_key(TENANT, NAME), Script::StrayBelow, 1);
+        let refused = looked_up(&core)
+            .await
+            .err()
+            .context("the lookup's refusal")?;
+        assert_eq!(
+            refused.code(),
+            ErrorCode::Unavailable,
+            "{}",
+            refused.message()
+        );
+        assert_eq!(
+            looked_up(&core)
+                .await
+                .map_err(|reply| TestError::new(reply.message()))?,
+            [SUBJECT]
+        );
+        assert_eq!(partition.connections(), 2);
+        Ok(())
+    })
+}

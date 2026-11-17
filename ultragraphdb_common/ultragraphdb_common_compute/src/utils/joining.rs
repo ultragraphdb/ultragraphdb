@@ -10,8 +10,9 @@ use std::time::Duration;
 use compio::runtime::spawn;
 use ultragraphdb_common_role::{RoleClient, RoleCluster, retry_until};
 use ultragraphdb_common_service::{RoleKind, Stopping};
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_error_role::{RoleError, RoleErrorEnum};
-use ultragraphdb_protocol_transport::{Address, TransportError};
+use ultragraphdb_protocol_transport::{Address, ReceivedFrame, TransportError};
 use ultragraphdb_protocol_wire::{BodyView, Join, Members, MembersView, RoleKind as MemberKind};
 
 /// How often a peer's task looks again: between the dials to a peer that did not answer, and at least between two asks
@@ -223,12 +224,35 @@ where
     Ok(())
 }
 
-/// Ends once the group closes `client`, the connection it was last asked on; a frame it sends unasked is dropped.
+/// Ends once the group closes `client`, the connection it was last asked on, every request of which was answered, or once
+/// compute refuses a frame the group sends unasked, which closes the connection (`PROTOCOL.md` §2.6, §13): a frame on a stream
+/// compute has ended is late, checked whole and dropped; one on stream 0, the group's connection error, or on a stream compute
+/// has not opened answers no request (§2.5, step 3).
 ///
 /// A dropped future drops the connection.
 async fn closes(mut client: RoleClient) {
-    // An event loop: the connection's end ends it (Ultra rule 2).
-    while client.next_frame().await.is_ok() {}
+    let next = client.last_stream().saturating_add(1);
+    // An event loop: the connection's end or a frame refused ends it (Ultra rule 2).
+    while let Ok(frame) = client.next_frame().await {
+        if let Err(rule) = late(&frame, next) {
+            tracing::warn!(%rule, "the system group sent a frame compute refuses; closing the connection");
+            return;
+        }
+    }
+}
+
+/// `frame`, sent unasked on a connection whose next stream is `next`, checked as a late frame.
+///
+/// # Errors
+///
+/// The rule it breaks: a frame-level rule, or a stream of 0 or of `next` or above, which answers no request.
+fn late(frame: &ReceivedFrame, next: u64) -> Result<(), ProtocolError> {
+    let view = frame.view()?;
+    let stream = view.header().stream();
+    if stream == 0 || stream >= next {
+        return Err(ProtocolError::command_not_served(view.command().number()));
+    }
+    Ok(())
 }
 
 /// Asks `peer` by `ask` until it answers, each ask limited to the time left before the deadline, past which it is lost:

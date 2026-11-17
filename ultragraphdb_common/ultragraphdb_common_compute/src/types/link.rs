@@ -16,7 +16,7 @@ use ultragraphdb_common_role::{RoleClient, RoleReader, RoleWriter};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{BufferPool, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, Credit, ErrorReply, Header, HeaderView, MAX_FRAME_SIZE,
+    BodyBuilder, Command, Credit, ErrorReply, FrameView, Header, HeaderView, MAX_FRAME_SIZE,
 };
 
 use crate::utils::clock::now;
@@ -185,22 +185,32 @@ impl Link {
         .detach();
     }
 
-    /// Hands `frame` to its stream's holder; a frame of a stream gone had no one to go to. An Entries frame past its stream's credit
-    /// is refused, naming the stream.
+    /// Hands `frame` to its stream's holder. A frame of a stream compute has ended, below the next it opens, is late: checked
+    /// whole and dropped, as no holder will check it (`PROTOCOL.md` §2.5, step 3); so is one of a stream whose holder is gone
+    /// without forgetting it, which then ends. A frame of a stream at or above the next answers no request and is refused as a
+    /// command not served, and an Entries frame past its stream's credit is refused, naming the stream.
     fn deliver(&self, stream: u64, frame: ReceivedFrame) -> Result<(), ProtocolError> {
-        // The header alone, which the framer verified: the body's checksums are the holder's to check, once.
-        let metered = HeaderView::new(frame.bytes())
-            .is_ok_and(|header| header.command() == Command::Entries.number());
-        if let Some(open) = self.streams.borrow_mut().get_mut(&stream) {
-            if metered {
-                open.credit = open
-                    .credit
-                    .checked_sub(1)
-                    .ok_or_else(|| ProtocolError::past_credit(stream))?;
-            }
-            // A holder gone is a read that ended meanwhile.
-            drop(open.frames.unbounded_send(frame));
+        if stream >= self.next_stream.get() {
+            return Err(ProtocolError::command_not_served(frame.command()));
         }
+        // The header alone, which the framer verified: the body's checksums are the holder's to check, once.
+        let metered = frame.command() == Command::Entries.number();
+        let mut streams = self.streams.borrow_mut();
+        let Some(open) = streams
+            .get_mut(&stream)
+            .filter(|open| !open.frames.is_closed())
+        else {
+            drop(streams.remove(&stream));
+            return FrameView::validate(frame.bytes(), self.cluster, MAX_FRAME_SIZE).map(drop);
+        };
+        if metered {
+            open.credit = open
+                .credit
+                .checked_sub(1)
+                .ok_or_else(|| ProtocolError::past_credit(stream))?;
+        }
+        // The holder is there, as looked above, and nothing on this core runs between.
+        drop(open.frames.unbounded_send(frame));
         Ok(())
     }
 }
