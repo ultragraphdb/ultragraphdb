@@ -1,0 +1,72 @@
+"openspec/designs/UltraGraphDB Storage IO in Longshore.md"
+  s_dbb544771cb1e2::t_2ac04c3a474ec0 51-53
+openspec/changes/stage-6-5-tile-store/specs/tile-engine/spec.md
+  s_dbb544771cb1e2::t_f34b70df89a48d 110-125,132-139,193-218
+  s_dbb544771cb1e2::t_9afe2eb62fa855 219
+"openspec/designs/UltraGraphDB Distribution Architecture.md"
+  s_dbb544771cb1e2::t_01b44c4b320d70 893-895
+  s_dbb544771cb1e2::t_8c6c2c9a592f65 870-874
+  s_dbb544771cb1e2::t_9d9853c9633f66 456
+  s_dbb544771cb1e2::t_9d52c6839062b1 886-887
+  s_dbb544771cb1e2::t_03aabd73d86070 652
+specification/query/QUERY-ULTRA-QL.md
+  s_dbb544771cb1e2::t_73a18706144102 450-451
+  s_dbb544771cb1e2::t_0e9ba4299f37de 489-490
+specification/binary_protocol/PROTOCOL.md
+  s_dbb544771cb1e2::t_faafafe9621135 3120,3145-3146,3308-3312,4335-4336,4367-4368
+  s_dbb544771cb1e2::t_f34b70df89a48d 3928-3929
+openspec/changes/stage-6-5-tile-store/specs/wire-protocol/spec.md
+  s_dbb544771cb1e2::t_41efb19626bfd9 259-260
+"openspec/notes/UltraGraphDB Scalable Tile Store.md"
+  s_dbb544771cb1e2::t_d92c3d09459549 348
+openspec/changes/stage-6-5-tile-store/specs/tile-format/spec.md
+  s_dbb544771cb1e2::t_73b18e1c16105a 153-186
+  s_dbb544771cb1e2::t_0e9ba4299f37de 131
+openspec/changes/stage-6-5-tile-store/specs/commit-rounds/spec.md
+  s_dbb544771cb1e2::t_41efb19626bfd9 31-35
+openspec/changes/stage-6-5-tile-store/tasks.md
+  s_dbb544771cb1e2::t_41efb19626bfd9 28
+specification/schema/CATALOG.md
+  s_dbb544771cb1e2::t_73a18706144102 430-432,628
+  s_dbb544771cb1e2::t_ae282baf63c5e7 622
+  s_dbb544771cb1e2::t_faafafe9621135 624-627
+"openspec/designs/UltraGraphDB Temporal Tile Store on Object Storage.md"
+  s_dbb544771cb1e2::t_194024e7da7d40 125
+  s_dbb544771cb1e2::t_9c10277b513238 19,132-138,156-157,160,172,174-175,178-179,181-184,197
+  s_dbb544771cb1e2::t_50e4eea2caea36 1-18,21-92,94-124,126-131,139,145-155,159,161-162,166-171,176-177,180,185-187,189-196,198-219
+  s_dbb544771cb1e2::t_0723d6592b5cc5 20,93,140-144,158,163-165,173,188
+specification/storage/STORAGE.md
+  s_dbb544771cb1e2::t_8ebe3b28cd0152 338,340-341,361-398,1653
+  s_dbb544771cb1e2::t_0c93c882602bca 1011
+  s_dbb544771cb1e2::t_3c49b95393ef6b 946-957
+  s_dbb544771cb1e2::t_faafafe9621135 1014,1067-1070,1158-1166,1514-1519,1655
+  s_dbb544771cb1e2::t_57a29d5e302dea 1066,1071-1072
+  s_dbb544771cb1e2::t_a4b579d386bbb5 1656-1658
+  s_dbb544771cb1e2::t_d2b27178083364 1010
+  s_dbb544771cb1e2::t_73a18706144102 1530-1533,1654
+openspec/changes/stage-6-5-tile-store/specs/tokenizers/spec.md
+  s_dbb544771cb1e2::t_0e9ba4299f37de 37
+specification/schema/SCHEMA.md
+  s_dbb544771cb1e2::t_2bc3aede4573c3 1861-1863
+  s_dbb544771cb1e2::t_0e9ba4299f37de 431-432,812,1832-1833,2173
+  s_dbb544771cb1e2::t_73a18706144102 984,1160-1164,1865,1870-1872
+  s_dbb544771cb1e2::t_2375e2a58521dd 1282-1284
+  s_dbb544771cb1e2::t_faafafe9621135 1866-1869
+  s_dbb544771cb1e2::t_7db1e36912e7c4 1279-1281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "87aa096af802c5d1f890e68ed995b0ad3e869dfb",
+  "prompts": {},
+  "sessions": {
+    "s_dbb544771cb1e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e471a51-799d-4147-84ac-86dfaaa66de3",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
