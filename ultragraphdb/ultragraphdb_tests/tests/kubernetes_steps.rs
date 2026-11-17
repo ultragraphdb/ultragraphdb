@@ -41,9 +41,6 @@ const IN_DOUBT: Duration = Duration::from_secs(1);
 /// mark of a connection that closes with it (`PROTOCOL.md` §11.5): far above a turn.
 const ENDED: Duration = Duration::from_millis(300);
 
-/// The deadline of the compute process of the scenario whose host restarts: it asks the group every half of it.
-const COMPUTE_DEADLINE_MS: u64 = 10_000;
-
 /// How many read-only transactions a read-back tries, one per snapshot, until a snapshot holds every acknowledged commit.
 const SNAPSHOTS: u32 = 200;
 
@@ -87,25 +84,6 @@ async fn read_back(
         pause(Duration::from_millis(20)).await;
     }
     Ok(cells)
-}
-
-/// Waits until the system group at `system` lists a compute process again: one that lost the group while its host restarted
-/// joins it again on its own clock, and until then the frontend, ready already, refuses a read for want of compute.
-fn until_compute_listed(cluster: &Cluster) -> TestResult {
-    let system = &cluster.system;
-    for _ in 0..START_SECONDS * 20 {
-        if members_at(system)?
-            .iter()
-            .any(|(kind, _, _)| *kind == RoleKind::Compute)
-        {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    Err(TestError::new(format!(
-        "no compute process joined the system group at {system} again; compute logged:\n{}",
-        cluster.log("compute")?
-    )))
 }
 
 /// The latest catalog version of the tenant at the system group at `system`, 0 for none, as a partition asks for it.
@@ -265,12 +243,7 @@ fn secret_named(w: &mut Steps) -> TestResult {
     "a storage pod is deleted with a grace period of zero while a client commits through the frontend, and the pod starts again"
 )]
 fn killed_under_writes(w: &mut Steps) -> TestResult {
-    // Compute asks the group every half deadline whether it still lists compute, and joins a restarted one again then: at
-    // the default of 60 s, the frontend would refuse reads for up to 30 s after the host restarts (`notes/group-7.md`).
-    own(
-        w,
-        &Spec::one_partition().compute("cluster.join_deadline_ms", COMPUTE_DEADLINE_MS),
-    )?;
+    own(w, &Spec::one_partition())?;
     let (s, p) = (w.iri("s"), w.iri("p"));
     let at = running(w)?.client.clone();
     let mut writer = run(async { client(&at).await })?;
@@ -304,7 +277,6 @@ fn killed_under_writes(w: &mut Steps) -> TestResult {
     cluster.restart("storage")?;
     until_answering(&cluster.observability("storage")?, "/ready")?;
     until_answering(&cluster.frontend_ready_address()?, "/ready")?;
-    until_compute_listed(cluster)?;
     let read = run(async {
         let mut reader = client(&at).await?;
         read_back(&mut reader, (&s, &p), &acknowledged).await

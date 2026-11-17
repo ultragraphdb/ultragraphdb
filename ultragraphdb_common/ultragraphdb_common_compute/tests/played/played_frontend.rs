@@ -7,17 +7,18 @@
 //! the settings switch: it answers compute's Placement with the bucket ranges it is given, its Members with the played
 //! partitions' addresses and the compute processes that joined, its Join by listing the compute process, and its Catalog
 //! with the versions it holds, across frames within compute's `max_frame`, each after a delay the test may set. It may
-//! stop answering, turning every connection away before its Welcome, as a group gone does.
+//! stop answering, turning every connection away before its Welcome, as a group gone does, and restart, closing every
+//! connection it holds.
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use std::time::Duration;
 
-use compio::runtime::spawn;
+use compio::runtime::{JoinHandle, spawn};
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_role::{
-    Answer, ROLE_ITERATIONS, RoleCluster, Server, Session, serve_connection,
+    Answer, OpenRequests, ROLE_ITERATIONS, RoleCluster, Server, Session, serve_connection,
 };
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame};
@@ -66,6 +67,10 @@ pub struct PlayedFrontend {
     /// The frames each version is answered in, or `None` for as many as its bytes take within `max_frame`.
     split: Rc<Cell<Option<usize>>>,
     counts: Rc<Counts>,
+    /// Every request taken and not yet answered on the wire.
+    open: OpenRequests,
+    /// Each connection it accepted and answers, which a restart closes by dropping.
+    connections: Rc<RefCell<Vec<JoinHandle<()>>>>,
 }
 
 impl PlayedFrontend {
@@ -74,8 +79,10 @@ impl PlayedFrontend {
         let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
         let address = listener.local_address()?.to_string();
         let credentials = cluster.secret().credentials()?;
+        let open = OpenRequests::default();
         let server = Server::new(cluster.id(), "frontend", Endpoint::Frontend)?
-            .with_iterations(ROLE_ITERATIONS);
+            .with_iterations(ROLE_ITERATIONS)
+            .with_open(open.clone());
         let played = Self {
             address,
             ranges: Rc::from(ranges),
@@ -89,6 +96,8 @@ impl PlayedFrontend {
             answering: Rc::new(Cell::new(true)),
             split: Rc::default(),
             counts: Rc::default(),
+            open,
+            connections: Rc::default(),
         };
         let serving = played.clone();
         spawn(async move {
@@ -105,10 +114,10 @@ impl PlayedFrontend {
                     queued: VecDeque::new(),
                 };
                 let (server, credentials) = (server.clone(), credentials.clone());
-                spawn(
-                    async move { serve_connection(carrier, &server, credentials, session).await },
-                )
-                .detach();
+                let served = spawn(async move {
+                    serve_connection(carrier, &server, credentials, session).await;
+                });
+                serving.connections.borrow_mut().push(served);
             }
         })
         .detach();
@@ -135,6 +144,18 @@ impl PlayedFrontend {
     /// Lists no compute process, as a group restarted holds none until each joins again.
     pub fn forget_compute(&self) {
         self.compute.borrow_mut().clear();
+    }
+
+    /// Restarts: every connection it holds is closed, as its host's sockets close with it, and it lists no compute process,
+    /// holding no Join from before.
+    pub fn restart(&self) {
+        self.connections.borrow_mut().clear();
+        self.forget_compute();
+    }
+
+    /// How many requests it has taken and not yet answered on the wire.
+    pub fn requests_open(&self) -> usize {
+        self.open.count()
     }
 
     /// Holds `version` of `tenant`'s catalog, its bytes `bytes`, applying from `epoch`.

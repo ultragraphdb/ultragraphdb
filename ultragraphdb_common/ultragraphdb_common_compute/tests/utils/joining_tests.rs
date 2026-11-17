@@ -189,11 +189,11 @@ struct Held {
 
 impl Held {
     /// Holds a group listing compute already, as one it joined does, and a partition, the clock at 0, the group of a cluster
-    /// whose roles hold `group_secret`.
-    async fn start(group_secret: &str) -> TestResult<Self> {
-        let cluster = role_cluster(SECRET, DEADLINE)?;
+    /// whose roles hold `group_secret`, compute's deadline `deadline`.
+    async fn start(group_secret: &str, deadline: Duration) -> TestResult<Self> {
+        let cluster = role_cluster(SECRET, deadline)?;
         let group =
-            PlayedFrontend::start(&role_cluster(group_secret, DEADLINE)?, even_ranges(1)?).await?;
+            PlayedFrontend::start(&role_cluster(group_secret, deadline)?, even_ranges(1)?).await?;
         let partition = PlayedFrontend::start(&cluster, even_ranges(1)?).await?;
         group.list_compute(OWN);
         let held = Self {
@@ -247,7 +247,7 @@ impl Held {
 #[test]
 fn test_a_group_back_before_the_deadline_is_joined_again() -> TestResult {
     run(async {
-        let held = Held::start(SECRET).await?;
+        let held = Held::start(SECRET, DEADLINE).await?;
         let group = &held.group;
         // The second ask begins once the first has ended, so a Join the first sent has arrived by then.
         until("two Members asked", || group.members_asked() > 1).await?;
@@ -269,12 +269,42 @@ fn test_a_group_back_before_the_deadline_is_joined_again() -> TestResult {
     })
 }
 
+/// The user's decision of 2026-11-17 (`notes/group-7.md`, *Found wanting* 1): compute joins a group again as soon as its
+/// connection to it comes back. The group restarts once compute's first ask is answered on the wire, closing compute's
+/// connection and holding no Join from before; compute's deadline of 60 s puts its next ask 30 s away, past the 10 s `until`
+/// waits, and the clock stands at 0, so no deadline passes: the Join comes on the connection compute dials as the old one
+/// closes.
+#[test]
+fn test_a_restarted_group_is_joined_again_at_once() -> TestResult {
+    run(async {
+        let held = Held::start(SECRET, Duration::from_secs(60)).await?;
+        let group = &held.group;
+        until("the first ask answered", || {
+            group.members_asked() > 0 && group.requests_open() == 0
+        })
+        .await?;
+        assert!(
+            group.joins().is_empty(),
+            "a group listing compute takes no Join"
+        );
+        let dialled = group.dials();
+        group.restart();
+        until("a Join", || !group.joins().is_empty()).await?;
+        assert_eq!(group.joins(), vec![OWN.to_string()]);
+        assert!(group.dials() > dialled, "the Join came on a new connection");
+        assert!(!held.has_ended(), "compute goes on");
+        held.stopping.set();
+        assert!(held.outcome().await?.is_ok());
+        Ok(())
+    })
+}
+
 /// C6.3: a group gone is waited for until the deadline, not a tick less, and then ends compute with code 69 naming the group
 /// and its address.
 #[test]
 fn test_a_group_gone_past_the_deadline_ends_compute_naming_its_address() -> TestResult {
     run(async {
-        let held = Held::start(SECRET).await?;
+        let held = Held::start(SECRET, DEADLINE).await?;
         let group = &held.group;
         until("a Members asked", || group.members_asked() > 0).await?;
         group.answer(false);
@@ -301,7 +331,7 @@ fn test_a_group_gone_past_the_deadline_ends_compute_naming_its_address() -> Test
 #[test]
 fn test_a_group_refusing_the_secret_ends_compute_at_the_deadline() -> TestResult {
     run(async {
-        let held = Held::start("another secret").await?;
+        let held = Held::start("another secret", DEADLINE).await?;
         let group = &held.group;
         until("a dial", || group.dials() > 0).await?;
         held.clock.set(DEADLINE);
@@ -319,7 +349,7 @@ fn test_a_group_refusing_the_secret_ends_compute_at_the_deadline() -> TestResult
 #[test]
 fn test_a_partition_gone_past_the_deadline_ends_compute_naming_it() -> TestResult {
     run(async {
-        let held = Held::start(SECRET).await?;
+        let held = Held::start(SECRET, DEADLINE).await?;
         let partition = &held.partition;
         until("the partition dialled", || partition.dials() > 0).await?;
         partition.answer(false);
@@ -340,7 +370,7 @@ fn test_a_partition_gone_past_the_deadline_ends_compute_naming_it() -> TestResul
 #[test]
 fn test_a_partition_lost_with_the_group_is_reported_as_the_group() -> TestResult {
     run(async {
-        let held = Held::start(SECRET).await?;
+        let held = Held::start(SECRET, DEADLINE).await?;
         let (group, partition) = (&held.group, &held.partition);
         until("a Members asked", || group.members_asked() > 0).await?;
         partition.answer(false);

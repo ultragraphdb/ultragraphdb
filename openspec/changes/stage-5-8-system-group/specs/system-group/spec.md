@@ -247,12 +247,17 @@ are synced. The hosting process SHALL exit for no lost peer; a failed log of the
 - **THEN** the hosting process shuts down through its ordinary path and exits with code 74
 
 ### Requirement: A lost system group is waited for until the deadline
-A process that dials the system group, a storage process not hosting it, a compute process or the frontend, SHALL dial again when its connection closes, and SHALL exit with code 69 once the group has been gone for `[cluster] join_deadline_ms`, naming the address. Until then a partition of a storage process that does not host the group SHALL go on committing in its open epoch, SHALL refuse with code 5 once that epoch is full and its close request has gone unanswered for `close_request_ms`, and SHALL let its snapshot reads wait within their deadlines. Until then the frontend SHALL refuse what needs the group with code 17 (Unavailable): a request through a session, cancelling the Bind stream of a transaction whose Check went unanswered, a Register, a declaring Commit and a Describe; and SHALL answer an authentication it cannot relay with Error 17 on stream 0, closing the connection and counting no failure, so an outage bans no source. A Begin, a read and a commit through no session SHALL go on from its view.
+A process that dials the system group, a storage process not hosting it, a compute process or the frontend, SHALL dial again when its connection closes, and SHALL exit with code 69 once the group has been gone for `[cluster] join_deadline_ms`, naming the address. Until then a partition of a storage process that does not host the group SHALL go on committing in its open epoch, SHALL refuse with code 5 once that epoch is full and its close request has gone unanswered for `close_request_ms`, and SHALL let its snapshot reads wait within their deadlines. Until then the frontend SHALL refuse what needs the group with code 17 (Unavailable): a request through a session, cancelling the Bind stream of a transaction whose Check went unanswered, a Register, a declaring Commit and a Describe; and SHALL answer an authentication it cannot relay with Error 17 on stream 0, closing the connection and counting no failure, so an outage bans no source. A Begin, a read and a commit through no session SHALL go on from its view. A storage process and a compute process that dial again SHALL join again on the new connection unless the group still lists them, so a restarted group, which holds no Join from before, lists them as soon as it answers.
 
 #### Scenario: A frontend started before storage waits
 - **WHEN** the frontend starts while no process listens at `cluster.system_address`, and the hosting storage process
   starts within the deadline
 - **THEN** the frontend dials until it is answered, and its `/ready` answers after storage's
+
+#### Scenario: A compute process joins a restarted system group at once
+- **WHEN** the hosting storage process is killed and started again within `join_deadline_ms`
+- **THEN** compute dials the group as its connection closes and joins it again on the connection the group answers, so
+  the group's Members lists compute again as soon as the group is back
 
 #### Scenario: A group gone past the deadline ends its dependants
 - **WHEN** the hosting storage process is killed and does not return within `join_deadline_ms`

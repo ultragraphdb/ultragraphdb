@@ -96,8 +96,6 @@ pub(crate) struct Spec {
     /// The settings of the storage process hosting the system group beyond every storage process's: its `[metadata]` and
     /// `[sequencer]` settings.
     pub(crate) host: Vec<(&'static str, String)>,
-    /// Every compute process's settings beyond the harness's.
-    pub(crate) compute: Vec<(&'static str, String)>,
 }
 
 impl Spec {
@@ -110,7 +108,6 @@ impl Spec {
             frontend: Vec::new(),
             storage: Vec::new(),
             host: Vec::new(),
-            compute: Vec::new(),
         }
     }
 
@@ -137,12 +134,6 @@ impl Spec {
     /// With the hosting storage process's setting `name` holding `value`: a setting of the system group's.
     pub(crate) fn host(mut self, name: &'static str, value: u64) -> Self {
         self.host.push((name, value.to_string()));
-        self
-    }
-
-    /// With every compute process's setting `name` holding `value`.
-    pub(crate) fn compute(mut self, name: &'static str, value: u64) -> Self {
-        self.compute.push((name, value.to_string()));
         self
     }
 
@@ -318,10 +309,9 @@ impl Layout {
         Ok(settings)
     }
 
-    /// The compute process of `spec` at `address`, its observability at `observability`.
+    /// The compute process at `address`, its observability at `observability`.
     fn compute_settings(
         &self,
-        spec: &Spec,
         address: &str,
         observability: &str,
     ) -> TestResult<Vec<(String, String)>> {
@@ -333,9 +323,6 @@ impl Layout {
             ("cluster.system_address", system.clone()),
         ] {
             settings = with(settings, name, &value);
-        }
-        for (name, value) in &spec.compute {
-            settings = with(settings, name, value);
         }
         Ok(settings)
     }
@@ -497,11 +484,6 @@ impl Cluster {
         self.observability("frontend")
     }
 
-    /// What `instance` has logged so far.
-    pub(crate) fn log(&self, instance: &str) -> TestResult<String> {
-        Ok(std::fs::read_to_string(&self.member(instance)?.log)?)
-    }
-
     /// Where `/health` and `/ready` of `instance` answer.
     pub(crate) fn observability(&self, instance: &str) -> TestResult<String> {
         Ok(self.member(instance)?.observability.clone())
@@ -577,7 +559,7 @@ fn plan(layout: &Layout, spec: &Spec) -> TestResult<Vec<Planned>> {
         } else {
             "compute"
         },
-        settings: layout.compute_settings(spec, compute_role, c_obs)?,
+        settings: layout.compute_settings(compute_role, c_obs)?,
         observability: c_obs.clone(),
         wait_path: "/ready",
     });
@@ -586,11 +568,7 @@ fn plan(layout: &Layout, spec: &Spec) -> TestResult<Vec<Planned>> {
         planned.push(Planned {
             program: COMPUTE_BINARY,
             instance: "compute_2",
-            settings: layout.compute_settings(
-                spec,
-                &layout.second(compute_role)?,
-                &observability,
-            )?,
+            settings: layout.compute_settings(&layout.second(compute_role)?, &observability)?,
             observability,
             wait_path: "/ready",
         });

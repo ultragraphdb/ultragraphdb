@@ -591,6 +591,25 @@ set, "A storage pod killed under writes keeps every acknowledged commit" failed 
    group closes, the frontend's `/ready` asking for a compute process, or the group keeping its members across a restart).
    Task 7.4's "A client's declaration of `name` a property is acknowledged, …, the storage process restarts, and a client
    writes" fails in the whole run with the same refusal.
+
+   **Fixed 2026-11-17**, as the user decided: compute joins the group again as soon as its connection to it comes back,
+   the periodic ask kept as the backstop. Storage already did so (`deliver_closes` dials, joins and subscribes again as
+   its subscription's connection ends); compute held no connection between asks, so it could not see the group go.
+   `common_compute`'s `hold_peers` now holds the connection the group was last asked on and asks again the moment it
+   closes, which finds compute unlisted and sends the Join; a group that never closes it, as one stopped, is still found
+   by the ask every half deadline. system-group, "A lost system group is waited for until the deadline", states the
+   rejoin and gains "A compute process joins a restarted system group at once", bound in `compute_tests`
+   (`features/system-group/system_group.feature`, compute at a deadline of 120 s, so only the close lists it again within
+   the 20 s the step waits). The kubernetes scenario runs compute at the default deadline and no longer waits for
+   Members; `Spec::compute` and `Cluster::log`, which only that wait used, are removed from `tests/cluster.rs`.
+
+   Failing first: `joining_tests`' `test_a_restarted_group_is_joined_again_at_once` (the played group closes every
+   connection once compute's first ask is answered on the wire, and forgets compute; the test clock stands at 0, the
+   next ask 30 s away) failed "a Join did not happen". Over the binaries, a temporary edit giving the group's ask a wait
+   that never ends, so its connection dropped at once as before, since reverted: the new `compute_tests` scenario failed
+   (compute not listed within 20 s), and both "A storage pod killed under writes keeps every acknowledged commit" and "A
+   write the tightening forbids is refused once the check passed" failed "refused (Unavailable, detail 0): no compute
+   process answers". With the fix all three pass; the two `ultragraphdb_tests` scenarios passed 10 runs of 10.
 2. **A binary hanging at its end.** `frontend_tests:bdd` and the whole `ultragraphdb_tests:bdd` each printed their last
    summary and then ran until Bazel's timeout, under a load average of 12 with another agent's builds; `frontend_tests` run
    again alone ended at once, and so do the six scenarios alone. Not root-caused: the last step of each is the drop of what

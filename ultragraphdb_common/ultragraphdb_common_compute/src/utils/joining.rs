@@ -104,6 +104,8 @@ struct Found {
 /// idle limit and the protocol no ping (`PROTOCOL.md` §11.4, §11.12), so a dial is the question: a peer answers by its
 /// Welcome and its proof of the secret. The group is asked its Members too, and a group that no longer lists `join`'s
 /// address, as one restarted, is sent `join` again (system-group, "A lost system group is waited for until the deadline").
+/// The connection the group was last asked on is held, and the group is asked again as soon as it closes, as storage
+/// subscribes again: a restarted group is joined again as it comes back, not at the next ask.
 /// A partition lost while the group does not answer either, as when the process hosting both is killed, is reported as
 /// the group lost, once the group's own deadline passes.
 ///
@@ -172,7 +174,7 @@ where
 {
     let failing = |failing: bool| found.group_failing.set(failing);
     let ask = || ask_group(&group, &join, &asker.cluster);
-    if let Err(lost) = hold(&asker, &group, "the system group", ask, failing).await {
+    if let Err(lost) = hold(&asker, &group, "the system group", ask, closes, failing).await {
         found.group_lost.set(Some(lost));
     }
 }
@@ -184,50 +186,66 @@ where
     C: Fn() -> Duration,
 {
     let ask = || dial(&partition, &asker.cluster);
-    if let Err(lost) = hold(&asker, &partition, "the role", ask, |_| ()).await {
+    // A partition's ask holds no connection, so only the half deadline asks it again.
+    let never = |()| std::future::pending::<()>();
+    if let Err(lost) = hold(&asker, &partition, "the role", ask, never, |_| ()).await {
         found.partition_lost.set(Some(lost));
     }
 }
 
-/// Asks `peer`, named `what`, by `ask` every half deadline for as long as it answers; `failing` is told whether the ask
-/// under way has met a refusal.
+/// Asks `peer`, named `what`, by `ask` every half deadline for as long as it answers, and at once when what the last ask
+/// holds is `closed`; `failing` is told whether the ask under way has met a refusal.
 ///
-/// A future dropped at an ask or a wait holds nothing: the ask's half-made connection is dropped with it.
-async fn hold<C, A, F>(
+/// A future dropped at an ask or a wait holds nothing: the ask's half-made connection, or the one it held, is dropped with
+/// it.
+async fn hold<C, A, F, H, W>(
     asker: &Asker<C>,
     peer: &Address,
     what: &str,
     ask: A,
+    closed: impl Fn(H) -> W,
     failing: impl Fn(bool),
 ) -> Result<(), RoleError>
 where
     C: Fn() -> Duration,
     A: Fn() -> F,
-    F: Future<Output = Result<(), TransportError>>,
+    F: Future<Output = Result<H, TransportError>>,
+    W: Future<Output = ()>,
 {
     let every = (asker.cluster.deadline() / ASKS_PER_DEADLINE).max(POLL);
     // An event loop: the service's stop or the peer lost ends it (Ultra rule 2).
-    while answers(asker, peer, what, &ask, &failing).await? {
-        compio::time::sleep(every).await;
+    while let Some(held) = answers(asker, peer, what, &ask, &failing).await? {
+        let wait = std::pin::pin!(compio::time::sleep(every));
+        let closing = std::pin::pin!(closed(held));
+        // Whichever comes first; the other is dropped, and with it what the last ask held.
+        let _first = futures::future::select(wait, closing).await;
     }
     Ok(())
 }
 
-/// Asks `peer` by `ask` until it answers, each ask limited to the time left before the deadline, past which it is lost;
-/// false once the service stops.
+/// Ends once the group closes `client`, the connection it was last asked on; a frame it sends unasked is dropped.
+///
+/// A dropped future drops the connection.
+async fn closes(mut client: RoleClient) {
+    // An event loop: the connection's end ends it (Ultra rule 2).
+    while client.next_frame().await.is_ok() {}
+}
+
+/// Asks `peer` by `ask` until it answers, each ask limited to the time left before the deadline, past which it is lost:
+/// what the ask holds, or `None` once the service stops.
 ///
 /// A future dropped at an ask or a wait holds nothing: the ask's half-made connection is dropped with it.
-async fn answers<C, A, F>(
+async fn answers<C, A, F, H>(
     asker: &Asker<C>,
     peer: &Address,
     what: &str,
     ask: &A,
     failing: &impl Fn(bool),
-) -> Result<bool, RoleError>
+) -> Result<Option<H>, RoleError>
 where
     C: Fn() -> Duration,
     A: Fn() -> F,
-    F: Future<Output = Result<(), TransportError>>,
+    F: Future<Output = Result<H, TransportError>>,
 {
     let deadline = asker.cluster.deadline();
     let due = (asker.clock)().saturating_add(deadline);
@@ -235,9 +253,9 @@ where
     while !asker.stopping.is_stopping() {
         let left = due.saturating_sub((asker.clock)()).max(POLL);
         let why = match compio::time::timeout(left, ask()).await {
-            Ok(Ok(())) => {
+            Ok(Ok(held)) => {
                 failing(false);
-                return Ok(true);
+                return Ok(Some(held));
             }
             Ok(Err(error)) => error.to_string(),
             Err(_) => format!("an ask had no answer within {} ms", left.as_millis()),
@@ -252,7 +270,7 @@ where
         tracing::warn!(%peer, %why, "a role did not answer; asking it again");
         compio::time::sleep(POLL).await;
     }
-    Ok(false)
+    Ok(None)
 }
 
 /// Whether `peer` answers a dial: its Welcome and its proof of the secret.
@@ -265,14 +283,14 @@ async fn dial(peer: &Address, cluster: &RoleCluster) -> Result<(), TransportErro
 }
 
 /// Whether the group at `group` answers its Members, sending it `join` again when they do not list `join`'s address, as a
-/// group restarted holds no Join from before.
+/// group restarted holds no Join from before: the connection it was asked on.
 ///
 /// A dropped future drops its connection; a Join the group took stays taken.
 async fn ask_group(
     group: &Address,
     join: &Join,
     cluster: &RoleCluster,
-) -> Result<(), TransportError> {
+) -> Result<RoleClient, TransportError> {
     let name = RoleKind::Compute.to_string();
     let mut client =
         RoleClient::dial(group, cluster.id(), &name, cluster.secret().password()).await?;
@@ -290,5 +308,5 @@ async fn ask_group(
     if !listed {
         drop(client.request(join).await?);
     }
-    Ok(())
+    Ok(client)
 }

@@ -9,17 +9,22 @@
 use std::time::Duration;
 
 use cucumber::{then, when};
+use ultragraphdb_protocol_wire::RoleKind;
 use ultragraphdb_tests::{
     COMPUTE_BINARY, COMPUTE_OBSERVABILITY, SECRET, START_SECONDS, STORAGE_BINARY,
-    STORAGE_OBSERVABILITY, answering, compute_on_one_host, exit_is, fresh_data, holding, role,
-    scratch, storage_holding, with,
+    STORAGE_OBSERVABILITY, answering, compute_on_one_host, exit_is, fresh_data, holding,
+    members_at, role, scratch, storage_holding, with,
 };
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 use crate::{Steps, services, signal};
 
 /// Where the hosting storage process's system group listens: an address of its own beside its partitions'.
 const SYSTEM_ROLE_ADDRESS: &str = "127.0.0.1:17084";
+
+/// The deadline of the compute process whose group restarts: compute asks the group whether it lists compute every half of
+/// it, a minute here, so only its connection's close lists it again within the [`START_SECONDS`] the scenario waits.
+const LONG_DEADLINE_MS: u64 = 120_000;
 
 /// `settings` dialling the system group at `system`.
 fn dialling(settings: Vec<(String, String)>, system: &str) -> Vec<(String, String)> {
@@ -67,6 +72,71 @@ fn hosting_storage_killed(w: &mut Steps) -> TestResult {
     w.exited = Some(util.wait_for_exit(compute, Duration::from_secs(START_SECONDS))?);
     w.log = std::fs::read_to_string(&log)?;
     w.roles = Some(util);
+    Ok(())
+}
+
+/// Whether the system group at `system` lists a compute process within [`START_SECONDS`].
+fn compute_listed(system: &str) -> TestResult<bool> {
+    for _ in 0..START_SECONDS * 20 {
+        if members_at(system)?
+            .iter()
+            .any(|(kind, _, _)| *kind == RoleKind::Compute)
+        {
+            return Ok(true);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    Ok(false)
+}
+
+#[when("the hosting storage process is killed and started again within `join_deadline_ms`")]
+fn hosting_storage_restarted(w: &mut Steps) -> TestResult {
+    let util = services()?;
+    let system = format!("tcp://{SYSTEM_ROLE_ADDRESS}");
+    let settings = hosting(&system)?;
+    let storage_log = scratch("storage-restarted");
+    let hosting_storage = || {
+        role(
+            STORAGE_BINARY,
+            &settings,
+            &storage_log,
+            answering(STORAGE_OBSERVABILITY, "/ready"),
+        )
+    };
+    let storage = util.start_service_from_config(hosting_storage())?;
+    let log = scratch("compute-restarted-group.log");
+    let _compute: u32 = util.start_service_from_config(role(
+        COMPUTE_BINARY,
+        &with(
+            dialling(holding(compute_on_one_host(), SECRET)?, &system),
+            "cluster.join_deadline_ms",
+            &LONG_DEADLINE_MS.to_string(),
+        ),
+        &log,
+        answering(COMPUTE_OBSERVABILITY, "/ready"),
+    ))?;
+    assert!(compute_listed(&system)?, "compute joined at its start");
+    signal(storage, "KILL")?;
+    let _killed = util.wait_for_exit(storage, Duration::from_secs(START_SECONDS))?;
+    let _again: u32 = util.start_service_from_config(hosting_storage())?;
+    w.outcome = Some(compute_listed(&system)?);
+    w.log = std::fs::read_to_string(&log)?;
+    w.roles = Some(util);
+    Ok(())
+}
+
+#[then(
+    "compute dials the group as its connection closes and joins it again on the connection the group answers, so the group's Members lists compute again as soon as the group is back"
+)]
+fn joined_again_at_once(w: &mut Steps) -> TestResult {
+    let (waited_ms, next_ask_ms) = (START_SECONDS * 1_000, LONG_DEADLINE_MS / 2);
+    if waited_ms >= next_ask_ms {
+        return Err(TestError::new(format!(
+            "the step waits {waited_ms} ms, past compute's next ask at {next_ask_ms} ms"
+        )));
+    }
+    assert_eq!(w.outcome, Some(true), "{}", w.log);
+    w.roles = None;
     Ok(())
 }
 

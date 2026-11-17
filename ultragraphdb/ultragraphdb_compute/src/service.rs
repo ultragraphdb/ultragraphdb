@@ -28,7 +28,8 @@ const FINISH_LIMIT: Duration = Duration::from_secs(50);
 /// The compute role: one runtime per core, each accepting at `[compute] role_address` and running what arrives on it wholly
 /// there. It joins the system group at `cluster.system_address` ([`system_address`]) and is ready once the members it reads name a
 /// partition that answers. It then asks the group and each of those partitions whether they answer, joining the group again
-/// when it no longer lists compute, and a peer that does not answer by the deadline ends it.
+/// when it no longer lists compute, the group asked again at once when its connection closes, and a peer that does not
+/// answer by the deadline ends it.
 ///
 /// # Errors
 ///
