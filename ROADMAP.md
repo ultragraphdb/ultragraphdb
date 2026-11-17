@@ -11,6 +11,7 @@
 | 5.7 Benchmark three-role cluster architecture                                          | ✅             | `openspec/changes/stage-5-8-system-group`                                                                                                                                              |
 | 5.8 Merge system and storage group into storage service                                | `progressing` | `openspec/changes/stage-5-8-system-group`                                                                                                    |
 | 5.9 Merge frontend and compute node into one service, named compute                    | `open`        | `openspec/changes/stage-5-9-compute-role`                                                                                                    |
+| 6.3 Storage I/O in longshore: the tile store's file path on io_uring, decided by E9     | `open`        | `openspec/designs/UltraGraphDB Storage IO in Longshore.md`                                                                                   |
 | 6.5 The tile store: a graph-native storage engine replacing the KV store               | `open`        | `openspec/changes/stage-6-5-tile-store`                                                                                                      |
 | 6.6 UGS: the full data schema, DDL, and its implementation                             | `paused`      | `openspec/changes/stage-6-6-ugs-data-definition`                                                                                             |
 | 6.7 Harden transactions with chaos testing against multiple UGS schemata               | `open`        |                                                                                                                                              |
@@ -24,7 +25,9 @@
 | 11. API node: generated Protobuf, JSON Schema and GraphQL served by a stateless binary | `open`        |                                                                                                                                              |
 
 The stages run in the order of the table. Stages 5.8, 5.9 and 6.5 each change what the one after builds on, so none
-starts before the one above it is complete. UGS was stage 6 until 2026-11-12 and is now stage 6.6.
+starts before the one above it is complete. Stage 6.3 changes no code of this repository but a benchmark harness, so
+it runs beside 5.9; it completes before stage 6.5's design is rebased (its task 0.7), which takes its decision. UGS
+was stage 6 until 2026-11-12 and is now stage 6.6.
 
 The architecture these stages build is
 `openspec/designs/UltraGraphDB Distribution Architecture.md`.
