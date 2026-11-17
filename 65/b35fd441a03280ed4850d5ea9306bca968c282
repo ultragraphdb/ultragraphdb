@@ -1,0 +1,32 @@
+MODULE.bazel
+  s_21eff977e05256::t_06b1ab26119f3b 110-121
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/tests/types/carrier/carrier_tests.rs
+  s_21eff977e05256::t_f628ac8fc8b169 191-197
+  s_21eff977e05256::t_15d9e716f70f71 160-190,198-234,236,240-245
+  s_21eff977e05256::t_e9a1af5d3fd82f 235,237-239
+bazel/patches/BUILD.bazel
+  s_21eff977e05256::t_86bc397a200003 6-7
+  s_21eff977e05256::t_467e495510e784 1-5
+AGENTS.md
+  s_21eff977e05256::t_5a34ac0f6787bf 308
+bazel/patches/compio_driver_poll_stale_event.patch
+  s_21eff977e05256::t_ea21c68e4a4429 1-14
+openspec/changes/stage-5-8-system-group/notes/group-7.md
+  s_21eff977e05256::t_ee52d7dfd26ee1 309-316
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "65b35fd441a03280ed4850d5ea9306bca968c282",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
