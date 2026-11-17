@@ -2646,7 +2646,17 @@ fn a_dial_past_its_bound_closes_the_connection(w: &mut Steps) -> TestResult {
                     held.push(accepted);
                 }
             });
-            stage.links.joined(&joined);
+            // Joined at the group, so Members lists it: the core reads Members again while it waits for a partition to answer
+            // (design D9, D10), and a compute process the group does not list is forgotten at each read.
+            let mut joining = RoleClient::dial(
+                &stage.role,
+                stage.cluster.id(),
+                "compute",
+                stage.cluster.secret().password(),
+            )
+            .await?;
+            drop(joining.request(&joined).await?);
+            stage.read_members().await?;
             let mut client = stage.ann().await?;
             let transaction = client.begin_read_only(ReadLevel::Snapshot).await?;
             let read = client.read(transaction, OBJECT).await?;
