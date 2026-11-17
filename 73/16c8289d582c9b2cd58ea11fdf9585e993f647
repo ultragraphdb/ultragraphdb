@@ -1,0 +1,21 @@
+openspec/changes/stage-5-8-system-group/notes/group-8.md
+  s_21eff977e05256::t_8aa9f163365a41 396-413
+openspec/changes/stage-5-8-system-group/tasks.md
+  s_21eff977e05256::t_e8d612ee114f83 73,81,102,107-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7316c8289d582c9b2cd58ea11fdf9585e993f647",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
