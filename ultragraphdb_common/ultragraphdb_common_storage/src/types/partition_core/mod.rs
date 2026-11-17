@@ -272,6 +272,9 @@ pub struct PartitionCore<'a, S: DurableStorage = CompioStorage, K: CoreClock = I
     /// The tenants the placement map lists a run for, the only ones a Bind may name.
     tenants: BTreeSet<u64>,
     parked: BTreeMap<BoundKey, Parked>,
+    /// The connections it closed for a frame-level rule, each until its session's `Closed` arrives: no later frame of one is taken
+    /// (`PROTOCOL.md` §2.6). At most one per connection.
+    refused: BTreeSet<u64>,
     home_askings: BTreeMap<u64, HomeAsking>,
     next_asking: u64,
     committing: BTreeMap<u64, Committing>,
@@ -433,6 +436,7 @@ impl<'a, S: DurableStorage, K: CoreClock> PartitionCore<'a, S, K> {
             drop_streams: BTreeMap::new(),
             tenants: parts.tenants,
             parked: BTreeMap::new(),
+            refused: BTreeSet::new(),
             home_askings: BTreeMap::new(),
             next_asking: 1,
             committing: BTreeMap::new(),

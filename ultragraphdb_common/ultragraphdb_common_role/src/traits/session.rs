@@ -38,6 +38,10 @@ pub enum Push {
     /// A refusal of a request on the stream, sent as [`Answer::Refuse`] is: an Error flagged last on the stream, which ends it, or
     /// on the connection's own queue for a stream it does not hold open.
     Refuse(ErrorReply),
+    /// A request the session took as open broke a frame-level rule it checks later, as a partition's core checks a frame's
+    /// chunks when it takes the frame (`PROTOCOL.md` §2.5, steps 9 to 12): sent as [`Answer::Close`] is, Error 1 on stream 0
+    /// naming the rule, and the connection closes (§2.6).
+    Close(ProtocolError),
 }
 
 /// What one connection serves beyond its rules: the connection's machine hands it each request its endpoint takes.

@@ -16,9 +16,10 @@ use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Level, Metadata, Subscriber};
 use ultragraphdb_common_role::{
-    Answer, ConnectionBound, ParkedBytes, Push, ROLE_ITERATIONS, RoleClient, RoleCredentials,
-    RoleSecret, Server, Session, listen, serve_connection, serve_connection_with,
+    Answer, ConnectionBound, OpenRequests, ParkedBytes, Push, ROLE_ITERATIONS, RoleClient,
+    RoleCredentials, RoleSecret, Server, Session, listen, serve_connection, serve_connection_with,
 };
+use ultragraphdb_common_service::Stopping;
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_scram::ScramAuthenticator;
@@ -26,9 +27,10 @@ use ultragraphdb_protocol_transport::{
     Address, Endpoint, ReceivedFrame, TransportError, TransportErrorEnum,
 };
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Cancel, CloseRequest, Closed, Command, Credit, DEFAULT_INITIAL_CREDIT,
-    Entries, EntriesEnd, EntriesView, ErrorCode, ErrorReply, ErrorReplyView, FLAG_LAST, Header,
-    Held, Join, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE_U32, Members, Scan, ScanAt, ScanRange,
+    BodyBuilder, BodyView, Cancel, CloseRequest, Closed, Command, ComputeRead, Credit,
+    DEFAULT_INITIAL_CREDIT, Ended, Entries, EntriesEnd, EntriesView, ErrorCode, ErrorReply,
+    ErrorReplyView, FLAG_LAST, Header, Held, Join, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE_U32,
+    Members, PatternSlot, QuadPattern, ReadLevel, Scan, ScanAt, ScanRange, TermTable,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult, hides};
 
@@ -50,7 +52,7 @@ pub(crate) fn bounded(test: impl Future<Output = TestResult>) -> TestResult {
 }
 
 /// Credentials of `PASSWORD`.
-fn credentials() -> TestResult<RoleCredentials> {
+pub(crate) fn credentials() -> TestResult<RoleCredentials> {
     // Tests run side by side, so each writes a file of its own.
     let file = std::env::temp_dir().join(format!(
         "serve-secret-{}-{}",
@@ -477,6 +479,145 @@ fn test_a_refused_close_request_is_answered_by_nothing() -> TestResult {
         "{held:?}"
     );
     Ok(())
+}
+
+/// An Ended is answered by nothing, a refusal included (`PROTOCOL.md` §13.25), as a CloseRequest is: one the session refuses,
+/// and one arriving while the process stops, are dropped unanswered, so the frame read next answers the next request.
+#[test]
+fn test_a_refused_ended_is_answered_by_nothing() -> TestResult {
+    for stops in [false, true] {
+        bounded(async {
+            let listener = listen(&free_tcp()?).await?;
+            let address = listener.local_address()?;
+            let stopping = Stopping::default();
+            if stops {
+                stopping.set();
+            }
+            let server = Server::new(CLUSTER, "test", Endpoint::Frontend)?
+                .with_iterations(ROLE_ITERATIONS)
+                .with_open(OpenRequests::new(stopping));
+            let held = credentials()?;
+            spawn(async move {
+                if let Ok(carrier) = listener.accept().await {
+                    serve_connection(carrier, &server, held, Listing).await;
+                }
+            })
+            .detach();
+            let mut client = RoleClient::dial(&address, CLUSTER, "storage", PASSWORD).await?;
+            client.send_only(&Ended::new(vec![[1; 16]])).await?;
+            client.send_only(&Members::new()).await?;
+            let reply = client.next_frame().await?;
+            // Stopping, the Members is refused too, on its own stream.
+            let answer = if stops {
+                Command::Error
+            } else {
+                Command::Members
+            };
+            assert_eq!(
+                (reply.command(), reply.stream()),
+                (answer.number(), 2),
+                "stopping: {stops}"
+            );
+            Ok(())
+        })?;
+    }
+    Ok(())
+}
+
+/// Leaves each request's stream open, and notes each stream the connection tells it ended.
+#[derive(Debug)]
+struct NotingEnds(Rc<RefCell<Vec<u64>>>);
+
+impl Session for NotingEnds {
+    async fn answer(&mut self, _stream: u64, _frame: ReceivedFrame) -> Answer {
+        Answer::Open
+    }
+
+    fn cancelled(&mut self, stream: u64) {
+        self.0.borrow_mut().push(stream);
+    }
+}
+
+/// A read compute takes: every slot unbound, at the latest level.
+fn compute_read() -> ComputeRead {
+    let pattern = QuadPattern::new(
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+    );
+    ComputeRead::new(
+        0,
+        true,
+        ReadLevel::Latest,
+        TermTable::new(),
+        pattern,
+        Vec::new(),
+    )
+    .with_principal(1)
+    .with_deadline_ms(1_000)
+    .with_client_limits(MAX_FRAME_SIZE_U32, 4)
+}
+
+/// A ComputeRead whose command header's last byte, unused, is not zero: it breaks a rule of its body (`PROTOCOL.md` §13.12).
+struct Unclean(ComputeRead);
+
+impl BodyBuilder for Unclean {
+    const COMMAND: Command = Command::ComputeRead;
+
+    fn command_header(&self) -> [u8; 128] {
+        let mut header = self.0.command_header();
+        header[127] = 1;
+        header
+    }
+
+    fn body(&self) -> Vec<u8> {
+        self.0.body()
+    }
+}
+
+/// A frame refused by its body's rule on a stream the session holds open ends that stream with the refusal (`PROTOCOL.md`
+/// §2.6), and the session hears of the end as of a Cancel, so what it serves there ends too; a request refused so on a stream
+/// of its own ends nothing the session holds.
+#[test]
+fn test_a_refusal_ending_an_open_stream_tells_the_session() -> TestResult {
+    bounded(async {
+        let listener = listen(&free_tcp()?).await?;
+        let address = listener.local_address()?;
+        let server =
+            Server::new(CLUSTER, "test", Endpoint::Compute)?.with_iterations(ROLE_ITERATIONS);
+        let held = credentials()?;
+        let ended = Rc::new(RefCell::new(Vec::new()));
+        let session = NotingEnds(Rc::clone(&ended));
+        spawn(async move {
+            if let Ok(carrier) = listener.accept().await {
+                serve_connection(carrier, &server, held, session).await;
+            }
+        })
+        .detach();
+        let mut client = RoleClient::dial(&address, CLUSTER, "frontend", PASSWORD).await?;
+        client.send_only(&compute_read()).await?;
+        let open = client.last_stream();
+        // A Credit of no frames breaks its body's rule (`PROTOCOL.md` §9.2).
+        client.send_on(open, &Credit::new(0)).await?;
+        let refused = client.next_frame().await?;
+        assert_eq!(
+            (refused.command(), refused.stream()),
+            (Command::Error.number(), open)
+        );
+        // The session hears before the refusal leaves.
+        assert_eq!(*ended.borrow(), [open]);
+        // The frame holds the client's one buffer.
+        drop(refused);
+        client.send_only(&Unclean(compute_read())).await?;
+        let refused = client.next_frame().await?;
+        assert_eq!(
+            (refused.command(), refused.stream()),
+            (Command::Error.number(), client.last_stream())
+        );
+        assert_eq!(*ended.borrow(), [open], "a request refused opened nothing");
+        Ok(())
+    })
 }
 
 /// A wrong secret and an unknown name are refused alike, and a command the endpoint does not serve by its rule.
@@ -946,6 +1087,49 @@ fn test_a_pushed_refusal_reaches_a_stream_never_opened() -> TestResult {
             (view.header().stream(), error.code(), error.message()),
             (never, refusal.code(), refusal.message())
         );
+        Ok(())
+    })
+}
+
+/// A frame-level rule a session pushes, broken by a request it took as open, ends the connection as one the machine checks
+/// does: Error 1 on stream 0, its message the rule's text, and the connection closes (`PROTOCOL.md` §2.5, steps 9 to 12;
+/// §2.6).
+#[test]
+fn test_a_pushed_close_ends_the_connection_with_error_1_on_stream_0() -> TestResult {
+    bounded(async {
+        let listener = listen(&free_tcp()?).await?;
+        let address = listener.local_address()?;
+        let server =
+            Server::new(CLUSTER, "test", Endpoint::Partition)?.with_iterations(ROLE_ITERATIONS);
+        let held = credentials()?;
+        let push: Pushed = Rc::new(RefCell::new(None));
+        let session = Defaulted {
+            scans: 0,
+            push: Rc::clone(&push),
+        };
+        spawn(async move {
+            if let Ok(carrier) = listener.accept().await {
+                serve_connection(carrier, &server, held, session).await;
+            }
+        })
+        .detach();
+        let mut client = RoleClient::dial(&address, CLUSTER, "compute", PASSWORD).await?;
+        let rule = ProtocolError::chunk(1, 3_840, 4_000);
+        pushed(&push, 3, Push::Close(rule.clone())).await;
+        let frame = compio::time::timeout(TEST_TIME, client.next_frame())
+            .await
+            .context("the Error within its time")??;
+        let view = frame.view()?;
+        let error = ErrorReplyView::from_frame(&view)?;
+        assert_eq!(
+            (view.header().stream(), error.code(), error.message()),
+            (0, ErrorCode::Protocol, rule.to_string().as_str())
+        );
+        drop(frame);
+        let closed = compio::time::timeout(TEST_TIME, client.next_frame())
+            .await
+            .context("the close within its time")?;
+        assert!(closed.is_err(), "the connection closes after the Error");
         Ok(())
     })
 }

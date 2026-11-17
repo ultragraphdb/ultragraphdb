@@ -294,8 +294,8 @@ where
 
 /// The frame read next, sending what the session pushes meanwhile; the read stays pinned across those sends, so a frame
 /// is never cut short, and starts only once `parked` has room, which only a frame taken can use up. `None` once a deadline passed
-/// and the connection's machine has taken it. A dropped future drops the pinned read with it, cutting a frame read in part,
-/// and may cut a pushed frame being written: the connection ends with it.
+/// and the connection's machine has taken it, or the session pushed a close. A dropped future drops the pinned read with it,
+/// cutting a frame read in part, and may cut a pushed frame being written: the connection ends with it.
 async fn next_frame<R, W, A, H>(
     reader: &mut Connection<R>,
     writer: &mut Connection<W>,
@@ -358,6 +358,11 @@ where
                 // As `Answer::Done` ends it; a stream the peer cancelled meanwhile has ended already.
                 let _ended = machine.outbound().cancel(stream);
             }
+            Event::Push((_, Push::Close(rule))) => {
+                // As `Answer::Close` closes it: Error 1 on stream 0, which the caller's flush sends before the connection ends.
+                let _closing = machine.refuse_connection(&rule)?;
+                return Ok(None);
+            }
             Event::Deadline => {
                 let _closing = machine.handle_timeout(now())?;
                 if machine.is_closing() {
@@ -412,6 +417,10 @@ where
             })
             .flatten()
     });
+    // Whether the frame's stream holds a request the session serves, which a refusal of the frame ends.
+    let was_open = received
+        .view()
+        .is_ok_and(|view| machine.outbound().is_open(view.header().stream()));
     match machine.receive(&received, now())? {
         Inbound::Welcomed {
             protocol,
@@ -429,7 +438,8 @@ where
                 session.credited(stream, frames);
             }
         }
-        // A CloseRequest's stream ends with it, a refusal included (`PROTOCOL.md` §13.16), so its refusal is dropped.
+        // A CloseRequest's stream and an Ended's end with it, a refusal included (`PROTOCOL.md` §13.16, §13.25), so its
+        // refusal is dropped.
         Inbound::Request { stream, command } if open.is_stopping() => {
             let refusal = ErrorReply::new(ErrorCode::Unavailable, "this process is stopping");
             refuse(machine, stream, command, &refusal)?;
@@ -446,25 +456,29 @@ where
             }
         },
         Inbound::Cancelled { stream, .. } => session.cancelled(stream),
+        // A frame refused on an open stream, a Credit breaking its body's rule, ends the stream with its refusal (`PROTOCOL.md`
+        // §2.6), as a Cancel ends it: what the session serves there ends too.
+        Inbound::Refused { stream, .. } if was_open => session.cancelled(stream),
         Inbound::Refused { .. } | Inbound::Closing { .. } => {}
     }
     Ok(())
 }
 
-/// `refusal` of the `command` on `stream`: sent on the stream, or for a CloseRequest, which no frame answers, logged and its
-/// stream ended.
+/// `refusal` of the `command` on `stream`: sent on the stream, or for a CloseRequest or an Ended, which no frame answers
+/// (`PROTOCOL.md` §13.16, §13.25), logged and its stream ended.
 fn refuse<A: Authenticator>(
     machine: &mut ServerConnection<A>,
     stream: u64,
     command: Command,
     refusal: &ErrorReply,
 ) -> Result<(), TransportError> {
-    if command == Command::CloseRequest {
+    if matches!(command, Command::CloseRequest | Command::Ended) {
         tracing::warn!(
             stream,
+            command = command.number(),
             code = refusal.code().number(),
             reason = refusal.message(),
-            "a CloseRequest was refused"
+            "a request no frame answers was refused"
         );
         let _ended = machine.outbound().cancel(stream);
         return Ok(());

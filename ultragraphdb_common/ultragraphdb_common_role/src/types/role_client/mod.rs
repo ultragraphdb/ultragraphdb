@@ -5,6 +5,7 @@
 
 mod role_client_split;
 
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_scram::{ScramClient, system_nonce};
 use ultragraphdb_protocol_transport::{
     Address, AuthenticationStep, BufferPool, ClientAuthentication, Framer, ReceivedFrame,
@@ -22,6 +23,13 @@ const RELEASE: u32 = 1;
 
 /// The messages an Authenticate exchange of SCRAM-SHA-256 takes from the server.
 const EXCHANGE_STEPS: usize = 2;
+
+/// What a frame read for a request is: its reply, a late frame of a stream the client has ended, or the peer's Error.
+enum Arrived {
+    Reply,
+    Late,
+    Refused(TransportError),
+}
 
 /// The side of a role connection that dialled: past [`RoleClient::dial`], which authenticates before anything else is
 /// sent, so a role refused by its peer has no connection to send a role command on.
@@ -87,12 +95,15 @@ impl RoleClient {
     }
 
     /// Sends `body` on a stream of its own and reads its one reply, the reply's frame, which holds the connection's one
-    /// buffer until it is dropped.
+    /// buffer until it is dropped. A frame on a stream below the request's is late: the client takes its earlier streams as
+    /// ended, so it checks such a frame whole and drops it (`PROTOCOL.md` §2.5, step 3; §11.2).
     ///
     /// # Errors
     ///
-    /// [`TransportError::refused`] when the peer answers with an Error, [`TransportError::protocol`] naming a command the
-    /// request's answers do not list (`PROTOCOL.md` §2.5, step 3), and as reading or writing fails.
+    /// [`TransportError::refused`] when the peer answers with an Error, on the request's stream or on stream 0, and as reading
+    /// or writing fails. A frame the client refuses closes the connection, as the side that dialled refusing a frame does (§2.6,
+    /// §13): [`TransportError::protocol`] naming the rule a frame breaks, among them a command the request's answers do not
+    /// list, or a frame on stream 0 or a stream above the request's, which answers no request (§2.5, step 3).
     pub async fn request<B: BodyBuilder>(
         &mut self,
         body: &B,
@@ -103,17 +114,45 @@ impl RoleClient {
             .frame(header)
             .map_err(|error| TransportError::frame_not_built(B::COMMAND.number(), error))?;
         self.send(frame).await?;
-        let reply = self.connection.read_frame(&self.pool).await?;
-        let view = reply.view().map_err(TransportError::protocol)?;
-        if view.command() == Command::Error {
-            let error = ErrorReplyView::from_frame(&view).map_err(TransportError::protocol)?;
-            return Err(TransportError::refused(error.code(), error.message()));
+        // An event loop: the reply, a refusal or the connection's end ends it (Ultra rule 2).
+        loop {
+            let reply = self.connection.read_frame(&self.pool).await?;
+            match self.arrived::<B>(&reply) {
+                Ok(Arrived::Reply) => return Ok(reply),
+                Ok(Arrived::Late) => {}
+                Ok(Arrived::Refused(refusal)) => return Err(refusal),
+                Err(rule) => {
+                    self.connection.shutdown().await;
+                    return Err(TransportError::protocol(rule));
+                }
+            }
         }
-        let _answer: Command = view
-            .command()
-            .answering(B::COMMAND)
-            .map_err(TransportError::protocol)?;
-        Ok(reply)
+    }
+
+    /// What `frame`, read for the request of `B` on the last stream, is (`PROTOCOL.md` §2.5, step 3).
+    ///
+    /// # Errors
+    ///
+    /// The rule the frame breaks, which the client refuses it for.
+    fn arrived<B: BodyBuilder>(&self, frame: &ReceivedFrame) -> Result<Arrived, ProtocolError> {
+        let view = frame.view()?;
+        let stream = view.header().stream();
+        if stream != 0 && stream < self.stream {
+            return Ok(Arrived::Late);
+        }
+        let command = view.command();
+        if command == Command::Error && (stream == 0 || stream == self.stream) {
+            let error = ErrorReplyView::from_frame(&view)?;
+            return Ok(Arrived::Refused(TransportError::refused(
+                error.code(),
+                error.message(),
+            )));
+        }
+        if stream != self.stream {
+            return Err(ProtocolError::command_not_served(command.number()));
+        }
+        let _answer: Command = command.answering(B::COMMAND)?;
+        Ok(Arrived::Reply)
     }
 
     /// Sends `body` on a stream of its own, which ends with it: for a request no frame answers, a CloseRequest's.

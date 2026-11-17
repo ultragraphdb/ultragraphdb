@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 use ultragraphdb_cluster_partition::{BoundKey, BoundStep, PartitionError};
 use ultragraphdb_common_role::{Answer, Push};
 use ultragraphdb_core_ids::Epoch;
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
     BindKind, BindView, BodyBuilder, BodyView, Command, CommitView, ErrorCode, ErrorReply,
     FLAG_LAST, FrameView, Header, HeaderView, Held, MAX_FRAME_SIZE, OperationView, ReferenceView,
@@ -38,9 +39,11 @@ fn with_changes<T>(
 }
 
 impl<S: DurableStorage, K: CoreClock> PartitionCore<'_, S, K> {
-    /// Takes what a connection handed over.
+    /// Takes what a connection handed over. A frame a connection handed after the one that closed it, before the close reached its
+    /// session, is not taken: after the refused frame nothing more on the connection is processed (`PROTOCOL.md` §2.6).
     pub(super) fn take(&mut self, message: CoreMessage) {
         match message {
+            CoreMessage::Request { connection, .. } if self.refused.contains(&connection) => {}
             CoreMessage::Request {
                 connection,
                 stream,
@@ -60,6 +63,7 @@ impl<S: DurableStorage, K: CoreClock> PartitionCore<'_, S, K> {
             CoreMessage::Ready { connection, stream } => self.scan_room((connection, stream)),
             CoreMessage::Left { connection, stream } => self.scan_left((connection, stream)),
             CoreMessage::Closed { connection } => {
+                let _refused = self.refused.remove(&connection);
                 self.host.abort_connection(connection);
                 self.bound_tenant.retain(|(of, _), _| *of != connection);
                 self.drop_streams.retain(|(of, _), _| *of != connection);
@@ -80,9 +84,11 @@ impl<S: DurableStorage, K: CoreClock> PartitionCore<'_, S, K> {
             parked.behind.push_back(frame);
             return;
         }
+        // The session checked the frame's place on arrival, its chunks are checked here (`PROTOCOL.md` §2.5, steps 9 to 12): a
+        // frame-level rule, which closes the connection (§2.6).
         let step = match FrameView::validate(frame.bytes(), self.cluster, MAX_FRAME_SIZE) {
             Ok(view) => self.step(key, &view, &pushes, max_frame),
-            Err(rule) => RequestStep::Answered(Answer::Refuse(ErrorReply::protocol(&rule))),
+            Err(rule) => self.closing(key, rule),
         };
         match step {
             RequestStep::Answered(answer) => self.push_answer(key.1, answer, &pushes),
@@ -108,16 +114,22 @@ impl<S: DurableStorage, K: CoreClock> PartitionCore<'_, S, K> {
         }
     }
 
-    /// Pushes `answer` on `stream`: a reply, a refusal as an Error ending the stream, or the stream's end with no frame; an open
-    /// stream's answer comes later.
+    /// The close of `key`'s connection for `rule`, a frame-level rule its frame breaks: no later frame of it is taken.
+    fn closing(&mut self, key: BoundKey, rule: ProtocolError) -> RequestStep {
+        let _first = self.refused.insert(key.0);
+        RequestStep::Answered(Answer::Close(rule))
+    }
+
+    /// Pushes `answer` on `stream`: a reply, a refusal as an Error ending the stream, the stream's end with no frame, or the
+    /// connection's close for a frame-level rule; an open stream's answer comes later.
     pub(super) fn push_answer(&self, stream: u64, answer: Answer, pushes: &Pushes) {
         match answer {
             // A connection gone has no one to tell.
             Answer::Reply(reply) => drop(pushes.unbounded_send((stream, Push::Frame(reply)))),
             Answer::Done => drop(pushes.unbounded_send((stream, Push::End))),
             Answer::Refuse(refusal) => self.push_error(stream, &refusal, pushes),
-            // No step of a partition closes its connection: a rule closing one is refused on the stream alone.
-            Answer::Close(rule) => self.push_error(stream, &ErrorReply::protocol(&rule), pushes),
+            // A connection gone has no one to tell.
+            Answer::Close(rule) => drop(pushes.unbounded_send((stream, Push::Close(rule)))),
             Answer::Open => {}
         }
     }
@@ -286,11 +298,12 @@ impl<S: DurableStorage, K: CoreClock> PartitionCore<'_, S, K> {
         }
     }
 
-    /// What the parked `parked` of `key` comes to, read again from its copy, whose checksums the connection's machine checked.
+    /// What the parked `parked` of `key` comes to, read again from its copy. A frame waiting behind another is checked whole here,
+    /// in its turn, and one breaking a frame-level rule closes the connection (`PROTOCOL.md` §2.5, steps 9 to 12; §2.6).
     fn resumed_step(&mut self, key: BoundKey, parked: &Parked) -> RequestStep {
         let view = match FrameView::validate(parked.frame.bytes(), self.cluster, MAX_FRAME_SIZE) {
             Ok(view) => view,
-            Err(rule) => return RequestStep::Answered(Answer::Refuse(ErrorReply::protocol(&rule))),
+            Err(rule) => return self.closing(key, rule),
         };
         match parked.work {
             ParkedWork::Turn => self.step(key, &view, &parked.pushes, parked.max_frame),

@@ -16,6 +16,7 @@ use std::time::Duration;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use ultragraphdb_common_role::{Answer, ParkedBytes, Push};
 use ultragraphdb_common_storage::{CoreMessage, ParkedFrame};
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
     Abort, BodyBuilder, BodyView, Command, ErrorReply, ErrorReplyView, FLAG_LAST, FrameView,
     Header, MAX_FRAME_SIZE,
@@ -79,6 +80,17 @@ impl Played {
         core.unbounded_send(self.message(connection, stream, frame)?)?;
         let probe = self.probe(core, connection)?;
         Ok(Sent { stream, probe })
+    }
+
+    /// `frame`, a request of `connection` on `stream`, handed to the core as a session hands it, with no probe behind it.
+    pub(crate) fn hand_alone(
+        &self,
+        core: &UnboundedSender<CoreMessage>,
+        connection: u64,
+        stream: u64,
+        frame: &[u8],
+    ) -> TestResult {
+        Ok(core.unbounded_send(self.message(connection, stream, frame)?)?)
     }
 
     /// A probe of `connection` handed to the core: its stream, on which the core pushes its refusal on taking it.
@@ -182,6 +194,20 @@ impl Played {
                 "stream {stream} ended with no frame: {what}"
             ))),
             (stream, Push::Refuse(refusal)) => Ok((stream, refused(stream, &refusal)?)),
+            (stream, Push::Close(rule)) => Err(TestError::new(format!(
+                "stream {stream} closed its connection for {rule}: {what}"
+            ))),
+        }
+    }
+
+    /// The rule the next push closes the connection for, and the stream it was pushed on, or a failure naming `what` it waited
+    /// for.
+    pub(crate) async fn closed(&self, what: &str) -> TestResult<(u64, ProtocolError)> {
+        match self.next_push(what).await? {
+            (stream, Push::Close(rule)) => Ok((stream, rule)),
+            (stream, other) => Err(TestError::new(format!(
+                "stream {stream} pushed {other:?}, not a close: {what}"
+            ))),
         }
     }
 
@@ -221,11 +247,13 @@ fn refused(stream: u64, refusal: &ErrorReply) -> TestResult<Vec<u8>> {
     )?)
 }
 
-/// The answer `push` gives: a reply, a refusal, an Error frame as a refusal, or a stream's end as [`Answer::Done`].
+/// The answer `push` gives: a reply, a refusal, an Error frame as a refusal, a stream's end as [`Answer::Done`], or the
+/// connection's close.
 fn answered(push: Push) -> TestResult<Answer> {
     match push {
         Push::End => Ok(Answer::Done),
         Push::Refuse(refusal) => Ok(Answer::Refuse(refusal)),
+        Push::Close(rule) => Ok(Answer::Close(rule)),
         Push::Frame(frame) => {
             let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)?;
             if view.command() != Command::Error {

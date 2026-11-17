@@ -29,6 +29,7 @@ use ultragraphdb_common_storage::{
 };
 use ultragraphdb_core_ids::{Epoch, TypePrefix};
 use ultragraphdb_core_mapping::RandomSource;
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
     Bind, BindKind, BodyBuilder, BodyView, Command, ErrorReply, ErrorReplyView, FrameView, Header,
@@ -97,9 +98,19 @@ impl Connection {
         self.played.frame(what).await
     }
 
+    /// The rule the core next closes the connection for, and the stream it took it on, or a failure naming `what` it waited for.
+    pub(crate) async fn closed(&mut self, what: &str) -> TestResult<(u64, ProtocolError)> {
+        self.played.closed(what).await
+    }
+
     /// Whether a frame waits to leave now.
     pub(crate) fn holds_push(&mut self) -> bool {
         self.played.holds_push()
+    }
+
+    /// Fails should the core push anything to it within `quiet`.
+    pub(crate) async fn nothing_for(&self, quiet: Duration) -> TestResult {
+        self.played.nothing_for(quiet).await
     }
 
     /// The answer the core gave `sent` on taking it.
@@ -138,6 +149,18 @@ impl Driver {
         connection
             .played
             .hand(&self.core, connection.id, stream, frame)
+    }
+
+    /// Hands the core `frame` as a request of `connection` on `stream`, no probe behind it, so nothing tells its answer.
+    pub(crate) fn send_alone(
+        &self,
+        connection: &Connection,
+        stream: u64,
+        frame: &[u8],
+    ) -> TestResult {
+        connection
+            .played
+            .hand_alone(&self.core, connection.id, stream, frame)
     }
 
     /// The answer to `body` sent as a request of `connection` on `stream`.

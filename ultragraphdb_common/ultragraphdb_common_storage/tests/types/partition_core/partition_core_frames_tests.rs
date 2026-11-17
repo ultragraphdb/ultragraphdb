@@ -9,8 +9,8 @@ use ultragraphdb_common_role::Answer;
 use ultragraphdb_common_storage::CoreMessage;
 use ultragraphdb_protocol_wire::{
     Abort, Bind, BindKind, BindView, BodyView, Command, Commit, CommitOperation, CommitView,
-    DropCommand, ErrorCode, FrameView, Lease, MAX_FRAME_SIZE, Operation, Scan, ScanAt, ScanRange,
-    TermTable, Write, WriteChange,
+    DirectWrite, DropCommand, ErrorCode, FrameView, Lease, MAX_FRAME_SIZE, Operation, Scan, ScanAt,
+    ScanRange, TermTable, Write, WriteChange,
 };
 use ultragraphdb_store_quads::term_key;
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -384,20 +384,24 @@ fn corrupted(mut frame: Vec<u8>) -> TestResult<Vec<u8>> {
     Ok(frame)
 }
 
-/// A request whose body fails its checksum is refused as a protocol error, and one waiting behind a parked Write is refused
-/// in its turn, once the Write is held, on its stream.
+/// A request whose body fails its checksum, a frame-level rule the core checks as it takes the frame (`PROTOCOL.md` §2.5,
+/// steps 9 to 12), closes its connection, Error 1 on stream 0 naming the rule (§2.6): at once, or, waiting behind a parked
+/// Write, in its turn once the Write is held. A connection closed takes nothing more, so the second runs on another.
 #[test]
-fn test_a_request_failing_its_checksum_is_refused_now_or_in_its_turn() -> TestResult {
+fn test_a_request_failing_its_checksum_closes_its_connection_now_or_in_its_turn() -> TestResult {
     use crate::types::partition_core::played_cores::framed;
     served(2, async |mut driver| {
-        let mut connection = driver.connect(1, 1 << 20)?;
+        let mut closed_now = driver.connect(1, 1 << 20)?;
         let commit = corrupted(framed(&Commit::new([1; 16], 1, 0), 3)?)?;
-        let refused = refusal_of(
-            connection
-                .answered(driver.send_frame(&connection, 3, &commit)?)
-                .await?,
-        )?;
-        assert_eq!(refused.code(), ErrorCode::Protocol, "{}", refused.message());
+        let rule = FrameView::validate(&commit, CLUSTER, MAX_FRAME_SIZE)
+            .err()
+            .context("the corrupted frame's rule")?;
+        driver.send_alone(&closed_now, 3, &commit)?;
+        assert_eq!(
+            closed_now.closed("the close at once").await?,
+            (3, rule.clone())
+        );
+        let mut connection = driver.connect(2, 1 << 20)?;
         let _bound = reply_of(
             driver
                 .ask(&connection, 3, &bind(BindKind::Transaction, 1))
@@ -418,10 +422,59 @@ fn test_a_request_failing_its_checksum_is_refused_now_or_in_its_turn() -> TestRe
         driver.release_homes();
         let (_, held) = connection.pushed("the Write's Held").await?;
         assert_eq!(command_of(&held)?, Command::Held, "{:?}", error_in(&held)?);
-        let (stream, frame) = connection.pushed("the refusal in its turn").await?;
-        let in_turn = error_in(&frame)?.context("an Error")?;
-        assert_eq!((stream, in_turn.code()), (3, ErrorCode::Protocol));
+        assert_eq!(connection.closed("the close in its turn").await?, (3, rule));
         Ok(())
+    })
+}
+
+/// A DirectWrite of the tenant inserting one edge between IRIs partition 1 owns, `at` choosing them.
+fn local_direct(driver: &Driver, at: &str) -> TestResult<DirectWrite> {
+    let mut terms = TermTable::new();
+    let change = WriteChange::Insert {
+        graph: None,
+        subject: terms.iri(&driver.owned_by(1, &format!("{at}-s"))?),
+        predicate: terms.iri(&driver.owned_by(1, "knows")?),
+        object: terms.iri(&driver.owned_by(1, &format!("{at}-o"))?),
+    };
+    Ok(DirectWrite::new(TENANT, terms, vec![change]).with_principal(PRINCIPAL))
+}
+
+/// After the frame that closes its connection nothing more of the connection is processed (`PROTOCOL.md` §2.6): a DirectWrite
+/// the connection handed the core behind a frame failing its checksum, before the close reached its session, is not taken, so it
+/// does not commit, while another connection's DirectWrite taken after it commits.
+#[test]
+fn test_nothing_behind_a_frame_closing_its_connection_is_taken() -> TestResult {
+    use crate::types::partition_core::played_cores::framed;
+    served(1, async |driver| {
+        let mut closing = driver.connect(1, 1 << 20)?;
+        let mut other = driver.connect(2, 1 << 20)?;
+        let commit = corrupted(framed(&Commit::new([1; 16], 1, 0), 3)?)?;
+        let rule = FrameView::validate(&commit, CLUSTER, MAX_FRAME_SIZE)
+            .err()
+            .context("the corrupted frame's rule")?;
+        driver.send_alone(&closing, 3, &commit)?;
+        driver.send_alone(&closing, 5, &framed(&local_direct(&driver, "behind")?, 5)?)?;
+        let taken = driver
+            .ask(&other, 3, &local_direct(&driver, "other")?)
+            .await?;
+        assert_eq!(
+            taken,
+            Answer::Open,
+            "the other connection's DirectWrite is in its commit"
+        );
+        let (stream, reply) = other.pushed("the other connection's Commit").await?;
+        assert_eq!(
+            (stream, command_of(&reply)?),
+            (3, Command::Commit),
+            "{:?}",
+            error_in(&reply)?
+        );
+        assert_eq!(closing.closed("the close").await?, (3, rule));
+        assert!(
+            !closing.holds_push(),
+            "the DirectWrite behind the closing frame was taken"
+        );
+        closing.nothing_for(SILENCE).await
     })
 }
 
