@@ -1,0 +1,40 @@
+openspec/changes/stage-5-8-system-group/notes/group-7.md
+  s_21eff977e05256::t_d53f8cb80faf23 594-610
+  s_21eff977e05256::t_cd8b2b07bf07d5 611-612
+AGENTS.md
+  s_21eff977e05256::t_7f26752f04904e 254
+openspec/changes/stage-5-8-system-group/specs/system-group/spec.md
+  s_21eff977e05256::t_2beb5d38de4e6f 250,257-261
+ultragraphdb/ultragraphdb_compute/src/service.rs
+  s_21eff977e05256::t_8485597a7b4d34 31-32
+ultragraphdb/ultragraphdb_compute_tests/features/system-group/system_group.feature
+  s_21eff977e05256::t_cfcf7248dd282f 8-11
+ultragraphdb/ultragraphdb_compute_tests/tests/system_steps.rs
+  s_21eff977e05256::t_a6edda7a37d838 12,15-16,18,25-28,78-142
+ultragraphdb/ultragraphdb_tests/tests/cluster.rs
+  s_21eff977e05256::t_cd7814682b9d55 312,562,571
+ultragraphdb/ultragraphdb_tests/tests/kubernetes_steps.rs
+  s_21eff977e05256::t_1488380f82a4a6 246
+ultragraphdb_common/ultragraphdb_common_compute/src/utils/joining.rs
+  s_21eff977e05256::t_e58e737161d577 107-108,177,189-191,196-197,199-201,206,212-213,217-221,226-235,238,244,248,256,258,273,286,293,311
+ultragraphdb_common/ultragraphdb_common_compute/tests/played/played_frontend.rs
+  s_21eff977e05256::t_36dfc0fb8755c7 10-11,18,21,70-73,82,84-85,99-100,117-120,149-160
+ultragraphdb_common/ultragraphdb_common_compute/tests/utils/joining_tests.rs
+  s_21eff977e05256::t_fd51f985bb3ffa 192-194,196,250,272-301,307,334,352,373
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2ccf0da2f7519e139ec1b0c6fb9aea1319643300",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
