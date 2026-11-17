@@ -580,3 +580,130 @@ fn test_a_subscription_ended_is_opened_again() -> TestResult {
         Ok(())
     })
 }
+
+/// A connection between the link and the double that loses the next frame the group sends of the command it is armed for, so
+/// every later frame on that connection arrives out of its sequence (`PROTOCOL.md` §2.5, step 13). It carries the frames
+/// whole, on threads of its own.
+struct Splice {
+    address: String,
+    armed: std::sync::Arc<std::sync::Mutex<Option<Command>>>,
+}
+
+impl Splice {
+    /// A splice from a port of its own to the double at `to`.
+    fn to(to: &str) -> TestResult<Self> {
+        let target: std::net::SocketAddr = to.trim_start_matches("tcp://").parse()?;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let address = format!("tcp://{}", listener.local_addr()?);
+        let armed = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let held = std::sync::Arc::clone(&armed);
+        drop(std::thread::spawn(move || {
+            for link in listener.incoming().flatten() {
+                drop(splice(link, target, &held));
+            }
+        }));
+        Ok(Self { address, armed })
+    }
+
+    /// The next frame the group sends of `command` is lost.
+    fn lose_next(&self, command: Command) {
+        *self
+            .armed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(command);
+    }
+}
+
+/// Carries `link`'s connection to the double at `target`, a thread each way.
+fn splice(
+    link: std::net::TcpStream,
+    target: std::net::SocketAddr,
+    armed: &std::sync::Arc<std::sync::Mutex<Option<Command>>>,
+) -> std::io::Result<()> {
+    let group = std::net::TcpStream::connect(target)?;
+    let (mut up_from, mut up_to) = (link.try_clone()?, group.try_clone()?);
+    drop(std::thread::spawn(move || {
+        drop(std::io::copy(&mut up_from, &mut up_to));
+        drop(up_to.shutdown(std::net::Shutdown::Both));
+    }));
+    let armed = std::sync::Arc::clone(armed);
+    drop(std::thread::spawn(move || {
+        let (mut from, mut to) = (group, link);
+        while let Some(frame) = whole_frame(&mut from) {
+            let command = frame
+                .get(54..56)
+                .and_then(|number| number.try_into().ok())
+                .map(u16::from_le_bytes);
+            let mut held = armed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if held.is_some_and(|lost| Some(lost.number()) == command) {
+                *held = None;
+                continue;
+            }
+            drop(held);
+            if std::io::Write::write_all(&mut to, &frame).is_err() {
+                break;
+            }
+        }
+        drop(to.shutdown(std::net::Shutdown::Both));
+    }));
+    Ok(())
+}
+
+/// One frame from `from`, whole: `None` at the close.
+fn whole_frame(from: &mut std::net::TcpStream) -> Option<Vec<u8>> {
+    let mut frame = vec![0; 256];
+    std::io::Read::read_exact(from, &mut frame).ok()?;
+    let size = u32::from_le_bytes(frame.get(40..44)?.try_into().ok()?);
+    frame.resize(usize::try_from(size).ok()?.max(256), 0);
+    std::io::Read::read_exact(from, frame.get_mut(256..)?).ok()?;
+    Some(frame)
+}
+
+/// §2.6, "A client refusing a frame from the server closes the connection": a frame the link refuses, here one out of its
+/// sequence after a lost one, closes the link's connection, so what waits on it is refused with code 17 rather than left
+/// unanswered, and the link dials again.
+#[test]
+fn test_a_frame_the_link_refuses_closes_its_connection() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let cluster = cluster("refused-frame")?;
+        let play = SystemPlay::new(CLUSTER, 1);
+        let script = play.clone();
+        let double = RoleDouble::start(&cluster, Endpoint::Frontend, move |frame| {
+            script.answer(frame)
+        })
+        .await?;
+        let splice = Splice::to(double.address())?;
+        let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
+        let address = Address::parse(&splice.address)?;
+        let link = SystemLink::dial(address, cluster, links, 5_000, Readiness::default());
+        link.answering(now().await + WAIT).await.replied()?;
+        splice.lose_next(Command::Session);
+        let asked = link.session(session(5), ALICE);
+        let out_of_sequence = async {
+            until("the Session at the group", || {
+                double.count(Command::Session) == 1
+            })
+            .await?;
+            // Its answer is lost on the way; the close after it comes one past the sequence the link expects.
+            compio::time::sleep(Duration::from_millis(50)).await;
+            play.close(play.closed() + 1, 0, &[]);
+            TestResult::Ok(())
+        };
+        let (answered, sent) = futures::join!(compio::time::timeout(WAIT, asked), out_of_sequence);
+        sent?;
+        let refused = answered
+            .map_err(|_| TestError::new("the Session was left unanswered"))?
+            .err()
+            .context("the Session refused")?;
+        assert_eq!(refused.code(), ErrorCode::Unavailable, "{refused:?}");
+        until("a second Subscribe", || {
+            double.count(Command::Subscribe) == 2
+        })
+        .await?;
+        link.answering(now().await + WAIT).await.replied()?;
+        link.session(session(6), ALICE).await.replied()?;
+        Ok(())
+    })
+}

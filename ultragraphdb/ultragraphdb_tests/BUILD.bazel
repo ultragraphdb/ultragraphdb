@@ -47,6 +47,10 @@ BDD_FEATURES = {
         "client-endpoint/shared.feature",
         "client-endpoint/spread.feature",
     ],
+    "bdd_failure_frontend": ["transactions/failure_frontend.feature"],
+    "bdd_failure_host": ["transactions/failure_host.feature"],
+    "bdd_failure_link": ["transactions/failure_link.feature"],
+    "bdd_failure_order": ["transactions/failure_order.feature"],
     "bdd_kubernetes": ["kubernetes-deployment/pods.feature"],
     "bdd_quad_reads": [
         "quad-reads/access_paths.feature",

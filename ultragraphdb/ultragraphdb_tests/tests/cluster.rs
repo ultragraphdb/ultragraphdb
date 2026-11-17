@@ -96,6 +96,8 @@ pub(crate) struct Spec {
     /// The settings of the storage process hosting the system group beyond every storage process's: its `[metadata]` and
     /// `[sequencer]` settings.
     pub(crate) host: Vec<(&'static str, String)>,
+    /// Whether the cluster starts the frontend alone, every other process left to [`Cluster::restart`].
+    pub(crate) frontend_alone: bool,
 }
 
 impl Spec {
@@ -108,6 +110,7 @@ impl Spec {
             frontend: Vec::new(),
             storage: Vec::new(),
             host: Vec::new(),
+            frontend_alone: false,
         }
     }
 
@@ -147,6 +150,19 @@ impl Spec {
     pub(crate) fn second_storage(mut self) -> Self {
         self.partitions = 2;
         self.two_storages = true;
+        self
+    }
+
+    /// With the frontend dialling the system group at `address`, which reaches the host's role address by its port.
+    pub(crate) fn frontend_dialling(mut self, address: &str) -> Self {
+        self.frontend
+            .push(("cluster.system_address", address.to_string()));
+        self
+    }
+
+    /// With the frontend started alone, before any storage process.
+    pub(crate) fn frontend_first(mut self) -> Self {
+        self.frontend_alone = true;
         self
     }
 }
@@ -407,8 +423,12 @@ impl Cluster {
             Signal::Continue => "-CONT",
         };
         let member = self.member(instance)?;
-        member.killed.set(matches!(signal, Signal::Kill));
         let pid = member.pid;
+        if pid == 0 {
+            // `kill` would signal the test's own process group.
+            return Err(TestError::new(format!("{instance} was never started")));
+        }
+        member.killed.set(matches!(signal, Signal::Kill));
         let status = Command::new("kill")
             .arg(flag)
             .arg(pid.to_string())
@@ -420,8 +440,8 @@ impl Cluster {
         }
     }
 
-    /// Starts `instance` again on the settings the config service holds, after a signal killed it, and waits until it answers
-    /// its readiness.
+    /// Starts `instance` again on the settings the config service holds, after a signal killed it or when its cluster started
+    /// the frontend alone, and waits until it answers its health.
     pub(crate) fn restart(&mut self, instance: &str) -> TestResult {
         let config = self.config.clone();
         let member = self
@@ -458,6 +478,14 @@ impl Cluster {
             }
         }
         until_answering(&self.frontend_ready_address()?, "/ready")
+    }
+
+    /// Waits until the storage process hosting the system group, started again, is ready: its group listens, and its quiet time
+    /// begins anew.
+    pub(crate) fn host_ready(&self) -> TestResult {
+        until_answering(&self.host()?.observability, "/ready")?;
+        quiet_from_now(&self.client.address);
+        Ok(())
     }
 
     /// Stops `instance` by SIGTERM, as an operator does, and waits for its exit: what it holds it syncs first.
@@ -606,14 +634,20 @@ fn start(layout: &Layout, spec: &Spec, util: ServiceUtil) -> TestResult<Cluster>
             &log,
             wait,
         );
-        let pid = util.start_service_from_config(started)?;
+        // A process held back is started by `Cluster::restart`; until then it has no pid.
+        let held_back = spec.frontend_alone && process.program != FRONTEND_BINARY;
+        let pid = if held_back {
+            0
+        } else {
+            util.start_service_from_config(started)?
+        };
         members.push(Member {
             program: process.program,
             instance: process.instance.to_string(),
             log,
             observability: process.observability.clone(),
             pid,
-            killed: Cell::new(false),
+            killed: Cell::new(held_back),
         });
     }
     let [system_role, _, _] = &layout.roles;
@@ -628,6 +662,10 @@ fn start(layout: &Layout, spec: &Spec, util: ServiceUtil) -> TestResult<Cluster>
         config: layout.config.clone(),
         members,
     };
+    if spec.frontend_alone {
+        // Nothing the frontend's readiness waits for runs yet.
+        return Ok(cluster);
+    }
     until_answering(f_obs, "/ready")?;
     until_listening(&layout.client)?;
     // The system group listened before its storage process was ready.

@@ -441,3 +441,48 @@ The errno is not logged. The amd64 image on io_uring stays for physical Linux.
 `start_three_hosts` (`supervisor_tests/tests/images.rs`, the role images of "The same frames cross TCP") started the
 frontend's container before storage's (group 7, task 7.5, found wanting 3). It now starts storage, compute and the frontend
 in D10's order, each ready before the next; `image_bdd` passes, 17.3 s uncached.
+
+# Task 8.3: the failure runs
+
+Five scenarios over the built binaries in `ultragraphdb_tests`, `features/transactions/failure_{host,frontend,link,order}.feature`,
+steps in `tests/failure_steps.rs`, one target each (`bdd_failure_host`, `_frontend`, `_link`, `_order`). Each Commit writes
+`<subject> <predicate> _:b`, its predicate its own and homed in the subject's partition: a blank node is minted anew at each
+application, so a Commit applied twice holds two statements. After the fault each session resends what it holds in doubt,
+again after 250 ms while it is answered 14 or 17 (§11.5), within twice `transaction_ms` and `START_SECONDS`; the subject is read
+back in read-write transactions and each predicate counted: committed exactly once, not committed nowhere, nothing else, each
+session's next Commit one above its committed requests.
+
+| Run | Seen | Time ×3, uncached |
+|---|---|---|
+| Host (`storage_1`) killed, three Commits at the stopped partition 2, a fourth sent while the group is gone | the three acknowledged; the fourth 17, its resend after the restarted group's quiet time 18 | 22.4 / 22.4 / 22.4 s |
+| Frontend killed while `nick` is checked against the stopped partition 2, three Commits there | all three in doubt; resends 14 for the twice `transaction_ms` the group keeps the killed connection's marks, then the stored reply; the tightening's version once | 22.4 / 22.2 / 22.1 s |
+| The frontend's connection to the group cut (a `GroupLink` from `[::1]` to the group's port) under three Commits at the stopped partition 2, a fourth sent while cut | the three acknowledged; 16 → 32 connections dialled; the fourth 17, resolved 18 after the quiet time; each session's next Commit passes its check at once (the Endeds reached the group on the new connection) | 21.5 / 21.5 / 21.4 s |
+| Frontend started alone, then the host, Commits at partitions 1 and 2 as `storage_2` starts; and a Drop through a core one close behind | `/ready` 503 before storage; every Commit acknowledged, none in doubt. The Drop: the link stalls every frame from the group, a version is declared at the group directly, probes show the partition at its effective epoch; the Drop naming Describe's earlier version is refused by the partition, code 2, kind 5, nothing removed; sent again with its number after the closes arrive, it commits, and the next request is held alone | 3.4 / 3.4 / 3.4 s |
+
+The link stalls all frames rather than holding the closes: holding one frame of a connection breaks `sequence`
+(§2.5, step 13).
+
+## Defect found and fixed
+
+`SystemLink`'s reading task dropped a frame `view()` refused and kept its connection: after one lost or reordered frame every
+later frame breaks `sequence`, so the core's asks and checks waited for ever. §2.6: the side that dialled closes the
+connection. Fixed in `system_link_tasks.rs`; test first, `test_a_frame_the_link_refuses_closes_its_connection` (failed
+"the Session was left unanswered", passes). Body-level refusals inside `deliver` are still dropped silently; other role readers
+not audited.
+
+## Bite evidence (temporary edits, reverted)
+
+Counting assertions through `failure_order`: a predicate committed again fails "held once", a stray statement fails "no other
+statement", a committed Commit counted not committed fails "held nowhere". The Drop run fails with the partition's
+`drop_stale` disabled (all 5 statements removed). The link run fails with `SessionMarks::end` ending a mark only on its own
+connection (the next Commit left in doubt). The host and frontend runs have no product-side bite.
+
+## Found wanting
+
+1. `bdd_client_endpoint` "A read is never resent after a frame" failed once in the gate (facts `rows 12, rows 12, rows 1`) and
+   passed on rerun: by reading, `compute_2` may write its remaining batches before its SIGKILL lands, so no read is cut.
+2. The clippy aspect fails on `ultragraphdb_common_frontend` in lines task 8.3 did not write (shadowing in
+   `system_link_tasks.rs`, a complex type in `system_link/mod.rs`, a useless conversion in the unit and property tests, a manual
+   `div_ceil`, unfulfilled expectations).
+3. The frontend-before-storage run sends no resend: the frontend holds a Commit for a partition not yet in Members until it
+   joins.

@@ -13,6 +13,8 @@ mod client_reads;
 mod cluster;
 mod conformance_steps;
 mod endpoint_steps;
+mod failure_steps;
+mod group_link;
 mod kubernetes_steps;
 mod limit_steps;
 mod lossy_link;
@@ -90,6 +92,7 @@ struct Steps {
     compute: String,
     conversation: Option<conformance_steps::Conversation>,
     described: Option<ultragraphdb_protocol_wire::Describe>,
+    failures: failure_steps::Seen,
     /// The system group's role address, in the storage process hosting it.
     system: String,
     kind: Option<u64>,

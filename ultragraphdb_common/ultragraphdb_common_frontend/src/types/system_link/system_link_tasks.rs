@@ -16,7 +16,7 @@ use ultragraphdb_common_role::{RoleClient, RoleCluster, RoleReader, RoleWriter};
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, CheckView, Command, Credit, EpochCloseView, ErrorReplyView, FLAG_LAST,
-    Header, Subscribe,
+    FrameView, Header, Subscribe,
 };
 
 use super::{LinkState, SystemLink, unavailable};
@@ -174,12 +174,20 @@ fn turn(state: &mut LinkState) {
     }
 }
 
-/// The reading task: hands each frame to what waits on its stream, until the connection ends.
+/// The reading task: hands each frame to what waits on its stream, until the connection ends, or until a frame breaks a
+/// frame-level rule, which ends it as the side that dialled refusing a frame does (`PROTOCOL.md` §2.6): the frames after a
+/// refused one answer nothing on this connection, so what waits on it is refused and the link dials again.
 async fn read(link: &SystemLink, mut reader: RoleReader) {
     // An event loop: the connection's end ends it (Ultra rule 2).
     loop {
         match reader.next_frame().await {
-            Ok(frame) => deliver(link, &frame),
+            Ok(frame) => match frame.view() {
+                Ok(view) => deliver(link, &frame, &view),
+                Err(rule) => {
+                    tracing::warn!(%rule, "the system group sent a frame the link refuses; closing the connection");
+                    return;
+                }
+            },
             Err(error) => {
                 tracing::debug!(%error, "the system group's connection ended");
                 return;
@@ -191,28 +199,25 @@ async fn read(link: &SystemLink, mut reader: RoleReader) {
     }
 }
 
-/// `frame` to what waits on its stream: the subscription's closes to the view, a Check frame's outcomes to its checks, an
-/// ask's frames to its asker. A frame on a stream nothing waits on is late, and dropped.
-fn deliver(link: &SystemLink, frame: &ReceivedFrame) {
-    let Ok(view) = frame.view() else {
-        return;
-    };
+/// `frame`, validated as `view`, to what waits on its stream: the subscription's closes to the view, a Check frame's outcomes
+/// to its checks, an ask's frames to its asker. A frame on a stream nothing waits on is late, and dropped.
+fn deliver(link: &SystemLink, frame: &ReceivedFrame, view: &FrameView<'_>) {
     let stream = view.header().stream();
     let last = view.header().flags() & FLAG_LAST != 0;
     let subscription = link.state.borrow().subscription;
     if Some(stream) == subscription {
-        return delivered_close(link, &view);
+        return delivered_close(link, view);
     }
     let checks = link.state.borrow_mut().checks_out.remove(&stream);
     if let Some((checks, sent)) = checks {
-        return delivered_checks(link, &view, &checks, sent);
+        return delivered_checks(link, view, &checks, sent);
     }
     let mut state = link.state.borrow_mut();
     let Some(ask) = state.asks.get_mut(&stream) else {
         return;
     };
     if view.command() == Command::Error {
-        let refusal = ErrorReplyView::from_frame(&view)
+        let refusal = ErrorReplyView::from_frame(view)
             .and_then(|error| error.to_body())
             .unwrap_or_else(|_| unavailable("an Error that does not read"));
         if let Some(ask) = state.asks.remove(&stream) {
