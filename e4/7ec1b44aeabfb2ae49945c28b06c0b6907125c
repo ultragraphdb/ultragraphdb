@@ -1,0 +1,21 @@
+.cargo/mutants.toml
+  s_21eff977e05256::t_3dbf33665c5863 20-22
+Cargo.toml
+  s_21eff977e05256::t_e7a6287d931d18 203-208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e47ec1b44aeabfb2ae49945c28b06c0b6907125c",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
