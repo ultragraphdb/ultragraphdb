@@ -1,0 +1,45 @@
+ultragraphdb/ultragraphdb_chart_tests/features/kubernetes-deployment/chart.feature
+  s_21eff977e05256::t_fa7ec872c02aa5 1-45
+ultragraphdb/ultragraphdb_chart_tests/tests/bdd.rs
+  s_21eff977e05256::t_cbef7b4354892a 1-553
+  s_21eff977e05256::t_50a8ded5d9a07e 554-661
+deploy/helm/ultragraphdb/BUILD.bazel
+  s_21eff977e05256::t_a4714bff9539f7 6-7,14-22
+  s_21eff977e05256::t_40db3bd8de2cd2 23-30
+AGENTS.md
+  s_21eff977e05256::t_36ae10abef3eeb 267,348
+Cargo.lock
+  s_21eff977e05256::t_cfb657712623b0 3014-3023
+MODULE.bazel.lock
+  s_21eff977e05256::t_1a0e04ef08b319 31,48,85-91,121,138-139,142,145-146,192-200,245,307,669-990
+ultragraphdb/ultragraphdb_chart_tests/BUILD.bazel
+  s_21eff977e05256::t_35b83b0122684c 1-65
+ultragraphdb/ultragraphdb_chart_tests/Cargo.toml
+  s_21eff977e05256::t_bc9191ef984a3a 1-31
+MODULE.bazel
+  s_8d7e66b5bc493d::t_bde63e575d2bff 146-153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8c623a636bd02520d6faa7d15ab7d865785824c7",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_8d7e66b5bc493d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-ab714644f98d1908e",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
