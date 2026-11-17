@@ -30,12 +30,11 @@ ask the system group by role command afterwards, so every client-facing suite co
    catalog versions and epochs it served before, with no recovery of its own.
 4. **Storage starts first and depends on no other process.** The hosting storage process reaches `/ready` with no
    frontend running, and a frontend or compute process that loses the system group retries until its deadline.
-5. **The round trip is measured.** Reads are recorded on the stage 5.7 cluster before the move, since the benchmark
-   record of 2026-11-09 holds writes alone (recorded with writes as `openspec/benches/benches-2026-11-15.md`), and the whole benchmark is rerun after it, so what a commit's Check costs
-   is known before stage 5.9 removes a read's hop. It is acceptable when throughput at saturation stays within the
-   baseline's spread and a commit's median latency rises by at most one hop between the frontend and the system group as
-   measured in the same run, the hop being the median round trip of a Check frame as the endpoint cores time it; a
-   larger gap is a defect and is root-caused.
+5. **The round trip is timed.** Reads are recorded on the stage 5.7 cluster before the move, since the benchmark
+   record of 2026-11-09 holds writes alone (recorded with writes as `openspec/benches/benches-2026-11-15.md`). Each
+   endpoint core's `SystemLink` times a Check frame from its send to its reply into the role's telemetry (design D12).
+   The benchmark is not rerun on this change: stage 6.5 replaces the storage engine it measures, so the next record is
+   taken on that engine (decided 2026-11-17).
 
 ## What Changes
 
@@ -118,7 +117,7 @@ to another process's directory, and there are no outside users. A development cl
 - **Specifications:** `PROTOCOL.md` sections 3, 4.8, 6.5, 11.1, 11.5, 11.11, 11.12, 11.13 and 13 state this stage in place, section 11.12a keeping stage 5.9's text;
   golden frames and fuzz targets for Session, Check, Ended, Declare, Defaults, Challenge and Verify.
 - **Deployment:** `deploy/helm/ultragraphdb`, the development image and its profile, `scripts/cluster_local.sh`.
-- **Documents:** `AGENTS.md`'s crate table and role descriptions, `ROADMAP.md`'s row, the benchmark record under
+- **Documents:** `AGENTS.md`'s crate table and role descriptions, `ROADMAP.md`'s row, the read record of group 0 under
   `openspec/benches/`.
 - **Stage 5.9** builds on this change's link to the system group and removes the frontend's relay of reads. **Stages
   6.5 and 6.6** are rebased on both.

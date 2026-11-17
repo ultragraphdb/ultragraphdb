@@ -219,10 +219,9 @@ written before this change is read after it.
   frontend's connection to the group closed and dialled again with requests at partitions; a frontend started before
   storage.
 - **The benchmark.** Group 0 records reads and writes on the stage 5.7 cluster as
-  `openspec/benches/benches-2026-11-15.md`. The last group reruns that record, and records both in a dated file with the
-  difference a commit's Check makes. The hop is measured where it is paid: a core's `SystemLink` times each Check
-  frame from its send to its reply into the role's telemetry, and the run records that time's median and its 99th
-  percentile beside the commit latencies it compares.
+  `openspec/benches/benches-2026-11-15.md`. The hop is timed where it is paid: a core's `SystemLink` times each Check
+  frame from its send to its reply into the role's telemetry. The record is not rerun on this change: stage 6.5
+  replaces the storage engine it measures, and the next record is taken on that engine (decided 2026-11-17).
 - **Two gates.** The cluster's processes change one group at a time and run together again only after group 7's
   switch (D2). Groups 0 to 6 are gated by `make build` and every test but those tagged `integration_test`, the tag
   every suite over the built binaries carries; groups 7 to 9 by `make test` (decided 2026-11-12).
