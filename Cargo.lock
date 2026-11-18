@@ -3807,7 +3807,6 @@ dependencies = [
  "ultragraphdb_core_catalog",
  "ultragraphdb_core_ids",
  "ultragraphdb_core_mapping",
- "ultragraphdb_error_protocol",
  "ultragraphdb_error_role",
  "ultragraphdb_protocol_transport",
  "ultragraphdb_protocol_transport_compio",

@@ -17,6 +17,7 @@ mod types;
 mod utils;
 
 pub use crate::traits::session::{Answer, Push, Session};
+pub use crate::types::answered::Answered;
 pub use crate::types::connection_bound::ConnectionBound;
 pub use crate::types::open_frame::OpenFrame;
 pub use crate::types::open_requests::OpenRequests;

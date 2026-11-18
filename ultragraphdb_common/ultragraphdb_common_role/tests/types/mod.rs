@@ -4,11 +4,15 @@
  */
 
 #[cfg(test)]
+mod answered_tests;
+#[cfg(test)]
 mod connection_bound_tests;
 #[cfg(test)]
 mod open_requests_tests;
 #[cfg(test)]
 mod parked_bytes_tests;
+#[cfg(test)]
+mod role_client;
 #[cfg(test)]
 mod role_client_tests;
 #[cfg(test)]

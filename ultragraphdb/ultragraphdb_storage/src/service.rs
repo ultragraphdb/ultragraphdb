@@ -19,8 +19,8 @@ use ultragraphdb_cluster_partition::{
 use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
 use ultragraphdb_cluster_sequencer::{CatalogVersion, Close, SequencerConfig};
 use ultragraphdb_common_role::{
-    PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleCredentials, Server,
-    listen, retry_until, serve_connection, system_address,
+    Answered, PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleCredentials,
+    Server, listen, retry_until, serve_connection, system_address,
 };
 use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
 use ultragraphdb_common_service_config::{
@@ -35,14 +35,13 @@ use ultragraphdb_common_system::{SystemSession, SystemShared, SystemStart, start
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
-use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_error_role::{RoleError, RoleErrorEnum};
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError, TransportErrorEnum};
 use ultragraphdb_protocol_transport_compio::{AcceptPace, Listener};
 use ultragraphdb_protocol_wire::{
     BodyView, Catalog, CatalogFrames, CloseRequest as CloseRequestBody, Command, Credit,
-    DefaultEntry, EpochCloseView, ErrorCode, ErrorReplyView, FLAG_LAST, FrameView, Join, Lease,
-    LeaseView, Placement, PlacementView, Report, Subscribe,
+    DefaultEntry, EpochCloseView, ErrorCode, FLAG_LAST, FrameView, Join, Lease, LeaseView,
+    Placement, PlacementView, Report, Subscribe,
 };
 use ultragraphdb_store_apply::ChangesetApplier;
 use ultragraphdb_store_kv::{Durability, FjallStore, MokaListCache, ThreadExecutor};
@@ -986,14 +985,15 @@ async fn held_versions(
 }
 
 /// Version `version` of `tenant` read on `client` across its Catalog frames, credit granted for each frame after the first
-/// (`PROTOCOL.md` §13.7, design D13), at most [`CATALOG_FRAMES_MAX`] of them. A late frame among them is checked whole and
-/// dropped, as [`RoleClient::request`] drops one before the first (§2.5, step 3; §11.2).
+/// (`PROTOCOL.md` §13.7, design D13), at most [`CATALOG_FRAMES_MAX`] of them, each read by [`RoleClient::next_answer`]'s rule: a
+/// late frame among them is checked whole and dropped (§2.5, step 3; §11.2).
 ///
 /// # Errors
 ///
 /// The group's Error on stream 0 or the version's stream, and a frame this process refuses (§2.6, §13): one breaking a
-/// frame-level rule or its body's, one on stream 0 or a stream it has not opened, which answers no request, or a command a Catalog
-/// is not answered by. The caller drops the client, which closes the connection, as the side that dialled refusing a frame does.
+/// frame-level rule, one on stream 0 or a stream it has not opened, which answers no request, or a command a Catalog is not
+/// answered by, each of which closes the connection as it is read; and one breaking its body's rule, for which the caller drops
+/// the client, which closes the connection.
 ///
 /// A future dropped at a send or a read leaves the connection part way through the answer: the caller drops it.
 async fn catalog_read(
@@ -1015,7 +1015,8 @@ async fn catalog_read(
             return Ok(frames);
         }
         client.send_on(stream, &Credit::new(1)).await?;
-        last = next_taken(client, &mut frames, stream).await?;
+        let next = client.next_answer(Command::Catalog).await?.frame()?;
+        last = taken(&mut frames, &next.view().map_err(TransportError::protocol)?)?;
     }
     if last {
         return Ok(frames);
@@ -1023,59 +1024,6 @@ async fn catalog_read(
     Err(TransportError::authentication(format!(
         "a catalog version of more than {CATALOG_FRAMES_MAX} frames"
     )))
-}
-
-/// Reads the next frame of the Catalog answer on `stream` into `frames`, each late frame before it checked whole and dropped:
-/// whether it was the answer's last.
-///
-/// # Errors
-///
-/// As [`catalog_read`] says.
-///
-/// A future dropped at a read leaves the connection part way through the answer, as [`catalog_read`] says.
-async fn next_taken(
-    client: &mut RoleClient,
-    frames: &mut CatalogFrames,
-    stream: u64,
-) -> Result<bool, TransportError> {
-    // An event loop: a frame of the answer, a refusal or the connection's end ends it, as `RoleClient::request`'s (Ultra rule 2).
-    loop {
-        let next = client.next_frame().await?;
-        if let Some(view) = catalog_frame(&next, stream)? {
-            return taken(frames, &view);
-        }
-    }
-}
-
-/// `frame`, read for the Catalog answer on `stream`, the last stream the connection opened: its view, or `None` for a frame
-/// of a stream this process has ended, checked whole and dropped (`PROTOCOL.md` §2.5, step 3).
-///
-/// # Errors
-///
-/// As [`catalog_read`] says.
-fn catalog_frame(
-    frame: &ultragraphdb_protocol_transport::ReceivedFrame,
-    stream: u64,
-) -> Result<Option<FrameView<'_>>, TransportError> {
-    let view = frame.view().map_err(TransportError::protocol)?;
-    let on = view.header().stream();
-    if on != 0 && on < stream {
-        return Ok(None);
-    }
-    let command = view.command();
-    if command == Command::Error && (on == 0 || on == stream) {
-        let refused = ErrorReplyView::from_frame(&view).map_err(TransportError::protocol)?;
-        return Err(TransportError::refused(refused.code(), refused.message()));
-    }
-    if on != stream {
-        return Err(TransportError::protocol(ProtocolError::command_not_served(
-            command.number(),
-        )));
-    }
-    let _answer: Command = command
-        .answering(Command::Catalog)
-        .map_err(TransportError::protocol)?;
-    Ok(Some(view))
 }
 
 /// Takes `view` into `frames`: whether it was the answer's last.
@@ -1188,14 +1136,12 @@ async fn deliver_closes(
     lost: oneshot::Sender<RoleError>,
     stopping: Stopping,
 ) {
-    let mut subscription = client.last_stream();
     while !stopping.is_stopping() {
         let read = client
-            .next_frame()
+            .next_answer(Command::Subscribe)
             .await
-            .and_then(|frame| subscribed(&frame, subscription));
+            .and_then(subscribed);
         let failure = match read {
-            Ok(Subscribed::Late) => continue,
             // Asking again finds the same: the group no longer holds the close this partition needs (`PROTOCOL.md` §13.3).
             Ok(Subscribed::Ended(ended)) => RoleError::unavailable(format!(
                 "the system group ended this process's subscription: {ended}"
@@ -1216,7 +1162,6 @@ async fn deliver_closes(
                 match rejoined(&peers, &join, after, &stopping).await {
                     Ok(Some(next)) => {
                         client = next;
-                        subscription = client.last_stream();
                         continue;
                     }
                     Ok(None) => return,
@@ -1291,50 +1236,34 @@ async fn delivered(
     Ok(epoch)
 }
 
-/// What a frame read on the connection a subscription is on is.
+/// What a subscription's stream brought.
 enum Subscribed {
     /// A close.
     Close(Close),
     /// The subscription's end by the group's Error 1, what it said: the close it would send next is no longer held.
     Ended(String),
-    /// A frame of a stream this process has ended, checked whole and dropped (`PROTOCOL.md` §2.5, step 3).
-    Late,
 }
 
-/// `frame`, read on the connection whose subscription is on stream `subscription`, the last stream it opened.
+/// What `answer`, read for the Subscribe on the connection's last stream by [`RoleClient::next_answer`]'s rule, brought.
 ///
 /// # Errors
 ///
 /// The group's Error on stream 0, its connection error, or of a code other than 1 on the subscription's stream, a group
-/// refusing as it stops, either joined again; and a frame this process refuses (`PROTOCOL.md` §2.6, §13): one breaking a
-/// frame-level rule or its body's, one on stream 0 or on a stream it has not opened, which answers no request, or a command a
-/// Subscribe is not answered by (§2.5, step 3).
-fn subscribed(
-    frame: &ultragraphdb_protocol_transport::ReceivedFrame,
-    subscription: u64,
-) -> Result<Subscribed, TransportError> {
-    let view = frame.view().map_err(TransportError::protocol)?;
-    let stream = view.header().stream();
-    if stream != 0 && stream < subscription {
-        return Ok(Subscribed::Late);
-    }
-    let command = view.command();
-    if command == Command::Error && (stream == 0 || stream == subscription) {
-        let refused = ErrorReplyView::from_frame(&view).map_err(TransportError::protocol)?;
-        if stream == subscription && refused.code() == ErrorCode::Protocol {
-            return Ok(Subscribed::Ended(refused.message().to_string()));
+/// refusing as it stops, either joined again; and a close whose body breaks its rules, which this process refuses
+/// (`PROTOCOL.md` §2.6, §13): the caller drops the client, which closes the connection.
+fn subscribed(answer: Answered) -> Result<Subscribed, TransportError> {
+    match answer {
+        Answered::Frame(frame) => {
+            close_of(&frame.view().map_err(TransportError::protocol)?).map(Subscribed::Close)
         }
-        return Err(TransportError::refused(refused.code(), refused.message()));
+        Answered::Refused {
+            code: ErrorCode::Protocol,
+            message,
+        } => Ok(Subscribed::Ended(message)),
+        Answered::Refused { code, message } | Answered::ConnectionRefused { code, message } => {
+            Err(TransportError::refused(code, message))
+        }
     }
-    if stream != subscription {
-        return Err(TransportError::protocol(ProtocolError::command_not_served(
-            command.number(),
-        )));
-    }
-    let _answer: Command = command
-        .answering(Command::Subscribe)
-        .map_err(TransportError::protocol)?;
-    close_of(&view).map(Subscribed::Close)
 }
 
 /// The close `view` carries. A close always fits one frame (`PROTOCOL.md` §13.4 allows more, the group sends one).
