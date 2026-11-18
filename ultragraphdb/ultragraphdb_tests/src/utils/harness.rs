@@ -322,15 +322,25 @@ pub fn holding(settings: Vec<(String, String)>, secret: &str) -> TestResult<Vec<
 /// # Errors
 ///
 /// When `address` has not answered `path` with success within `START_SECONDS`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test's wait for a process is bounded by the wall clock: a probe that connects and hears nothing takes its own time, which a count of sleeps does not hold"
+)]
 pub fn until_answering(address: &str, path: &str) -> TestResult {
-    for _ in 0..START_SECONDS * 20 {
+    let started = std::time::Instant::now();
+    let mut last = String::from("no probe ran");
+    while started.elapsed() < Duration::from_secs(START_SECONDS) {
         // A role not yet listening is a role not yet answering.
-        if http_status(address, path).is_ok_and(|status| status == 200) {
-            return Ok(());
+        match http_status(address, path) {
+            Ok(200) => return Ok(()),
+            Ok(status) => last = format!("status {status}"),
+            Err(error) => last = error.to_string(),
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    Err(TestError::new(format!("{address}{path} never answered")))
+    Err(TestError::new(format!(
+        "{address}{path} never answered within {START_SECONDS} s; the last probe: {last}"
+    )))
 }
 
 /// What the system group at `address` lists: each member's kind, partition and address.
