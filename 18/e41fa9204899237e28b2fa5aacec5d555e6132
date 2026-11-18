@@ -1,0 +1,129 @@
+AGENTS.md
+  s_4edd737a92459c::t_f1487bf1561d55 253-254,258,270,286-287,300,308,311
+Cargo.lock
+  s_21eff977e05256::t_c97e05f6574cc9 3160,3162-3164,3166,3168,3170-3171,3174-3176,3179,3181,3184,3191-3192,3667,3686
+openspec/changes/stage-5-9-compute-role/notes/group-5.md
+  s_21eff977e05256::t_3875576b575494 1-33
+openspec/changes/stage-5-9-compute-role/tasks.md
+  s_21eff977e05256::t_07e27cf416613e 41-42
+ultragraphdb/ultragraphdb_frontend/Cargo.toml
+  s_21eff977e05256::t_e24417ad355697 32
+ultragraphdb/ultragraphdb_frontend/src/service.rs
+  s_21eff977e05256::t_60ee1369c0369b 10
+ultragraphdb/ultragraphdb_frontend_tests/Cargo.toml
+  s_21eff977e05256::t_16ed882776b5e9 28
+ultragraphdb/ultragraphdb_frontend_tests/features/quad-reads/order.feature
+  s_21eff977e05256::t_1389ee29ab7c11 6
+ultragraphdb/ultragraphdb_frontend_tests/tests/endpoint_steps.rs
+  s_21eff977e05256::t_438bfd60a2094b 16
+ultragraphdb_common/ultragraphdb_common_compute/BUILD.bazel
+  s_21eff977e05256::t_1924ee42d7153d 11-13,20,23-25,40-46,55-158
+ultragraphdb_common/ultragraphdb_common_compute/Cargo.toml
+  s_21eff977e05256::t_e54c5f74fc9383 15,22-25,28,30-31,33,38-39,42,44,47,55-61,64-65,70-78
+ultragraphdb_common/ultragraphdb_common_compute/src/types/mod.rs
+  s_21eff977e05256::t_1222a85b3e5bbb 8-16,19-24,26,28,30-32,35,44,53-54,56-58,62-65,70-76
+ultragraphdb_common/ultragraphdb_common_compute/src/utils/mod.rs
+  s_21eff977e05256::t_12929f7062b124 8-9,14,17
+ultragraphdb_common/ultragraphdb_common_compute/tests/endpoint_stage.rs
+  s_21eff977e05256::t_0d61ae183cd149 20
+ultragraphdb_common/ultragraphdb_common_compute/tests/endpoint_steps.rs
+  s_21eff977e05256::t_3e6e29d8c7a090 14
+ultragraphdb_common/ultragraphdb_common_compute/tests/endpoint_steps_requests.rs
+  s_21eff977e05256::t_d0ea8a60a9aba5 17
+ultragraphdb_common/ultragraphdb_common_compute/tests/endpoint_steps_sessions.rs
+  s_21eff977e05256::t_e8197371985f36 13
+ultragraphdb_common/ultragraphdb_common_compute/tests/link_steps.rs
+  s_21eff977e05256::t_735a2e5d70dad7 11,619
+ultragraphdb_common/ultragraphdb_common_compute/tests/mod.rs
+  s_21eff977e05256::t_783b5294806b28 14
+ultragraphdb_common/ultragraphdb_common_compute/tests/on_way_steps.rs
+  s_21eff977e05256::t_26277d05b2e362 11
+ultragraphdb_common/ultragraphdb_common_compute/tests/operation_steps.rs
+  s_21eff977e05256::t_4d46207ab9b738 9
+ultragraphdb_common/ultragraphdb_common_compute/tests/played_stage.rs
+  s_21eff977e05256::t_6b34039d787252 12
+ultragraphdb_common/ultragraphdb_common_compute/tests/property/types/auth_throttle_property_tests.rs
+  s_21eff977e05256::t_52b3a70a3682ec 15
+ultragraphdb_common/ultragraphdb_common_compute/tests/property/types/endpoint_view_property_tests.rs
+  s_21eff977e05256::t_97333618368751 16
+ultragraphdb_common/ultragraphdb_common_compute/tests/property/types/relay_authenticator_property_tests.rs
+  s_21eff977e05256::t_ee276b2f03fb71 10
+ultragraphdb_common/ultragraphdb_common_compute/tests/property/types/system_link_property_tests.rs
+  s_21eff977e05256::t_70c9a16a8c659b 14
+ultragraphdb_common/ultragraphdb_common_compute/tests/property/types/system_turns_property_tests.rs
+  s_21eff977e05256::t_2bb48047603b69 12
+ultragraphdb_common/ultragraphdb_common_compute/tests/property/utils/declare_bound_property_tests.rs
+  s_21eff977e05256::t_34c4227a0c0da9 10
+ultragraphdb_common/ultragraphdb_common_compute/tests/property/utils/recall_order_property_tests.rs
+  s_21eff977e05256::t_e457271fba34b4 10
+ultragraphdb_common/ultragraphdb_common_compute/tests/relay_steps.rs
+  s_21eff977e05256::t_fa1a6134164bb2 10
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/asked_credentials_tests.rs
+  s_21eff977e05256::t_d424a7c50954b7 6
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/auth_throttle_tests.rs
+  s_21eff977e05256::t_3613c09080ce93 9
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/check_round_trips_tests.rs
+  s_21eff977e05256::t_972e9485cbe5f1 12
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/client_session_tests.rs
+  s_21eff977e05256::t_38abc348d9cd6f 14
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/endpoint_view_tests.rs
+  s_21eff977e05256::t_4e416eb0cd521a 14
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/mod.rs
+  s_21eff977e05256::t_4e3b1c0a894635 7-13,16-17,22-23,32-33,36-37,40-46
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/one_frame_phases_tests.rs
+  s_21eff977e05256::t_9f8f8e5dd04ccc 9
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/relay_authenticator_tests.rs
+  s_21eff977e05256::t_ff979e5e319ac4 9
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/role_links_tests.rs
+  s_21eff977e05256::t_9bf94214a8f2bf 10
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/system_link_tests.rs
+  s_21eff977e05256::t_da13b6c58038c6 18
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/system_turns_tests.rs
+  s_21eff977e05256::t_e8ae381b09671f 8
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/tenant_gate_tests.rs
+  s_21eff977e05256::t_9682d001057b00 6
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/throttle_handle_tests.rs
+  s_21eff977e05256::t_24df853b38d51c 10
+ultragraphdb_common/ultragraphdb_common_compute/tests/utils/iri_place_tests.rs
+  s_21eff977e05256::t_62461104c2ae22 6
+ultragraphdb_common/ultragraphdb_common_compute/tests/utils/mod.rs
+  s_21eff977e05256::t_48e540961d45c4 6,14
+ultragraphdb_common/ultragraphdb_common_compute/tests/utils/term_rules_tests.rs
+  s_21eff977e05256::t_6b374cbfd16995 6
+ultragraphdb_common/ultragraphdb_common_compute/tests/utils_test/role_double_tests.rs
+  s_21eff977e05256::t_587e94d1d050e9 9
+ultragraphdb_common/ultragraphdb_common_frontend/BUILD.bazel
+  s_21eff977e05256::t_49600663ce2b96 6,9,12
+ultragraphdb_common/ultragraphdb_common_frontend/Cargo.toml
+  s_21eff977e05256::t_70eda0021b9673 15
+ultragraphdb_common/ultragraphdb_common_frontend/src/lib.rs
+  s_21eff977e05256::t_4f2d3e5559af62 6-7
+ROADMAP.md
+  s_21eff977e05256::t_5ae99408bf2eed 13
+ultragraphdb_common/ultragraphdb_common_compute/src/lib.rs
+  s_21eff977e05256::t_c881bf6d887300 15-25,27,30-31,33-37,40-43,45-47,49,51-62,66-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "18e41fa9204899237e28b2fa5aacec5d555e6132",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_4edd737a92459c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5276d579-202d-4c67-89e2-c815e788fbec",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
