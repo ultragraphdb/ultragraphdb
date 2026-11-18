@@ -1,0 +1,141 @@
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/relay_state.rs
+  s_21eff977e05256::t_131d9c6ad38cff 1-16
+  s_21eff977e05256::t_da9ba3b3d2329a 17
+openspec/changes/stage-5-9-compute-role/notes/group-5-lift-compute.md
+  s_21eff977e05256::t_9f8b5aae72db88 1-128
+openspec/changes/stage-5-9-compute-role/notes/group-5-lift-frontend.md
+  s_21eff977e05256::t_224e2385922bdc 41
+  s_21eff977e05256::t_b3a1426c96f34c 120-122
+  s_21eff977e05256::t_446cb5c69d8efa 9-10
+  s_21eff977e05256::t_448763d39abc9f 1-8,11-40,42-119,123-157
+  s_21eff977e05256::t_f1f004378a9849 158-161
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/turn.rs
+  s_21eff977e05256::t_a8ca769cec93d2 1-61
+  s_21eff977e05256::t_f84fafe6ea8cd1 62
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/relay_mechanism.rs
+  s_21eff977e05256::t_0a59596039b09d 1-44
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/hold_outcome.rs
+  s_21eff977e05256::t_1545c754d5e98d 1-13
+openspec/changes/stage-5-9-compute-role/tasks.md
+  s_21eff977e05256::t_f17047d2ffb5b8 44,67
+ultragraphdb_common/ultragraphdb_common_compute/src/types/asked.rs
+  s_21eff977e05256::t_81a7426bcf7405 1-20
+ultragraphdb_common/ultragraphdb_common_compute/src/types/compute_core/compute_core_catalog.rs
+  s_21eff977e05256::t_10cfd2fff2c224 8,60
+ultragraphdb_common/ultragraphdb_common_compute/src/types/compute_core/compute_core_lookups.rs
+  s_21eff977e05256::t_719d6b3e4a7bfe 15,17,25,77-82,130
+ultragraphdb_common/ultragraphdb_common_compute/src/types/compute_core/lookup_partition.rs
+  s_21eff977e05256::t_30e263298b7450 1-15
+ultragraphdb_common/ultragraphdb_common_compute/src/types/compute_core/mod.rs
+  s_21eff977e05256::t_e8edb5ef66863a 9,31-32,48,50-51
+ultragraphdb_common/ultragraphdb_common_compute/src/types/frontier.rs
+  s_21eff977e05256::t_c51eac28e71dad 31,72-78
+ultragraphdb_common/ultragraphdb_common_compute/src/types/link.rs
+  s_21eff977e05256::t_4594187a12ffc8 171-172,269,274
+ultragraphdb_common/ultragraphdb_common_compute/src/types/mod.rs
+  s_21eff977e05256::t_c20ef5401ef941 7,16
+ultragraphdb_common/ultragraphdb_common_compute/src/types/names.rs
+  s_21eff977e05256::t_8e9d1826698f6d 116,124
+ultragraphdb_common/ultragraphdb_common_compute/src/types/opened.rs
+  s_21eff977e05256::t_6ee8071737a020 1-12
+ultragraphdb_common/ultragraphdb_common_compute/src/types/page.rs
+  s_21eff977e05256::t_91cb7242e25a91 54
+ultragraphdb_common/ultragraphdb_common_compute/src/types/partition_rows/mod.rs
+  s_21eff977e05256::t_1cee551bbe1c74 14,35,70,148-153,172,251
+ultragraphdb_common/ultragraphdb_common_compute/src/types/partition_rows/partition_rows_fill.rs
+  s_21eff977e05256::t_3cb8956b47b0d9 17,161,165,167
+ultragraphdb_common/ultragraphdb_common_compute/src/types/partition_rows/partition_rows_frames.rs
+  s_21eff977e05256::t_e5b7b627d4a81f 114-115
+ultragraphdb_common/ultragraphdb_common_compute/src/types/partition_rows/partition_rows_plan.rs
+  s_21eff977e05256::t_c90e7332bc7af1 70-73,78-79,85-88
+ultragraphdb_common/ultragraphdb_common_compute/src/types/partition_rows/partition_rows_terms.rs
+  s_21eff977e05256::t_db81bb54841826 8,11-12,25,27-32,54,70,90,97,119,144,213-219
+ultragraphdb_common/ultragraphdb_common_compute/src/types/partition_rows/row_cells.rs
+  s_21eff977e05256::t_cd6a9590da3d18 1-40
+ultragraphdb_common/ultragraphdb_common_compute/src/types/pin_target.rs
+  s_21eff977e05256::t_ec0d85d34ff018 17,24-26,33
+ultragraphdb_common/ultragraphdb_common_compute/src/types/range_spec.rs
+  s_21eff977e05256::t_58e77fb02e263c 20,24-29
+ultragraphdb_common/ultragraphdb_common_compute/src/types/read_pins.rs
+  s_21eff977e05256::t_72b31d2ca034d3 28-30,55-58
+ultragraphdb_common/ultragraphdb_common_compute/src/types/read_times.rs
+  s_21eff977e05256::t_e02f0e0ad9af28 28,34
+ultragraphdb_common/ultragraphdb_common_compute/src/types/result_sink.rs
+  s_21eff977e05256::t_57b5fc91cdc47b 55,85,95-99,117
+ultragraphdb_common/ultragraphdb_common_compute/src/types/row_terms.rs
+  s_21eff977e05256::t_b84e440a2b1ba7 174
+ultragraphdb_common/ultragraphdb_common_compute/src/types/row_view.rs
+  s_21eff977e05256::t_3f4eb813c43b05 12
+ultragraphdb_common/ultragraphdb_common_compute/src/types/scan_stream.rs
+  s_21eff977e05256::t_a0ad0fcdedf095 53
+ultragraphdb_common/ultragraphdb_common_compute/src/utils/keys.rs
+  s_21eff977e05256::t_259d27ad0a202b 14-17
+ultragraphdb_common/ultragraphdb_common_compute/src/utils/read_times_of.rs
+  s_21eff977e05256::t_156177f8e4e1f5 11,14,20-21
+ultragraphdb_common/ultragraphdb_common_compute/src/utils/run_read.rs
+  s_21eff977e05256::t_4d5b02f20bb30e 21,24,183,268,308-312,330-344,458,460-463,472,482,512
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/frontier_tests.rs
+  s_21eff977e05256::t_798febe07b9ea9 7,29,39,43,47,51,66,72,77,82,91
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/lookup_at_tests.rs
+  s_21eff977e05256::t_1f914a9cf714c9 7,11,15
+ultragraphdb_common/ultragraphdb_common_compute/tests/types/wanted_names_tests.rs
+  s_21eff977e05256::t_6dfc051e92d306 19,32,52
+ultragraphdb_common/ultragraphdb_common_compute/tests/utils/keys_tests.rs
+  s_21eff977e05256::t_944e61e6e2e27d 17,19,23,25,29,31
+ultragraphdb_common/ultragraphdb_common_frontend/src/lib.rs
+  s_21eff977e05256::t_0f5cb33cb53b35 28,31,36-37,40,43
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_bind.rs
+  s_21eff977e05256::t_afe256aaaac502 60-61,134,369
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_commit.rs
+  s_21eff977e05256::t_152fcac858c88f 85-89,221-224,268-272
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_one_frame.rs
+  s_21eff977e05256::t_74aa0981f095f7 257,449,508
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_reads.rs
+  s_21eff977e05256::t_245c1a4774db93 168
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/client_session_requests.rs
+  s_21eff977e05256::t_3acda54060a705 356
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/client_session/mod.rs
+  s_21eff977e05256::t_384f68e66acdea 180-183
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/endpoint_core.rs
+  s_21eff977e05256::t_4df83b3c1cbe85 102-103
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/endpoint_view.rs
+  s_21eff977e05256::t_2b8d2e72d82470 13,44-45,224-225,255,271
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/mod.rs
+  s_21eff977e05256::t_aaab26e1e84d2b 22,31-32,42
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/relay_authenticator.rs
+  s_21eff977e05256::t_169f12ddf951ef 11,13-14,22-23,103
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/role_link/mod.rs
+  s_21eff977e05256::t_753a0da20645fe 64,94-96,128,176,225
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/role_link/role_link_tasks.rs
+  s_21eff977e05256::t_599a95a9706257 85,93
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/role_links.rs
+  s_21eff977e05256::t_24dc42ceeb694a 21,24,104,268,273
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/system_link/mod.rs
+  s_21eff977e05256::t_915c525e780699 29,52-53,55-56,58-59,70-72,82-83,85-86,104,131-136,328,360-361,377,382,386
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/system_link/system_link_reads.rs
+  s_21eff977e05256::t_88d35be28f0efd 236,247,277,282
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/system_link/system_link_tasks.rs
+  s_21eff977e05256::t_6333c3e812bb9c 10-11,20,63-64,94,99,102,105,110,113,134-135,137,148,157-160,183,193-194,261,269,350,368-369,402,440,443
+ultragraphdb_common/ultragraphdb_common_frontend/src/types/system_turns.rs
+  s_21eff977e05256::t_81261023e41465 12-13,41,70,88,101,114,135-137,159-163
+ultragraphdb_common/ultragraphdb_common_frontend/src/utils_test/role_double.rs
+  s_21eff977e05256::t_fb36cac69cdf80 21,28-30
+ultragraphdb_common/ultragraphdb_common_frontend/src/utils_test/system_play.rs
+  s_21eff977e05256::t_7a27d6dc742731 497
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "429acbfe89b493090ac7cd16a81e10fcfd6f71ec",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
