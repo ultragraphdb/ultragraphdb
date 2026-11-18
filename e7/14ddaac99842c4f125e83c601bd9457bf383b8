@@ -1,0 +1,19 @@
+ultragraphdb_common/ultragraphdb_common_frontend/tests/property/types/system_link_property_tests.rs
+  s_21eff977e05256::t_0285e3c8ddc514 121-125,128-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e714ddaac99842c4f125e83c601bd9457bf383b8",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
