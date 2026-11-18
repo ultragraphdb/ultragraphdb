@@ -1,0 +1,19 @@
+ultragraphdb/ultragraphdb_tests/src/utils/harness.rs
+  s_21eff977e05256::t_4a68d75fc4db67 325-328,330-332,334-337,341-343
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "962b3a41810ceb687f904e44cd1be7e5bddbb5d4",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
