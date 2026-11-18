@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use compio::runtime::spawn;
-use ultragraphdb_common_frontend::{
+use ultragraphdb_common_compute::{
     AuthThrottle, ClientSession, EndpointCore, EndpointLimits, EveryAuthenticated, LoginLimits,
     RelayAuthenticator, RoleLinks, SystemLink, TenantGate, ThrottleHandle,
 };

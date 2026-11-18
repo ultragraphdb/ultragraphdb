@@ -13,7 +13,7 @@ use compio::io::{AsyncRead, AsyncWrite};
 use compio::runtime::Runtime;
 use cucumber::{then, when};
 use service_utils::WaitStrategy;
-use ultragraphdb_common_frontend::{RoleDouble, batch_frame, empty_batch};
+use ultragraphdb_common_compute::{RoleDouble, batch_frame, empty_batch};
 use ultragraphdb_common_role::{Answer, RoleClient, RoleCluster, RoleSecret};
 use ultragraphdb_protocol_scram::{ScramClient, system_nonce};
 use ultragraphdb_protocol_transport::{

@@ -12,25 +12,39 @@ readme.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+description = "The UltraGraphDB compute role: the client endpoint and the read executor"
 publish.workspace = true
 autotests = false
 
 [lints]
 workspace = true
 
+[features]
+default = []
+test-utils = []
+
 [dependencies]
 compio = { workspace = true }
+# `futures::channel`, which needs the crate's `std` feature: the workspace takes it with no default features.
 futures = { workspace = true, features = ["std"] }
+getrandom = { workspace = true }
+oxilangtag = { workspace = true }
 oxrdf = { workspace = true }
+oxsdatatypes = { workspace = true }
 tracing = { workspace = true }
 ultragraphdb_cluster_placement = { workspace = true }
 ultragraphdb_common_role = { workspace = true }
 ultragraphdb_common_service = { workspace = true }
+ultragraphdb_common_service_config = { workspace = true }
+ultragraphdb_core_catalog = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
+ultragraphdb_core_mapping = { workspace = true }
 ultragraphdb_core_terms = { workspace = true }
+ultragraphdb_error_cluster = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
 ultragraphdb_error_role = { workspace = true }
+ultragraphdb_protocol_scram = { workspace = true }
 ultragraphdb_protocol_transport = { workspace = true }
 ultragraphdb_protocol_transport_compio = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
@@ -38,9 +52,27 @@ ultragraphdb_store_quads = { workspace = true }
 xxhash-rust = { workspace = true }
 
 [dev-dependencies]
+cucumber = { workspace = true }
+hegeltest = { workspace = true, features = ["static-engine"] }
+# The system group the test stage runs, as a storage process hosts it.
+ultragraphdb_cluster_metadata = { workspace = true }
+ultragraphdb_cluster_sequencer = { workspace = true }
+ultragraphdb_common_compute = { path = ".", features = ["test-utils"] }
+ultragraphdb_common_system = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
+ultragraphdb_transactions_log = { workspace = true, features = ["test-utils"] }
+ultragraphdb_transport_tls = { workspace = true, features = ["test-utils"] }
 
 [[test]]
 name = "unit"
 path = "tests/mod.rs"
+
+[[test]]
+name = "property"
+path = "tests/property/mod.rs"
+
+[[test]]
+name = "bdd"
+path = "tests/bdd.rs"
+harness = false

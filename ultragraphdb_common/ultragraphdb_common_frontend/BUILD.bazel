@@ -3,156 +3,15 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 #
 
-load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@crates//:defs.bzl", "lint_config")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
-load("@rules_rs//rs:rust_test.bzl", "rust_test")
-load("@rules_rust//rust:defs.bzl", "rust_doc")
 
-# The library's dependencies, and the aliases of those alone: `aliases()` names the dev-dependencies too, the system group the
-# tests run among them, and every label it names is a dependency of the library in Bazel's graph and so of the frontend binary
-# (role-binaries, "The frontend binary carries no book").
-LIBRARY_DEPS = all_crate_deps(normal = True)
-
+# Empty since stage 5.9's task 5.2 moved its code into `ultragraphdb_common_compute`; task 6.5 removes the crate.
 rust_library(
     name = "ultragraphdb_common_frontend",
-    srcs = glob(["src/**/*.rs"]),
-    aliases = {label: name for label, name in aliases().items() if label in LIBRARY_DEPS},
-    crate_features = ["test-utils"],
+    srcs = ["src/lib.rs"],
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
-    # lint_config turns cfg checking on (`--check-cfg=cfg(loom)`) without declaring the crate's features, which cargo
-    # declares from `[features]`: the same declaration here, so `#[cfg(feature = ...)]` is checked as under cargo.
-    rustc_flags = ["--check-cfg=cfg(feature, values(\"default\", \"test-utils\"))"],
     tags = ["ultragraphdb_common_frontend"],
     visibility = ["//visibility:public"],
-    deps = LIBRARY_DEPS,
-)
-
-rust_doc(
-    name = "doc",
-    crate = ":ultragraphdb_common_frontend",
-    tags = ["doc"],
-    visibility = ["//visibility:public"],
-)
-
-rust_test(
-    name = "ultragraphdb_common_frontend_tests",
-    srcs = glob(
-        ["tests/**/*.rs"],
-        exclude = [
-            "tests/bdd.rs",
-            "tests/property/**",
-        ],
-    ),
-    crate_root = "tests/mod.rs",
-    tags = ["unit-test"],
-    visibility = ["//visibility:public"],
-    deps = [":ultragraphdb_common_frontend"] + all_crate_deps(
-        normal = True,
-        normal_dev = True,
-    ),
-)
-
-# The property tests, Hegel's, under `tests/property/`, mirroring `src/`. Derandomized and without an example database, so a
-# run is a function of its sources and Bazel may cache it.
-rust_test(
-    name = "property",
-    srcs = glob(["tests/property/**/*.rs"]),
-    crate_root = "tests/property/mod.rs",
-    env = {
-        "HEGEL_DATABASE": "disabled",
-        "HEGEL_DERANDOMIZE": "true",
-    },
-    tags = ["property-test"],
-    deps = [":ultragraphdb_common_frontend"] + all_crate_deps(
-        normal = True,
-        normal_dev = True,
-    ),
-)
-
-# The scenarios' sources, which every BDD target below compiles.
-BDD_SRCS = [
-    "tests/bdd.rs",
-    "tests/declaring_steps.rs",
-    "tests/endpoint_stage.rs",
-    "tests/endpoint_steps.rs",
-    "tests/endpoint_steps_requests.rs",
-    "tests/endpoint_steps_sessions.rs",
-    "tests/link_steps.rs",
-    "tests/on_way_steps.rs",
-    "tests/operation_steps.rs",
-    "tests/played_stage.rs",
-    "tests/relay_steps.rs",
-    "tests/tightening_steps.rs",
-]
-
-# The feature files each BDD target runs, under `features/`: the scenarios split over targets Bazel runs in parallel, each a
-# few seconds. A target's runfiles hold its feature files alone, and cucumber runs what `features/` holds.
-BDD_FEATURES = {
-    "bdd_catalog": [
-        "metadata-group/tenants.feature",
-        "schema-changes/declaring.feature",
-        "schema-changes/drops.feature",
-    ],
-    "bdd_catalog_cap": ["metadata-group/catalog_cap.feature"],
-    "bdd_compute": ["client-endpoint/compute.feature"],
-    "bdd_endpoint": [
-        "client-endpoint/connections.feature",
-        "client-endpoint/errors.feature",
-        "client-endpoint/gate.feature",
-        "client-endpoint/relays.feature",
-    ],
-    "bdd_held": [
-        "client-endpoint/empty_commit.feature",
-        "client-endpoint/held.feature",
-    ],
-    "bdd_quad_reads": [
-        "quad-reads/order.feature",
-        "term-dictionary/in_turn.feature",
-    ],
-    "bdd_routing": [
-        "client-endpoint/operations.feature",
-        "client-endpoint/routing.feature",
-    ],
-    "bdd_system_link": ["client-endpoint/system_link.feature"],
-    "bdd_tightening": ["schema-changes/tightening.feature"],
-    "bdd_timer": ["client-endpoint/timer.feature"],
-}
-
-# cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
-[
-    rust_test(
-        name = name,
-        srcs = BDD_SRCS,
-        crate_root = "tests/bdd.rs",
-        data = ["features/" + feature for feature in features],
-        tags = ["bdd-test"],
-        use_libtest_harness = False,
-        deps = [":ultragraphdb_common_frontend"] + all_crate_deps(
-            normal = True,
-            normal_dev = True,
-        ),
-    )
-    for name, features in BDD_FEATURES.items()
-]
-
-# Every feature file no target above names, so each runs in exactly one target.
-rust_test(
-    name = "bdd",
-    srcs = BDD_SRCS,
-    crate_root = "tests/bdd.rs",
-    data = glob(
-        ["features/**/*.feature"],
-        exclude = [
-            "features/" + feature
-            for features in BDD_FEATURES.values()
-            for feature in features
-        ],
-    ),
-    tags = ["bdd-test"],
-    use_libtest_harness = False,
-    deps = [":ultragraphdb_common_frontend"] + all_crate_deps(
-        normal = True,
-        normal_dev = True,
-    ),
 )
