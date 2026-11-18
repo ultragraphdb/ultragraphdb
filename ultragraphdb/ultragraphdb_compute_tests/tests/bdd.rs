@@ -31,15 +31,15 @@ use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{Scan, ScanAt, ScanRange};
 use ultragraphdb_tests::{
-    CLUSTER, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS, DOUBLE_ADDRESS,
-    FRONTEND_BINARY, FRONTEND_OBSERVABILITY, SECRET, START_SECONDS, STORAGE_BINARY,
-    STORAGE_OBSERVABILITY, answering, bootstrap, compute_on_one_host, exit_is, frontend_holding,
-    holding, http_status, not_hosting, process, render_settings, role, scratch, served_by_double,
-    start_double, storage_holding, until_answering, until_ports_free, with,
+    CLUSTER, COMPUTE_BINARY, FRONTEND_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering,
+    bootstrap, compute_observability, compute_on_one_host, compute_role_address, double_address,
+    exit_is, frontend_holding, frontend_observability, holding, http_status, not_hosting, process,
+    render_settings, role, scratch, served_by_double, start_double, storage_holding,
+    storage_observability, until_answering, until_ports_free, with,
 };
-use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback};
 
-use crate::cluster::{ClusterInfo, start_cluster};
+use crate::cluster::{ClusterInfo, cluster_base, start_cluster};
 use crate::played_frontend::{EpochClock, Played, play};
 use crate::played_partition::{PlayedTables, play_partition};
 use crate::scene::{ReadAnswer, Scene};
@@ -144,9 +144,9 @@ impl Steps {
 fn terminate(w: &mut Steps) -> TestResult {
     let util = services()?;
     let log = scratch("compute-stopped.log");
-    let wait = answering(COMPUTE_OBSERVABILITY, "/health");
-    let settings = holding(compute_on_one_host(), SECRET)?;
-    let pid = util.start_service_from_config(role(COMPUTE_BINARY, &settings, &log, wait))?;
+    let wait = answering(&compute_observability()?, "/health");
+    let settings = holding(compute_on_one_host()?, SECRET)?;
+    let pid = util.start_service_from_config(role(COMPUTE_BINARY, &settings, &log, wait)?)?;
     w.exited = Some(util.stop_service(pid)?);
     w.log = std::fs::read_to_string(&log)?;
     Ok(())
@@ -173,14 +173,14 @@ fn no_engine(w: &mut Steps) -> TestResult {
 
 #[when("the compute binary receives settings with no `compute.role_address`")]
 fn no_compute_address(w: &mut Steps) -> TestResult {
-    let mut settings = holding(compute_on_one_host(), SECRET)?;
+    let mut settings = holding(compute_on_one_host()?, SECRET)?;
     settings.retain(|(name, _)| name != "compute.role_address");
     let log = scratch("compute-no-address.log");
     let util = services()?;
     let instance = served_by_double(COMPUTE_BINARY, &render_settings(&settings));
     let pid = util.start_service_from_config(process(
         COMPUTE_BINARY,
-        bootstrap(DOUBLE_ADDRESS, &instance),
+        bootstrap(&double_address()?, &instance),
         &log,
         WaitStrategy::NoWait,
     ))?;
@@ -208,14 +208,14 @@ fn compute_joining(util: &ServiceUtil) -> TestResult {
         FRONTEND_BINARY,
         &frontend_holding()?,
         &scratch(FRONTEND_BINARY),
-        answering(FRONTEND_OBSERVABILITY, "/health"),
-    ))?;
+        answering(&frontend_observability()?, "/health"),
+    )?)?;
     let _compute: u32 = util.start_service_from_config(role(
         COMPUTE_BINARY,
-        &holding(compute_on_one_host(), SECRET)?,
+        &holding(compute_on_one_host()?, SECRET)?,
         &scratch(COMPUTE_BINARY),
-        answering(COMPUTE_OBSERVABILITY, "/health"),
-    ))?;
+        answering(&compute_observability()?, "/health"),
+    )?)?;
     Ok(())
 }
 
@@ -226,26 +226,27 @@ fn compute_alone(w: &mut Steps) -> TestResult {
     let util = services()?;
     let _compute: u32 = util.start_service_from_config(role(
         COMPUTE_BINARY,
-        &holding(compute_on_one_host(), SECRET)?,
+        &holding(compute_on_one_host()?, SECRET)?,
         &scratch(COMPUTE_BINARY),
-        answering(COMPUTE_OBSERVABILITY, "/health"),
-    ))?;
+        answering(&compute_observability()?, "/health"),
+    )?)?;
     w.roles = Some(util);
     Ok(())
 }
 
 #[then("its `/health` answers, its `/ready` does not, and it turns ready once a partition joins")]
 fn ready_after_a_partition(w: &mut Steps) -> TestResult {
-    assert_eq!(http_status(COMPUTE_OBSERVABILITY, "/health")?, 200);
-    assert_eq!(http_status(COMPUTE_OBSERVABILITY, "/ready")?, 503);
+    let observed = compute_observability()?;
+    assert_eq!(http_status(&observed, "/health")?, 200);
+    assert_eq!(http_status(&observed, "/ready")?, 503);
     let util = w.roles.as_ref().context("the roles")?;
     let _storage: u32 = util.start_service_from_config(role(
         STORAGE_BINARY,
         &storage_holding()?,
         &scratch(STORAGE_BINARY),
-        answering(STORAGE_OBSERVABILITY, "/ready"),
-    ))?;
-    until_answering(COMPUTE_OBSERVABILITY, "/ready")?;
+        answering(&storage_observability()?, "/ready"),
+    )?)?;
+    until_answering(&observed, "/ready")?;
     w.roles = None;
     Ok(())
 }
@@ -255,7 +256,7 @@ fn asks_compute(w: &mut Steps) -> TestResult {
     let util = services()?;
     compute_joining(&util)?;
     w.log = crate::scene::run(async {
-        let target = Address::parse(&format!("tcp://{COMPUTE_ROLE_ADDRESS}"))?;
+        let target = Address::parse(&format!("tcp://{}", compute_role_address()?))?;
         let mut client = RoleClient::dial(&target, CLUSTER, "frontend", SECRET).await?;
         let mut scan = Scan::new(ScanAt::Latest, 0, 0, 1, [0; 16], 0, 0);
         let first = [0x1B_u8; 9];
@@ -280,7 +281,7 @@ fn wrong_secret_at_compute(w: &mut Steps) -> TestResult {
     let util = services()?;
     compute_joining(&util)?;
     w.log = crate::scene::run(async {
-        let target = Address::parse(&format!("tcp://{COMPUTE_ROLE_ADDRESS}"))?;
+        let target = Address::parse(&format!("tcp://{}", compute_role_address()?))?;
         let refused = RoleClient::dial(&target, CLUSTER, "frontend", "another secret")
             .await
             .err()
@@ -307,19 +308,23 @@ fn signal(pid: u32, signal: &str) -> TestResult {
     Ok(())
 }
 
-/// Where the storage process compute loses listens, its partition 2's role address and its observability: a process apart
-/// from the one hosting the system group, so the group answers throughout and compute's loss is that partition's alone.
-const LOST_ROLE_ADDRESS: &str = "127.0.0.1:17085";
-const LOST_OBSERVABILITY: &str = "127.0.0.1:18085";
+/// Where the storage process compute loses listens, as offsets above the target's port base, its partition 2's role address and
+/// its observability: a process apart from the one hosting the system group, so the group answers throughout and compute's
+/// loss is that partition's alone.
+const LOST_ROLE_OFFSET: u16 = 5;
+const LOST_OBSERVABILITY_OFFSET: u16 = 16;
 
-/// The settings of a storage process of partition 2 of two, hosting no system group, at [`LOST_ROLE_ADDRESS`].
+/// The settings of a storage process of partition 2 of two, hosting no system group, at [`LOST_ROLE_OFFSET`].
 fn not_hosting_partition_2() -> TestResult<Vec<(String, String)>> {
     let settings = [
         (
             "observability.address",
-            format!("tcp://{LOST_OBSERVABILITY}"),
+            format!("tcp://{}", loopback(LOST_OBSERVABILITY_OFFSET)?),
         ),
-        ("storage.role_address", format!("tcp://{LOST_ROLE_ADDRESS}")),
+        (
+            "storage.role_address",
+            format!("tcp://{}", loopback(LOST_ROLE_OFFSET)?),
+        ),
         ("storage.partition_first", "2".to_string()),
         ("storage.partition_count", "1".to_string()),
     ];
@@ -341,31 +346,31 @@ fn lose_storage(w: &mut Steps, to_storage: &str) -> TestResult<u32> {
         FRONTEND_BINARY,
         &frontend_holding()?,
         &scratch(FRONTEND_BINARY),
-        answering(FRONTEND_OBSERVABILITY, "/health"),
-    ))?;
+        answering(&frontend_observability()?, "/health"),
+    )?)?;
     let _hosting: u32 = util.start_service_from_config(role(
         STORAGE_BINARY,
         &with(storage_holding()?, "cluster.partition_count", "2"),
         &scratch(STORAGE_BINARY),
-        answering(STORAGE_OBSERVABILITY, "/ready"),
-    ))?;
+        answering(&storage_observability()?, "/ready"),
+    )?)?;
     let storage = util.start_service_from_config(role(
         STORAGE_BINARY,
         &not_hosting_partition_2()?,
         &scratch("storage-partition-2"),
-        answering(LOST_OBSERVABILITY, "/ready"),
-    ))?;
+        answering(&loopback(LOST_OBSERVABILITY_OFFSET)?, "/ready"),
+    )?)?;
     let log = scratch("compute-lost-storage.log");
     let compute = util.start_service_from_config(role(
         COMPUTE_BINARY,
         &with(
-            holding(compute_on_one_host(), SECRET)?,
+            holding(compute_on_one_host()?, SECRET)?,
             "cluster.join_deadline_ms",
             "800",
         ),
         &log,
-        answering(COMPUTE_OBSERVABILITY, "/ready"),
-    ))?;
+        answering(&compute_observability()?, "/ready"),
+    )?)?;
     signal(storage, to_storage)?;
     w.exited = Some(util.wait_for_exit(compute, Duration::from_secs(START_SECONDS))?);
     w.log = std::fs::read_to_string(&log)?;
@@ -391,7 +396,7 @@ fn storage_hangs(w: &mut Steps) -> TestResult {
 #[then("compute shuts down through its ordinary path and exits with code 69")]
 fn lost_storage(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 69)?;
-    assert!(w.log.contains(LOST_ROLE_ADDRESS), "{}", w.log);
+    assert!(w.log.contains(&loopback(LOST_ROLE_OFFSET)?), "{}", w.log);
     // The ordinary path is the one SIGTERM takes, which logs the role's stop before it drains its reads.
     assert!(w.log.contains("stopping role=compute"), "{}", w.log);
     w.roles = None;
@@ -434,15 +439,15 @@ fn start_played_cluster(util: &ServiceUtil, base: u32) -> TestResult<(ClusterInf
 /// Starts the clusters every read scenario shares: their processes' pids.
 fn start_clusters(util: &ServiceUtil) -> TestResult<Vec<u32>> {
     let mut pids = Vec::new();
-    let (of_four, started_four) = start_cluster(util, 17_400, 4, &[])?;
+    let (of_four, started_four) = start_cluster(util, cluster_base(0)?, 4, &[])?;
     drop(FOUR.set(of_four));
     pids.extend(started_four);
-    let (of_one, started_one) = start_cluster(util, 17_500, 1, &[])?;
+    let (of_one, started_one) = start_cluster(util, cluster_base(1)?, 1, &[])?;
     drop(SOLO.set(of_one));
     pids.extend(started_one);
     let (of_brief, started_brief) = start_cluster(
         util,
-        17_600,
+        cluster_base(2)?,
         1,
         &[
             ("storage.read_retain_ms", "50"),
@@ -451,7 +456,7 @@ fn start_clusters(util: &ServiceUtil) -> TestResult<Vec<u32>> {
     )?;
     drop(BRIEF.set(of_brief));
     pids.extend(started_brief);
-    let (of_played, compute) = start_played_cluster(util, 17_700)?;
+    let (of_played, compute) = start_played_cluster(util, cluster_base(3)?)?;
     drop(PLAYED.set(of_played));
     pids.push(compute);
     Ok(pids)

@@ -26,12 +26,12 @@ use ultragraphdb_protocol_wire::{
     BodyBuilder, Command, ErrorCode, ErrorReply, FLAG_LAST, Header, Members,
 };
 use ultragraphdb_tests::{
-    ADMIN_KEY, CLUSTER, COMPUTE_BINARY, CONFIG_ADDRESS, CONFIG_BINARY, DOUBLE_ADDRESS,
-    DOUBLE_REVISION, FRONTEND_BINARY, PARENT_PID, READ_KEY, SECRET, START_SECONDS, TARGET,
-    answering, bootstrap, compute_on_one_host, config_folder, config_folder_at, config_process,
-    exit_is, fresh_data, frontend_holding, holding, key_file, members_at, process, render_settings,
-    role, role_of_service, scratch, served_by_double, start_double, storage_holding,
-    until_answering, until_ports_free, with,
+    ADMIN_KEY, CLUSTER, COMPUTE_BINARY, CONFIG_BINARY, DOUBLE_REVISION, FRONTEND_BINARY,
+    PARENT_PID, READ_KEY, SECRET, START_SECONDS, TARGET, answering, bootstrap, compute_on_one_host,
+    config_address, config_folder, config_folder_at, config_process, double_address, exit_is,
+    fresh_data, frontend_holding, holding, key_file, members_at, process, render_settings, role,
+    role_of_service, scratch, served_by_double, start_double, storage_holding, until_answering,
+    until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -131,15 +131,15 @@ fn test_a_process_ends_with_the_test_and_clears_its_environment() -> TestResult 
 fn test_a_role_asks_the_double_for_settings_it_serves() -> TestResult {
     let _key = keyed()?;
     std::fs::create_dir_all(scratch("config-double"))?;
-    let settings = compute_on_one_host();
+    let settings = compute_on_one_host()?;
     let started = role(
         COMPUTE_BINARY,
         &settings,
         &scratch("role.log"),
         answering("127.0.0.1:1", "/ready"),
-    );
+    )?;
     let read = read_as(RoleKind::Compute, &started)?;
-    assert_eq!(asked_at(RoleKind::Compute, &started)?, DOUBLE_ADDRESS);
+    assert_eq!(asked_at(RoleKind::Compute, &started)?, double_address()?);
     let served = std::fs::read_to_string(scratch("config-double").join(read.instance()))?;
     assert_eq!(served, render_settings(&settings));
     Ok(())
@@ -155,7 +155,7 @@ fn test_the_double_serves_each_instance_apart() -> TestResult {
     for (instance, text) in [(&first, "first"), (&second, "second")] {
         let started = process(
             FRONTEND_BINARY,
-            bootstrap(DOUBLE_ADDRESS, instance),
+            bootstrap(&double_address()?, instance),
             Path::new("unused.log"),
             answering("127.0.0.1:1", "/health"),
         );
@@ -179,8 +179,8 @@ fn test_a_role_of_the_service_asks_the_config_service() -> TestResult {
         "compute_2",
         &scratch("service.log"),
         answering("127.0.0.1:1", "/ready"),
-    );
-    assert_eq!(asked_at(RoleKind::Compute, &started)?, CONFIG_ADDRESS);
+    )?;
+    assert_eq!(asked_at(RoleKind::Compute, &started)?, config_address()?);
     assert_eq!(
         read_as(RoleKind::Compute, &started)?.instance(),
         "compute_2"
@@ -222,7 +222,7 @@ fn test_fresh_data_names_a_new_directory_each_time() {
 #[test]
 fn test_holding_writes_the_secret_it_names() -> TestResult {
     let _key = keyed()?;
-    let settings = holding(compute_on_one_host(), "a secret of its own")?;
+    let settings = holding(compute_on_one_host()?, "a secret of its own")?;
     let file = setting(&settings, "cluster.role_secret_file")?;
     assert_eq!(std::fs::read_to_string(file)?, "a secret of its own");
     Ok(())
@@ -263,7 +263,7 @@ fn cluster() -> TestResult<[Instance; 3]> {
         ("storage".to_string(), storage_holding()?),
         (
             "compute".to_string(),
-            holding(compute_on_one_host(), SECRET)?,
+            holding(compute_on_one_host()?, SECRET)?,
         ),
     ])
 }
@@ -304,7 +304,7 @@ fn test_a_config_folder_listens_where_it_is_asked() -> TestResult {
 #[test]
 fn test_the_config_process_reads_its_own_file() -> TestResult {
     let own = scratch("service.toml");
-    let wait = answering(CONFIG_ADDRESS, "/health");
+    let wait = answering(&config_address()?, "/health");
     let started = config_process(&own, wait.clone());
     assert_eq!(started.program(), CONFIG_BINARY);
     let path = own.display().to_string();
@@ -383,21 +383,22 @@ fn the_double() -> TestResult {
 /// Starts the double once no other process holds its address. A process taking it between the probe and the start is
 /// waited out; a start refused while the address is free is the answer.
 fn start_when_free() -> TestResult {
+    let double = double_address()?;
     for _ in 0..DOUBLE_WAIT_PROBES {
-        if address_free(DOUBLE_ADDRESS) {
+        if address_free(&double) {
             let started = start_double();
-            if started.is_ok() || address_free(DOUBLE_ADDRESS) {
+            if started.is_ok() || address_free(&double) {
                 return started;
             }
         }
         std::thread::sleep(PROBE);
     }
-    Err(TestError::new(format!("{DOUBLE_ADDRESS} stayed held")))
+    Err(TestError::new(format!("{double} stayed held")))
 }
 
 /// All the double answers to `parts`, written one after the other with a pause between, read until it closes.
 fn asked_of_double(parts: &[String]) -> TestResult<String> {
-    let mut stream = TcpStream::connect(DOUBLE_ADDRESS)?;
+    let mut stream = TcpStream::connect(double_address()?)?;
     stream.set_nodelay(true)?;
     stream.set_read_timeout(Some(Duration::from_secs(START_SECONDS)))?;
     for (index, part) in parts.iter().enumerate() {
@@ -412,8 +413,11 @@ fn asked_of_double(parts: &[String]) -> TestResult<String> {
 }
 
 /// The `GET` head asking for instance `instance`'s settings, as a role asks.
-fn settings_head(instance: &str) -> String {
-    format!("{instance} HTTP/1.1\r\nHost: {DOUBLE_ADDRESS}\r\n\r\n")
+fn settings_head(instance: &str) -> TestResult<String> {
+    Ok(format!(
+        "{instance} HTTP/1.1\r\nHost: {}\r\n\r\n",
+        double_address()?
+    ))
 }
 
 #[test]
@@ -422,7 +426,7 @@ fn test_the_double_answers_the_settings_it_serves_at_its_revision() -> TestResul
     let instance = served_by_double(FRONTEND_BINARY, "the served settings");
     let answer = asked_of_double(&[format!(
         "GET /targets/{TARGET}/{}",
-        settings_head(&instance)
+        settings_head(&instance)?
     )])?;
     let (head, body) = answer.split_once("\r\n\r\n").context("an answer")?;
     assert!(head.starts_with("HTTP/1.1 200 "), "{answer}");
@@ -436,7 +440,7 @@ fn test_the_double_answers_the_settings_it_serves_at_its_revision() -> TestResul
 fn test_the_double_answers_a_request_whose_head_arrives_in_parts() -> TestResult {
     the_double()?;
     let instance = served_by_double(FRONTEND_BINARY, "settings asked in parts");
-    let answer = asked_of_double(&[format!("GET /targets/{TARGET}/"), settings_head(&instance)])?;
+    let answer = asked_of_double(&[format!("GET /targets/{TARGET}/"), settings_head(&instance)?])?;
     let (head, body) = answer.split_once("\r\n\r\n").context("an answer")?;
     assert!(head.starts_with("HTTP/1.1 200 "), "{answer}");
     assert_eq!(body, "settings asked in parts");
@@ -460,7 +464,7 @@ fn test_until_ports_free_waits_for_a_held_address_to_be_released() -> TestResult
         })
         .detach();
         let freed = off_runtime(move || {
-            until_ports_free(&[(address.as_str(), "a listener the test holds")])?;
+            until_ports_free(&[(address.clone(), "a listener the test holds")])?;
             Ok(address_free(&address))
         })
         .await?;
@@ -491,7 +495,7 @@ fn test_the_double_answers_an_instance_it_does_not_serve_with_404() -> TestResul
     let instance = served_by_double(FRONTEND_BINARY, "served");
     let answer = asked_of_double(&[format!(
         "GET /targets/{TARGET}/{}",
-        settings_head(&format!("{instance}-not-served"))
+        settings_head(&format!("{instance}-not-served"))?
     )])?;
     assert!(answer.starts_with("HTTP/1.1 404 "), "{answer}");
     Ok(())
@@ -500,7 +504,7 @@ fn test_the_double_answers_an_instance_it_does_not_serve_with_404() -> TestResul
 #[test]
 fn test_the_double_lets_a_connection_closed_before_its_head_go() -> TestResult {
     the_double()?;
-    let mut stream = TcpStream::connect(DOUBLE_ADDRESS)?;
+    let mut stream = TcpStream::connect(double_address()?)?;
     stream.set_read_timeout(Some(Duration::from_secs(START_SECONDS)))?;
     stream.shutdown(std::net::Shutdown::Write)?;
     let mut answer = Vec::new();
@@ -515,7 +519,7 @@ fn test_the_double_lets_a_connection_closed_before_its_head_go() -> TestResult {
 fn test_until_ports_free_names_an_address_held_past_its_wait() -> TestResult {
     let held = TcpListener::bind("127.0.0.1:0")?;
     let address = held.local_addr()?.to_string();
-    let refused = until_ports_free(&[(address.as_str(), "a listener the test holds")])
+    let refused = until_ports_free(&[(address.clone(), "a listener the test holds")])
         .err()
         .context("a wait that ends refused")?;
     assert!(refused.reason().contains(" is taken ("), "{refused:?}");

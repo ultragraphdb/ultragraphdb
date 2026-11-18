@@ -5,6 +5,8 @@
 
 mod read_view_body_view;
 
+use xxhash_rust::xxh3::xxh3_64;
+
 use crate::types::quad_pattern::QuadPattern;
 use crate::types::term_table_view::TermTableView;
 
@@ -16,6 +18,8 @@ pub struct ReadView<'a> {
     terms: TermTableView<'a>,
     pattern: QuadPattern,
     resume: &'a [u8],
+    /// Sections 0 to 2, the pattern, the records and the text, which the layout places with no byte between them.
+    pattern_sections: &'a [u8],
 }
 
 impl<'a> ReadView<'a> {
@@ -47,5 +51,12 @@ impl<'a> ReadView<'a> {
     #[must_use]
     pub fn resume(&self) -> &'a [u8] {
         self.resume
+    }
+
+    /// The pattern's hash a resume key holds (`PROTOCOL.md` §11.8): XXH3-64, seed 0, of the body's sections 0 to 2 read in
+    /// place, the pattern, the term table's records and its text, which the body's layout places with no byte between them.
+    #[must_use]
+    pub fn pattern_hash(&self) -> u64 {
+        xxh3_64(self.pattern_sections)
     }
 }

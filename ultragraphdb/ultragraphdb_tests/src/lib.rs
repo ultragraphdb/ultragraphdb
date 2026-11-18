@@ -9,17 +9,17 @@
 mod utils;
 
 pub use crate::utils::harness::{
-    ADMIN_KEY, CONFIG_ADDRESS, CONFIG_BINARY, DOUBLE_ADDRESS, DOUBLE_REVISION, PARENT_PID,
-    READ_KEY, SECRET, START_SECONDS, TARGET, answering, bootstrap, config_folder, config_folder_at,
-    config_process, exit_is, fresh_data, frontend_holding, holding, key_file, members_at, process,
+    ADMIN_KEY, CONFIG_BINARY, DOUBLE_REVISION, PARENT_PID, READ_KEY, SECRET, START_SECONDS, TARGET,
+    answering, bootstrap, config_address, config_folder, config_folder_at, config_process,
+    double_address, exit_is, fresh_data, frontend_holding, holding, key_file, members_at, process,
     role, role_of_service, scratch, served_by_double, start_config_service,
     start_config_service_at, start_double, storage_holding, until_answering, until_ports_free,
     with,
 };
 pub use crate::utils::http_status::{http_body, http_status};
 pub use crate::utils::one_host::{
-    CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS,
-    FRONTEND_BINARY, FRONTEND_OBSERVABILITY, STORAGE_BINARY, STORAGE_OBSERVABILITY,
-    STORAGE_ROLE_ADDRESS, SYSTEM_ROLE_ADDRESS, compute_on_one_host, frontend_on_one_host,
-    not_hosting, render_settings, storage_on_one_host,
+    CLUSTER, COMPUTE_BINARY, FRONTEND_BINARY, STORAGE_BINARY, client_address,
+    compute_observability, compute_on_one_host, compute_role_address, frontend_observability,
+    frontend_on_one_host, not_hosting, render_settings, storage_observability, storage_on_one_host,
+    storage_role_address, system_role_address,
 };

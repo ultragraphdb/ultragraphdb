@@ -143,17 +143,6 @@ impl Played {
         Ok(double)
     }
 
-    /// A compute process played by `script`, which Members lists and every core has read.
-    pub(crate) async fn compute<F>(&self, script: F) -> TestResult<RoleDouble>
-    where
-        F: Fn(&DoubleFrame) -> Answer + 'static,
-    {
-        let double = RoleDouble::start(&self.cluster, Endpoint::Compute, script).await?;
-        self.play.compute(double.address());
-        self.read_members().await?;
-        Ok(double)
-    }
-
     /// Every core reads Members.
     pub(crate) async fn read_members(&self) -> TestResult {
         for core in &self.cores {

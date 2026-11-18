@@ -15,7 +15,7 @@ Feature: A client's reads and writes in order
 
   Scenario: A read waits for a write sent before it
     When a client sends a write and then a read of its transaction on another stream, without waiting for the write's reply
-    Then the frontend sends the read to compute only after the write is answered, and the read returns the write
+    Then compute sends the read's first Scan only after the write is answered, and the read returns the write
 
   Scenario: A limit stopping before a graph leaves that graph unread
     When T1 reads `<a> <name> ?o` with limit 1 and its graph unbound, `<a>` holding it in two graphs, T2 commits an insert into the graph T1's read did not reach, and T1 commits a write
@@ -35,7 +35,7 @@ Feature: A client's reads and writes in order
 
   Scenario: A read cancelled while it is held is dropped unsent
     When a Write of a transaction is unanswered, a read behind it is held, and the client cancels the read
-    Then no ComputeRead is sent for it, and the transaction goes on
+    Then no Scan is sent for it, and the transaction goes on
 
   Scenario: A read already answered takes nothing further
     When a read of a transaction has reached its `LAST`, and the transaction then ends with an Error

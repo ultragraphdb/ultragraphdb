@@ -6,7 +6,7 @@
 //! A frontend's two listeners on one test thread, its owner on its own, the other roles played by doubles and the client over raw
 //! frames: what a scenario decides, it decides, and what it asserts, it reads from the frames each side saw.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -18,9 +18,10 @@ use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_compute::{
-    AuthThrottle, Authorizer, ClientSession, DoubleFrame, EndpointCore, EndpointLimits,
-    EveryAuthenticated, IriPlace, LoginLimits, RelayAuthenticator, RoleDouble, RoleLinks,
-    SystemLink, TenantGate, batch_frame, empty_batch, iri_place, partition_answer,
+    AuthThrottle, Authorizer, ClientSession, ComputeCore, DoubleFrame, EndpointCore,
+    EndpointLimits, EveryAuthenticated, IriPlace, LoginLimits, ReadTimes, RelayAuthenticator,
+    RoleDouble, RoleLinks, SystemLink, TenantGate, iri_place, last_frame, partition_answer,
+    scan_answer,
 };
 use ultragraphdb_common_role::{
     Answer, ConnectionBound, ParkedBytes, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret,
@@ -36,11 +37,13 @@ use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_protocol_transport::{Address, Endpoint};
 use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::{
-    Abort, Begin, BodyBuilder, BodyView, Command, Commit, ErrorCode, ErrorReplyView, FrameView,
-    Join, MAX_FRAME_SIZE, PatternSlot, QuadPattern, Read, ReadLevel, Register, RegisterView,
-    TermTable, Write, WriteChange,
+    Abort, Begin, BodyBuilder, BodyView, Command, Commit, ErrorCode, ErrorReply, ErrorReplyView,
+    FrameView, Join, MAX_FRAME_SIZE, PatternSlot, QuadPattern, Read, ReadLevel, Register,
+    RegisterView, ScanView, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+
+use crate::apart::apart_partition::PlayedPartition;
 
 pub(crate) const CLUSTER: u64 = 7;
 pub(crate) const PREDICATE: &str = "http://ex.org/p";
@@ -183,13 +186,21 @@ impl Stage {
         } else {
             links.set_map(map.clone());
         }
+        // The core's reads run in it, over connections of its own to the partitions (design D3).
+        let compute = ComputeCore::new(
+            cluster.clone(),
+            role_address.clone(),
+            ReadTimes::new(options.limits.scan_stall(), Duration::from_secs(600)),
+            "frontend",
+        );
         let core = EndpointCore::new(
             system.clone(),
             throttle,
             links.clone(),
             TenantGate::new(authorizer),
             options.limits,
-        );
+        )
+        .with_compute(compute);
         let counts = Counts::default();
         let accepting_clients =
             accept_clients(client, unknown, options.connections, core, counts.clone())?;
@@ -286,39 +297,6 @@ impl Stage {
         .await
     }
 
-    /// A compute process played by `script`, joined, and Members read.
-    pub(crate) async fn compute_with<F>(&self, script: F) -> TestResult<RoleDouble>
-    where
-        F: Fn(&DoubleFrame) -> Answer + 'static,
-    {
-        let double = RoleDouble::start(&self.cluster, Endpoint::Compute, script).await?;
-        let join = Join::compute(double.address());
-        double
-            .join(&self.role, &self.cluster, "compute", &join)
-            .await
-            .map_err(TestError::new)?;
-        self.read_members().await?;
-        Ok(double)
-    }
-
-    /// A compute process answering each read with one batch of no row, of partition 1.
-    pub(crate) async fn compute(&self) -> TestResult<RoleDouble> {
-        self.compute_with(answer_empty).await
-    }
-
-    /// Two compute processes taking each read and answering none, joined, in the order the frontend's turn tries them: Members
-    /// lists compute processes by address (`PROTOCOL.md` §13.2), and an ephemeral port past the top of its range wraps to the
-    /// bottom, so the process joined second may be listed first.
-    pub(crate) async fn computes_in_turn(&self) -> TestResult<(RoleDouble, RoleDouble)> {
-        let one = self.compute_with(|_| Answer::Open).await?;
-        let two = self.compute_with(|_| Answer::Open).await?;
-        Ok(if two.address() < one.address() {
-            (two, one)
-        } else {
-            (one, two)
-        })
-    }
-
     /// An IRI of the tenant 0 that the stage's map places in `partition`.
     pub(crate) fn on(&self, partition: u32) -> TestResult<String> {
         self.on_tagged(partition, "")
@@ -342,15 +320,116 @@ impl Stage {
     }
 }
 
-/// One batch of no row, of partition 1, for each read.
-pub(crate) fn answer_empty(frame: &DoubleFrame) -> Answer {
-    empty_answer(frame, 1)
+/// A partition answering as nothing goes wrong but each read's Scan, which it takes and answers none until a step releases it.
+pub(crate) fn holding_reads(frame: &DoubleFrame) -> Answer {
+    if frame.command() == Command::Scan {
+        return Answer::Open;
+    }
+    partition_answer(frame, CLUSTER, BIND_VERSION)
 }
 
-/// One batch of no row, of `partition`, for each read.
-pub(crate) fn empty_answer(frame: &DoubleFrame, partition: u32) -> Answer {
-    batch_frame(CLUSTER, frame.stream(), &empty_batch(4, partition), true)
-        .map_or(Answer::Done, Answer::Reply)
+/// A partition answering each read's Scan with `refusal`, and everything else as nothing goes wrong.
+pub(crate) fn refusing_reads(refusal: ErrorReply) -> impl Fn(&DoubleFrame) -> Answer + 'static {
+    move |frame| {
+        if frame.command() == Command::Scan {
+            return Answer::Refuse(refusal.clone());
+        }
+        partition_answer(frame, CLUSTER, BIND_VERSION)
+    }
+}
+
+/// A partition answering each read's Scan from `played`'s table while `holding` is unset, taking it and answering none while it
+/// is set, and everything else as nothing goes wrong.
+pub(crate) fn rows_held(
+    played: &Rc<PlayedPartition>,
+    holding: &Rc<Cell<bool>>,
+) -> impl Fn(&DoubleFrame) -> Answer + 'static {
+    let (played, holding) = (Rc::clone(played), Rc::clone(holding));
+    move |frame| {
+        if frame.command() != Command::Scan {
+            return partition_answer(frame, CLUSTER, BIND_VERSION);
+        }
+        if holding.get() {
+            return Answer::Open;
+        }
+        let Some(mut frames) = scan_frames(frame, &played).map(Vec::into_iter) else {
+            return Answer::Done;
+        };
+        let Some(first) = frames.next() else {
+            return Answer::Done;
+        };
+        frames.for_each(|more| frame.answer_with(more));
+        Answer::Reply(first)
+    }
+}
+
+/// The frames `played` answers the Scan `frame` with from its table; `None` for a Scan it cannot read.
+fn scan_frames(frame: &DoubleFrame, played: &Rc<PlayedPartition>) -> Option<Vec<Vec<u8>>> {
+    let view = view_frame(frame.bytes()).ok()?;
+    let scan = ScanView::from_frame(&view).ok()?;
+    played.frames_for(frame.stream(), &scan).ok()
+}
+
+/// Answers the read Scan at `index` of `partition` from `played`'s table.
+pub(crate) fn release_rows(
+    partition: &RoleDouble,
+    index: usize,
+    played: &Rc<PlayedPartition>,
+) -> TestResult {
+    let scans = read_scans(partition);
+    let scan = scans.get(index).context("the read's Scan")?;
+    let frames = scan_frames(scan, played).context("the Scan's answer")?;
+    frames.into_iter().for_each(|frame| scan.answer_with(frame));
+    Ok(())
+}
+
+/// Whether the Scan `frame` holds a read's version alone, naming one key in every range of several, as a pin does.
+fn is_pin(frame: &DoubleFrame) -> bool {
+    let Ok(view) = view_frame(frame.bytes()) else {
+        return false;
+    };
+    let Ok(scan) = ScanView::from_frame(&view) else {
+        return false;
+    };
+    let firsts: Vec<Vec<u8>> = scan.ranges().map(|range| range.first().to_vec()).collect();
+    firsts.len() > 1 && firsts.iter().all(|first| Some(first) == firsts.first())
+}
+
+/// The Scans `partition` took for reads, in order, a pin's left out.
+pub(crate) fn read_scans(partition: &RoleDouble) -> Vec<DoubleFrame> {
+    partition
+        .frames(Command::Scan)
+        .into_iter()
+        .filter(|frame| !is_pin(frame))
+        .collect()
+}
+
+/// Answers the read Scan at `index` of `partition` as a partition holding nothing at `version` does: the read ends with a batch
+/// of no row.
+pub(crate) fn release(partition: &RoleDouble, index: usize, version: u64) -> TestResult {
+    let scans = read_scans(partition);
+    let scan = scans.get(index).context("the read's Scan")?;
+    match scan_answer(scan, CLUSTER, version) {
+        Answer::Reply(frame) => {
+            scan.answer_with(frame);
+            Ok(())
+        }
+        Answer::Open | Answer::Done | Answer::Refuse(_) | Answer::Close(_) => {
+            Err(TestError::new("the Scan has no answer"))
+        }
+    }
+}
+
+/// Refuses the read Scan at `index` of `partition` with `refusal`.
+pub(crate) fn refuse_scan(
+    partition: &RoleDouble,
+    index: usize,
+    refusal: &ErrorReply,
+) -> TestResult {
+    let scans = read_scans(partition);
+    let scan = scans.get(index).context("the read's Scan")?;
+    scan.answer_with(last_frame(CLUSTER, scan.stream(), refusal)?);
+    Ok(())
 }
 
 /// What a client read, in a form a step compares.
@@ -593,6 +672,13 @@ where
     let clients = Server::new(CLUSTER, "frontend", Endpoint::Client)?
         .with_unknown_secret(unknown)
         .with_bound(ConnectionBound::new(connections));
+    // The Welcome states the credit a read's stream starts with, which the connection meters (`PROTOCOL.md` §11.3): the
+    // protocol's default, or the one frame a scenario of spent credit takes.
+    let clients = if core.limits().initial_credit() == 1 {
+        clients.with_welcome(|welcome| welcome.with_initial_credit(1))
+    } else {
+        clients
+    };
     Ok(spawn(async move {
         while let Ok(carrier) = listener.accept().await {
             let server = clients.clone();

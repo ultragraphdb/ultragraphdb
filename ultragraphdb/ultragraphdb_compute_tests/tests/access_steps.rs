@@ -24,7 +24,8 @@ async fn referrers(scene: &Scene) -> TestResult<(String, Vec<String>)> {
     );
     scene.insert(&a, KNOWS, &iri(&b)).await?;
     scene.insert(&c, KNOWS, &iri(&b)).await?;
-    let order = scene.in_key_order(&[a, c]).await?;
+    // Rows come partition by partition: `<a>`'s, partition 1's, before `<c>`'s (`PROTOCOL.md` §9.1).
+    let order = vec![a, c];
     scene.info.log.clear();
     Ok((b, order))
 }

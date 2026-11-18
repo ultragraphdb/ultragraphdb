@@ -4,7 +4,7 @@
  */
 
 //! The storage binary as a process, bound to `features/`, with no container. One scenario runs at a time: the binaries listen
-//! at their declared ports.
+//! at their declared ports, each a fixed offset above the port base the target sets.
 
 mod drop_steps;
 mod lost_group_steps;
@@ -20,7 +20,7 @@ use compio::runtime::Runtime;
 use cucumber::{World, then, when};
 use futures::FutureExt;
 use played_frontend::{
-    OUT_OF_ORDER_EPOCH, PLAYED_FRONTEND_ADDRESS, Played, Push, TRIMMED, exit_of, play_frontend,
+    OUT_OF_ORDER_EPOCH, Played, Push, TRIMMED, exit_of, play_frontend, played_frontend_address,
     until_seen,
 };
 use service_utils::{ServiceUtil, WaitStrategy};
@@ -42,15 +42,15 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
-    ADMIN_KEY, CLUSTER, CONFIG_ADDRESS, CONFIG_BINARY, DOUBLE_ADDRESS, DOUBLE_REVISION,
-    FRONTEND_BINARY, FRONTEND_OBSERVABILITY, READ_KEY, SECRET, START_SECONDS, STORAGE_BINARY,
-    STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, SYSTEM_ROLE_ADDRESS, TARGET, answering, bootstrap,
-    config_folder, config_process, exit_is, fresh_data, frontend_holding, frontend_on_one_host,
-    holding, http_body, http_status, members_at, not_hosting, process, render_settings, role,
-    role_of_service, scratch, served_by_double, start_config_service, start_double,
-    storage_holding, storage_on_one_host, until_answering, until_ports_free, with,
+    ADMIN_KEY, CLUSTER, CONFIG_BINARY, DOUBLE_REVISION, FRONTEND_BINARY, READ_KEY, SECRET,
+    START_SECONDS, STORAGE_BINARY, TARGET, answering, bootstrap, config_address, config_folder,
+    config_process, double_address, exit_is, fresh_data, frontend_holding, frontend_observability,
+    frontend_on_one_host, holding, http_body, http_status, members_at, not_hosting, process,
+    render_settings, role, role_of_service, scratch, served_by_double, start_config_service,
+    start_double, storage_holding, storage_observability, storage_on_one_host,
+    storage_role_address, system_role_address, until_answering, until_ports_free, with,
 };
-use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback, port};
 use ultragraphdb_transport_http_client::{HttpClient, HttpReply, HttpUrl};
 use ultragraphdb_transport_tls::TestPki;
 
@@ -88,29 +88,62 @@ struct Steps {
 /// How long a role refused by its peer retries, in a scenario that waits it out.
 const SHORT_DEADLINE_MS: &str = "800";
 
+/// The offset above the target's port base (`ultragraphdb_tool_bdd::port`) of the role endpoint of the storage process
+/// hosting partitions 1 and 2, the first of two; partition 2 listens at the next port. The harness's addresses take the
+/// offsets below 15, and the played frontend 15.
+pub(crate) const FIRST_PROCESS_OFFSET: u16 = 20;
+
+/// As [`FIRST_PROCESS_OFFSET`], of the storage process hosting partitions 3 and 4.
+pub(crate) const SECOND_PROCESS_OFFSET: u16 = 30;
+
+/// The observability of the storage process whose first partition is `first` lies `first` ports above this offset.
+const OBSERVED_OFFSET: u16 = 40;
+
+/// The offset of a loadable role's admin listener.
+const ADMIN_OFFSET: u16 = 45;
+
+/// The role endpoint of the storage process hosting partitions 1 and 2, of two.
+pub(crate) fn first_process() -> TestResult<String> {
+    Ok(format!("tcp://{}", loopback(FIRST_PROCESS_OFFSET)?))
+}
+
+/// The role endpoint of the storage process hosting partitions 3 and 4, of two.
+pub(crate) fn second_process() -> TestResult<String> {
+    Ok(format!("tcp://{}", loopback(SECOND_PROCESS_OFFSET)?))
+}
+
+/// Where the storage process whose first partition is `first` answers `/health` and `/ready`.
+fn observed(first: u32) -> TestResult<String> {
+    loopback(OBSERVED_OFFSET + u16::try_from(first)?)
+}
+
 /// The address a loadable role's admin listener holds.
-const ADMIN_ADDRESS: &str = "127.0.0.1:18090";
+fn admin_address() -> TestResult<String> {
+    loopback(ADMIN_OFFSET)
+}
 
 /// The addresses a role of these scenarios holds beyond those every suite declares, and what holds each.
-const OWN_ADDRESSES: [(&str, &str); 5] = [
-    (ADMIN_ADDRESS, "a loadable role's admin listener"),
-    (
-        "127.0.0.1:17200",
-        "the role endpoint of the storage process hosting partitions 1 and 2",
-    ),
-    (
-        "127.0.0.1:17300",
-        "the role endpoint of the storage process hosting partitions 3 and 4",
-    ),
-    (
-        "127.0.0.1:18101",
-        "the observability of the storage process hosting partitions 1 and 2",
-    ),
-    (
-        "127.0.0.1:18103",
-        "the observability of the storage process hosting partitions 3 and 4",
-    ),
-];
+fn own_addresses() -> TestResult<[(String, &'static str); 5]> {
+    Ok([
+        (admin_address()?, "a loadable role's admin listener"),
+        (
+            loopback(FIRST_PROCESS_OFFSET)?,
+            "the role endpoint of the storage process hosting partitions 1 and 2",
+        ),
+        (
+            loopback(SECOND_PROCESS_OFFSET)?,
+            "the role endpoint of the storage process hosting partitions 3 and 4",
+        ),
+        (
+            observed(1)?,
+            "the observability of the storage process hosting partitions 1 and 2",
+        ),
+        (
+            observed(3)?,
+            "the observability of the storage process hosting partitions 3 and 4",
+        ),
+    ])
+}
 
 const TENANT: u64 = 0;
 const PREDICATE: &str = "http://ex.org/p";
@@ -118,7 +151,7 @@ const PREDICATE: &str = "http://ex.org/p";
 /// Runs the storage binary on the settings `text` to its exit.
 fn storage_on(w: &mut Steps, text: &str) -> TestResult {
     let instance = served_by_double(STORAGE_BINARY, text);
-    run_to_exit(w, bootstrap(DOUBLE_ADDRESS, &instance))
+    run_to_exit(w, bootstrap(&double_address()?, &instance))
 }
 
 /// Runs the storage binary with `variables` alone in its environment, to its exit.
@@ -143,13 +176,13 @@ fn wrong_secret(w: &mut Steps) -> TestResult {
     let refused = [
         (
             "cluster.system_address",
-            format!("tcp://{PLAYED_FRONTEND_ADDRESS}"),
+            format!("tcp://{}", played_frontend_address()?),
         ),
         ("cluster.join_deadline_ms", SHORT_DEADLINE_MS.to_string()),
     ]
     .iter()
     .fold(
-        holding(frontend_on_one_host(), "another secret")?,
+        holding(frontend_on_one_host()?, "another secret")?,
         |settings, (name, value)| with(settings, name, value),
     );
     let log = scratch("frontend-refused.log");
@@ -161,7 +194,7 @@ fn wrong_secret(w: &mut Steps) -> TestResult {
             &refused,
             &log,
             WaitStrategy::NoWait,
-        ))?;
+        )?)?;
         w.exited = exit_of(&util, pid).await;
         Ok::<_, TestError>(played)
     })?;
@@ -185,7 +218,8 @@ fn refused_and_retried(w: &mut Steps) -> TestResult {
     // The deadline passed with the group never reached: the frontend stops, naming the address and the deadline.
     exit_is(w.exited, &w.log, 69)?;
     let gone = format!(
-        "the system group at tcp://{PLAYED_FRONTEND_ADDRESS} has been gone for join_deadline_ms, {SHORT_DEADLINE_MS} ms"
+        "the system group at tcp://{} has been gone for join_deadline_ms, {SHORT_DEADLINE_MS} ms",
+        played_frontend_address()?
     );
     assert!(w.log.contains(&gone), "{}", w.log);
     Ok(())
@@ -196,7 +230,7 @@ fn missing_secret(w: &mut Steps) -> TestResult {
     let absent = scratch("never-written");
     let settings = with(
         with(
-            not_hosting(storage_on_one_host()),
+            not_hosting(storage_on_one_host()?),
             "storage.data_dir",
             &fresh_data(),
         ),
@@ -210,7 +244,7 @@ fn missing_secret(w: &mut Steps) -> TestResult {
         &settings,
         &log,
         WaitStrategy::NoWait,
-    ))?;
+    )?)?;
     w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
     w.log = std::fs::read_to_string(&log)?;
     w.graph = absent.display().to_string();
@@ -294,8 +328,8 @@ fn refused_at(partition: u32, frame: &ReceivedFrame) -> TestResult {
 }
 
 /// The settings of a storage process hosting `count` partitions from `first`, at TCP ports from `port`.
-fn storage_of(first: u32, count: u32, port: u32) -> TestResult<Vec<(String, String)>> {
-    let observed = format!("tcp://127.0.0.1:{}", 18_100 + first);
+fn storage_of(first: u32, count: u32, port: u16) -> TestResult<Vec<(String, String)>> {
+    let observed = format!("tcp://{}", observed(first)?);
     // The process of partition 1 hosts the system group, which forms the placement over the four.
     let own = if first == 1 {
         with(storage_holding()?, "cluster.partition_count", "4")
@@ -337,8 +371,8 @@ fn processes_holding(w: &mut Steps, firsts: &[u32], held: &[(&str, &str)]) -> Te
             .fold(own, |all, (setting, value)| with(all, setting, value))
     };
     let (first, second) = (
-        holding(storage_of(1, 2, 17_200)?),
-        holding(storage_of(3, 2, 17_300)?),
+        holding(storage_of(1, 2, port(FIRST_PROCESS_OFFSET)?)?),
+        holding(storage_of(3, 2, port(SECOND_PROCESS_OFFSET)?)?),
     );
     let _service: u32 = start_config_service(
         &util,
@@ -348,25 +382,25 @@ fn processes_holding(w: &mut Steps, firsts: &[u32], held: &[(&str, &str)]) -> Te
             ("storage_3", &second),
         ],
     )?;
-    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
+    let wait = answering(&frontend_observability()?, "/health");
     let _frontend: u32 = util.start_service_from_config(role_of_service(
         FRONTEND_BINARY,
         "frontend",
         &scratch(FRONTEND_BINARY),
         wait,
-    ))?;
+    )?)?;
     for at in firsts {
-        let ready = answering(&format!("127.0.0.1:{}", 18_100 + at), "/ready");
+        let ready = answering(&observed(*at)?, "/ready");
         let start = role_of_service(
             STORAGE_BINARY,
             &format!("storage_{at}"),
             &scratch(&format!("storage-{at}")),
             ready,
-        );
+        )?;
         w.pid = util.start_service_from_config(start)?;
     }
     w.roles = Some(util);
-    w.system = format!("tcp://{}", SYSTEM_ROLE_ADDRESS);
+    w.system = format!("tcp://{}", system_role_address()?);
     Ok(())
 }
 
@@ -380,8 +414,9 @@ fn claims(w: &mut Steps) -> TestResult {
 )]
 fn on_either(w: &mut Steps) -> TestResult {
     let members = members_at(&w.system)?;
+    let (first, second) = (port(FIRST_PROCESS_OFFSET)?, port(SECOND_PROCESS_OFFSET)?);
     let expected: Vec<(RoleKind, u32, String)> =
-        [(1, 17_200), (2, 17_201), (3, 17_300), (4, 17_301)]
+        [(1, first), (2, first + 1), (3, second), (4, second + 1)]
             .map(|(partition, port)| {
                 (
                     RoleKind::Storage,
@@ -418,7 +453,7 @@ fn registers(w: &mut Steps) -> TestResult {
     two_processes(w)?;
     let subject = subject_of(3, 4, TENANT)?;
     let group = BucketGroup::of(iri_bucket(TENANT, &subject).context("a bucket")?);
-    let target = Address::parse("tcp://127.0.0.1:17300")?;
+    let target = Address::parse(&second_process()?)?;
     let mut reference = Reference::request().in_tenant(TENANT);
     let _index = reference.register_iri(3, Some(group), &subject, 0);
     let registered = Runtime::new()?.block_on(async {
@@ -460,7 +495,7 @@ fn crossing(w: &mut Steps) -> TestResult {
     let subject = subject_of(1, 4, TENANT)?;
     let object = subject_of(3, 4, TENANT)?;
     w.version = Runtime::new()?.block_on(commit_at(
-        "tcp://127.0.0.1:17200",
+        &first_process()?,
         1,
         &edge_write(&subject, &object),
     ))?;
@@ -475,8 +510,8 @@ fn registered(w: &mut Steps) {
 
 /// One partition's storage, started with `settings`, waiting on `/ready`; its pid.
 fn start_storage(util: &ServiceUtil, settings: &[(String, String)], log: &Path) -> TestResult<u32> {
-    let ready = answering(STORAGE_OBSERVABILITY, "/ready");
-    Ok(util.start_service_from_config(role(STORAGE_BINARY, settings, log, ready))?)
+    let ready = answering(&storage_observability()?, "/ready");
+    Ok(util.start_service_from_config(role(STORAGE_BINARY, settings, log, ready)?)?)
 }
 
 /// What runs a storage process with commits acknowledged, its settings and its pid.
@@ -485,17 +520,17 @@ type Committed = (ServiceUtil, Vec<(String, String)>, u32);
 /// A frontend and one partition's storage, with commits acknowledged: what restarts it, its log and its pid.
 fn committed_storage(w: &mut Steps) -> TestResult<Committed> {
     let util = services()?;
-    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
+    let wait = answering(&frontend_observability()?, "/health");
     let _frontend: u32 = util.start_service_from_config(role(
         FRONTEND_BINARY,
         &frontend_holding()?,
         &scratch(FRONTEND_BINARY),
         wait,
-    ))?;
+    )?)?;
     let settings = storage_holding()?;
     let pid = start_storage(&util, &settings, &scratch("storage-first"))?;
     let subject = subject_of(1, 1, TENANT)?;
-    let address = format!("tcp://{}", STORAGE_ROLE_ADDRESS);
+    let address = format!("tcp://{}", storage_role_address()?);
     Runtime::new()?.block_on(async {
         for at in 0..8 {
             let object = format!("http://ex.org/o{at}");
@@ -547,10 +582,10 @@ fn killed(w: &mut Steps) -> TestResult {
     assert!(killed.success());
     w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
     let again = scratch("storage-recovered.log");
-    let health = answering(STORAGE_OBSERVABILITY, "/health");
+    let health = answering(&storage_observability()?, "/health");
     let _restarted: u32 =
-        util.start_service_from_config(role(STORAGE_BINARY, &settings, &again, health))?;
-    until_answering(STORAGE_OBSERVABILITY, "/ready")?;
+        util.start_service_from_config(role(STORAGE_BINARY, &settings, &again, health)?)?;
+    until_answering(&storage_observability()?, "/ready")?;
     w.log = std::fs::read_to_string(&again)?;
     w.roles = Some(util);
     Ok(())
@@ -599,8 +634,9 @@ fn pinned(w: &mut Steps) -> TestResult {
     variables.push(("runtime.pin_cores".to_string(), "true".to_string()));
     let util = services()?;
     let log = scratch("storage-pinned.log");
-    let wait = answering(STORAGE_OBSERVABILITY, "/health");
-    let _pid: u32 = util.start_service_from_config(role(STORAGE_BINARY, &variables, &log, wait))?;
+    let wait = answering(&storage_observability()?, "/health");
+    let _pid: u32 =
+        util.start_service_from_config(role(STORAGE_BINARY, &variables, &log, wait)?)?;
     w.log = std::fs::read_to_string(&log)?;
     Ok(())
 }
@@ -652,10 +688,11 @@ fn pinned_where_unavailable(w: &mut Steps) -> TestResult {
     variables.push(("runtime.pin_cores".to_string(), "true".to_string()));
     let util = services()?;
     let log = scratch("storage-unpinned.log");
-    let wait = answering(STORAGE_OBSERVABILITY, "/health");
-    let _pid: u32 = util.start_service_from_config(role(STORAGE_BINARY, &variables, &log, wait))?;
+    let wait = answering(&storage_observability()?, "/health");
+    let _pid: u32 =
+        util.start_service_from_config(role(STORAGE_BINARY, &variables, &log, wait)?)?;
     w.log = std::fs::read_to_string(&log)?;
-    w.status = http_status(STORAGE_OBSERVABILITY, "/health")?;
+    w.status = http_status(&storage_observability()?, "/health")?;
     Ok(())
 }
 
@@ -701,7 +738,7 @@ fn on_played_frontend(w: &mut Steps, push: Push) -> TestResult<Arc<Played>> {
     let settings = with(
         not_hosting(storage_holding()?),
         "cluster.system_address",
-        &format!("tcp://{PLAYED_FRONTEND_ADDRESS}"),
+        &format!("tcp://{}", played_frontend_address()?),
     );
     let util = services()?;
     let played = Runtime::new()?.block_on(async {
@@ -711,7 +748,7 @@ fn on_played_frontend(w: &mut Steps, push: Push) -> TestResult<Arc<Played>> {
             &settings,
             &log,
             WaitStrategy::NoWait,
-        ))?;
+        )?)?;
         w.exited = exit_of(&util, pid).await;
         Ok::<_, TestError>(played)
     })?;
@@ -760,7 +797,7 @@ fn stopped_joining(w: &mut Steps) -> TestResult {
     let settings = with(
         not_hosting(storage_holding()?),
         "cluster.system_address",
-        &format!("tcp://{PLAYED_FRONTEND_ADDRESS}"),
+        &format!("tcp://{}", played_frontend_address()?),
     );
     let util = services()?;
     let played = Runtime::new()?.block_on(async {
@@ -771,7 +808,7 @@ fn stopped_joining(w: &mut Steps) -> TestResult {
             &settings,
             &log,
             WaitStrategy::NoWait,
-        ))?;
+        )?)?;
         until_seen(|| Ok(!played.joined()?.is_empty()), "a Join").await?;
         let signalled = std::process::Command::new("kill")
             .args(["-TERM", &pid.to_string()])
@@ -823,7 +860,7 @@ fn exits_on_the_violation(w: &mut Steps) -> TestResult {
 
 #[when("the storage binary receives settings with no `storage.data_dir`")]
 fn no_data_dir(w: &mut Steps) -> TestResult {
-    let text = render_settings(&holding(not_hosting(storage_on_one_host()), SECRET)?);
+    let text = render_settings(&holding(not_hosting(storage_on_one_host()?), SECRET)?);
     storage_on(w, &text)
 }
 
@@ -872,7 +909,7 @@ fn service_late(w: &mut Steps) -> TestResult {
         "storage",
         &scratch("storage-waiting.log"),
         WaitStrategy::NoWait,
-    );
+    )?;
     let _waiting: u32 = util.start_service_from_config(waiting)?;
     std::thread::sleep(Duration::from_millis(600));
     let _service: u32 = start_config_service(
@@ -885,8 +922,8 @@ fn service_late(w: &mut Steps) -> TestResult {
 
 #[then("the process takes its settings and starts")]
 fn took_settings(w: &mut Steps) -> TestResult {
-    until_answering(STORAGE_OBSERVABILITY, "/health")?;
-    let health = http_body(STORAGE_OBSERVABILITY, "/health")?;
+    until_answering(&storage_observability()?, "/health")?;
+    let health = http_body(&storage_observability()?, "/health")?;
     assert!(health.contains("instance storage,"), "{health}");
     assert!(health.contains("revision 1"), "{health}");
     w.roles = None;
@@ -905,7 +942,7 @@ fn wrong_key(w: &mut Steps) -> TestResult {
     let file = scratch("wrong.key");
     std::fs::write(&file, "a key the service never issued to anyone")?;
     let variables = with(
-        bootstrap(CONFIG_ADDRESS, "storage"),
+        bootstrap(&config_address()?, "storage"),
         "ULTRAGRAPHDB_CONFIG_KEY_FILE",
         &file.display().to_string(),
     );
@@ -924,14 +961,14 @@ fn wrong_key(w: &mut Steps) -> TestResult {
 #[then("it exits with code 78 at once, naming the URL")]
 fn names_the_url(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 78)?;
-    assert!(w.log.contains(CONFIG_ADDRESS), "{}", w.log);
+    assert!(w.log.contains(&config_address()?), "{}", w.log);
     assert!(w.log.contains("401"), "{}", w.log);
     Ok(())
 }
 
 #[when("the storage binary starts with `ULTRAGRAPHDB_CONFIG_INSTANCE=compute_1`")]
 fn another_role(w: &mut Steps) -> TestResult {
-    run_to_exit(w, bootstrap(DOUBLE_ADDRESS, "compute_1"))
+    run_to_exit(w, bootstrap(&double_address()?, "compute_1"))
 }
 
 #[then("it exits with code 78 naming the instance and its role, without asking the service")]
@@ -946,7 +983,7 @@ fn names_the_instance(w: &mut Steps) -> TestResult {
 #[when("a role starts with `ULTRAGRAPHDB_STORAGE_PARTITION_COUNT=2` in its environment")]
 fn stray_variable(w: &mut Steps) -> TestResult {
     let variables = with(
-        bootstrap(DOUBLE_ADDRESS, "storage_1"),
+        bootstrap(&double_address()?, "storage_1"),
         "ULTRAGRAPHDB_STORAGE_PARTITION_COUNT",
         "2",
     );
@@ -971,8 +1008,8 @@ fn new_instance(w: &mut Steps) -> TestResult {
 
 #[then("it receives the active revision the running instances report")]
 fn same_revision(w: &mut Steps) -> TestResult {
-    let first = http_body("127.0.0.1:18101", "/health")?;
-    let second = http_body("127.0.0.1:18103", "/health")?;
+    let first = http_body(&observed(1)?, "/health")?;
+    let second = http_body(&observed(3)?, "/health")?;
     assert!(first.contains("instance storage_1, revision 1"), "{first}");
     assert!(
         second.contains("instance storage_3, revision 1"),
@@ -988,9 +1025,9 @@ fn running_revision(w: &mut Steps) -> TestResult {
     let instance = served_by_double(STORAGE_BINARY, &render_settings(&storage_holding()?));
     let start = process(
         STORAGE_BINARY,
-        bootstrap(DOUBLE_ADDRESS, &instance),
+        bootstrap(&double_address()?, &instance),
         &scratch("storage-health.log"),
-        answering(STORAGE_OBSERVABILITY, "/health"),
+        answering(&storage_observability()?, "/health"),
     );
     let _pid: u32 = util.start_service_from_config(start)?;
     w.graph = instance;
@@ -1000,7 +1037,7 @@ fn running_revision(w: &mut Steps) -> TestResult {
 
 #[then("its `/health` body names the target, the instance and the revision")]
 fn health_names(w: &mut Steps) -> TestResult {
-    let health = http_body(STORAGE_OBSERVABILITY, "/health")?;
+    let health = http_body(&storage_observability()?, "/health")?;
     let expected = format!(
         "target {TARGET}, instance {}, revision {DOUBLE_REVISION}",
         w.graph
@@ -1033,9 +1070,9 @@ fn over_tls(w: &mut Steps) -> TestResult {
         util.start_service_from_config(config_process(&own, WaitStrategy::NoWait))?;
     let variables = with(
         with(
-            bootstrap(CONFIG_ADDRESS, "storage"),
+            bootstrap(&config_address()?, "storage"),
             "ULTRAGRAPHDB_CONFIG_URL",
-            &format!("https://{CONFIG_ADDRESS}"),
+            &format!("https://{}", config_address()?),
         ),
         "ULTRAGRAPHDB_CONFIG_CA_FILE",
         &ca.display().to_string(),
@@ -1044,7 +1081,7 @@ fn over_tls(w: &mut Steps) -> TestResult {
         STORAGE_BINARY,
         variables,
         &scratch("storage-tls.log"),
-        answering(STORAGE_OBSERVABILITY, "/health"),
+        answering(&storage_observability()?, "/health"),
     ))?;
     w.roles = Some(util);
     Ok(())
@@ -1052,7 +1089,7 @@ fn over_tls(w: &mut Steps) -> TestResult {
 
 #[then("it takes its settings over the verified connection")]
 fn took_over_tls(w: &mut Steps) -> TestResult {
-    let health = http_body(STORAGE_OBSERVABILITY, "/health")?;
+    let health = http_body(&storage_observability()?, "/health")?;
     assert!(health.contains("revision 1"), "{health}");
     w.roles = None;
     Ok(())
@@ -1066,14 +1103,18 @@ fn ask(address: &str, key: &str, method: &str, path: &str, body: &[u8]) -> TestR
 }
 
 /// `settings` of a storage process with an admin listener authorising the admin key, by its digest alone.
-fn with_admin(settings: Vec<(String, String)>) -> Vec<(String, String)> {
+fn with_admin(settings: Vec<(String, String)>) -> TestResult<Vec<(String, String)>> {
     let digest: String = Sha256::digest(ADMIN_KEY.as_bytes())
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect();
     let plain = with(settings, "admin.plaintext", "true");
-    let addressed = with(plain, "admin.address", &format!("tcp://{ADMIN_ADDRESS}"));
-    with(addressed, "admin.key_sha256", &digest)
+    let addressed = with(
+        plain,
+        "admin.address",
+        &format!("tcp://{}", admin_address()?),
+    );
+    Ok(with(addressed, "admin.key_sha256", &digest))
 }
 
 /// Starts a frontend and one partition's storage with an admin listener, through the service holding revision 1, acknowledges
@@ -1081,7 +1122,7 @@ fn with_admin(settings: Vec<(String, String)>) -> Vec<(String, String)> {
 fn loadable(w: &mut Steps) -> TestResult {
     let util = services()?;
     let frontend_settings = frontend_holding()?;
-    let storage_settings = with_admin(storage_holding()?);
+    let storage_settings = with_admin(storage_holding()?)?;
     w.config_pid = start_config_service(
         &util,
         &[
@@ -1093,16 +1134,16 @@ fn loadable(w: &mut Steps) -> TestResult {
         FRONTEND_BINARY,
         "frontend",
         &scratch(FRONTEND_BINARY),
-        answering(FRONTEND_OBSERVABILITY, "/health"),
-    ))?;
+        answering(&frontend_observability()?, "/health"),
+    )?)?;
     w.pid = util.start_service_from_config(role_of_service(
         STORAGE_BINARY,
         "storage",
         &scratch("storage-loaded.log"),
-        answering(STORAGE_OBSERVABILITY, "/ready"),
-    ))?;
+        answering(&storage_observability()?, "/ready"),
+    )?)?;
     let subject = subject_of(1, 1, TENANT)?;
-    let address = format!("tcp://{}", STORAGE_ROLE_ADDRESS);
+    let address = format!("tcp://{}", storage_role_address()?);
     Runtime::new()?.block_on(async {
         for at in 0..8 {
             let object = format!("http://ex.org/o{at}");
@@ -1121,7 +1162,7 @@ fn loadable(w: &mut Steps) -> TestResult {
         body.extend_from_slice(format!("{key} {}\n{text}\n", text.len()).as_bytes());
     }
     let path = format!("/v1/targets/{TARGET}/revisions?base=1");
-    let added = ask(CONFIG_ADDRESS, ADMIN_KEY, "POST", &path, &body)?;
+    let added = ask(&config_address()?, ADMIN_KEY, "POST", &path, &body)?;
     assert_eq!(
         added.status(),
         201,
@@ -1135,7 +1176,7 @@ fn loadable(w: &mut Steps) -> TestResult {
 /// Asks storage to load `revision` with `key`, holding the status and the answer.
 fn load(w: &mut Steps, key: &str, revision: &str) -> TestResult {
     let reply = ask(
-        ADMIN_ADDRESS,
+        &admin_address()?,
         key,
         "POST",
         "/admin/load-config",
@@ -1150,7 +1191,9 @@ fn load(w: &mut Steps, key: &str, revision: &str) -> TestResult {
 fn until_revision(revision: u64) -> TestResult {
     let expected = format!("revision {revision}\n");
     for _ in 0..START_SECONDS * 20 {
-        if http_body(STORAGE_OBSERVABILITY, "/health").is_ok_and(|body| body.ends_with(&expected)) {
+        if http_body(&storage_observability()?, "/health")
+            .is_ok_and(|body| body.ends_with(&expected))
+        {
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -1172,7 +1215,7 @@ fn loads(w: &mut Steps) -> TestResult {
 fn loaded(w: &mut Steps) -> TestResult {
     assert_eq!(w.status, 202, "{}", w.log);
     until_revision(2)?;
-    until_answering(STORAGE_OBSERVABILITY, "/ready")?;
+    until_answering(&storage_observability()?, "/ready")?;
     let alive = std::process::Command::new("kill")
         .args(["-0", &w.pid.to_string()])
         .status()?;
@@ -1245,8 +1288,8 @@ fn load_crashes(w: &mut Steps) -> TestResult {
         STORAGE_BINARY,
         "storage",
         &scratch("storage-after-crash.log"),
-        answering(STORAGE_OBSERVABILITY, "/health"),
-    ))?;
+        answering(&storage_observability()?, "/health"),
+    )?)?;
     Ok(())
 }
 
@@ -1276,13 +1319,14 @@ fn named_back(w: &mut Steps) -> TestResult {
 fn main() -> TestResult {
     // The tag of the features this target runs alone, when it runs one group of them; unset, every feature but those.
     let own = std::env::var("BDD_FEATURES").ok();
+    let own_addresses = own_addresses()?;
     start_double()?;
     futures::executor::block_on(
         Steps::cucumber()
             .max_concurrent_scenarios(1)
-            .before(|_, _, _, _| {
-                async {
-                    let freed = until_ports_free(&OWN_ADDRESSES);
+            .before(move |_, _, _, _| {
+                let freed = until_ports_free(&own_addresses);
+                async move {
                     assert!(freed.is_ok(), "{freed:?}");
                 }
                 .boxed_local()

@@ -50,7 +50,6 @@ const SLOW_EPOCH_MS: u64 = 1_000;
 /// A cluster whose epochs close every `SLOW_EPOCH_MS`, the frontend's sequencer and its close bound at it.
 fn slow_epochs() -> Spec {
     Spec::one_partition()
-        .frontend("storage.scan_stall_ms", STALL_MS)
         .host("sequencer.epoch_ms_min", SLOW_EPOCH_MS)
         .host("sequencer.epoch_ms_max", SLOW_EPOCH_MS)
         .storage("storage.close_request_ms", 4 * SLOW_EPOCH_MS)
@@ -78,21 +77,6 @@ async fn commit_early_in_an_epoch(
 
 /// A client timeout a login's PBKDF2 stays within on a loaded machine: the client's own work counts against it.
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(2);
-
-/// A frontend that takes a compute process for hung past 100 ms of silence.
-const STALL_MS: u64 = 100;
-
-/// A cluster of two compute processes behind that frontend.
-fn two_computes() -> Spec {
-    Spec::one_partition()
-        .second_compute()
-        .frontend("storage.scan_stall_ms", STALL_MS)
-}
-
-/// A cluster of one compute process behind that frontend.
-fn stalling() -> Spec {
-    Spec::one_partition().frontend("storage.scan_stall_ms", STALL_MS)
-}
 
 /// One partition and the harness's settings, `metadata.sessions_max` named at 4,096, the bound `PROTOCOL.md` §11.9 gives it
 /// unnamed, so the group runs as the harness's does: a spec no other scenario takes, whose tenant holds the catalog its own
@@ -508,288 +492,6 @@ async fn big_held(client: &mut TestClient) -> TestResult {
     Ok(())
 }
 
-#[when("two compute processes have joined and a connection sends two reads")]
-fn two_reads_two_computes(w: &mut Steps) -> TestResult {
-    own(w, &two_computes())?;
-    let at = cluster(w)?.client.clone();
-    let [a, p, b] = ["a", "p", "b"].map(|name| w.iri(name));
-    // One of the two is stopped: the read it receives goes unanswered, so each read tells which process it reached.
-    cluster(w)?.signal("compute_2", Signal::Stop)?;
-    let outcomes = with_client(&at, async |client| {
-        committed(client, &a, &p, &iri(&b)).await?;
-        let mut outcomes = Vec::new();
-        for _ in 0..2 {
-            let begin = Begin::new(TENANT, 0, true).with_deadline_ms(50);
-            let reader = client.begin_with(begin, None).await?;
-            let pattern = Pattern::of(Some(&a), Some(&p));
-            let stream = client
-                .read(&reader, &pattern.read(&reader, 0, Vec::new())?)
-                .await?;
-            outcomes.push(
-                drain(client, &stream)
-                    .await
-                    .map_err(|error| error.to_string()),
-            );
-        }
-        Ok(outcomes)
-    })?;
-    cluster(w)?.signal("compute_2", Signal::Continue)?;
-    w.seen.facts = outcomes
-        .iter()
-        .map(|outcome| format!("{outcome:?}"))
-        .collect();
-    let answered = outcomes.iter().filter(|outcome| outcome.is_ok()).count();
-    w.committed = answered == 1;
-    Ok(())
-}
-
-#[then("each process receives one")]
-fn each_receives_one(w: &mut Steps) -> TestResult {
-    assert!(
-        w.committed,
-        "one read answered, one hung: {:?} {}",
-        w.seen.facts,
-        w.over()
-    );
-    release(w)
-}
-
-#[when(
-    "the connection to one of two compute processes closes under a read before any frame of it reached the client"
-)]
-fn closed_compute(w: &mut Steps) -> TestResult {
-    own(w, &two_computes())?;
-    let at = cluster(w)?.client.clone();
-    let [a, p, b] = ["a", "p", "b"].map(|name| w.iri(name));
-    let pattern = Pattern::of(Some(&a), Some(&p));
-    let held = with_client(&at, async |client| {
-        committed(client, &a, &p, &iri(&b)).await?;
-        until_rows(client, &pattern, 1).await
-    })?;
-    cluster(w)?.signal("compute_2", Signal::Kill)?;
-    let read = with_client(&at, async |client| {
-        let mut answers = vec![held];
-        for _ in 0..4 {
-            let reader = client.begin(TENANT, true).await?;
-            answers.push(read_whole(client, &reader, &pattern).await?);
-            client.abort(reader).await?;
-        }
-        Ok(answers)
-    })?;
-    w.seen.answers = read;
-    Ok(())
-}
-
-#[then("the frontend sends the read to the other, and the client receives its rows")]
-fn other_compute_answers(w: &mut Steps) -> TestResult {
-    assert_eq!(w.seen.answers.len(), 5, "{}", w.over());
-    for answer in &w.seen.answers {
-        assert_eq!(answer.column(0), [w.iri("b")], "{}", w.over());
-    }
-    release(w)
-}
-
-#[when("no connection to a compute process can be opened for a read")]
-fn no_compute(w: &mut Steps) -> TestResult {
-    own(w, &stalling())?;
-    let at = cluster(w)?.client.clone();
-    let [a, p] = ["a", "p"].map(|name| w.iri(name));
-    cluster(w)?.signal("compute", Signal::Kill)?;
-    let (refused, open) = with_client(&at, async |client| {
-        let reader = client.begin(TENANT, true).await?;
-        let pattern = Pattern::of(Some(&a), Some(&p));
-        let stream = client
-            .read(&reader, &pattern.read(&reader, 0, Vec::new())?)
-            .await?;
-        let refused = client
-            .next_batch(&stream, batch_of)
-            .await
-            .err()
-            .context("a refusal")?;
-        Ok((refused, client.begin(TENANT, true).await.is_ok()))
-    })?;
-    w.seen.refusals = vec![refused];
-    w.committed = open;
-    Ok(())
-}
-
-#[then("the client receives code 17, and its connection stays open")]
-fn seventeen_open(w: &mut Steps) -> TestResult {
-    refused_all(w, ErrorCode::Unavailable, 1)?;
-    assert!(
-        w.committed,
-        "the connection served the next request {}",
-        w.over()
-    );
-    release(w)
-}
-
-#[when("a compute process's connection closes after one frame of a read reached the client")]
-fn compute_closes_after_a_frame(w: &mut Steps) -> TestResult {
-    own(w, &two_computes())?;
-    let at = cluster(w)?.client.clone();
-    let mut held = run(async {
-        let mut held = client(&at).await?;
-        big_held(&mut held).await?;
-        Ok(held)
-    })?;
-    let opened = run(async {
-        let first = open_big_read(&mut held, 0).await?;
-        let second = open_big_read(&mut held, 0).await?;
-        Ok((first, second))
-    })?;
-    cluster(w)?.signal("compute_2", Signal::Kill)?;
-    let outcomes = run(async {
-        let ((_, one, _), (_, two, _)) = opened;
-        Ok(vec![
-            drain(&mut held, &one)
-                .await
-                .map_err(|error| error.to_string()),
-            drain(&mut held, &two)
-                .await
-                .map_err(|error| error.to_string()),
-            Ok(Answer {
-                rows: vec![vec![held.begin(TENANT, true).await.is_ok().to_string()]],
-                resume: Vec::new(),
-            }),
-        ])
-    })?;
-    w.seen.facts = outcomes
-        .iter()
-        .map(|outcome| match outcome {
-            Ok(answer) => format!("rows {}", answer.rows.len()),
-            Err(refused) => refused.clone(),
-        })
-        .collect();
-    Ok(())
-}
-
-#[then(
-    "the read is refused with code 17, no other compute process receives it, and the client's connection stays open"
-)]
-fn never_resent(w: &mut Steps) -> TestResult {
-    let unavailable = format!("{:?}", ErrorCode::Unavailable);
-    let refused = w
-        .seen
-        .facts
-        .iter()
-        .filter(|fact| fact.contains(&unavailable))
-        .count();
-    assert_eq!(
-        refused,
-        1,
-        "one read refused: {:?} {}",
-        w.seen.facts,
-        w.over()
-    );
-    assert_eq!(
-        w.seen.facts.last().map(String::as_str),
-        Some("rows 1"),
-        "{:?}",
-        w.seen.facts
-    );
-    release(w)
-}
-
-#[when(
-    "a compute process accepts a read of `deadline_ms` 50 and sends nothing, `scan_stall_ms` is 100, and the read's stream holds credit"
-)]
-fn hung_compute(w: &mut Steps) -> TestResult {
-    own(w, &stalling())?;
-    let at = cluster(w)?.client.clone();
-    let [a, p] = ["a", "p"].map(|name| w.iri(name));
-    let mut held = run(async { client(&at).await })?;
-    cluster(w)?.signal("compute", Signal::Stop)?;
-    let (refused, waited) = run(async {
-        let begin = Begin::new(TENANT, 0, true).with_deadline_ms(50);
-        // The deadline counts from the frontend's Begin, so the clock starts before the Begin is sent: started later, it
-        // misses the Begin's way back and reads a prompt timer as early.
-        let started = clock();
-        let reader = held.begin_with(begin, None).await?;
-        let pattern = Pattern::of(Some(&a), Some(&p));
-        let stream = held
-            .read(&reader, &pattern.read(&reader, 0, Vec::new())?)
-            .await?;
-        let refused = held
-            .next_batch(&stream, batch_of)
-            .await
-            .err()
-            .context("a refusal")?;
-        Ok((refused, clock().duration_since(started)))
-    })?;
-    cluster(w)?.signal("compute", Signal::Continue)?;
-    w.seen.refusals = vec![refused];
-    w.seen.facts = vec![waited.as_millis().to_string()];
-    Ok(())
-}
-
-#[then(
-    "the frontend cancels the ComputeRead and answers the read with code 17 once 150 ms have passed, and no other compute process receives it"
-)]
-fn hung_answered(w: &mut Steps) -> TestResult {
-    refused_all(w, ErrorCode::Unavailable, 1)?;
-    let waited: u64 = w.seen.facts.first().context("how long")?.parse()?;
-    assert!(waited >= 150, "answered after {waited} ms {}", w.over());
-    release(w)
-}
-
-#[when(
-    "a read of `deadline_ms` 40,000 waits 35 s for a close, and compute sends its first frame once the close arrives"
-)]
-fn waiting_within_deadline(w: &mut Steps) -> TestResult {
-    own(w, &slow_epochs())?;
-    let at = cluster(w)?.client.clone();
-    let [a, p, b] = ["a", "p", "b"].map(|name| w.iri(name));
-    w.seen.answers = with_client(&at, async |client| {
-        let session = commit_early_in_an_epoch(client, (&a, &p, &b)).await?;
-        let begin = Begin::new(TENANT, 0, true).with_deadline_ms(3 * SLOW_EPOCH_MS as u32);
-        let reader = client.begin_with(begin, session).await?;
-        let started = clock();
-        let answer = read_whole(client, &reader, &Pattern::of(Some(&a), Some(&p))).await?;
-        let waited = clock().duration_since(started).as_millis();
-        if waited <= u128::from(STALL_MS) {
-            return Err(TestError::new(format!(
-                "the read waited {waited} ms, no longer than the stall"
-            )));
-        }
-        Ok(vec![answer])
-    })?;
-    Ok(())
-}
-
-#[then("the client receives the rows")]
-fn rows_after_the_wait(w: &mut Steps) -> TestResult {
-    let answer = w.seen.answers.first().context("the answer")?;
-    assert!(
-        answer.column(0).contains(&w.iri("b")),
-        "{answer:?} {}",
-        w.over()
-    );
-    release(w)
-}
-
-#[when(
-    "a read's stream has spent its credit, and its client takes no batch for longer than `scan_stall_ms`"
-)]
-fn no_credit_past_stall(w: &mut Steps) -> TestResult {
-    own(w, &stalling())?;
-    let at = cluster(w)?.client.clone();
-    let (rows, rest) = with_client(&at, async |client| {
-        big_held(client).await?;
-        let (_, stream, rows) = open_big_read(client, 0).await?;
-        pause(Duration::from_millis(4 * STALL_MS)).await;
-        Ok((rows, drain(client, &stream).await?))
-    })?;
-    w.seen.facts = vec![(rows + rest.rows.len()).to_string()];
-    Ok(())
-}
-
-#[then("the frontend does not answer it with code 17 on that account")]
-fn no_seventeen(w: &mut Steps) -> TestResult {
-    assert_eq!(w.seen.facts, ["14"], "every row arrived {}", w.over());
-    release(w)
-}
-
 #[when(
     "`held_bytes` is 1,024, a read of a transaction is open, and the client sends Writes that the read holds back past 1,024 bytes"
 )]
@@ -995,7 +697,8 @@ fn both_seventeen(w: &mut Steps) -> TestResult {
         let _bound = read_whole(&mut held, &own, &Pattern::of(Some(&second), Some(&p))).await?;
         Ok((own, session))
     })?;
-    cluster(w)?.signal("compute", Signal::Kill)?;
+    // The partition gone, the endpoint's own read of it finds no connection, and the commit no partition to ask.
+    cluster(w)?.signal("storage_2", Signal::Kill)?;
     let read_refused = run(async {
         let reader = held.begin(TENANT, true).await?;
         let pattern = Pattern::of(Some(&second), Some(&p));
@@ -1007,7 +710,6 @@ fn both_seventeen(w: &mut Steps) -> TestResult {
             .err()
             .context("a refusal")
     })?;
-    cluster(w)?.signal("storage_2", Signal::Kill)?;
     let commit_refused = run(async { held.commit(own, session).await.err().context("a refusal") })?;
     w.seen.refusals = vec![read_refused, commit_refused];
     Ok(())

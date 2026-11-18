@@ -3,8 +3,10 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::pin::pin;
+
 use futures::StreamExt;
-use futures::future::join;
+use futures::future::{Either, join, select};
 use ultragraphdb_common_role::{Answer, ParkedBytes, Push, Session};
 use ultragraphdb_protocol_scram::{MECHANISM, system_nonce};
 use ultragraphdb_protocol_transport::ReceivedFrame;
@@ -15,6 +17,7 @@ use crate::traits::authorizer::Authorizer;
 use crate::types::bind_state::BindState;
 use crate::types::commit_hold::CommitHold;
 use crate::types::link_event::LinkEvent;
+use crate::types::read_executor::ReadExecutor;
 use crate::types::route_key::RouteKey;
 use crate::types::session_event::SessionEvent;
 
@@ -116,16 +119,26 @@ impl<A: Authorizer + Clone> Session for ClientSession<A> {
             let wait = self
                 .next_deadline()
                 .map(|deadline| deadline.saturating_duration_since(now()));
-            let event = match wait {
-                Some(wait) => compio::time::timeout(wait, self.events.next())
-                    .await
-                    .ok()
-                    .flatten(),
-                None => self.events.next().await,
+            let woke = {
+                let events = pin!(self.events.next());
+                let reads = pin!(next_read(self.reads_run.as_mut()));
+                let either = async {
+                    match select(events, reads).await {
+                        Either::Left((event, _)) => Woke::Event(event),
+                        Either::Right(((read, frame), _)) => Woke::Read(read, frame),
+                    }
+                };
+                match wait {
+                    Some(wait) => compio::time::timeout(wait, either)
+                        .await
+                        .unwrap_or(Woke::Event(None)),
+                    None => either.await,
+                }
             };
-            match event {
-                Some(event) => self.event(event),
-                None => self.timers(now()),
+            match woke {
+                Woke::Event(Some(event)) => self.event(event),
+                Woke::Event(None) => self.timers(now()),
+                Woke::Read(read, frame) => self.read_frame(read, frame),
             }
         }
     }
@@ -157,6 +170,15 @@ impl<A: Authorizer + Clone> Session for ClientSession<A> {
         }
     }
 
+    /// The Result frame last sent on `stream` has left with credit to spare: a read's next batch may be built.
+    fn ready(&mut self, stream: u64) {
+        if self.reads.contains_key(&stream)
+            && let Some(executor) = self.reads_run.as_mut()
+        {
+            executor.ready(stream);
+        }
+    }
+
     fn credited(&mut self, stream: u64, frames: u32) {
         if self.describes.contains_key(&stream) {
             self.describe_credited(stream, frames);
@@ -174,7 +196,6 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             SessionEvent::Declared { stream, outcome } => self.declared(stream, outcome),
             SessionEvent::DropCatalog { stream, outcome } => self.drop_catalog(stream, outcome),
             SessionEvent::SecondCheck { stream, outcome } => self.recall_session(stream, outcome),
-            SessionEvent::MembersRead { read } => self.members_read(read),
         }
     }
 
@@ -184,7 +205,6 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 transaction,
                 attempt,
             } => self.bind_event(transaction, attempt, event),
-            RouteKey::Read { read, attempt } => self.read_event(read, attempt, event),
             RouteKey::OneFrame { stream, attempt } => self.one_frame_event(stream, attempt, event),
             RouteKey::Drop { stream } => self.drop_event(stream, event),
             RouteKey::Recall { stream, partition } => self.recall_event(stream, partition, event),
@@ -192,7 +212,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         }
     }
 
-    /// A role connection closing under `stream`'s request, a read's next compute process apart: code 17 (`PROTOCOL.md` §11.12).
+    /// A role connection closing under `stream`'s request: code 17 (`PROTOCOL.md` §11.12).
     pub(super) fn unavailable(&self) -> ErrorReply {
         ErrorReply::new(
             ErrorCode::Unavailable,
@@ -228,11 +248,7 @@ impl<A> Drop for ClientSession<A> {
                 owner.ended(transaction.session_held.to_be_bytes());
             }
         }
-        for read in self.reads.values() {
-            if let Some((link, stream)) = &read.route {
-                link.cancel(*stream);
-            }
-        }
+        // The reads end with the executor, which cancels each one's Scans as it drops.
         for one in self.one_frames.values() {
             match &one.route {
                 Some((link, stream)) if one.session != 0 => {
@@ -277,5 +293,22 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             principal = self.principal,
             source = ?self.peer,
         );
+    }
+}
+
+/// What woke a session waiting for something to send.
+enum Woke {
+    /// An event from outside the connection; `None` for a timer due.
+    Event(Option<SessionEvent>),
+    /// A frame of a read the executor runs, and the read's stream.
+    Read(u64, Vec<u8>),
+}
+
+/// The next frame of a read `executor` runs; pending for a core executing no read.
+/// A future dropped at its wait leaves the frames to come to the next call.
+async fn next_read(executor: Option<&mut ReadExecutor>) -> (u64, Vec<u8>) {
+    match executor {
+        Some(executor) => executor.next().await,
+        None => std::future::pending().await,
     }
 }

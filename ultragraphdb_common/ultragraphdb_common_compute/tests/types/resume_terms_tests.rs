@@ -55,6 +55,7 @@ fn test_a_resume_key_of_an_unheld_term_is_refused() -> TestResult {
         let resume = ResumeKey::new(
             pattern_hash(&read)?,
             read.read_version(),
+            1,
             table,
             ResumeRow::new(None, s, p, o, None),
         )
@@ -100,6 +101,7 @@ fn test_a_resume_key_of_a_term_no_row_names_is_refused() -> TestResult {
             let resume = ResumeKey::new(
                 pattern_hash(&read)?,
                 read.read_version(),
+                1,
                 table,
                 ResumeRow::new(graph, s, p, o, None),
             )

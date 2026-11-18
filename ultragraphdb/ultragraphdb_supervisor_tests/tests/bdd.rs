@@ -4,7 +4,8 @@
  */
 
 //! The supervisor as a process, bound to `features/`, with no container: the shipped `dev` profile with its paths and ports
-//! moved into the test's own, run by the real binaries. One scenario runs at a time: the binaries listen at their declared ports.
+//! moved into the test's own, run by the real binaries. One scenario runs at a time: the binaries listen at the ports of the
+//! target's block, which `bazel/test_ports.bzl` gives it.
 //! The `image_bdd` target runs the scenarios tagged `@image` and `@docker` in Docker instead, through `images`.
 
 mod images;
@@ -20,11 +21,11 @@ use cucumber::{World, then, when};
 use service_utils::{ServiceStartConfig, ServiceUtil, WaitStrategy};
 use sha2::{Digest, Sha256};
 use ultragraphdb_tests::{
-    ADMIN_KEY, CLIENT_ADDRESS, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, CONFIG_ADDRESS,
-    CONFIG_BINARY, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, PARENT_PID, START_SECONDS,
-    STORAGE_BINARY, STORAGE_OBSERVABILITY, exit_is, http_status, scratch, until_answering,
+    ADMIN_KEY, COMPUTE_BINARY, CONFIG_BINARY, FRONTEND_BINARY, PARENT_PID, START_SECONDS,
+    STORAGE_BINARY, client_address, compute_observability, config_address, exit_is,
+    frontend_observability, http_status, scratch, storage_observability, until_answering,
 };
-use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback};
 use ultragraphdb_transport_http_client::{HttpClient, HttpUrl};
 
 /// Where the sandbox holds the binaries, relative to the test's working directory: `copy_file` writes them to this package.
@@ -38,8 +39,8 @@ const SUPERVISOR_BINARY: &str = "ultragraphdb_supervisor";
 /// Where the sandbox holds a copy of the supervisor with no other binary beside it.
 const ALONE_PATH: &str = "ultragraphdb/ultragraphdb_supervisor_tests/alone";
 
-/// The address storage's admin listener holds, in the scenario asking it to load.
-const ADMIN_ADDRESS: &str = "127.0.0.1:18090";
+/// The offset above the target's port base of the address storage's admin listener holds, in the scenario asking it to load.
+const ADMIN_OFFSET: u16 = 45;
 
 /// What the `dev` profile's central file declares.
 const PROFILE_FILES: [&str; 4] = [
@@ -85,19 +86,21 @@ impl Drop for Steps {
     }
 }
 
-/// `text` of the shipped `dev` profile, with its paths and ports the test's own.
-fn moved(text: &str, root: &Path, sockets: &Path) -> String {
-    text.replace("/data", &root.join("data").display().to_string())
+/// `text` of the shipped `dev` profile, with its paths and ports the test's own: its roles listen at Unix sockets, so its TCP
+/// ports are the observability ports, the config service's and the client endpoint's.
+fn moved(text: &str, root: &Path, sockets: &Path) -> TestResult<String> {
+    Ok(text
+        .replace("/data", &root.join("data").display().to_string())
         .replace("/run/ultragraph", &sockets.display().to_string())
         .replace(
             "/etc/ultragraphdb/profiles/dev",
             &root.join("profile").display().to_string(),
         )
-        .replace("127.0.0.1:8081", FRONTEND_OBSERVABILITY)
-        .replace("127.0.0.1:8082", COMPUTE_OBSERVABILITY)
-        .replace("127.0.0.1:8083", STORAGE_OBSERVABILITY)
-        .replace("127.0.0.1:8090", CONFIG_ADDRESS)
-        .replace("0.0.0.0:7080", CLIENT_ADDRESS)
+        .replace("127.0.0.1:8081", &frontend_observability()?)
+        .replace("127.0.0.1:8082", &compute_observability()?)
+        .replace("127.0.0.1:8083", &storage_observability()?)
+        .replace("127.0.0.1:8090", &config_address()?)
+        .replace("0.0.0.0:7080", &client_address()?))
 }
 
 /// Writes the `dev` profile into a directory of the scenario's own, and notes it in `w`.
@@ -112,11 +115,11 @@ fn write_profile(w: &mut Steps) -> TestResult {
         let text = std::fs::read_to_string(Path::new(PROFILES).join("dev").join(file))?;
         std::fs::write(
             w.root.join("profile").join(file),
-            moved(&text, &w.root, &w.sockets),
+            moved(&text, &w.root, &w.sockets)?,
         )?;
     }
     let own = std::fs::read_to_string(Path::new(PROFILES).join("dev.toml"))?;
-    std::fs::write(w.root.join("dev.toml"), moved(&own, &w.root, &w.sockets))?;
+    std::fs::write(w.root.join("dev.toml"), moved(&own, &w.root, &w.sockets)?)?;
     Ok(())
 }
 
@@ -225,13 +228,13 @@ fn starts_all(w: &mut Steps) -> TestResult {
 )]
 fn start_order(w: &mut Steps) -> TestResult {
     for address in [
-        STORAGE_OBSERVABILITY,
-        COMPUTE_OBSERVABILITY,
-        FRONTEND_OBSERVABILITY,
+        storage_observability()?,
+        compute_observability()?,
+        frontend_observability()?,
     ] {
-        assert_eq!(http_status(address, "/ready")?, 200, "{address}");
+        assert_eq!(http_status(&address, "/ready")?, 200, "{address}");
     }
-    assert_eq!(http_status(CONFIG_ADDRESS, "/ready")?, 200);
+    assert_eq!(http_status(&config_address()?, "/ready")?, 200);
     // Storage hosts the system group and depends on no other role, so it is ready before compute starts; compute and the
     // frontend each wait on a role already ready, so none waited on one waiting on it (design D10).
     in_order(
@@ -258,10 +261,11 @@ fn storage_fails(w: &mut Steps) -> TestResult {
         .collect();
     let settings = w.root.join("profile").join("storage.toml");
     let text = std::fs::read_to_string(&settings)?;
+    let admin = loopback(ADMIN_OFFSET)?;
     std::fs::write(
         &settings,
         format!(
-            "{text}[admin]\naddress = \"tcp://{ADMIN_ADDRESS}\"\nplaintext = true\nkey_sha256 = \"{digest}\"\n"
+            "{text}[admin]\naddress = \"tcp://{admin}\"\nplaintext = true\nkey_sha256 = \"{digest}\"\n"
         ),
     )?;
     let config = w.root.join("data").join("config");
@@ -280,7 +284,7 @@ fn storage_fails(w: &mut Steps) -> TestResult {
     std::fs::rename(&log, log.with_extension("moved"))?;
     std::fs::write(&log, "not a log")?;
     let client = HttpClient::new(
-        HttpUrl::parse(&format!("http://{ADMIN_ADDRESS}"))?,
+        HttpUrl::parse(&format!("http://{admin}"))?,
         None,
         ADMIN_KEY.to_string(),
     )?;
@@ -429,7 +433,7 @@ fn terminated_in_the_start(w: &mut Steps) -> TestResult {
         text.replace("[metadata]\n", "[metadata]\nblock_size_max = 1\n"),
     )?;
     start_supervisor(w, on_profile(w))?;
-    until_answering(STORAGE_OBSERVABILITY, "/health")?;
+    until_answering(&storage_observability()?, "/health")?;
     let (_, pid) = w.running.as_ref().context("a running supervisor")?;
     signal(*pid, "TERM")?;
     until_exit(w)
@@ -464,11 +468,11 @@ fn stray_variable(w: &mut Steps) -> TestResult {
 #[then("every role reaches readiness, since a role would refuse the variable")]
 fn ready_past_the_variable(_w: &mut Steps) -> TestResult {
     for address in [
-        STORAGE_OBSERVABILITY,
-        COMPUTE_OBSERVABILITY,
-        FRONTEND_OBSERVABILITY,
+        storage_observability()?,
+        compute_observability()?,
+        frontend_observability()?,
     ] {
-        assert_eq!(http_status(address, "/ready")?, 200, "{address}");
+        assert_eq!(http_status(&address, "/ready")?, 200, "{address}");
     }
     Ok(())
 }
@@ -580,7 +584,7 @@ fn secrets_drawn(w: &mut Steps) -> TestResult {
     assert_ne!(read, admin);
     assert_ne!(read, role);
     assert_ne!(admin, role);
-    assert_eq!(http_status(FRONTEND_OBSERVABILITY, "/ready")?, 200);
+    assert_eq!(http_status(&frontend_observability()?, "/ready")?, 200);
     Ok(())
 }
 
@@ -605,7 +609,7 @@ fn bootstrap_removed(w: &mut Steps) -> TestResult {
 fn bootstrap_stays_removed(w: &mut Steps) -> TestResult {
     let password = w.root.join("data").join(BOOTSTRAP_SECRET);
     assert!(!password.exists(), "{} was drawn again", password.display());
-    assert_eq!(http_status(FRONTEND_OBSERVABILITY, "/ready")?, 200);
+    assert_eq!(http_status(&frontend_observability()?, "/ready")?, 200);
     Ok(())
 }
 
@@ -794,13 +798,10 @@ fn on_the_service_alone(w: &Steps, method: &str, path: &str) -> TestResult {
         .build();
     let util = services()?;
     let pid = util.start_service_from_config(config)?;
-    until_answering(CONFIG_ADDRESS, "/ready")?;
+    let service = config_address()?;
+    until_answering(&service, "/ready")?;
     let key = std::fs::read_to_string(w.root.join("data").join("config").join("admin.key"))?;
-    let client = HttpClient::new(
-        HttpUrl::parse(&format!("http://{CONFIG_ADDRESS}"))?,
-        None,
-        key,
-    )?;
+    let client = HttpClient::new(HttpUrl::parse(&format!("http://{service}"))?, None, key)?;
     let answer = Runtime::new()?.block_on(client.request(method, path, b""))?;
     assert_eq!(answer.status(), 200, "{method} {path}");
     exit_is(Some(util.stop_service(pid)?), "the service alone", 0)
@@ -952,7 +953,7 @@ fn on_polling(w: &mut Steps) -> TestResult {
     let polling = w.log.contains("on the polling driver");
     let allowed = cfg!(target_os = "linux") && w.log.contains("on the io_uring driver");
     assert!(polling || allowed, "{}", w.log);
-    assert_eq!(http_status(STORAGE_OBSERVABILITY, "/ready")?, 200);
+    assert_eq!(http_status(&storage_observability()?, "/ready")?, 200);
     Ok(())
 }
 
@@ -1069,13 +1070,13 @@ fn none_orphaned(w: &mut Steps) -> TestResult {
         w.log
     );
     for address in [
-        FRONTEND_OBSERVABILITY,
-        COMPUTE_OBSERVABILITY,
-        STORAGE_OBSERVABILITY,
-        CONFIG_ADDRESS,
-        CLIENT_ADDRESS,
+        frontend_observability()?,
+        compute_observability()?,
+        storage_observability()?,
+        config_address()?,
+        client_address()?,
     ] {
-        drop(std::net::TcpListener::bind(address).context(address)?);
+        drop(std::net::TcpListener::bind(&address).context(&address)?);
     }
     Ok(())
 }

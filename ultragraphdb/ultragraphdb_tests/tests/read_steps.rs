@@ -222,7 +222,7 @@ fn read_after_write(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend sends the read to compute only after the write is answered, and the read returns the write"
+    "compute sends the read's first Scan only after the write is answered, and the read returns the write"
 )]
 fn read_of_earlier_write(w: &mut Steps) -> TestResult {
     let answer = w.seen.answers.first().context("the read's answer")?;
@@ -354,7 +354,7 @@ fn cancel_held_read(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("no ComputeRead is sent for it, and the transaction goes on")]
+#[then("no Scan is sent for it, and the transaction goes on")]
 fn held_read_dropped(w: &mut Steps) -> TestResult {
     let answer = w.seen.answers.first().context("what the commit left")?;
     assert_eq!(answer.column(0), [w.iri("b")], "{}", w.over());
@@ -628,7 +628,7 @@ fn second_read_after_first_frame(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend sends the second read to compute on the first read's first frame, and the client receives its rows with the first read still open"
+    "compute starts the second read on the first read's first frame, and the client receives its rows with the first read still open"
 )]
 fn second_read_answered(w: &mut Steps) -> TestResult {
     let [second, rest] = w.seen.answers.as_slice() else {

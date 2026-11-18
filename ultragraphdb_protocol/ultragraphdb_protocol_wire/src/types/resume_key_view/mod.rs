@@ -8,7 +8,7 @@ use ultragraphdb_error_protocol::ProtocolError;
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::types::command::Command;
-use crate::types::resume_key::RESUME_FIXED;
+use crate::types::resume_key::{RESUME_FIXED, RESUME_PARTITION, RESUME_ZERO};
 use crate::types::resume_row::ResumeRow;
 use crate::types::term_table_view::TermTableView;
 use crate::utils::body::read_sections;
@@ -17,6 +17,9 @@ use crate::utils::le::bytes_at;
 
 /// The bytes of a resume key's last row: five u32 indices.
 const RESUME_ROW: usize = 20;
+
+// `partition` is read as the fixed part's u32 of index `RESUME_PARTITION / 4`, exactly.
+const _: () = assert!(RESUME_PARTITION.is_multiple_of(4));
 
 /// The row's position `at` in the key's table of `terms` entries: its index, or `None` where `absent` allows [`ABSENT`].
 fn position(
@@ -49,6 +52,8 @@ fn position(
 pub struct ResumeKeyView<'a> {
     pattern: u64,
     scope: u64,
+    partition: u32,
+    ordering: &'a [u8],
     terms: TermTableView<'a>,
     row: ResumeRow,
 }
@@ -58,7 +63,8 @@ impl<'a> ResumeKeyView<'a> {
     ///
     /// # Errors
     ///
-    /// In order: its checksum ([`ProtocolError::field_value`] `"resume key"`); the body layout; section 0 of 20 bytes
+    /// In order: its checksum ([`ProtocolError::field_value`] `"resume key"`); the body layout; bytes 28 to 31 zero
+    /// ([`ProtocolError::padding_not_zero`]); `partition` at least 1 ([`ProtocolError::field_value`] `"partition"`); section 0 of 20 bytes
     /// ([`ProtocolError::count_mismatch`] `"resume row"`); the term table; each index below the table's length,
     /// `ABSENT` only for the graph and the reifier ([`ProtocolError::index_out_of_range`]).
     pub fn read(bytes: &'a [u8]) -> Result<Self, ProtocolError> {
@@ -67,7 +73,19 @@ impl<'a> ResumeKeyView<'a> {
         if checksum != Some(xxh3_64(bytes.get(8..).unwrap_or_default())) {
             return Err(ProtocolError::field_value(command, "resume key", 0));
         }
-        let sections = read_sections::<3>(command, bytes, RESUME_FIXED)?;
+        let sections = read_sections::<4>(command, bytes, RESUME_FIXED)?;
+        let fixed = sections.fixed();
+        let zero = fixed.get(RESUME_ZERO..RESUME_FIXED).unwrap_or_default();
+        if let Some(at) = zero.iter().position(|byte| *byte != 0) {
+            return Err(ProtocolError::padding_not_zero(
+                command,
+                RESUME_ZERO.saturating_add(at),
+            ));
+        }
+        let partition = u32_at(fixed, RESUME_PARTITION / 4).unwrap_or(0);
+        if partition == 0 {
+            return Err(ProtocolError::field_value(command, "partition", 0));
+        }
         let row = sections.get(0);
         if row.len() != RESUME_ROW {
             return Err(ProtocolError::count_mismatch(
@@ -94,10 +112,11 @@ impl<'a> ResumeKeyView<'a> {
             required(3)?,
             position(row, 4, len, true)?,
         );
-        let fixed = sections.fixed();
         Ok(Self {
             pattern: bytes_at(fixed, 8).map_or(0, u64::from_le_bytes),
             scope: bytes_at(fixed, 16).map_or(0, u64::from_le_bytes),
+            partition,
+            ordering: sections.get(3),
             terms,
             row,
         })
@@ -113,6 +132,18 @@ impl<'a> ResumeKeyView<'a> {
     #[must_use]
     pub fn scope(&self) -> u64 {
         self.scope
+    }
+
+    /// The partition that answered the last row, at least 1.
+    #[must_use]
+    pub fn partition(&self) -> u32 {
+        self.partition
+    }
+
+    /// The last row's ordering value; empty for a family ordered by neighbour.
+    #[must_use]
+    pub fn ordering(&self) -> &'a [u8] {
+        self.ordering
     }
 
     /// The key's term table.

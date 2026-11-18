@@ -3,10 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The compute role's reads over storage's read kernels (`PROTOCOL.md` §11.11, §11.12, §13.12): a ComputeRead routed by its
-//! bound positions, each partition it asks read by Scans at one version, every Entries stream held by an
-//! [`ultragraphdb_protocol_wire::EntriesSequence`] and granted credit as its frames are consumed, the rows merged in key order
-//! into Result batches naming every term by its text. One [`ComputeCore`] per core, whose connections and reads stay on it.
+//! The compute role's reads over storage's read kernels (`PROTOCOL.md` §11.11, §11.12, *Reads*): a read handed to a
+//! [`ReadExecutor`] as a [`ReadRequest`], routed by its bound positions, each partition it asks read by Scans at one version,
+//! every Entries stream held by an [`ultragraphdb_protocol_wire::EntriesSequence`] and granted credit as its frames are consumed,
+//! the rows answered partition by partition (§9.1) into Result batches naming every term by its text, a step of the read one
+//! frame, after which it gives its core back (design D3). One [`ComputeCore`] per core, whose connections and reads stay on it.
 //! [`ComputeCore::value_index`] and [`ComputeCore::reverse_counted`] are the lookups the query core calls.
 //!
 //! Planes (Ultra rule 3): a read's Scans, the Entries frames its links hand on and the Result batches its session pushes
@@ -18,7 +19,7 @@
 //! The client endpoint, which this crate holds beside the read executor.
 //!
 //! Endpoint cores hold no copy of what the system group decides: each asks it through its [`SystemLink`], so an eviction
-//! takes effect for the next commit on any core.
+//! takes effect for the next commit on any core. Each runs its clients' reads in process, on its [`ComputeCore`].
 //!
 //! Planes (Ultra rule 3): a [`ClientSession`]'s requests, the asks of the system group on a commit's path and the
 //! [`RoleLinks`] they relay through carry frames, the data plane; a frame sent is the `Vec` the wire's builders return,
@@ -41,12 +42,14 @@ pub use crate::types::endpoint_core::EndpointCore;
 pub use crate::types::endpoint_limits::EndpointLimits;
 pub use crate::types::endpoint_view::EndpointView;
 pub use crate::types::every_authenticated::EveryAuthenticated;
-pub use crate::types::frontier::Frontier;
 pub use crate::types::gate_scope::GateScope;
 pub use crate::types::hold_outcome::HoldOutcome;
 pub use crate::types::login_limits::LoginLimits;
 pub use crate::types::lookup_at::LookupAt;
 pub use crate::types::one_frame_phases::{ONE_FRAME_PHASES, OneFramePhases};
+pub use crate::types::read_executor::ReadExecutor;
+pub use crate::types::read_pattern::ReadPattern;
+pub use crate::types::read_request::ReadRequest;
 pub use crate::types::read_times::ReadTimes;
 pub use crate::types::recall_answer::RecallAnswer;
 pub use crate::types::recall_decision::RecallDecision;
@@ -68,9 +71,11 @@ pub use crate::utils::term_rules::{check_change, check_operation, check_table};
 #[cfg(feature = "test-utils")]
 pub use crate::utils_test::double_frame::DoubleFrame;
 #[cfg(feature = "test-utils")]
+pub use crate::utils_test::page_bytes::page_held_bytes;
+#[cfg(feature = "test-utils")]
 pub use crate::utils_test::role_double::{
     RoleDouble, batch_frame, committed, empty_batch, last_frame, partition_answer, refusal_of,
-    view_of,
+    scan_answer, view_of,
 };
 #[cfg(feature = "test-utils")]
 pub use crate::utils_test::system_play::SystemPlay;

@@ -23,7 +23,7 @@ use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 /// The version bound of epoch 9, which every frame answers at.
 pub const VERSION: u64 = (9 << 22) | ((1 << 22) - 1);
-const EPOCH: u64 = 9;
+pub const EPOCH: u64 = 9;
 
 /// A key's first bytes naming its keyspace and tenant (`PROTOCOL.md` §13.13).
 const TENANT_PREFIX: usize = 9;
@@ -52,6 +52,8 @@ pub enum Script {
     StrayLate { corrupted: bool },
     /// Sends an Error frame on the stream just below the Scan's, its body failing its checksum, then answers.
     StrayBelow,
+    /// Answers each frame this many milliseconds after the one before, the first as late: a partition slow but not hung.
+    Paced(u64),
 }
 
 /// One Scan the partition was asked, a pin's left out.
@@ -141,6 +143,24 @@ impl PlayedPartition {
             .map_err(|_| TestError::new(format!("no Scan was asked within {ASKED_WAIT:?}")))
     }
 
+    /// The frames a Scan `scan` on `stream` is answered with from the table, its scripts aside: what a role double playing this
+    /// partition sends for it.
+    pub fn frames_for(
+        self: &Rc<Self>,
+        stream: u64,
+        scan: &ScanView<'_>,
+    ) -> Result<Vec<Vec<u8>>, ErrorReply> {
+        let mut connection = self.connection();
+        let ranges = connection.ranges_of(scan)?;
+        connection.answer_scan(stream, &ranges, scan.limit())?;
+        let mut frames = Vec::new();
+        // Each pass takes one frame the answer queued: the ranges asked bound them.
+        while let Ok((_, frame)) = connection.pushed.try_recv() {
+            frames.push(frame);
+        }
+        Ok(frames)
+    }
+
     /// A new connection's session.
     pub fn connection(self: &Rc<Self>) -> PartitionConnection {
         self.connections
@@ -150,6 +170,7 @@ impl PlayedPartition {
             played: Rc::clone(self),
             pushes,
             pushed,
+            pacing: Cell::new(None),
         }
     }
 
@@ -272,12 +293,25 @@ pub struct PartitionConnection {
     played: Rc<PlayedPartition>,
     pushes: UnboundedSender<(u64, Vec<u8>)>,
     pushed: UnboundedReceiver<(u64, Vec<u8>)>,
+    /// While a paced Scan is answered: the gap between its frames and how many it queued so far.
+    pacing: Cell<Option<(u64, u64)>>,
 }
 
 impl PartitionConnection {
     fn push(&self, stream: u64, frame: Vec<u8>) {
-        // The session holds the receiver as long as the sender.
-        drop(self.pushes.unbounded_send((stream, frame)));
+        let Some((gap, queued)) = self.pacing.get() else {
+            // The session holds the receiver as long as the sender.
+            return drop(self.pushes.unbounded_send((stream, frame)));
+        };
+        let queued = queued + 1;
+        self.pacing.set(Some((gap, queued)));
+        let pushes = self.pushes.clone();
+        compio::runtime::spawn(async move {
+            compio::time::sleep(Duration::from_millis(gap * queued)).await;
+            // A connection gone has no one to answer.
+            drop(pushes.unbounded_send((stream, frame)));
+        })
+        .detach();
     }
 
     /// The ranges of `scan`, refused as a partition refuses them before any frame.
@@ -395,6 +429,12 @@ impl PartitionConnection {
             Some(Script::StrayBelow) => {
                 self.push(stream, stray(stream.saturating_sub(1), true)?);
                 self.answer_scan(stream, &ranges, scan.limit())
+            }
+            Some(Script::Paced(gap)) => {
+                self.pacing.set(Some((gap, 0)));
+                let answered = self.answer_scan(stream, &ranges, scan.limit());
+                self.pacing.set(None);
+                answered
             }
             Some(Script::BreakOrder) => {
                 let past_last = u32::try_from(ranges.len()).unwrap_or(u32::MAX);

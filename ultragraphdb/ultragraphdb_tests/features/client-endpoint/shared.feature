@@ -10,4 +10,4 @@ Feature: Routing and reads held back through the three binaries
 
   Scenario: A first read holds a later read only until its first frame
     When a transaction's first read takes six frames at `initial_credit` 4, and after its first batch the client sends a second read and waits on it
-    Then the frontend sends the second read to compute on the first read's first frame, and the client receives its rows with the first read still open
+    Then compute starts the second read on the first read's first frame, and the client receives its rows with the first read still open

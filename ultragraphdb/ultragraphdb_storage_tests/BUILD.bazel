@@ -6,74 +6,100 @@
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("//bazel:test_ports.bzl", "port_env")
 
 # The binaries as processes: each is copied into the sandbox, and the test starts it. No container is involved, so Bazel
-# caches the result. The ports are declared and fixed, so `exclusive` keeps any other test from running beside this one; it
-# stays sandboxed. `bdd` runs every feature but those tagged `@system` and `@drops`; `drops_bdd` runs the `@drops` features
-# alone, the Drops a client sends through the frontend, by `BDD_FEATURES`.
-[
-    rust_test(
-        name = name,
-        srcs = [
-            "tests/bdd.rs",
-            "tests/drop_steps.rs",
-            "tests/lost_group_steps.rs",
-            "tests/one_frame_steps.rs",
-            "tests/parked_steps.rs",
-            "tests/played_frontend.rs",
-            "tests/played_home.rs",
-            "tests/read_kernel_steps.rs",
-            "tests/retention_steps.rs",
-            "tests/scan_ranges_steps.rs",
-        ],
-        crate_root = "tests/bdd.rs",
-        data = glob(["features/**/*.feature"]) + [
-            ":copy_config",
-            ":copy_frontend",
-            ":copy_storage",
-        ],
-        env = env,
-        tags = [
-            "exclusive",
-            "integration_test",
-        ],
-        use_libtest_harness = False,
-        deps = all_crate_deps(normal_dev = True),
-    )
-    for name, env in [
-        ("bdd", {}),
-        ("drops_bdd", {"BDD_FEATURES": "drops"}),
-    ]
+# caches the result. Every target listens in a block of ports of its own, from the base `port_env` sets, so the targets run
+# side by side; each stays sandboxed.
+#
+# `bdd.rs` runs every feature in its runfiles but those tagged `@system` and `@drops`, so each feature file without those tags
+# is a target of its own, its runfiles holding it alone. `drops_bdd` runs the `@drops` features, the Drops a client sends
+# through the frontend, by `BDD_FEATURES`. `system_bdd.rs` runs the features tagged `@system`, the storage binary hosting the
+# system group, one target per second tag. The tagged features are those under `features/system/` and
+# `features/schema-changes/drops.feature`; a feature tagged elsewhere is left out of its file's target by its tag.
+BDD_SRCS = [
+    "tests/bdd.rs",
+    "tests/drop_steps.rs",
+    "tests/lost_group_steps.rs",
+    "tests/one_frame_steps.rs",
+    "tests/parked_steps.rs",
+    "tests/played_frontend.rs",
+    "tests/played_home.rs",
+    "tests/read_kernel_steps.rs",
+    "tests/retention_steps.rs",
+    "tests/scan_ranges_steps.rs",
 ]
 
-# The storage binary hosting the system group: the features tagged `@system`, in three targets by their second tag, so each
-# stays within its time.
-[
-    rust_test(
-        name = name,
-        srcs = [
-            "tests/system_bdd.rs",
-            "tests/system_books_steps.rs",
+BDD_DATA = [
+    ":copy_config",
+    ":copy_frontend",
+    ":copy_storage",
+]
+
+SYSTEM_SRCS = [
+    "tests/system_bdd.rs",
+    "tests/system_books_steps.rs",
+]
+
+# No frontend runs in the system group's scenarios.
+SYSTEM_DATA = [
+    ":copy_config",
+    ":copy_storage",
+]
+
+ALL_FEATURES = glob(["features/**/*.feature"])
+
+# Each target: its name, its crate root, its sources, its runfiles and its variables beside the port base.
+TARGETS = [
+    (
+        "bdd_" + feature.removeprefix("features/").removesuffix(".feature").replace("/", "_").replace("-", "_"),
+        "tests/bdd.rs",
+        BDD_SRCS,
+        [feature] + BDD_DATA,
+        {},
+    )
+    for feature in glob(
+        ["features/**/*.feature"],
+        exclude = [
+            "features/system/**",
+            "features/schema-changes/drops.feature",
         ],
-        crate_root = "tests/system_bdd.rs",
-        # No frontend runs in these scenarios.
-        data = glob(["features/**/*.feature"]) + [
-            ":copy_config",
-            ":copy_storage",
-        ],
-        env = {"SYSTEM_FEATURES": features},
-        tags = [
-            "exclusive",
-            "integration_test",
-        ],
-        use_libtest_harness = False,
-        deps = all_crate_deps(normal_dev = True),
+    )
+] + [
+    (
+        "drops_bdd",
+        "tests/bdd.rs",
+        BDD_SRCS,
+        ALL_FEATURES + BDD_DATA,
+        {"BDD_FEATURES": "drops"},
+    ),
+] + [
+    (
+        name,
+        "tests/system_bdd.rs",
+        SYSTEM_SRCS,
+        ALL_FEATURES + SYSTEM_DATA,
+        {"SYSTEM_FEATURES": features},
     )
     for name, features in [
         ("system_bdd", "hosting"),
         ("system_partitions_bdd", "partitions"),
         ("system_books_bdd", "books"),
     ]
+]
+
+[
+    rust_test(
+        name = name,
+        srcs = srcs,
+        crate_root = crate_root,
+        data = data,
+        env = port_env(index, env),
+        tags = ["integration_test", "storage-integration-test"],
+        use_libtest_harness = False,
+        deps = all_crate_deps(normal_dev = True),
+    )
+    for index, (name, crate_root, srcs, data, env) in enumerate(TARGETS)
 ]
 
 # Copy the config binary into the sandbox.

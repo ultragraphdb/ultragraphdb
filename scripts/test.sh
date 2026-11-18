@@ -55,8 +55,24 @@ echo "=============="
 echo "Run integration tests"
 echo "=============="
 
-# Each target is `exclusive`, since the binaries listen at declared ports.
-command bazel test //... --test_tag_filters=integration_test
+# One group per binary under test, the groups in sequence and each group's targets side by side, so the machine runs one
+# binary's processes at a time. Each target listens in a block of ports of its own (`bazel/test_ports.bzl`); the image
+# tests, which run Docker containers, are `exclusive`.
+INTEGRATION_GROUPS=(config storage compute frontend supervisor cluster)
+
+# Every integration target belongs to one group, or the sequence below would skip it without a word.
+UNGROUPED=$(command bazel query 'attr(tags, "integration_test", tests(//...)) except attr(tags, "-integration-test", tests(//...))' 2>/dev/null)
+if [ -n "$UNGROUPED" ]; then
+  echo "Integration targets without a group tag (<group>-integration-test):"
+  echo "$UNGROUPED"
+  exit 1
+fi
+
+for group in "${INTEGRATION_GROUPS[@]}"; do
+  echo ""
+  echo "Integration tests: $group"
+  command bazel test //... --test_tag_filters="$group-integration-test"
+done
 
 echo ""
 echo "====================="

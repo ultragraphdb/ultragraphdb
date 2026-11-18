@@ -74,6 +74,14 @@ order of the partitions' entries concatenated; `notes/corner-cases.md`, *Settled
 | L5.13 | State machine against a model | a pattern with each position bound or unbound; a placement map over 1 to 4 partitions; a level; a token's epoch; the partitions' latest closed epochs | the partitions asked are those P §11.12's table names for the bound positions, and no other; a monotonic-fast read answers at the lowest closed epoch among them and never below its floor; a transaction's answered epochs never fall; a latest-state read reaching a second partition is refused with code 25 | P §11.12, *Reads*; client-endpoint, "Requests are routed to the partitions that serve them"; quad-reads, "A read's transaction names its level" |
 | L5.14 | Model equivalence | the read of L5.1 with a drawn `initial_credit` and Credits, run once through the session's seam in process and once as a ComputeRead through `ComputeSession`, over the same played partitions | both give the same Result frames, byte for byte, in the same order | D 2 ("one executor serves the endpoint in process and … the compute binary's role session"); T 5.4, T 5.6 |
 
+How L5.7 and L5.8 read "in the turn" (decided 2026-11-18, `notes/group-5-design.md`, question 4). L5.7: a read builds its
+next Result frame only once the frame before has left and the stream holds credit, so no frame waits on credit in the
+connection's outbound queue; a Credit wakes the read in the turn it is read, and the frame it allows leaves in the read's
+next step. L5.8: from the turn the Cancel is read no Result frame of the stream reaches the client, and the read takes no
+further step; its Scans' Cancels are queued when the core drops the read's task at the task's next slot of the core's
+pass, before any other step of that read. L5.9 is stated over the core's scheduler, from the moment a commit's task is
+ready; task 8.3 measures the wait from the commit's bytes arriving (question 3).
+
 L5.14 holds while both callers exist. Task 6.4 removes `ComputeSession`'s role session and this test with it, after the
 user's approval; `notes/group-6.md` records the removal.
 

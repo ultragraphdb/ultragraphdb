@@ -40,11 +40,6 @@ pub enum SessionEvent {
         /// The refusal, if any.
         outcome: Result<(), ErrorReply>,
     },
-    /// Members was read again for the read of `read`, which found no compute process left.
-    MembersRead {
-        /// The read's stream.
-        read: u64,
-    },
     /// The second Check of kind 1 of the retried Commit of `stream`, every partition having answered 18 (`PROTOCOL.md` §11.5).
     SecondCheck {
         /// The client's stream.

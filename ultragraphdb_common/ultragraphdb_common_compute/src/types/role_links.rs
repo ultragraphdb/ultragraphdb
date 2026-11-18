@@ -24,8 +24,6 @@ struct Held {
     /// The link to each role address dialled, one for each process that joined.
     open: HashMap<String, RoleLink>,
     partitions: BTreeMap<u32, String>,
-    computes: Vec<String>,
-    compute_turn: usize,
     partition_turn: usize,
     map: Option<PlacementMap>,
     /// Whether a link was found closed since Members was last read for it, and the waker of the task reading it.
@@ -33,7 +31,7 @@ struct Held {
     reader: Option<Waker>,
 }
 
-/// What one endpoint core knows of the other roles: who joined, a connection to each, shared by its client and role sessions on
+/// What one endpoint core knows of the storage processes: which partitions each holds, a connection to each, shared by its client and role sessions on
 /// that one thread, so no borrow crosses a wait. The placement map is a stale-tolerant copy: a partition's refusal corrects it.
 #[derive(Debug, Clone)]
 pub struct RoleLinks {
@@ -79,14 +77,12 @@ impl RoleLinks {
         self.held.borrow_mut().map = Some(map);
     }
 
-    /// `join` was registered.
+    /// `join` was registered: the partitions a storage process holds. A compute node's Join names no partition, and the
+    /// endpoint reaches no compute node.
     pub fn joined(&self, join: &Join) {
         let mut held = self.held.borrow_mut();
         let address = join.address().to_string();
-        if join.kind() == RoleKind::Compute {
-            if !held.computes.contains(&address) {
-                held.computes.push(address);
-            }
+        if join.kind() != RoleKind::Storage {
             return;
         }
         held.partitions.retain(|_, holder| *holder != address);
@@ -137,33 +133,6 @@ impl RoleLinks {
     pub fn partition(&self, partition: u32) -> Option<RoleLink> {
         let address = self.held.borrow().partitions.get(&partition).cloned()?;
         self.link(&address)
-    }
-
-    /// The next compute process, round-robin over those joined, leaving out `tried`: its address and link.
-    #[must_use]
-    pub fn next_compute(&self, tried: &[String]) -> Option<(String, RoleLink)> {
-        let address = {
-            let mut held = self.held.borrow_mut();
-            let count = held.computes.len();
-            let start = held.compute_turn;
-            let found = (0..count)
-                .map(|offset| (start + offset) % count.max(1))
-                .find(|at| {
-                    held.computes
-                        .get(*at)
-                        .is_some_and(|address| !tried.contains(address))
-                })?;
-            held.compute_turn = (found + 1) % count;
-            held.computes.get(found).cloned()?
-        };
-        let link = self.link(&address)?;
-        Some((address, link))
-    }
-
-    /// The compute processes joined.
-    #[must_use]
-    pub fn compute_count(&self) -> usize {
-        self.held.borrow().computes.len()
     }
 
     /// Every partition joined, ascending.
@@ -226,12 +195,10 @@ impl RoleLinks {
         owners.get(at).copied()
     }
 
-    /// What Members lists: the partitions each storage process holds and every compute process, in place of what was held
-    /// (design D9).
+    /// What Members lists: the partitions each storage process holds, in place of what was held (design D9).
     pub fn learned(&self, members: &MembersView<'_>) {
         let mut held = self.held.borrow_mut();
         held.partitions.clear();
-        let mut computes = Vec::new();
         for at in 0..members.len() {
             let (Some(member), Some(address)) = (members.member(at), members.address(at)) else {
                 continue;
@@ -242,12 +209,10 @@ impl RoleLinks {
                         .partitions
                         .insert(member.partition(), address.to_string());
                 }
-                RoleKind::Compute => computes.push(address.to_string()),
-                // Members lists no frontend.
-                RoleKind::Frontend => {}
+                // The endpoint reaches no compute process, and Members lists no frontend.
+                RoleKind::Compute | RoleKind::Frontend => {}
             }
         }
-        held.computes = computes;
     }
 
     /// Whether a role address holding `partition` is known.

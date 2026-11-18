@@ -445,6 +445,10 @@ impl Subscriber for Warnings {
 #[test]
 fn test_a_refused_close_request_is_answered_by_nothing() -> TestResult {
     let warnings = Warnings::default();
+    // With one dispatcher alive, tracing-core registers a callsite first reached on another thread by that thread's own
+    // default, none, and caches `never`: a sibling test reaching the refusal first hid this test's warning. A second one held
+    // here has every registration ask both.
+    let _second = tracing::Dispatch::new(Warnings::default());
     tracing::subscriber::with_default(warnings.clone(), || {
         bounded(async {
             let address = serving(&free_tcp()?, Endpoint::Frontend).await?;

@@ -16,9 +16,10 @@ use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Endpoint};
 use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::{
-    Bind, BindKind, BindView, BodyBuilder, BodyView, Command, Commit, CommitView,
-    ConditionalWriteView, DirectWriteView, DropCommandView, ErrorCode, ErrorReply, ErrorReplyView,
-    FLAG_LAST, FrameView, Header, Held, Join, MAX_FRAME_SIZE, Monotonic, ResultBatch,
+    Bind, BindKind, BindView, BodyBuilder, BodyView, Closed, ClosedPartition, ClosedView, Command,
+    Commit, CommitView, ConditionalWriteView, DirectWriteView, DropCommandView, Entries,
+    EntriesEnd, ErrorCode, ErrorReply, ErrorReplyView, FLAG_LAST, FrameView, Header, Held, Join,
+    MAX_FRAME_SIZE, Monotonic, ResultBatch, ScanView,
 };
 
 use crate::utils_test::double_frame::DoubleFrame;
@@ -228,7 +229,8 @@ pub fn view_of(
 }
 
 /// What a partition answers when nothing goes wrong: a Bind reading at `version`, a Write and an Operation held, a Commit, a one-frame
-/// write and a Drop committed at `version`, and a Recall refused as not committed.
+/// write and a Drop committed at `version`, a Recall refused as not committed, a Scan as by a partition holding nothing, and a
+/// Closed naming `version`'s epoch closed.
 #[must_use]
 pub fn partition_answer(frame: &DoubleFrame, cluster: u64, version: u64) -> Answer {
     let Ok(view) = view_of(frame.bytes(), cluster) else {
@@ -284,7 +286,50 @@ pub fn partition_answer(frame: &DoubleFrame, cluster: u64, version: u64) -> Answ
     if command == Command::Recall {
         return Answer::Refuse(ErrorReply::new(ErrorCode::NotCommitted, "not held").with_detail(0));
     }
+    if command == Command::Scan {
+        return scan_answer(frame, cluster, version);
+    }
+    if command == Command::Closed {
+        let Ok(asked) = ClosedView::from_frame(&view) else {
+            return Answer::Done;
+        };
+        let partition = asked.partition(0).map_or(1, |held| held.partition());
+        let epoch = Version::from_u64(version).epoch().get();
+        let reply = Closed::new(vec![ClosedPartition::new(partition, epoch)]);
+        return built(last_frame(cluster, stream, &reply));
+    }
     Answer::Done
+}
+
+/// A Scan answered as by a partition holding nothing: each range ended with no entry, at `version` and its epoch, the last
+/// range's frame flagged last.
+#[must_use]
+pub fn scan_answer(frame: &DoubleFrame, cluster: u64, version: u64) -> Answer {
+    let Ok(view) = view_of(frame.bytes(), cluster) else {
+        return Answer::Done;
+    };
+    let Ok(scan) = ScanView::from_frame(&view) else {
+        return Answer::Done;
+    };
+    let epoch = Version::from_u64(version).epoch().get();
+    let count = scan.ranges().count();
+    let stream = frame.stream();
+    let mut frames = (0..count).filter_map(|at| {
+        let range = u32::try_from(at).ok()?;
+        let entries = Entries::new(range, EntriesEnd::Ended, epoch).with_version(version);
+        let header = Header::new(cluster, Command::Entries).with_stream(stream);
+        let header = if at + 1 == count {
+            header.with_flags(FLAG_LAST)
+        } else {
+            header
+        };
+        entries.frame(header).ok()
+    });
+    let Some(first) = frames.next() else {
+        return Answer::Done;
+    };
+    frames.for_each(|more| frame.answer_with(more));
+    Answer::Reply(first)
 }
 
 /// A Commit reply at `version`, through a session its token, of the version's epoch (`PROTOCOL.md` §6.3).

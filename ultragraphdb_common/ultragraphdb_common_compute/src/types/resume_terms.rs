@@ -8,6 +8,8 @@ use ultragraphdb_protocol_wire::{RequestTerm, RequestTermView, ResumeKeyView};
 /// A resume key's last row by its terms' text, as the key holds them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ResumeTerms {
+    /// The partition that answered the row.
+    pub(crate) partition: u32,
     pub(crate) graph: Option<String>,
     pub(crate) subject: String,
     pub(crate) predicate: String,
@@ -42,6 +44,7 @@ impl ResumeTerms {
             None => None,
         };
         Some(Self {
+            partition: key.partition(),
             graph,
             subject: iri_at(key, row.subject())?,
             predicate: iri_at(key, row.predicate())?,

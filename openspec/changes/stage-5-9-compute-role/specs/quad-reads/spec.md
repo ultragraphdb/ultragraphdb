@@ -39,6 +39,84 @@ connection carried with code 17, send no Scan again for such a read, and dial ag
 
 ## MODIFIED Requirements
 
+### Requirement: Compute executes quad-pattern reads over storage
+A read SHALL be a quad pattern with each position bound or unbound, a limit and a resume key, executed by compute, which
+asks the partitions holding the pattern's entries for their rows through storage's read kernels and returns the rows
+partition by partition, in ascending order of the partitions the read asks as the placement map in effect at its epoch
+names them, and within a partition in its own order; no order SHALL hold by term or by key (`PROTOCOL.md` section 9.1).
+A pattern whose bound subject is a reifier's skolem IRI SHALL read the statement's record in the
+statements keyspace of the partition its bucket names, one row per property matching the pattern, with `ABSENT` in the
+reifier column. A pattern with any other bound subject SHALL ask that subject's partition alone; a pattern with an
+unbound subject and a bound IRI or blank-node object SHALL be a reverse read ("A reverse read asks the object's
+referrers"); a pattern with an unbound subject and a bound vector object SHALL ask every partition holding a bucket of
+the tenant's run for the forward lists of the predicate, or of every predicate when it is unbound, compute keeping the
+objects equal to the vector's encoding, since no reverse key names a vector; any other pattern, a bound literal object
+included, SHALL ask every partition holding a bucket of the tenant's run, batched per role address, and answer them one after
+another, since a literal has no home and no referrer set. A
+value-index lookup and a lookup by reverse count SHALL be compute's own reads for the query core, called through
+compute's API and reaching the same partitions; no client request names them in this stage. A read of a read-write
+transaction SHALL reach only its partition (partitions, "A read-write transaction stays within one partition in this
+stage"). Compute SHALL resolve a bound term in the partition whose lists it reads, an absent entry there meaning that
+partition holds no statement of the term and answers no row; only where one ID must key several partitions, a reverse
+read's object and a resume key's terms, SHALL it read the term's home. A term and a list keyed by its ID SHALL take two
+Scans, the term's first. A read SHALL read one version of a partition: its first Scan there chooses it, and each later
+Scan of that partition SHALL set `at` 1, `read_version` that Scan's Entries' `version` and `epoch` 0. Compute SHALL send
+a read's list Scans only once each partition it asks has closed the read's epoch, which a dictionary Scan at that epoch
+shows, a read with no term to resolve there asking any one-key dictionary range for it, so a list Scan never parks on
+another partition's close.
+
+#### Scenario: A bound subject asks one partition
+- **WHEN** a read binds its subject to `http://ex.org/a` over two partitions
+- **THEN** compute asks only the partition of `http://ex.org/a`'s bucket, and returns its rows
+
+#### Scenario: A bound literal object fans out
+- **WHEN** `<a>` in partition 1 and `<c>` in partition 2 each hold `name` `"Ann"`, and a read binds its object to
+  `"Ann"` and its predicate to `name`
+- **THEN** compute asks every partition of the tenant's run, reads no referrer set, and returns `<a>`, partition 1's
+  row, before `<c>`, partition 2's
+
+#### Scenario: A value-index lookup asks every partition
+- **WHEN** partitions 1, 2 and 3 each hold a subject whose `name` the `term` index lists under `ann`, and compute's API
+  looks up `ann`
+- **THEN** compute asks the three partitions, and the API returns the three subjects merged in key order
+
+#### Scenario: An unbound subject answers partition by partition
+- **WHEN** a read leaves its subject and object unbound over two partitions that each hold matching rows
+- **THEN** compute returns every row of partition 1 and then every row of partition 2
+
+#### Scenario: A vector object reads the forward lists
+- **WHEN** `<a>` in partition 1 and `<c>` in partition 2 each hold `embedding` `v`, `<d>` holds another vector, and a
+  read binds its object to `v` and its predicate to `embedding`
+- **THEN** compute asks every partition of the tenant's run for the forward lists of `embedding`, and returns `<a>` and
+  `<c>` alone
+
+#### Scenario: A reifier's skolem IRI reads its statement's properties
+- **WHEN** `<a> <knows> <b>` carries `<since> 2020` under the reifier `r`, and a read binds its subject to `r`
+- **THEN** compute reads the statement's record in the statements keyspace of the partition `r`'s bucket names, and
+  returns one row for `<since>` and `2020` with `ABSENT` in the reifier column
+
+#### Scenario: A term absent where its list lies answers no row
+- **WHEN** a read-only transaction's read of `<a> <p> ?o` runs, `<a>` homed in partition 1, `<p>` homed in partition 2,
+  and partition 1's dictionary holds no entry of `<p>`
+- **THEN** the dictionary Scan of partition 1 answers no entry, compute sends no list Scan and nothing to partition 2,
+  and the read answers one batch flagged `LAST` with no row
+
+#### Scenario: A term and its list take two Scans
+- **WHEN** a read of `<a> <knows> ?o` runs against a partition holding both terms
+- **THEN** compute's first Scan holds the terms' dictionary ranges, and its Scan of the list, keyed by their IDs, comes
+  after that Scan's answer
+
+#### Scenario: A read reads one version of a partition
+- **WHEN** a read-only transaction at latest level takes three Scans of its partition, and a commit lands between the
+  first and the second
+- **THEN** the second and third Scans set `at` 1 and `read_version` the first Entries' `version`, and the read returns
+  none of the commit
+
+#### Scenario: A list Scan waits for every partition's close
+- **WHEN** a snapshot read asks partitions 1 and 2, partition 1 has closed the read's epoch and partition 2 has not
+- **THEN** compute sends each a dictionary Scan at that epoch and no list Scan until both have answered, so no list Scan
+  of partition 1 is refused as stalled while partition 2 waits
+
 ### Requirement: Compute runs each read on one core
 Compute SHALL run one runtime per core, each accepting clients and holding its own connections to the system group and
 the partitions, and SHALL run a read wholly on the core its client's connection arrived on, sharing no mutable state
@@ -427,7 +505,9 @@ SHALL start the read's stream with the `initial_credit` of its Welcome to that c
 the client sends on a read's stream SHALL act on the read in the turn compute reads it. A row whose terms do not fit an
 otherwise empty batch SHALL be refused with code 6 (TooLarge), `detail` `max_frame`. A resume key that does not fit
 beside its rows SHALL go alone in a last batch of `rows` 0, which spends credit as any batch does; a key too large for
-that batch, or for a Read within the Welcome's `max_frame`, SHALL refuse the read with code 6.
+that batch, or for a Read within the Welcome's `max_frame`, SHALL refuse the read with code 6. Compute SHALL read an
+Execute as the Read of its statement's pattern with its parameters bound (`PROTOCOL.md` section 11.8), and SHALL refuse
+with code 6, `detail` 1,048,576, an Execute whose Read does not fit a frame of 1,048,576 bytes; no partition sees it.
 
 #### Scenario: A batch stops at the client's frame
 - **WHEN** a client whose Hello names `max_frame` 524,288 reads more rows than one such frame holds
@@ -449,3 +529,8 @@ that batch, or for a Read within the Welcome's `max_frame`, SHALL refuse the rea
 #### Scenario: A Cancel stops a read in the turn it is read
 - **WHEN** a client cancels a read whose Scans are open at two partitions
 - **THEN** compute cancels both Scans in the turn it reads the Cancel, and no further Result frame is sent
+
+#### Scenario: An Execute whose bound pattern passes a frame is refused
+- **WHEN** an Execute's parameters, bound into its statement's pattern, make the Read it is read as larger than a frame
+  of 1,048,576 bytes
+- **THEN** compute refuses it with code 6, `detail` 1,048,576, and no partition receives a Scan of it

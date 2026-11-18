@@ -14,10 +14,21 @@ use ultragraphdb_tests::{
     COMPUTE_BINARY, SECRET, STORAGE_BINARY, answering, compute_on_one_host, holding, not_hosting,
     role, scratch, storage_holding, with,
 };
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_tool_bdd::{TestResult, port};
 
 use crate::played_frontend::{EpochClock, Played, play};
 use crate::tap::{TapLog, tap};
+
+/// The offset above the target's port base of the first cluster's base, and how many ports each cluster takes from its base:
+/// the played frontends at the base and one above, the partitions from 10, the taps from 30, and from 18 to 22 the
+/// observability of the cores the steps build, compute's role address, compute's observability and storage's.
+const FIRST_CLUSTER: u16 = 20;
+const CLUSTER_PORTS: u16 = 34;
+
+/// The base of the cluster `at`, the first 0, each a block of [`CLUSTER_PORTS`] above the one before.
+pub fn cluster_base(at: u16) -> TestResult<u32> {
+    Ok(u32::from(port(FIRST_CLUSTER + at * CLUSTER_PORTS)?))
+}
 
 /// What a scenario reads of a cluster.
 #[derive(Debug)]
@@ -36,7 +47,7 @@ impl ClusterInfo {
 
     /// Where compute listens.
     pub fn compute_address(&self) -> String {
-        format!("tcp://127.0.0.1:{}", self.base + 50)
+        format!("tcp://127.0.0.1:{}", self.base + 20)
     }
 }
 
@@ -101,7 +112,7 @@ fn start_storage(
     let settings = [
         (
             "observability.address",
-            format!("tcp://127.0.0.1:{}", base + 52),
+            format!("tcp://127.0.0.1:{}", base + 22),
         ),
         ("cluster.system_address", format!("tcp://127.0.0.1:{base}")),
         (
@@ -118,20 +129,20 @@ fn start_storage(
     for (name, value) in extra {
         held = with(held, name, value);
     }
-    let wait = answering(&format!("127.0.0.1:{}", base + 52), "/ready");
+    let wait = answering(&format!("127.0.0.1:{}", base + 22), "/ready");
     Ok(util.start_service_from_config(role(
         STORAGE_BINARY,
         &held,
         &scratch(&format!("storage-{base}.log")),
         wait,
-    ))?)
+    )?)?)
 }
 
 pub fn start_compute(util: &ServiceUtil, base: u32, extra: &[(&str, &str)]) -> TestResult<u32> {
     let settings = [
         (
             "observability.address",
-            format!("tcp://127.0.0.1:{}", base + 51),
+            format!("tcp://127.0.0.1:{}", base + 21),
         ),
         (
             "cluster.system_address",
@@ -139,23 +150,23 @@ pub fn start_compute(util: &ServiceUtil, base: u32, extra: &[(&str, &str)]) -> T
         ),
         (
             "compute.role_address",
-            format!("tcp://127.0.0.1:{}", base + 50),
+            format!("tcp://127.0.0.1:{}", base + 20),
         ),
     ];
-    let mut held = holding(compute_on_one_host(), SECRET)?;
+    let mut held = holding(compute_on_one_host()?, SECRET)?;
     for (name, value) in &settings {
         held = with(held, name, value);
     }
     for (name, value) in extra {
         held = with(held, name, value);
     }
-    let wait = answering(&format!("127.0.0.1:{}", base + 51), "/ready");
+    let wait = answering(&format!("127.0.0.1:{}", base + 21), "/ready");
     Ok(util.start_service_from_config(role(
         COMPUTE_BINARY,
         &held,
         &scratch(&format!("compute-{base}.log")),
         wait,
-    ))?)
+    )?)?)
 }
 
 /// A tenant no earlier scenario wrote.

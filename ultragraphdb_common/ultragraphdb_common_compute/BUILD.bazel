@@ -57,7 +57,11 @@ rust_test(
 # run is a function of its sources and Bazel may cache it.
 rust_test(
     name = "property",
-    srcs = glob(["tests/property/**/*.rs"]),
+    # The played cluster under `tests/apart/`, which the executor's laws read through, included by path.
+    srcs = glob([
+        "tests/apart/**/*.rs",
+        "tests/property/**/*.rs",
+    ]),
     crate_root = "tests/property/mod.rs",
     env = {
         "HEGEL_DATABASE": "disabled",
@@ -71,13 +75,14 @@ rust_test(
 )
 
 # The scenarios' sources, which every BDD target below compiles.
-BDD_SRCS = [
+BDD_SRCS = glob(["tests/apart/**/*.rs"]) + [
     "tests/bdd.rs",
     "tests/declaring_steps.rs",
     "tests/endpoint_stage.rs",
     "tests/endpoint_steps.rs",
     "tests/endpoint_steps_requests.rs",
     "tests/endpoint_steps_sessions.rs",
+    "tests/executor_steps.rs",
     "tests/link_steps.rs",
     "tests/on_way_steps.rs",
     "tests/operation_steps.rs",
@@ -95,7 +100,6 @@ BDD_FEATURES = {
         "schema-changes/drops.feature",
     ],
     "bdd_catalog_cap": ["metadata-group/catalog_cap.feature"],
-    "bdd_compute": ["client-endpoint/compute.feature"],
     "bdd_endpoint": [
         "client-endpoint/connections.feature",
         "client-endpoint/errors.feature",
@@ -106,6 +110,7 @@ BDD_FEATURES = {
         "client-endpoint/empty_commit.feature",
         "client-endpoint/held.feature",
     ],
+    "bdd_executor": ["quad-reads/executor.feature"],
     "bdd_quad_reads": [
         "quad-reads/order.feature",
         "term-dictionary/in_turn.feature",

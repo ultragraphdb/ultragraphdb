@@ -19,28 +19,28 @@ use ultragraphdb_protocol_transport::{Address, Scheme};
 use ultragraphdb_protocol_wire::{BodyView, DEFAULT_TRANSACTION_MS, Placement, PlacementView};
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
-    CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS,
-    CONFIG_ADDRESS, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, SECRET, START_SECONDS, STORAGE_BINARY,
-    STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, SYSTEM_ROLE_ADDRESS, answering, bootstrap,
-    compute_on_one_host, fresh_data, frontend_holding, holding, not_hosting, process, scratch,
-    start_config_service_at, storage_holding, until_answering, with,
+    CLUSTER, COMPUTE_BINARY, FRONTEND_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering,
+    bootstrap, client_address, compute_observability, compute_on_one_host, compute_role_address,
+    config_address, fresh_data, frontend_holding, frontend_observability, holding, not_hosting,
+    process, scratch, start_config_service_at, storage_holding, storage_observability,
+    storage_role_address, system_role_address, until_answering, with,
 };
-use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+use ultragraphdb_tool_bdd::{Context, PORT_BLOCK, TestError, TestResult};
 use ultragraphdb_transport_tls::TestPki;
 
 use crate::shells::{ClientAt, PASSWORD, TestClient};
 
+/// How many ports each cluster takes above its shift: the declared ones lie within the first 20 of the target's block.
+const SPEC_PORTS: u16 = 20;
+
 /// How far the shared cluster's ports lie above the declared ones, so a scenario's own cluster runs beside it.
-const SHARED_SHIFT: u16 = 100;
+const SHARED_SHIFT: u16 = SPEC_PORTS;
 
 /// How far the shared cluster of several partitions lies above the declared ports.
-const SPREAD_SHIFT: u16 = 200;
+const SPREAD_SHIFT: u16 = 2 * SPEC_PORTS;
 
-/// How far the first cluster of a spec of its own lies above the declared ports.
-const SPECS_SHIFT: u16 = 300;
-
-/// How many ports each such cluster takes.
-const SPEC_PORTS: u16 = 20;
+/// How far the first cluster of a spec of its own lies above the declared ports; the target's block holds the rest.
+const SPECS_SHIFT: u16 = 3 * SPEC_PORTS;
 
 /// The partitions of the shared cluster that spreads its tenant.
 pub(crate) const SPREAD_PARTITIONS: u32 = 3;
@@ -89,8 +89,6 @@ pub(crate) struct Spec {
     pub(crate) partitions: u32,
     /// Whether two storage processes share the partitions, the second holding them from partition 2.
     pub(crate) two_storages: bool,
-    /// Whether two compute processes join.
-    pub(crate) two_computes: bool,
     pub(crate) frontend: Vec<(&'static str, String)>,
     pub(crate) storage: Vec<(&'static str, String)>,
     /// The settings of the storage process hosting the system group beyond every storage process's: its `[metadata]` and
@@ -106,7 +104,6 @@ impl Spec {
         Self {
             partitions: 1,
             two_storages: false,
-            two_computes: false,
             frontend: Vec::new(),
             storage: Vec::new(),
             host: Vec::new(),
@@ -137,12 +134,6 @@ impl Spec {
     /// With the hosting storage process's setting `name` holding `value`: a setting of the system group's.
     pub(crate) fn host(mut self, name: &'static str, value: u64) -> Self {
         self.host.push((name, value.to_string()));
-        self
-    }
-
-    /// With a second compute process.
-    pub(crate) fn second_compute(mut self) -> Self {
-        self.two_computes = true;
         self
     }
 
@@ -186,20 +177,20 @@ impl Layout {
     /// `carrier` at sockets named with `tag`.
     fn new(carrier: Carriers, shift: u16, tag: &str) -> TestResult<Self> {
         let observability = [
-            shifted(FRONTEND_OBSERVABILITY, shift)?,
-            shifted(STORAGE_OBSERVABILITY, shift)?,
-            shifted(COMPUTE_OBSERVABILITY, shift)?,
+            shifted(&frontend_observability()?, shift)?,
+            shifted(&storage_observability()?, shift)?,
+            shifted(&compute_observability()?, shift)?,
         ];
         let socket =
             |name: &str| format!("unix:///tmp/ugdb-{tag}{name}-{}.sock", std::process::id());
         let (roles, client) = match carrier {
             Carriers::Tcp | Carriers::Tls => (
                 [
-                    format!("tcp://{}", shifted(SYSTEM_ROLE_ADDRESS, shift)?),
-                    format!("tcp://{}", shifted(STORAGE_ROLE_ADDRESS, shift)?),
-                    format!("tcp://{}", shifted(COMPUTE_ROLE_ADDRESS, shift)?),
+                    format!("tcp://{}", shifted(&system_role_address()?, shift)?),
+                    format!("tcp://{}", shifted(&storage_role_address()?, shift)?),
+                    format!("tcp://{}", shifted(&compute_role_address()?, shift)?),
                 ],
-                format!("tcp://{}", shifted(CLIENT_ADDRESS, shift)?),
+                format!("tcp://{}", shifted(&client_address()?, shift)?),
             ),
             Carriers::Unix => (["g", "s", "c"].map(socket), socket("e")),
         };
@@ -207,7 +198,7 @@ impl Layout {
             carrier,
             shift,
             tag: tag.to_string(),
-            config: shifted(CONFIG_ADDRESS, shift)?,
+            config: shifted(&config_address()?, shift)?,
             observability,
             roles,
             client,
@@ -332,7 +323,7 @@ impl Layout {
         observability: &str,
     ) -> TestResult<Vec<(String, String)>> {
         let [system, _, _] = &self.roles;
-        let mut settings = holding(compute_on_one_host(), SECRET)?;
+        let mut settings = holding(compute_on_one_host()?, SECRET)?;
         for (name, value) in [
             ("observability.address", format!("tcp://{observability}")),
             ("compute.role_address", address.to_string()),
@@ -544,10 +535,9 @@ struct Planned {
     wait_path: &'static str,
 }
 
-/// The processes of `spec` at `layout`, in design D10's order: storage, compute, the frontend. The frontend comes last
-/// because each of its cores learns the compute processes from Members at its start, and again only when a role connection
-/// closes or no compute process is left (design D9): a compute process joining after a core's start goes unused there. A
-/// role's bare name is the file its labelled instances share, so the first of two takes a label too.
+/// The processes of `spec` at `layout`, in design D10's order: storage, compute, the frontend. The frontend executes its
+/// reads itself, so no process waits on the compute process, which the cluster still starts. A role's bare name is the file
+/// its labelled instances share, so the first of two takes a label too.
 fn plan(layout: &Layout, spec: &Spec) -> TestResult<Vec<Planned>> {
     let [f_obs, s_obs, c_obs] = &layout.observability;
     let [_, storage_role, compute_role] = &layout.roles;
@@ -584,25 +574,11 @@ fn plan(layout: &Layout, spec: &Spec) -> TestResult<Vec<Planned>> {
     }
     planned.push(Planned {
         program: COMPUTE_BINARY,
-        instance: if spec.two_computes {
-            "compute_1"
-        } else {
-            "compute"
-        },
+        instance: "compute",
         settings: layout.compute_settings(compute_role, c_obs)?,
         observability: c_obs.clone(),
         wait_path: "/ready",
     });
-    if spec.two_computes {
-        let observability = shifted(c_obs, SECOND_PROCESS)?;
-        planned.push(Planned {
-            program: COMPUTE_BINARY,
-            instance: "compute_2",
-            settings: layout.compute_settings(&layout.second(compute_role)?, &observability)?,
-            observability,
-            wait_path: "/ready",
-        });
-    }
     planned.push(Planned {
         program: FRONTEND_BINARY,
         instance: "frontend",
@@ -766,6 +742,11 @@ pub(crate) fn taken(carrier: Carriers, spec: &Spec) -> TestResult<(String, Clust
     let at = SPECS_STARTED.get();
     SPECS_STARTED.set(at + 1);
     let shift = SPECS_SHIFT + at * SPEC_PORTS;
+    if shift + SPEC_PORTS > PORT_BLOCK {
+        return Err(TestError::new(format!(
+            "spec {at} of this run needs ports past the target's block of {PORT_BLOCK}: split its features over more targets"
+        )));
+    }
     let cluster = start(
         &Layout::new(carrier, shift, "spec-")?,
         spec,

@@ -125,7 +125,8 @@ fn literal_object(w: &mut Steps) -> TestResult {
         scene.insert(&c, NAME, &string("Ann")).await?;
         let read = scene.snapshot(&Pattern::of(None, Some(NAME), Some(string("Ann"))))?;
         w.answers = vec![scene.answer(&read).await?];
-        w.iris = scene.in_key_order(&[a, c]).await?;
+        // Rows come partition by partition: `<a>`'s, partition 1's, before `<c>`'s (`PROTOCOL.md` §9.1).
+        w.iris = vec![a, c];
         Ok(())
     })?;
     w.scene = Some(scene);
@@ -133,7 +134,7 @@ fn literal_object(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "compute asks every partition of the tenant's run, reads no referrer set, and returns `<a>` and `<c>` merged in key order"
+    "compute asks every partition of the tenant's run, reads no referrer set, and returns `<a>`, partition 1's row, before `<c>`, partition 2's"
 )]
 fn fanned_out(w: &mut Steps) -> TestResult {
     let scene = w.scene()?;
@@ -162,14 +163,15 @@ fn unbound_subject(w: &mut Steps) -> TestResult {
         scene.insert(&c, NAME, &string("Cid")).await?;
         let read = scene.snapshot(&Pattern::of(None, Some(NAME), None))?;
         w.answers = vec![scene.answer(&read).await?];
-        w.iris = scene.in_key_order(&[a, c]).await?;
+        // Rows come partition by partition: `<a>`'s, partition 1's, before `<c>`'s (`PROTOCOL.md` §9.1).
+        w.iris = vec![a, c];
         Ok(())
     })?;
     w.scene = Some(scene);
     Ok(())
 }
 
-#[then("compute returns the rows of both partitions merged in key order")]
+#[then("compute returns every row of partition 1 and then every row of partition 2")]
 fn merged(w: &mut Steps) -> TestResult {
     let answer = w.answer()?;
     answer.whole()?;
@@ -195,7 +197,8 @@ fn vector_object(w: &mut Steps) -> TestResult {
         scene.insert(&d, EMBEDDING, &vector(&[3.0, 4.0])).await?;
         let read = scene.snapshot(&Pattern::of(None, Some(EMBEDDING), Some(v.clone())))?;
         w.answers = vec![scene.answer(&read).await?];
-        w.iris = scene.in_key_order(&[a, c]).await?;
+        // Rows come partition by partition: `<a>`'s, partition 1's, before `<c>`'s (`PROTOCOL.md` §9.1).
+        w.iris = vec![a, c];
         Ok(())
     })?;
     w.scene = Some(scene);

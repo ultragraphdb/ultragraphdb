@@ -12,30 +12,34 @@ use std::time::Duration;
 
 use cucumber::{then, when};
 use ultragraphdb_common_compute::{
-    DoubleFrame, EndpointLimits, EveryAuthenticated, GateScope, TenantGate, batch_frame,
-    empty_batch, last_frame, partition_answer,
+    DoubleFrame, EndpointLimits, EveryAuthenticated, GateScope, TenantGate, last_frame,
+    partition_answer,
 };
 use ultragraphdb_common_role::{Answer, RoleClient};
+use ultragraphdb_core_ids::{Epoch, Version};
 use ultragraphdb_protocol_transport::BufferPool;
 use ultragraphdb_protocol_transport::Framer;
 use ultragraphdb_protocol_transport_compio::{Carrier, Connection};
 use ultragraphdb_protocol_wire::{
     Action, Begin, BodyBuilder, BodyView, Command, Commit, CommitOperation, CommitView,
-    ComputeReadView, ConditionalWrite, Credit, DEFAULT_INITIAL_CREDIT, DeclaredPredicate, Describe,
-    DirectWrite, DropCommand, ErrorCode, ErrorReply, ErrorReplyView, Header, Hello, Install,
-    Language, MAX_FRAME_SIZE, MAX_FRAME_SIZE_U32, Migrate, MigrateAction, Prepare, Purge, Query,
-    ReadLevel, RequestTerm, TermTable, Write, WriteChange,
+    ConditionalWrite, Credit, DeclaredPredicate, Describe, DirectWrite, DropCommand, ErrorCode,
+    ErrorReply, ErrorReplyView, Header, Hello, Install, Language, MAX_FRAME_SIZE,
+    MAX_FRAME_SIZE_U32, Migrate, MigrateAction, Prepare, Purge, Query, ReadLevel, RequestTerm,
+    ScanView, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::Steps;
+use crate::apart::apart_partition::PlayedPartition;
+use crate::apart::apart_reads::hold_subject;
 use crate::endpoint_stage::{
-    BIND_VERSION, CLUSTER, OBJECT, Options, PREDICATE, Stage, empty_answer, fresh, insert_into,
-    pause, read_of, until, view_frame, write_of,
+    BIND_VERSION, CLUSTER, OBJECT, Options, PREDICATE, Stage, fresh, holding_reads, insert_into,
+    pause, read_of, read_scans, refuse_scan, refusing_reads, release, release_rows, rows_held,
+    until, view_frame, write_of,
 };
 use crate::endpoint_steps_requests::{
-    Deny, TIMER_MS, answer_frame, answer_with, bucket_of, challenge, cross_refusal, declaring,
-    held_directory, limited, names, prepared_in, run, stalling,
+    Deny, TIMER_MS, bucket_of, challenge, cross_refusal, declaring, held_directory, limited, names,
+    prepared_in, run,
 };
 
 fn wrong_owner(frame: &DoubleFrame, bucket: u32, owner: u32) -> Answer {
@@ -272,7 +276,7 @@ fn a_write_reaches_its_partition(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend sends each Write first to the partition owning its subject's bucket, and each commit's reply reaches the client"
+    "compute sends each Write first to the partition owning its subject's bucket, and each commit's reply reaches the client"
 )]
 fn a_write_reaches_its_partition_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -312,7 +316,7 @@ fn a_stale_placement_map_is_corrected(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend refreshes its map, resends the write to the owner once, and the client receives the owner's reply"
+    "compute refreshes its map, resends the write to the owner once, and the client receives the owner's reply"
 )]
 fn a_stale_placement_map_is_corrected_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -351,7 +355,7 @@ fn a_homes_code_26_reaches_the_client(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the client receives code 26 on the transaction's stream, and the frontend binds no other partition"
+    "the client receives code 26 on the transaction's stream, and compute binds no other partition"
 )]
 fn a_homes_code_26_reaches_the_client_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -393,14 +397,14 @@ fn later_requests_wait_for_the_first(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the second was sent to no partition; the frontend refreshes its map, binds to the owner, and sends the first and then the second, and the client sees no error"
+    "the second was sent to no partition; compute refreshes its map, binds to the owner, and sends the first and then the second, and the client sees no error"
 )]
 fn later_requests_wait_for_the_first_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
 #[when(
-    "a transaction's first request is a read, compute answers code 23, and the refreshed map moves the read's subject to partition 2"
+    "a transaction's first request is a read, the read ends with code 23, and the refreshed map moves the read's subject to partition 2"
 )]
 fn a_first_read_moved_by_a_stale_map_is_resent(w: &mut Steps) -> TestResult {
     let options = Options {
@@ -411,48 +415,38 @@ fn a_first_read_moved_by_a_stale_map_is_resent(w: &mut Steps) -> TestResult {
     run(w, options, |stage| async move {
         let _whole = &stage;
         let subject = stage.on(2)?;
-        let old = stage.partition(1).await?;
-        let owner = stage.partition(2).await?;
-        let answered = Rc::new(Cell::new(0));
-        let count = Rc::clone(&answered);
-        let _compute = stage
-            .compute_with(move |frame| {
-                count.set(count.get() + 1);
-                if count.get() == 1 {
-                    return Answer::Refuse(cross_refusal(1, 2));
-                }
-                empty_answer(frame, 2)
-            })
+        let old = stage
+            .partition_with(1, refusing_reads(cross_refusal(1, 2)))
             .await?;
+        let owner = stage.partition(2).await?;
         let mut client = stage.ann().await?;
         let transaction = client.begin(0).await?;
         let read = client.read(transaction, &subject).await?;
         assert_eq!(client.got(read).await?.command, Command::Result, "its rows");
         assert_eq!(old.count(Command::Cancel), 1, "the Bind stream cancelled");
         assert_eq!(owner.count(Command::Bind), 1, "bound to the owner");
-        assert_eq!(answered.get(), 2, "resent once");
+        assert_eq!(read_scans(&owner).len(), 1, "run again once, at the owner");
         Ok(())
     })
 }
 
 #[then(
-    "the frontend cancels the Bind stream, binds to partition 2 and resends the read once, and the client receives its rows"
+    "compute cancels the Bind stream, binds to partition 2 and runs the read again once, and the client receives its rows"
 )]
 fn a_first_read_moved_by_a_stale_map_is_resent_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
 #[when(
-    "a transaction's first request is a read, compute answers code 23, and the refreshed map leaves the read's subject where it was"
+    "a transaction's first request is a read, the read ends with code 23, and the refreshed map leaves the read's subject where it was"
 )]
 fn a_first_read_the_map_does_not_move_is_refused(w: &mut Steps) -> TestResult {
     let options = Options::default();
     run(w, options, |stage| async move {
         let _whole = &stage;
         let subject = stage.on(1)?;
-        let _partition = stage.partition(1).await?;
-        let _compute = stage
-            .compute_with(|_| Answer::Refuse(cross_refusal(1, 2)))
+        let _partition = stage
+            .partition_with(1, refusing_reads(cross_refusal(1, 2)))
             .await?;
         let mut client = stage.ann().await?;
         let transaction = client.begin(0).await?;
@@ -475,30 +469,26 @@ fn a_first_read_the_map_does_not_move_is_refused_held(w: &mut Steps) {
 }
 
 #[when(
-    "reads A and C of a read-write transaction are open and a Write is held behind them, compute answers A with code 23, and the client then sends read D"
+    "reads A and C of a read-write transaction are open and a Write is held behind them, read A ends with code 23, and the client then sends read D"
 )]
 fn a_read_s_code_23_answers_the_transaction_s_other_reads(w: &mut Steps) -> TestResult {
     let options = Options::default();
     run(w, options, |stage| async move {
         let _whole = &stage;
         let subject = stage.on(1)?;
-        let partition = stage.partition(1).await?;
-        let compute = stage.compute_with(|_| Answer::Open).await?;
+        let partition = stage.partition_with(1, holding_reads).await?;
         let mut client = stage.ann().await?;
         let transaction = client.begin(0).await?;
         let first = client.read(transaction, &subject).await?;
-        until("the first read", || {
-            compute.count(Command::ComputeRead) == 1
-        })
-        .await?;
-        answer_frame(&compute, 0, &empty_batch(4, 1), true)?;
+        until("the first read", || read_scans(&partition).len() == 1).await?;
+        release(&partition, 0, BIND_VERSION)?;
         assert_eq!(client.got(first).await?.command, Command::Result);
         let a = client.read(transaction, &subject).await?;
         let c = client.read(transaction, &subject).await?;
         client.write(transaction, &subject).await?;
-        until("both reads", || compute.count(Command::ComputeRead) == 3).await?;
+        until("both reads", || read_scans(&partition).len() == 3).await?;
         let refused = cross_refusal(1, 2);
-        answer_with(&compute, 1, &refused)?;
+        refuse_scan(&partition, 1, &refused)?;
         let d = client.read(transaction, &subject).await?;
         let (want, detail) = (ErrorCode::CrossPartition, refused.detail());
         assert_eq!(client.refused(a).await?, (want, detail));
@@ -522,9 +512,7 @@ fn a_read_s_code_23_answers_the_transaction_s_other_reads_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
-#[when(
-    "a transaction's first Write names subjects the frontend's map places in partitions 1 and 2"
-)]
+#[when("a transaction's first Write names subjects compute's map places in partitions 1 and 2")]
 fn a_first_request_spreading_over_partitions_is_refused_before_any_bind(
     w: &mut Steps,
 ) -> TestResult {
@@ -611,28 +599,31 @@ fn a_first_read_holds_a_later_read_only_until_its_first_frame(w: &mut Steps) -> 
     run(w, options, |stage| async move {
         let _whole = &stage;
         let subject = stage.on(1)?;
-        let _partition = stage.partition(1).await?;
-        let compute = stage.compute_with(|_| Answer::Open).await?;
+        // Three objects of 400,000 bytes each: no batch of a client's frame holds all three, so the read takes two frames.
+        let objects: Vec<String> = (1..=3)
+            .map(|at| format!("http://ex.org/{at}/{}", "o".repeat(400_000)))
+            .collect();
+        let named: Vec<&str> = objects.iter().map(String::as_str).collect();
+        let played = PlayedPartition::new(1);
+        hold_subject(&played, 0, (&subject, PREDICATE), &named, 100)?;
+        played.frame_per_key();
+        let holding = Rc::new(Cell::new(true));
+        let partition = stage
+            .partition_with(1, rows_held(&played, &holding))
+            .await?;
         let mut client = stage.ann().await?;
         let transaction = client.begin(0).await?;
         let first = client.read(transaction, &subject).await?;
         let second = client.read(transaction, &subject).await?;
-        until("the first read", || {
-            compute.count(Command::ComputeRead) == 1
-        })
-        .await?;
+        until("the first read", || read_scans(&partition).len() == 1).await?;
         pause(20).await;
         assert_eq!(
-            compute.count(Command::ComputeRead),
+            read_scans(&partition).len(),
             1,
             "the second waits for a frame"
         );
-        answer_frame(&compute, 0, &empty_batch(4, 1), false)?;
-        until("the second read", || {
-            compute.count(Command::ComputeRead) == 2
-        })
-        .await?;
-        answer_frame(&compute, 1, &empty_batch(4, 1), true)?;
+        holding.set(false);
+        release_rows(&partition, 0, &played)?;
         assert_eq!(
             client.got(second).await?.command,
             Command::Result,
@@ -648,305 +639,9 @@ fn a_first_read_holds_a_later_read_only_until_its_first_frame(w: &mut Steps) -> 
 }
 
 #[then(
-    "the frontend sends the second read to compute on the first read's first frame, and the client receives its rows with the first read still open"
+    "compute starts the second read on the first read's first frame, and the client receives its rows with the first read still open"
 )]
 fn a_first_read_holds_a_later_read_only_until_its_first_frame_held(w: &mut Steps) {
-    assert!(w.ran, "the scenario ran");
-}
-
-#[when("two compute processes have joined and a connection sends two reads")]
-fn reads_alternate_between_two_compute_processes(w: &mut Steps) -> TestResult {
-    let options = Options::default();
-    run(w, options, |stage| async move {
-        let _whole = &stage;
-        let (one, two) = (stage.compute().await?, stage.compute().await?);
-        let mut client = stage.ann().await?;
-        let transaction = client.begin_read_only(ReadLevel::Snapshot).await?;
-        let first = client.read(transaction, OBJECT).await?;
-        let second = client.read(transaction, OBJECT).await?;
-        assert_eq!(client.got(first).await?.command, Command::Result);
-        assert_eq!(client.got(second).await?.command, Command::Result);
-        assert_eq!(one.count(Command::ComputeRead), 1);
-        assert_eq!(two.count(Command::ComputeRead), 1);
-        Ok(())
-    })
-}
-
-#[then("each process receives one")]
-fn reads_alternate_between_two_compute_processes_held(w: &mut Steps) {
-    assert!(w.ran, "the scenario ran");
-}
-
-#[when(
-    "the connection to one of two compute processes closes under a read before any frame of it reached the client"
-)]
-fn a_closed_compute_process_is_skipped(w: &mut Steps) -> TestResult {
-    let options = Options::default();
-    run(w, options, |stage| async move {
-        let _whole = &stage;
-        let (closing, other) = stage.computes_in_turn().await?;
-        let mut client = stage.ann().await?;
-        let transaction = client.begin_read_only(ReadLevel::Snapshot).await?;
-        let read = client.read(transaction, OBJECT).await?;
-        until("the read", || closing.count(Command::ComputeRead) == 1).await?;
-        closing.close();
-        until("the read sent again", || {
-            other.count(Command::ComputeRead) == 1
-        })
-        .await?;
-        answer_frame(&other, 0, &empty_batch(4, 1), true)?;
-        assert_eq!(client.got(read).await?.command, Command::Result, "its rows");
-        assert_eq!(other.count(Command::ComputeRead), 1);
-        Ok(())
-    })
-}
-
-#[then("the frontend sends the read to the other, and the client receives its rows")]
-fn a_closed_compute_process_is_skipped_held(w: &mut Steps) {
-    assert!(w.ran, "the scenario ran");
-}
-
-#[when("no connection to a compute process can be opened for a read")]
-fn no_compute_process_can_be_reached(w: &mut Steps) -> TestResult {
-    let options = Options::default();
-    run(w, options, |stage| async move {
-        let _whole = &stage;
-        let mut client = stage.ann().await?;
-        let transaction = client.begin_read_only(ReadLevel::Snapshot).await?;
-        let read = client.read(transaction, OBJECT).await?;
-        assert_eq!(client.refused(read).await?.0, ErrorCode::Unavailable);
-        let _open = client.begin_read_only(ReadLevel::Snapshot).await?;
-        Ok(())
-    })
-}
-
-#[then("the client receives code 17, and its connection stays open")]
-fn no_compute_process_can_be_reached_held(w: &mut Steps) {
-    assert!(w.ran, "the scenario ran");
-}
-
-#[when("a compute process's connection closes after one frame of a read reached the client")]
-fn a_read_is_never_resent_after_a_frame(w: &mut Steps) -> TestResult {
-    let options = Options::default();
-    run(w, options, |stage| async move {
-        let _whole = &stage;
-        let (closing, other) = stage.computes_in_turn().await?;
-        let mut client = stage.ann().await?;
-        let transaction = client.begin_read_only(ReadLevel::Snapshot).await?;
-        let read = client.read(transaction, OBJECT).await?;
-        until("the read", || closing.count(Command::ComputeRead) == 1).await?;
-        answer_frame(&closing, 0, &empty_batch(4, 1), false)?;
-        assert_eq!(client.got(read).await?.command, Command::Result);
-        closing.close();
-        assert_eq!(client.refused(read).await?.0, ErrorCode::Unavailable);
-        assert_eq!(other.count(Command::ComputeRead), 0);
-        let _open = client.begin_read_only(ReadLevel::Snapshot).await?;
-        Ok(())
-    })
-}
-
-#[then(
-    "the read is refused with code 17, no other compute process receives it, and the client's connection stays open"
-)]
-fn a_read_is_never_resent_after_a_frame_held(w: &mut Steps) {
-    assert!(w.ran, "the scenario ran");
-}
-
-#[when(
-    "a compute process sends a ComputeRead's stream a Result frame with the stream's credit spent, the frames its credit and a Credit allowed having reached the client and a second read being open on the connection"
-)]
-fn a_result_frame_past_its_credit_closes_the_role_connection(w: &mut Steps) -> TestResult {
-    let options = Options {
-        limits: Options::default().limits.with_initial_credit(1),
-        ..Options::default()
-    };
-    run(w, options, |stage| async move {
-        let _whole = &stage;
-        let breaking = stage.compute_with(|_| Answer::Open).await?;
-        let mut client = stage.ann().await?;
-        let transaction = client.begin_read_only(ReadLevel::Snapshot).await?;
-        let first = client.read(transaction, OBJECT).await?;
-        let second = client.read(transaction, OBJECT).await?;
-        until("both reads", || breaking.count(Command::ComputeRead) == 2).await?;
-        let other = stage.compute().await?;
-        answer_frame(&breaking, 0, &empty_batch(4, 1), false)?;
-        assert_eq!(client.got(first).await?.command, Command::Result);
-        client.on(first, &Credit::new(1)).await?;
-        until("the Credit relayed", || {
-            breaking.count(Command::Credit) == 1
-        })
-        .await?;
-        answer_frame(&breaking, 0, &empty_batch(4, 1), false)?;
-        assert_eq!(client.got(first).await?.command, Command::Result);
-        // The second read's credit lets this frame leave, and its header names the first read, whose credit is spent.
-        let reads = breaking.frames(Command::ComputeRead);
-        let (named, spending) = (
-            reads.first().context("the first read")?,
-            reads.get(1).context("the second read")?,
-        );
-        spending.answer_with(batch_frame(
-            CLUSTER,
-            named.stream(),
-            &empty_batch(4, 1),
-            false,
-        )?);
-        assert_eq!(client.refused(first).await?.0, ErrorCode::Unavailable);
-        assert_eq!(
-            client.got(second).await?.command,
-            Command::Result,
-            "its rows"
-        );
-        assert_eq!(other.count(Command::ComputeRead), 1);
-        until("the role connection's end", || {
-            breaking.connections_ended() == 1
-        })
-        .await?;
-        Ok(())
-    })
-}
-
-#[then(
-    "the frontend closes the role connection, answers the first read code 17, and sends the second to the other compute process"
-)]
-fn a_result_frame_past_its_credit_closes_the_role_connection_held(w: &mut Steps) {
-    assert!(w.ran, "the scenario ran");
-}
-
-#[when(
-    "a compute process accepts a read of `deadline_ms` 50 and sends nothing, `scan_stall_ms` is 100, and the read's stream holds credit"
-)]
-fn a_hung_compute_process_answers_code_17(w: &mut Steps) -> TestResult {
-    // `scan_stall_ms` at a second rather than the scenario's 100 ms: the client's watch of 100 ms past its read must end before the
-    // stall does, which a loaded machine does not do within the scenario's numbers.
-    let options = Options {
-        limits: stalling(u64::from(TIMER_MS)),
-        ..Options::default()
-    };
-    run(w, options, |stage| async move {
-        let _whole = &stage;
-        let (hung, other) = stage.computes_in_turn().await?;
-        let mut client = stage.ann().await?;
-        let begin = Begin::new(0, 0, true).with_deadline_ms(50);
-        let transaction = client.send(&begin).await?;
-        let _begun = client.got(transaction).await?;
-        let read = client.read(transaction, OBJECT).await?;
-        client.silent(read, 100).await?;
-        assert_eq!(client.refused(read).await?.0, ErrorCode::Unavailable);
-        until("the ComputeRead cancelled", || {
-            hung.count(Command::Cancel) == 1
-        })
-        .await?;
-        assert_eq!(other.count(Command::ComputeRead), 0);
-        Ok(())
-    })
-}
-
-#[then(
-    "the frontend cancels the ComputeRead and answers the read with code 17 once 150 ms have passed, and no other compute process receives it"
-)]
-fn a_hung_compute_process_answers_code_17_held(w: &mut Steps) {
-    assert!(w.ran, "the scenario ran");
-}
-
-#[when(
-    "a read of `deadline_ms` 40,000 waits 35 s for a close, and compute sends its first frame once the close arrives"
-)]
-fn a_compute_process_waiting_within_the_deadline_is_not_hung(w: &mut Steps) -> TestResult {
-    let options = Options {
-        limits: stalling(100),
-        ..Options::default()
-    };
-    run(w, options, |stage| async move {
-        let _whole = &stage;
-        // The scenario's 40,000 ms at a tenth and its 35 s at a hundredth: the rule compares the wait with the deadline, whatever
-        // their size, and the deadline's lead over the wait is room for a loaded machine's scheduling.
-        let compute = stage.compute_with(|_| Answer::Open).await?;
-        let mut client = stage.ann().await?;
-        let begin = Begin::new(0, 0, true).with_deadline_ms(4_000);
-        let transaction = client.send(&begin).await?;
-        let _begun = client.got(transaction).await?;
-        let read = client.read(transaction, OBJECT).await?;
-        until("the read", || compute.count(Command::ComputeRead) == 1).await?;
-        pause(350).await;
-        answer_frame(&compute, 0, &empty_batch(4, 1), true)?;
-        assert_eq!(client.got(read).await?.command, Command::Result, "its rows");
-        Ok(())
-    })
-}
-
-#[then("the client receives the rows")]
-fn a_compute_process_waiting_within_the_deadline_is_not_hung_held(w: &mut Steps) {
-    assert!(w.ran, "the scenario ran");
-}
-
-#[when(
-    "a compute process sends a read's frames with gaps below `scan_stall_ms`, past the read's deadline"
-)]
-fn a_frame_restarts_a_hung_compute_s_timer(w: &mut Steps) -> TestResult {
-    let stall = u64::from(TIMER_MS);
-    let options = Options {
-        limits: stalling(stall),
-        ..Options::default()
-    };
-    run(w, options, |stage| async move {
-        let _whole = &stage;
-        let compute = stage.compute_with(|_| Answer::Open).await?;
-        let mut client = stage.ann().await?;
-        let begin = Begin::new(0, 0, true).with_deadline_ms(10);
-        let transaction = client.send(&begin).await?;
-        let _begun = client.got(transaction).await?;
-        let read = client.read(transaction, OBJECT).await?;
-        until("the read", || compute.count(Command::ComputeRead) == 1).await?;
-        // One frame per unit of the stream's credit, the gaps together passing `scan_stall_ms` by one gap: a timer the frames did not
-        // restart is due before the last, and each gap leaves the rest of the stall to a loaded machine's scheduling.
-        let frames = u64::from(DEFAULT_INITIAL_CREDIT);
-        for frame in 1..=frames {
-            pause(stall / (frames - 1)).await;
-            answer_frame(&compute, 0, &empty_batch(4, 1), frame == frames)?;
-            assert_eq!(
-                client.got(read).await?.command,
-                Command::Result,
-                "no code 17"
-            );
-        }
-        assert_eq!(compute.count(Command::Cancel), 0);
-        Ok(())
-    })
-}
-
-#[then("the read goes on to its `LAST`")]
-fn a_frame_restarts_a_hung_compute_s_timer_held(w: &mut Steps) {
-    assert!(w.ran, "the scenario ran");
-}
-
-#[when(
-    "a read's stream has spent its credit, and its client takes no batch for longer than `scan_stall_ms`"
-)]
-fn a_stream_without_credit_holds_off_a_hung_compute_s_timer(w: &mut Steps) -> TestResult {
-    let stall = u64::from(TIMER_MS);
-    let options = Options {
-        limits: stalling(stall).with_initial_credit(1),
-        ..Options::default()
-    };
-    run(w, options, |stage| async move {
-        let _whole = &stage;
-        let compute = stage.compute_with(|_| Answer::Open).await?;
-        let mut client = stage.ann().await?;
-        let begin = Begin::new(0, 0, true).with_deadline_ms(10);
-        let transaction = client.send(&begin).await?;
-        let _begun = client.got(transaction).await?;
-        let read = client.read(transaction, OBJECT).await?;
-        until("the read", || compute.count(Command::ComputeRead) == 1).await?;
-        answer_frame(&compute, 0, &empty_batch(4, 1), false)?;
-        assert_eq!(client.got(read).await?.command, Command::Result);
-        client.silent(read, stall + stall / 2).await?;
-        assert_eq!(compute.count(Command::Cancel), 0, "no credit, no timer");
-        Ok(())
-    })
-}
-
-#[then("the frontend does not answer it with code 17 on that account")]
-fn a_stream_without_credit_holds_off_a_hung_compute_s_timer_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
@@ -987,9 +682,7 @@ fn a_partition_s_invariant_violation_answers_unavailable_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
-#[when(
-    "the connection between the frontend and a storage process closes under a Write and a Commit"
-)]
+#[when("the connection between compute and a storage process closes under a Write and a Commit")]
 fn a_role_connection_closing_under_a_request_answers_code_17(w: &mut Steps) -> TestResult {
     let options = Options {
         partitions: 2,
@@ -1387,12 +1080,11 @@ fn a_write_past_held_bytes_is_refused(w: &mut Steps) -> TestResult {
     run(w, options, |stage| async move {
         let _whole = &stage;
         let subject = stage.on(1)?;
-        let _partition = stage.partition(1).await?;
-        let compute = stage.compute_with(|_| Answer::Open).await?;
+        let partition = stage.partition_with(1, holding_reads).await?;
         let mut client = stage.ann().await?;
         let transaction = client.begin(0).await?;
         let _read = client.read(transaction, &subject).await?;
-        until("the read", || compute.count(Command::ComputeRead) == 1).await?;
+        until("the read", || read_scans(&partition).len() == 1).await?;
         let (mut sent, frame) = (
             0,
             write_of(&subject)
@@ -1424,21 +1116,20 @@ fn credit_still_drains_a_read_under_held_writes(w: &mut Steps) -> TestResult {
     run(w, options, |stage| async move {
         let _whole = &stage;
         let subject = stage.on(1)?;
-        let partition = stage.partition(1).await?;
-        let compute = stage.compute_with(|_| Answer::Open).await?;
+        let partition = stage.partition_with(1, holding_reads).await?;
         let mut client = stage.ann().await?;
         let transaction = client.begin(0).await?;
         let read = client.read(transaction, &subject).await?;
-        until("the read", || compute.count(Command::ComputeRead) == 1).await?;
+        until("the read", || read_scans(&partition).len() == 1).await?;
         client.write(transaction, &subject).await?;
         client.on(read, &Credit::new(1)).await?;
-        until("the Credit relayed", || compute.count(Command::Credit) == 1).await?;
+        pause(20).await;
         assert_eq!(
             partition.count(Command::Write),
             0,
             "the read still holds it"
         );
-        answer_frame(&compute, 0, &empty_batch(4, 1), true)?;
+        release(&partition, 0, BIND_VERSION)?;
         assert_eq!(client.got(read).await?.command, Command::Result);
         until("the held Write", || partition.count(Command::Write) == 1).await?;
         Ok(())
@@ -1446,7 +1137,7 @@ fn credit_still_drains_a_read_under_held_writes(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend reads the Credit and relays it, the read reaches its `LAST`, and the held Writes are then sent"
+    "compute reads the Credit and grants it to the read, which reaches its `LAST`, and the held Writes are then sent"
 )]
 fn credit_still_drains_a_read_under_held_writes_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -1472,7 +1163,7 @@ fn an_unbound_transaction_passes_its_limit(w: &mut Steps) -> TestResult {
     })
 }
 
-#[then("the frontend answers code 4 on its stream, with no partition having seen it")]
+#[then("compute answers code 4 on its stream, with no partition having seen it")]
 fn an_unbound_transaction_passes_its_limit_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
@@ -1504,7 +1195,7 @@ fn a_bound_transaction_passes_its_limit(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend cancels the Bind stream, which aborts it at the partition, and answers code 4 on its stream"
+    "compute cancels the Bind stream, which aborts it at the partition, and answers code 4 on its stream"
 )]
 fn a_bound_transaction_passes_its_limit_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -1521,13 +1212,21 @@ fn a_read_holding_a_write_back_is_named_at_the_limit(w: &mut Steps) -> TestResul
     run(w, options, |stage| async move {
         let _whole = &stage;
         let subject = stage.on(1)?;
-        let _partition = stage.partition(1).await?;
-        let compute = stage.compute_with(|_| Answer::Open).await?;
+        // Three objects of 400,000 bytes each: the read's first batch spends its one frame of credit, and its rest waits.
+        let objects: Vec<String> = (1..=3)
+            .map(|at| format!("http://ex.org/{at}/{}", "o".repeat(400_000)))
+            .collect();
+        let named: Vec<&str> = objects.iter().map(String::as_str).collect();
+        let played = PlayedPartition::new(1);
+        hold_subject(&played, 0, (&subject, PREDICATE), &named, 100)?;
+        played.frame_per_key();
+        let holding = Rc::new(Cell::new(false));
+        let _partition = stage
+            .partition_with(1, rows_held(&played, &holding))
+            .await?;
         let mut client = stage.ann().await?;
         let transaction = client.begin(0).await?;
         let first = client.read(transaction, &subject).await?;
-        until("the read", || compute.count(Command::ComputeRead) == 1).await?;
-        answer_frame(&compute, 0, &empty_batch(4, 1), false)?;
         assert_eq!(client.got(first).await?.command, Command::Result);
         client.write(transaction, &subject).await?;
         let second = client.read(transaction, &subject).await?;
@@ -1544,7 +1243,7 @@ fn a_read_holding_a_write_back_is_named_at_the_limit(w: &mut Steps) -> TestResul
 }
 
 #[then(
-    "the frontend answers code 4, the message naming the first read's stream and that it had no credit"
+    "compute answers code 4, the message naming the first read's stream and that it had no credit"
 )]
 fn a_read_holding_a_write_back_is_named_at_the_limit_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -1697,35 +1396,27 @@ fn concurrent_monotonic_fast_reads_take_the_highest_epoch_answered(w: &mut Steps
     run(w, options, |stage| async move {
         let _whole = &stage;
         let subject = stage.on(1)?;
-        let compute = stage.compute_with(|_| Answer::Open).await?;
+        let partition = stage.partition_with(1, holding_reads).await?;
         let mut client = stage.ann().await?;
         let transaction = client.begin_read_only(ReadLevel::MonotonicFast).await?;
         let first = client.read(transaction, &subject).await?;
         let second = client.read(transaction, &subject).await?;
-        until("both reads", || compute.count(Command::ComputeRead) == 2).await?;
+        until("both reads", || read_scans(&partition).len() == 2).await?;
         let answered = [(0, 12), (1, 9)];
         for (index, epoch) in answered {
-            answer_frame(
-                &compute,
-                index,
-                &empty_batch(4, 1).with_read_at(epoch, 1),
-                true,
-            )?;
+            release(&partition, index, Version::bound_of(Epoch::new(epoch)?))?;
         }
         for read in [first, second] {
             assert_eq!(client.got(read).await?.command, Command::Result);
         }
         let _third = client.read(transaction, &subject).await?;
-        until("the third read", || {
-            compute.count(Command::ComputeRead) == 3
-        })
-        .await?;
-        let reads = compute.frames(Command::ComputeRead);
-        let third = reads.get(2).context("the third ComputeRead")?;
+        until("the third read", || read_scans(&partition).len() == 3).await?;
+        let scans = read_scans(&partition);
+        let third = scans.get(2).context("the third read's Scan")?;
         let view = view_frame(third.bytes())?;
         let highest = answered.iter().map(|(_, epoch)| *epoch).max();
         assert_eq!(
-            Some(ComputeReadView::from_frame(&view)?.epoch()),
+            Some(ScanView::from_frame(&view)?.epoch()),
             highest,
             "the third read's floor"
         );

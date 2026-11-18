@@ -5,13 +5,13 @@
 
 use ultragraphdb_common_role::Answer;
 use ultragraphdb_protocol_wire::{
-    Action, BodyBuilder, BodyView, Command, ComputeRead, ComputeReadView, ErrorCode, ErrorReply,
-    ExecuteView, FLAG_LAST, FrameView, Header, Language, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE,
-    PrepareView, ReadLevel,
+    Action, BodyBuilder, BodyView, Command, ErrorCode, ErrorReply, ExecuteView, FLAG_LAST,
+    FrameView, Header, Language, MAX_FRAME_SIZE, PrepareView, Read, ReadView,
 };
 
 use super::ClientSession;
 use crate::traits::authorizer::Authorizer;
+use crate::types::read_pattern::ReadPattern;
 use crate::utils::term_rules::{check_pattern, check_table};
 
 impl<A: Authorizer + Clone> ClientSession<A> {
@@ -83,40 +83,39 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             .statements
             .execute(&asked, schema)
             .map_err(|refusal| refusal.reply())?;
-        // Its sections are a ComputeRead's: the same table and pattern, and its resume key. Its command header is the one
-        // `compute_read` gives the transaction's read at dispatch; this one need only let its view read the sections back.
-        let body = ComputeRead::new(
-            tenant,
-            true,
-            ReadLevel::Snapshot,
+        // The Read of its statement's pattern with its parameters bound, whose sections the resume key's pattern hashes
+        // (`PROTOCOL.md` §11.8): an Execute is read as that Read, which fits a frame.
+        let frame = Read::new(
+            transaction,
+            asked.limit(),
             terms,
             pattern,
             asked.resume().to_vec(),
         )
-        .with_client_limits(MAX_FRAME_FLOOR_U32, 1);
-        let frame = body
-            .frame(Header::new(self.cluster(), Command::ComputeRead).with_stream(stream))
-            .map_err(|_| too_large())?;
+        .frame(Header::new(self.cluster(), Command::Read).with_stream(stream))
+        .map_err(|_| too_large())?;
+        if frame.len() > MAX_FRAME_SIZE {
+            return Err(too_large());
+        }
         let read = FrameView::validate(&frame, self.cluster(), MAX_FRAME_SIZE)
             .map_err(|rule| ErrorReply::protocol(&rule))?;
-        let bound =
-            ComputeReadView::from_frame(&read).map_err(|rule| ErrorReply::protocol(&rule))?;
+        let bound = ReadView::from_frame(&read).map_err(|rule| ErrorReply::protocol(&rule))?;
+        let request = ReadPattern::of_read(&bound)?;
         self.take_read(
             stream,
             transaction,
-            bound.terms(),
-            bound.pattern(),
-            asked.limit(),
-            read.body().to_vec(),
+            (bound.terms(), bound.pattern()),
+            request,
         )
     }
 }
 
-/// An Execute's ComputeRead past a frame: code 6, naming the frame a role takes.
+/// An Execute whose Read, its parameters bound, passes a frame: code 6, `detail` 1,048,576 (quad-reads, "A read's batches fit
+/// the client's frame").
 fn too_large() -> ErrorReply {
     ErrorReply::new(
         ErrorCode::TooLarge,
-        "the Execute's ComputeRead, its parameters bound, does not fit a frame",
+        "the Execute's Read, its parameters bound, does not fit a frame",
     )
     .with_detail(MAX_FRAME_SIZE as u64) // 2^20, lossless
 }

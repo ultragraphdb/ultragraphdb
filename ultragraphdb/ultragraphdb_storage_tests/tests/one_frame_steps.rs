@@ -16,7 +16,7 @@ use ultragraphdb_protocol_wire::{
     ErrorCode, RequestTerm, ScanAt, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tests::{
-    CLIENT_ADDRESS, CLUSTER, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, answering, frontend_holding,
+    CLUSTER, FRONTEND_BINARY, answering, client_address, frontend_holding, frontend_observability,
     role, scratch, storage_holding, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -75,8 +75,8 @@ fn with_an_administrator(w: &mut Steps) -> TestResult {
         FRONTEND_BINARY,
         &frontend_holding()?,
         &scratch(FRONTEND_BINARY),
-        answering(FRONTEND_OBSERVABILITY, "/health"),
-    ))?;
+        answering(&frontend_observability()?, "/health"),
+    )?)?;
     let hosting = with(
         storage_holding()?,
         "metadata.bootstrap_secret_file",
@@ -89,7 +89,7 @@ fn with_an_administrator(w: &mut Steps) -> TestResult {
 
 /// Declares `UNIQUE` unique through the client endpoint, and waits until its version reached the partition: a DirectWrite of it refused.
 async fn declared_unique() -> TestResult<RoleClient> {
-    let target = Address::parse(&format!("tcp://{CLIENT_ADDRESS}"))?;
+    let target = Address::parse(&format!("tcp://{}", client_address()?))?;
     let mut admin = RoleClient::dial(&target, CLUSTER, "admin", "pw").await?;
     drop(admin.request(&Begin::new(TENANT, 0, false)).await?);
     let stream = admin.last_stream();
@@ -459,7 +459,7 @@ fn tenant_data_dropped(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
     let subject = subject_of(1, 1, TENANT)?;
     run(async {
-        let address = crate::read_kernel_steps::address();
+        let address = crate::read_kernel_steps::address()?;
         let _version = commit_at(
             &address,
             PARTITION,

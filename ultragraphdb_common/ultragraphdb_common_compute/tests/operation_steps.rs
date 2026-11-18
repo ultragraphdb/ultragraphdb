@@ -230,7 +230,6 @@ fn operations_go_to_their_subjects(w: &mut Steps) -> TestResult {
             transactions.push(operating(&mut client, operation).await?);
         }
         // A first read naming no subject binds the one partition of the tenant's run.
-        let _compute = stage.compute().await?;
         let reading = client.begin(0).await?;
         let read = client.send(&unbound_read(reading)).await?;
         let answered = client.got(read).await?;

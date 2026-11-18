@@ -8,7 +8,7 @@ mod compute_core_lookups;
 mod dial_under_way;
 mod lookup_partition;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::rc::Rc;
@@ -51,6 +51,9 @@ pub struct ComputeCore {
     /// which the placement map bounds.
     links: RefCell<HashMap<u32, Rc<Link>>>,
     dialling: RefCell<HashMap<u32, DialWaiters>>,
+    /// The steps the core's reads have taken, shared by an `Rc` with each of its links and each read's sink on the core's one
+    /// thread, which count a step as they take it (Ultra rule 9).
+    steps: Rc<Cell<u64>>,
 }
 
 impl ComputeCore {
@@ -67,7 +70,20 @@ impl ComputeCore {
             addresses: RefCell::default(),
             links: RefCell::default(),
             dialling: RefCell::default(),
+            steps: Rc::default(),
         })
+    }
+
+    /// The steps this core's reads have taken: each Entries frame a read consumed and each Result frame it built but its
+    /// last, after each of which the read gave the core back (design D3).
+    #[must_use]
+    pub fn steps(&self) -> u64 {
+        self.steps.get()
+    }
+
+    /// The count of the core's steps, which each of its links and each read's sink counts its steps in.
+    pub(crate) fn step_count(&self) -> Rc<Cell<u64>> {
+        Rc::clone(&self.steps)
     }
 
     /// The cluster's identity.
@@ -269,6 +285,11 @@ impl ComputeCore {
             // Where it listens may have moved with a restart: asked again by the next read.
             drop(self.addresses.borrow_mut().remove(&partition));
         })?;
-        Ok(Link::start(partition, self.cluster.id(), wait, client))
+        Ok(Link::start(
+            partition,
+            self.cluster.id(),
+            (wait, self.step_count()),
+            client,
+        ))
     }
 }

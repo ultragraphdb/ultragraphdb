@@ -82,10 +82,13 @@ fn take_record(
     };
     if record.statement_count() == 0 {
         if passed.is_none() {
-            page.add_row(encoding, None, None);
+            page.add_object(encoding);
+            page.add_row(None, None);
         }
         return Ok(());
     }
+    // The encoding is held once, before the first row naming it, whatever the number of its statement IDs.
+    let mut held = false;
     for id in record.statement_ids() {
         let statement = SystemId::decode(&id).map_err(stored)?;
         let dropped = match passed {
@@ -94,7 +97,11 @@ fn take_record(
             None => false,
         };
         if !dropped {
-            page.add_row(encoding, Some(statement), None);
+            if !held {
+                page.add_object(encoding);
+                held = true;
+            }
+            page.add_row(Some(statement), None);
         }
     }
     Ok(())
@@ -128,7 +135,8 @@ fn take_statement(
                 .as_deref()
                 .is_none_or(|object| object == term.as_bytes());
         if taken {
-            page.add_row(term.as_bytes(), None, Some(*predicate));
+            page.add_object(term.as_bytes());
+            page.add_row(None, Some(*predicate));
         }
     }
     Ok(())
@@ -150,4 +158,18 @@ pub(super) fn predicates_of(
         }
     }
     Ok(())
+}
+
+/// The bytes a page holds of its rows' object encodings once it has taken the object records `value` under the list key `key`,
+/// every record and statement ID taken; `None` for a key or a value the page does not read.
+#[cfg(feature = "test-utils")]
+pub(crate) fn page_bytes_of(key: &[u8], value: &[u8]) -> Option<usize> {
+    let (parsed, _) = QuadKey::parse(key).ok()?;
+    let mut page = Page::default();
+    page.add_entry(key, parsed);
+    let records = ObjectRecords::read(value).ok()?;
+    for record in records.iter() {
+        take_record(&record, key, &mut page, &RowFilter::default(), None).ok()?;
+    }
+    Some(page.held_bytes())
 }

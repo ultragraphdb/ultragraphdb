@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod page_bytes_tests;
+#[cfg(test)]
 mod role_double_tests;

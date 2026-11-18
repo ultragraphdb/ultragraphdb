@@ -68,44 +68,20 @@ fn test_a_closed_link_is_dialled_anew() -> TestResult {
     })
 }
 
-/// The links count each compute process joined once, and list the partitions joined, ascending, as the last join for each says.
+/// The links list the partitions joined, ascending, as the last join for each says; a compute node's Join lists none.
 #[test]
-fn test_the_links_count_computes_and_list_partitions() -> TestResult {
+fn test_the_links_list_the_partitions_joined() -> TestResult {
     let links = RoleLinks::new(cluster("joined")?, "frontend".to_string());
-    assert_eq!(links.compute_count(), 0);
     assert!(links.partitions().is_empty());
-    let computes = ["tcp://127.0.0.1:1", "tcp://127.0.0.1:2"];
-    for address in computes.iter().chain(&computes) {
-        links.joined(&Join::compute(*address));
-    }
-    assert_eq!(links.compute_count(), computes.len(), "each once");
+    links.joined(&Join::compute("tcp://127.0.0.1:1"));
+    assert!(
+        links.partitions().is_empty(),
+        "a compute node holds no partition"
+    );
     links.joined(&Join::storage("tcp://127.0.0.1:3", vec![3, 1]));
     links.joined(&Join::storage("tcp://127.0.0.1:4", vec![2]));
     assert_eq!(links.partitions(), vec![1, 2, 3]);
     Ok(())
-}
-
-/// Reads go round the compute processes in the order they joined, and a process joining goes on from where the turn stood.
-#[test]
-fn test_the_compute_turn_goes_on_past_a_join() -> TestResult {
-    let links = RoleLinks::new(cluster("turn")?, "frontend".to_string());
-    let computes = [
-        "tcp://127.0.0.1:1",
-        "tcp://127.0.0.1:2",
-        "tcp://127.0.0.1:3",
-    ];
-    Runtime::new()?.block_on(async {
-        let next = || -> TestResult<String> {
-            Ok(links.next_compute(&[]).context("a compute process")?.0)
-        };
-        for address in computes.iter().take(2) {
-            links.joined(&Join::compute(*address));
-        }
-        assert_eq!([next()?, next()?], [computes[0], computes[1]]);
-        links.joined(&Join::compute(computes[2]));
-        assert_eq!([next()?, next()?, next()?], computes);
-        Ok(())
-    })
 }
 
 /// A tenant's run is held by the partitions whose ranges overlap it, as the placement's own rule says, and by no partition whose

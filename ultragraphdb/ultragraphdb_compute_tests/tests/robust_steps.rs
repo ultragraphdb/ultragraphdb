@@ -69,7 +69,7 @@ fn core_over_played(times: ReadTimes) -> TestResult<Rc<ComputeCore>> {
         vec![
             (
                 "observability.address".to_string(),
-                format!("tcp://127.0.0.1:{}", info.base + 41),
+                format!("tcp://127.0.0.1:{}", info.base + 19),
             ),
             ("cluster.id".to_string(), CLUSTER.to_string()),
         ],

@@ -137,12 +137,17 @@ fn record_holds(key: &[u8], value: &[u8], property: SystemId, text: &str) -> Tes
 fn record_scanned(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
     run(async {
-        let first = commit_at(&address(), PARTITION, &statement_write(&[(SINCE, "2019")])?).await?;
+        let first = commit_at(
+            &address()?,
+            PARTITION,
+            &statement_write(&[(SINCE, "2019")])?,
+        )
+        .await?;
         let mut client = dial().await?;
         let statement = statement_of(&mut client).await?;
         let key = record_key(statement);
         let _later = commit_at(
-            &address(),
+            &address()?,
             PARTITION,
             &set_since(statement, &mut client).await?,
         )
@@ -219,7 +224,7 @@ fn own_property(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
     run(async {
         let held = statement_write(&[(SINCE, "2019"), (UNTIL, "2030")])?;
-        let _held = commit_at(&address(), PARTITION, &held).await?;
+        let _held = commit_at(&address()?, PARTITION, &held).await?;
         let mut client = dial().await?;
         let statement = statement_of(&mut client).await?;
         let key = record_key(statement);
@@ -244,7 +249,7 @@ fn own_property(w: &mut Steps) -> TestResult {
         );
         // A property of the same record written above the read version conflicts with what the span covered.
         let again = set_since(statement, &mut dial().await?).await?;
-        let _second = commit_at(&address(), PARTITION, &again).await?;
+        let _second = commit_at(&address()?, PARTITION, &again).await?;
         w.kernel
             .refused
             .extend(commit_answer(&mut client, stream).await?);
@@ -355,7 +360,7 @@ fn run_of_lookups(w: &mut Steps) -> TestResult {
         .map(|at| alone(term_key(TENANT, &lookup(at))))
         .collect();
     run(async {
-        let _version = commit_at(&address(), PARTITION, &write).await?;
+        let _version = commit_at(&address()?, PARTITION, &write).await?;
         let scan = plain(ScanAt::Latest, 0, 0, 0, &ranges);
         let (batches, refused) = answer(&mut dial().await?, &scan, false).await?;
         assert!(refused.is_none(), "{refused:?}");
@@ -391,7 +396,7 @@ fn resumed_ranges(w: &mut Steps) -> TestResult {
     run(async {
         for object in ["http://ex.org/a", "http://ex.org/m", "http://ex.org/z"] {
             let write = edge_write(SUBJECT, object);
-            let _version = commit_at(&address(), PARTITION, &write).await?;
+            let _version = commit_at(&address()?, PARTITION, &write).await?;
         }
         let mut client = dial().await?;
         let key = forward_key(&mut client, SUBJECT).await?;
@@ -506,7 +511,7 @@ fn home_store_failed(w: &mut Steps) -> TestResult {
     let script = HomeScript::refusing(ErrorCode::Unavailable.number());
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at("tcp://127.0.0.1:17200").await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (bind_stream, read) = bind_first(&mut client, 41).await?;
         let scan = term_scan(41, read, &skolem);
         client.send_only(&scan).await?;
@@ -553,7 +558,7 @@ fn commit_behind_read(w: &mut Steps) -> TestResult {
     let script = HomeScript::default();
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at("tcp://127.0.0.1:17200").await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (bind_stream, read) = bind_first(&mut client, 42).await?;
         script.hold();
         client.send_only(&term_scan(42, read, &iri)).await?;
@@ -650,7 +655,7 @@ fn write_on_bind(w: &mut Steps) -> TestResult {
     let script = HomeScript::holding();
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at("tcp://127.0.0.1:17200").await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (stream, _) = bind_first(&mut client, 43).await?;
         client
             .send_on(stream, &edge_write(&subject, &object))
@@ -794,8 +799,8 @@ pub(crate) async fn too_large_record() -> TestResult<Refused> {
     let values = many_values();
     let properties: Vec<(&str, &str)> = values.iter().map(|at| (SINCE, at.as_str())).collect();
     let write = statement_write(&properties)?;
-    let _version = commit_at(&address(), PARTITION, &write).await?;
-    let target = Address::parse(&address())?;
+    let _version = commit_at(&address()?, PARTITION, &write).await?;
+    let target = Address::parse(&address()?)?;
     let taking = MAX_FRAME_FLOOR_U32;
     let mut small = RoleClient::dial_taking(&target, CLUSTER, "compute", SECRET, taking).await?;
     let statement = statement_of(&mut small).await?;
@@ -812,7 +817,7 @@ fn forged_edge(w: &mut Steps) -> TestResult {
     let skolem = foreign_skolem()?;
     let subject = subject_of(1, 4, TENANT)?;
     run(async {
-        let mut home = dial_at("tcp://127.0.0.1:17300").await?;
+        let mut home = dial_at(&crate::second_process()?).await?;
         let mut asked = Reference::request().in_tenant(TENANT);
         let _at = asked.register_iri(3, None, &skolem, 0);
         let reply = home.request(&asked).await?;
@@ -821,7 +826,7 @@ fn forged_edge(w: &mut Steps) -> TestResult {
         let outcome = registered.registration(0).context("the reply")?.outcome();
         w.kernel.numbers = vec![u64::from(outcome)];
         drop(reply);
-        let mut client = dial_at("tcp://127.0.0.1:17200").await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (stream, read) = bind_first(&mut client, 48).await?;
         client
             .send_on(stream, &edge_write(&subject, &skolem))
@@ -855,7 +860,7 @@ fn forged_refused(w: &mut Steps) -> TestResult {
 
 /// Commits `<a> <p> <b>`, and waits for its epoch's close.
 pub(crate) async fn committed_and_closed(client: &mut RoleClient) -> TestResult<u64> {
-    let version = commit_at(&address(), PARTITION, &edge_write(SUBJECT, OBJECT)).await?;
+    let version = commit_at(&address()?, PARTITION, &edge_write(SUBJECT, OBJECT)).await?;
     let epoch = Version::from_u64(version).epoch().get();
     closed_by(client, epoch).await?;
     Ok(epoch)
@@ -877,5 +882,5 @@ pub(crate) fn scan_at(version: u64, epoch: u64) -> Scan {
 /// The commit of a later write, so the visibility watermark passes what came before: its version.
 pub(crate) async fn commit_later(tag: u64) -> TestResult<u64> {
     let object = format!("http://ex.org/later{tag}");
-    commit_at(&address(), PARTITION, &edge_write(SUBJECT, &object)).await
+    commit_at(&address()?, PARTITION, &edge_write(SUBJECT, &object)).await
 }

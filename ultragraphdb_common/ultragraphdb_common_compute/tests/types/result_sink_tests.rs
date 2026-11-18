@@ -286,6 +286,25 @@ fn object_of_size(
     }
 }
 
+/// The longest object whose frame `size_of` gives is at most `target` bytes.
+fn object_within(
+    target: usize,
+    size_of: &impl Fn(&str) -> TestResult<usize>,
+) -> TestResult<String> {
+    let object = |length: usize| format!("http://ex.org/o/{}", "a".repeat(length));
+    let (mut low, mut high) = (1usize, target);
+    // Each pass halves the lengths between `low` and `high`: the search ends within the bits of `target`.
+    while low < high {
+        let middle = low + (high - low).div_ceil(2);
+        if size_of(&object(middle))? <= target {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+    Ok(object(low))
+}
+
 /// The batch a read of `?s <p> ?o` at [`EPOCH`] on partition 1 starts, as the wire builds it: three columns, the subject, the object
 /// and the reifier.
 fn empty_batch() -> ResultBatch {
@@ -314,7 +333,10 @@ fn test_a_batch_fills_to_exactly_the_clients_frame() -> TestResult {
     })
 }
 
-/// A resume key that brings an empty last batch to exactly the client's frame goes out in it.
+/// A resume key that brings an empty last batch to the client's frame, within the 8 bytes by which a key's length steps, goes
+/// out in it. A key's last section, the ordering value, starts at a multiple of 8 after the text (`PROTOCOL.md` §4.1, §11.8),
+/// so its length is a multiple of 8 and a frame of exactly `max_frame` bytes is reached only where the rest of the frame
+/// leaves the right remainder.
 #[test]
 fn test_a_resume_key_fills_its_last_batch_to_exactly_the_clients_frame() -> TestResult {
     run(async {
@@ -328,11 +350,17 @@ fn test_a_resume_key_fills_its_last_batch_to_exactly_the_clients_frame() -> Test
                 object.to_string(),
             ))?;
             let row = ResumeRow::new(None, subject, predicate, object, None);
-            Ok(ResumeKey::new(hash, read.read_version(), table, row).encode())
+            Ok(ResumeKey::new(hash, read.read_version(), 1, table, row).encode())
         };
-        let object = object_of_size(MAX_FRAME_FLOOR, |object| {
+        let size_of = |object: &str| -> TestResult<usize> {
             Ok(empty_batch().frame_size_with(&[], resume_of(object)?.len()))
-        })?;
+        };
+        let object = object_within(MAX_FRAME_FLOOR, &size_of)?;
+        let size = size_of(&object)?;
+        assert!(
+            size <= MAX_FRAME_FLOOR && size + 8 > MAX_FRAME_FLOOR,
+            "{size}"
+        );
         let objects = vec![object.clone(), "http://ex.org/o1".to_string()];
         let (_played, answered) = answer(|partition| hold_rows(partition, &objects), &read).await?;
         assert_eq!(answered.whole()?.len(), 1);

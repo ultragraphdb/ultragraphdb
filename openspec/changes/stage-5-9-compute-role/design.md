@@ -140,7 +140,8 @@ Every group passes the full `make test`, and the processes of a cluster speak on
 built binaries, and stage 5.8's first full gate after such a window found the defects of four groups at once.
 
 **D13. What stage 5.8 left is taken where its code changes** (decided 2026-11-18). The mutation survivors of the
-endpoint's code are resolved in group 5, after the relay's removal has taken those of the relay with it (task 5.9).
+endpoint's code are resolved in the change's one mutation run (task 9.1), after group 5's removal of the relay has taken
+those of the relay with it. Mutation testing runs once, in group 9, so no group waits on it (decided 2026-11-18).
 The findings on compute's `Link` are corner cases of group 4, which removes `Link` and holds `RoleLink` to the same
 rules. The reader rule written three times becomes one before group 3 writes a fourth (task 0.7). The two mutants only
 real time tells apart take a clock (tasks 3.7 and 6.6). Storage's two findings land in group 3 (task 3.6).

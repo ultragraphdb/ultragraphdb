@@ -23,15 +23,15 @@ use ultragraphdb_protocol_wire::{
     MAX_FRAME_SIZE_U32, Recall,
 };
 use ultragraphdb_tests::{
-    CLIENT_ADDRESS, CLUSTER, FRONTEND_OBSERVABILITY, SECRET, START_SECONDS, STORAGE_OBSERVABILITY,
-    SYSTEM_ROLE_ADDRESS, exit_is, frontend_holding, http_status, members_at, until_answering, with,
+    CLUSTER, SECRET, START_SECONDS, exit_is, frontend_holding, frontend_observability, http_status,
+    members_at, storage_observability, system_role_address, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::Steps;
 use crate::endpoint_steps::{ADMIN, PASSWORD, client_address};
 use crate::processes::{
-    ENDED, Roles, SECOND_ROLE_ADDRESS, admin, host_of, second_of, subject_of, write_of,
+    ENDED, Roles, admin, host_of, second_of, second_role_address, subject_of, write_of,
 };
 
 /// How long the frontend of a scenario that loses the system group for good waits for it.
@@ -114,15 +114,18 @@ fn frontend_started(w: &mut Steps) -> TestResult {
 }
 
 #[then("it listens at its client address and its observability address alone")]
-fn listens_alone(w: &mut Steps) {
-    let expected: Vec<String> = [CLIENT_ADDRESS, FRONTEND_OBSERVABILITY]
-        .into_iter()
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .map(str::to_string)
-        .collect();
+fn listens_alone(w: &mut Steps) -> TestResult {
+    let expected: Vec<String> = [
+        ultragraphdb_tests::client_address()?,
+        frontend_observability()?,
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>()
+    .into_iter()
+    .collect();
     assert_eq!(w.seen, expected);
     w.processes = Roles::default();
+    Ok(())
 }
 
 #[when(
@@ -190,7 +193,7 @@ fn storage_restarted(w: &mut Steps) -> TestResult {
     roles.start_second(second_of()?)?;
     roles.start_frontend(frontend_holding()?, true)?;
     let subject = subject_of("http://ex.org/second", 2)?;
-    let system = format!("tcp://{SYSTEM_ROLE_ADDRESS}");
+    let system = format!("tcp://{}", system_role_address()?);
     let before = Runtime::new()?.block_on(async {
         let mut client = admin(1).await?;
         Ok::<_, TestError>(
@@ -229,7 +232,7 @@ fn dialled_again(w: &mut Steps) -> TestResult {
     assert_eq!(before, "Ok(())", "a write before the restart: {log}");
     // The restarted process joined again at its address, which Members names for partition 2.
     assert!(
-        members.contains(&format!("2, \"tcp://{SECOND_ROLE_ADDRESS}\"")),
+        members.contains(&format!("2, \"tcp://{}\"", second_role_address()?)),
         "{members}"
     );
     assert_eq!(after, "Ok(())", "the next write: {log}");
@@ -241,14 +244,14 @@ fn dialled_again(w: &mut Steps) -> TestResult {
 /// whether the frontend's `/health` answered while its `/ready` did not yet.
 fn readiness_order() -> TestResult<(bool, bool)> {
     let ready = |address: &str| http_status(address, "/ready").is_ok_and(|status| status == 200);
+    let (frontend, storage) = (frontend_observability()?, storage_observability()?);
     let mut healthy_first = false;
     for _ in 0..START_SECONDS * 100 {
-        if ready(FRONTEND_OBSERVABILITY) {
+        if ready(&frontend) {
             // Readiness only rises, so storage's `/ready` read after the frontend's says whether it answered before.
-            return Ok((ready(STORAGE_OBSERVABILITY), healthy_first));
+            return Ok((ready(&storage), healthy_first));
         }
-        healthy_first |=
-            http_status(FRONTEND_OBSERVABILITY, "/health").is_ok_and(|status| status == 200);
+        healthy_first |= http_status(&frontend, "/health").is_ok_and(|status| status == 200);
         std::thread::sleep(LOOK);
     }
     Err(TestError::new("the frontend's /ready never answered"))
@@ -280,7 +283,7 @@ fn frontend_while_recovering(w: &mut Steps) -> TestResult {
     roles.start_host(settings, false)?;
     roles.start_frontend_unwaited(frontend_settings)?;
     let storage_ready_now =
-        http_status(STORAGE_OBSERVABILITY, "/ready").is_ok_and(|status| status == 200);
+        http_status(&storage_observability()?, "/ready").is_ok_and(|status| status == 200);
     let (storage_first, healthy_first) = readiness_order()?;
     w.seen = vec![
         storage_ready_now.to_string(),
@@ -314,10 +317,10 @@ fn ready_after_storage(w: &mut Steps) -> TestResult {
 fn frontend_before_storage(w: &mut Steps) -> TestResult {
     let mut roles = Roles::default();
     roles.start_frontend(frontend_holding()?, false)?;
-    let unready = http_status(FRONTEND_OBSERVABILITY, "/ready")?;
+    let unready = http_status(&frontend_observability()?, "/ready")?;
     // The frontend dials meanwhile; the host starts well within the default deadline of 60 s.
     std::thread::sleep(Duration::from_millis(500));
-    let still = http_status(FRONTEND_OBSERVABILITY, "/ready")?;
+    let still = http_status(&frontend_observability()?, "/ready")?;
     roles.start_host(host_of(1)?, false)?;
     let (storage_first, _healthy) = readiness_order()?;
     w.seen = vec![
@@ -369,7 +372,7 @@ fn host_gone(w: &mut Steps) -> TestResult {
 )]
 fn frontend_ended(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 69)?;
-    assert!(w.log.contains(SYSTEM_ROLE_ADDRESS), "{}", w.log);
+    assert!(w.log.contains(&system_role_address()?), "{}", w.log);
     assert!(w.log.contains("stopping role=frontend"), "{}", w.log);
     w.processes = Roles::default();
     Ok(())
@@ -406,7 +409,7 @@ fn code_of(error: &ClientError) -> Option<ErrorCode> {
 /// What partition 2 answers a Recall of `request` of `session` with: the command of its answer, and an Error's code.
 fn recalled(session: u128, request: u64) -> TestResult<(Command, Option<ErrorCode>)> {
     Runtime::new()?.block_on(async {
-        let address = Address::parse(&format!("tcp://{SECOND_ROLE_ADDRESS}"))?;
+        let address = Address::parse(&format!("tcp://{}", second_role_address()?))?;
         let mut role = RoleClient::dial(&address, CLUSTER, "frontend", SECRET).await?;
         role.send_only(&Recall::new(2, session.to_be_bytes(), request))
             .await?;
@@ -446,7 +449,7 @@ fn commit_in_outage(w: &mut Steps) -> TestResult {
     // The partition's table, asked while the group is gone: whether the refused request reached it.
     let at_partition = recalled(session.number(), first + 1)?;
     roles.start_host(settings, true)?;
-    until_answering(FRONTEND_OBSERVABILITY, "/ready")?;
+    until_answering(&frontend_observability()?, "/ready")?;
     let resent = runtime.block_on(async { client.resolve(session).await });
     w.seen = vec![
         format!("{:?}", refused.as_ref().err().and_then(code_of)),
@@ -580,24 +583,25 @@ fn group_lost_and_back(w: &mut Steps) -> TestResult {
     let mut roles = Roles::default();
     roles.start_host(host_of(1)?, true)?;
     roles.start_frontend(frontend_holding()?, true)?;
-    let ready_before = http_status(FRONTEND_OBSERVABILITY, "/ready")?;
+    let ready_before = http_status(&frontend_observability()?, "/ready")?;
     let (host, settings) = roles.host.take().context("the host")?;
     let _killed = roles.kill(host)?;
     // The frontend's `/ready` once its link has found the connection closed, and its `/health` then; the default deadline,
     // 60 s, leaves the frontend running throughout.
     let mut withdrawn = None;
+    let frontend = frontend_observability()?;
     for _ in 0..START_SECONDS * 100 {
-        let ready = http_status(FRONTEND_OBSERVABILITY, "/ready")?;
+        let ready = http_status(&frontend, "/ready")?;
         if ready != 200 {
-            withdrawn = Some((ready, http_status(FRONTEND_OBSERVABILITY, "/health")?));
+            withdrawn = Some((ready, http_status(&frontend, "/health")?));
             break;
         }
         std::thread::sleep(LOOK);
     }
     let (unready, healthy) = withdrawn.context("the frontend's /ready withdrawn")?;
     roles.start_host(settings, true)?;
-    until_answering(FRONTEND_OBSERVABILITY, "/ready")?;
-    let ready_after = http_status(FRONTEND_OBSERVABILITY, "/ready")?;
+    until_answering(&frontend_observability()?, "/ready")?;
+    let ready_after = http_status(&frontend_observability()?, "/ready")?;
     w.seen = vec![
         ready_before.to_string(),
         unready.to_string(),

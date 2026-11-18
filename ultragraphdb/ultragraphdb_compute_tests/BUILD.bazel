@@ -6,6 +6,7 @@
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("//bazel:test_ports.bzl", "port_env")
 
 # What the compute binary links, for the test that fails when it links an engine.
 genquery(
@@ -15,25 +16,27 @@ genquery(
 )
 
 # The binaries as processes: each is copied into the sandbox, and the test starts it. No container is involved, so Bazel
-# caches the result. The ports are declared and fixed, so `exclusive` keeps any other test from running beside this one; it
-# stays sandboxed.
-rust_test(
-    name = "bdd",
-    srcs = glob(["tests/**/*.rs"]),
-    crate_root = "tests/bdd.rs",
-    data = glob(["features/**/*.feature"]) + [
-        ":copy_frontend",
-        ":copy_compute",
-        ":copy_storage",
-        ":compute_deps",
-    ],
-    tags = [
-        "exclusive",
-        "integration_test",
-    ],
-    use_libtest_harness = False,
-    deps = all_crate_deps(normal_dev = True),
-)
+# caches the result. One target per feature file, each listening in a block of ports of its own (`port_env`), so the targets
+# run side by side; each stays sandboxed. A target's runfiles hold its feature file alone, and cucumber runs what `features/`
+# holds.
+[
+    rust_test(
+        name = "bdd_" + feature.removeprefix("features/").removesuffix(".feature").replace("/", "_").replace("-", "_"),
+        srcs = glob(["tests/**/*.rs"]),
+        crate_root = "tests/bdd.rs",
+        data = [feature] + [
+            ":copy_frontend",
+            ":copy_compute",
+            ":copy_storage",
+            ":compute_deps",
+        ],
+        env = port_env(index),
+        tags = ["integration_test", "compute-integration-test"],
+        use_libtest_harness = False,
+        deps = all_crate_deps(normal_dev = True),
+    )
+    for index, feature in enumerate(glob(["features/**/*.feature"]))
+]
 
 # Copy the frontend binary into the sandbox.
 copy_file(

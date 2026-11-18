@@ -11,7 +11,9 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 
 const PATTERN: u64 = 0x1122_3344_5566_7788;
 const SCOPE: u64 = 0x99AA_BBCC_DDEE_FF00;
-const FIXED: usize = 24;
+const PARTITION: u32 = 3;
+/// The fixed part, `PROTOCOL.md` §11.8: checksum, pattern, scope, partition and four zero bytes.
+const FIXED: usize = 32;
 const RESUME_ROW: usize = 20;
 
 /// A key of a row in a named graph with a reifier and a literal object.
@@ -26,7 +28,7 @@ fn key() -> TestResult<Vec<u8>> {
     })?;
     let reifier = terms.iri("http://ex.org/r");
     let row = ResumeRow::new(Some(graph), subject, predicate, object, Some(reifier));
-    Ok(ResumeKey::new(PATTERN, SCOPE, terms, row).encode())
+    Ok(ResumeKey::new(PATTERN, SCOPE, PARTITION, terms, row).encode())
 }
 
 /// `bytes` with its checksum written again, so a rule behind it is what refuses.
@@ -45,6 +47,8 @@ fn test_a_key_reads_back_as_it_was_written() -> TestResult {
     let view = ResumeKeyView::read(&bytes)?;
     assert_eq!(view.pattern(), PATTERN);
     assert_eq!(view.scope(), SCOPE);
+    assert_eq!(view.partition(), PARTITION);
+    assert!(view.ordering().is_empty());
     let row = view.row();
     let iri_at = |index| view.terms().get(index);
     assert_eq!(
@@ -71,7 +75,7 @@ fn test_a_key_reads_back_as_it_was_written() -> TestResult {
 fn test_the_default_graph_and_no_reifier_read_as_none() -> TestResult {
     let mut terms = TermTable::new();
     let (a, p) = (terms.iri("http://ex.org/a"), terms.iri("http://ex.org/p"));
-    let bytes = ResumeKey::new(1, 2, terms, ResumeRow::new(None, a, p, a, None)).encode();
+    let bytes = ResumeKey::new(1, 2, 1, terms, ResumeRow::new(None, a, p, a, None)).encode();
     let row = ResumeKeyView::read(&bytes)?.row();
     assert_eq!(row.graph(), None);
     assert_eq!(row.reifier(), None);
@@ -149,7 +153,7 @@ fn test_a_term_table_that_does_not_read_is_refused() -> TestResult {
 fn test_an_index_past_the_table_is_refused() -> TestResult {
     let mut terms = TermTable::new();
     let a = terms.iri("http://ex.org/a");
-    let bytes = ResumeKey::new(1, 2, terms, ResumeRow::new(None, a, 9, a, None)).encode();
+    let bytes = ResumeKey::new(1, 2, 1, terms, ResumeRow::new(None, a, 9, a, None)).encode();
     let refused = ResumeKeyView::read(&bytes).err().context("a refusal")?;
     assert!(
         matches!(refused.0, ProtocolErrorEnum::IndexOutOfRange { .. }),
@@ -171,11 +175,90 @@ fn test_absent_is_refused_for_the_subject_predicate_and_object() -> TestResult {
         let bytes = ResumeKey::new(
             1,
             2,
+            1,
             terms,
             ResumeRow::new(None, subject, predicate, object, None),
         )
         .encode();
         assert!(ResumeKeyView::read(&bytes).is_err(), "slot {slot}");
     }
+    Ok(())
+}
+
+/// The fixed part is 32 bytes (§4.1, §11.8): `partition` little-endian at 24, four zero bytes at 28, and the section table
+/// of four sections after it, section 0 at `align8(32 + 32)`.
+#[test]
+fn test_the_fixed_part_holds_the_partition_at_24() -> TestResult {
+    let bytes = key()?;
+    assert_eq!(bytes.get(24..28), Some(PARTITION.to_le_bytes().as_slice()));
+    assert_eq!(bytes.get(28..32), Some([0u8; 4].as_slice()));
+    assert_eq!(bytes.get(32..36), Some(64u32.to_le_bytes().as_slice()));
+    Ok(())
+}
+
+#[test]
+fn test_the_ordering_value_reads_back() -> TestResult {
+    let mut terms = TermTable::new();
+    let (a, p) = (terms.iri("http://ex.org/a"), terms.iri("http://ex.org/p"));
+    let bytes = ResumeKey::new(1, 2, 4, terms, ResumeRow::new(None, a, p, a, None))
+        .with_ordering(vec![0x80, 0, 7])
+        .encode();
+    let view = ResumeKeyView::read(&bytes)?;
+    assert_eq!(view.ordering(), &[0x80, 0, 7]);
+    assert_eq!(view.partition(), 4);
+    Ok(())
+}
+
+#[test]
+fn test_nonzero_padding_after_the_partition_is_refused() -> TestResult {
+    for at in [28usize, 31] {
+        let mut bytes = key()?;
+        *bytes.get_mut(at).context("a padding byte")? = 1;
+        let refused = ResumeKeyView::read(&checksummed(bytes)?)
+            .err()
+            .context("a refusal")?;
+        assert!(
+            matches!(refused.0, ProtocolErrorEnum::PaddingNotZero { offset, .. } if offset == at),
+            "byte {at}: {refused:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_partition_zero_is_refused() -> TestResult {
+    let mut bytes = key()?;
+    bytes
+        .get_mut(24..28)
+        .context("the partition")?
+        .copy_from_slice(&0u32.to_le_bytes());
+    let refused = ResumeKeyView::read(&checksummed(bytes)?)
+        .err()
+        .context("a refusal")?;
+    assert!(
+        matches!(refused.0, ProtocolErrorEnum::FieldValue { field, value, .. } if field == "partition" && value == 0),
+        "{refused:?}"
+    );
+    Ok(())
+}
+
+/// C5.26: nonzero padding and partition 0 in one key are refused by the padding, the earlier check of §11.8.
+#[test]
+fn test_the_padding_is_checked_before_the_partition() -> TestResult {
+    let mut bytes = key()?;
+    bytes
+        .get_mut(24..32)
+        .context("the partition and the padding")?
+        .copy_from_slice(&[0, 0, 0, 0, 1, 0, 0, 0]);
+    let refused = ResumeKeyView::read(&checksummed(bytes)?)
+        .err()
+        .context("a refusal")?;
+    assert!(
+        matches!(
+            refused.0,
+            ProtocolErrorEnum::PaddingNotZero { offset: 28, .. }
+        ),
+        "{refused:?}"
+    );
     Ok(())
 }

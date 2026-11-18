@@ -7,11 +7,12 @@
 //! check whole is `harness_tests`'s.
 
 use ultragraphdb_tests::{
-    CLIENT_ADDRESS, CLUSTER, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS, FRONTEND_OBSERVABILITY,
-    STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, SYSTEM_ROLE_ADDRESS, compute_on_one_host,
-    frontend_on_one_host, not_hosting, render_settings, storage_on_one_host,
+    CLUSTER, client_address, compute_observability, compute_on_one_host, compute_role_address,
+    config_address, double_address, frontend_observability, frontend_on_one_host, not_hosting,
+    render_settings, storage_observability, storage_on_one_host, storage_role_address,
+    system_role_address,
 };
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, PORT_BLOCK, TestResult, port};
 
 /// The setting `name` of `settings`.
 fn setting(settings: &[(String, String)], name: &str) -> TestResult<String> {
@@ -24,13 +25,16 @@ fn setting(settings: &[(String, String)], name: &str) -> TestResult<String> {
 
 #[test]
 fn test_the_frontend_listens_at_its_declared_addresses() -> TestResult {
-    let settings = frontend_on_one_host();
+    let settings = frontend_on_one_host()?;
     let tcp = |address: &str| format!("tcp://{address}");
     assert_eq!(
         setting(&settings, "observability.address")?,
-        tcp(FRONTEND_OBSERVABILITY)
+        tcp(&frontend_observability()?)
     );
-    assert_eq!(setting(&settings, "endpoint.address")?, tcp(CLIENT_ADDRESS));
+    assert_eq!(
+        setting(&settings, "endpoint.address")?,
+        tcp(&client_address()?)
+    );
     assert!(
         settings
             .iter()
@@ -45,28 +49,20 @@ fn test_the_frontend_listens_at_its_declared_addresses() -> TestResult {
 #[test]
 fn test_storage_hosts_the_system_group_every_role_dials() -> TestResult {
     let tcp = |address: &str| format!("tcp://{address}");
-    let storage = storage_on_one_host();
-    assert_eq!(
-        setting(&storage, "system.role_address")?,
-        tcp(SYSTEM_ROLE_ADDRESS)
-    );
-    for settings in [frontend_on_one_host(), compute_on_one_host(), storage] {
-        assert_eq!(
-            setting(&settings, "cluster.system_address")?,
-            tcp(SYSTEM_ROLE_ADDRESS)
-        );
+    let system = tcp(&system_role_address()?);
+    let storage = storage_on_one_host()?;
+    assert_eq!(setting(&storage, "system.role_address")?, system);
+    for settings in [frontend_on_one_host()?, compute_on_one_host()?, storage] {
+        assert_eq!(setting(&settings, "cluster.system_address")?, system);
     }
-    let other = not_hosting(storage_on_one_host());
+    let other = not_hosting(storage_on_one_host()?);
     assert!(
         other.iter().all(|(name, _)| !name.starts_with("system.")
             && !name.starts_with("sequencer.")
             && name != "cluster.partition_count"),
         "{other:?}"
     );
-    assert_eq!(
-        setting(&other, "cluster.system_address")?,
-        tcp(SYSTEM_ROLE_ADDRESS)
-    );
+    assert_eq!(setting(&other, "cluster.system_address")?, system);
     Ok(())
 }
 
@@ -75,25 +71,59 @@ fn test_compute_and_storage_listen_at_their_declared_addresses() -> TestResult {
     let tcp = |address: &str| format!("tcp://{address}");
     for (settings, role_address, observability, own) in [
         (
-            compute_on_one_host(),
+            compute_on_one_host()?,
             "compute.role_address",
-            COMPUTE_OBSERVABILITY,
-            COMPUTE_ROLE_ADDRESS,
+            compute_observability()?,
+            compute_role_address()?,
         ),
         (
-            storage_on_one_host(),
+            storage_on_one_host()?,
             "storage.role_address",
-            STORAGE_OBSERVABILITY,
-            STORAGE_ROLE_ADDRESS,
+            storage_observability()?,
+            storage_role_address()?,
         ),
     ] {
         assert_eq!(setting(&settings, "cluster.id")?, CLUSTER.to_string());
-        assert_eq!(setting(&settings, role_address)?, tcp(own));
+        assert_eq!(setting(&settings, role_address)?, tcp(&own));
         assert_eq!(
             setting(&settings, "observability.address")?,
-            tcp(observability)
+            tcp(&observability)
         );
     }
+    Ok(())
+}
+
+/// Every declared address lies in the target's block, on the loopback, and no two share a port; the first storage
+/// process's four partitions take the ports after its role address, which none of the others holds.
+#[test]
+fn test_the_declared_addresses_lie_apart_in_the_targets_block() -> TestResult {
+    let declared = [
+        client_address()?,
+        system_role_address()?,
+        compute_role_address()?,
+        storage_role_address()?,
+        config_address()?,
+        double_address()?,
+        frontend_observability()?,
+        compute_observability()?,
+        storage_observability()?,
+    ];
+    let (first, past) = (port(0)?, port(PORT_BLOCK - 1)?);
+    let mut ports = Vec::new();
+    for address in &declared {
+        let held: u16 = address
+            .strip_prefix("127.0.0.1:")
+            .context(&format!("{address} on the loopback"))?
+            .parse()?;
+        assert!((first..=past).contains(&held), "{address}");
+        ports.push(held);
+    }
+    let storage = ports.get(3).copied().context("storage's port")?;
+    ports.extend((1..4).map(|partition| storage + partition));
+    let count = ports.len();
+    ports.sort_unstable();
+    ports.dedup();
+    assert_eq!(ports.len(), count, "{declared:?}");
     Ok(())
 }
 

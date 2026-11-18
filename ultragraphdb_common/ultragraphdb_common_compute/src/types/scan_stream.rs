@@ -37,6 +37,8 @@ pub(crate) struct ScanStream {
     sequence: EntriesSequence,
     took: bool,
     ended: bool,
+    /// Whether its frames are a read's steps, counted in the core's count; a pin's are not, though each gives the core back.
+    counted: bool,
 }
 
 impl ScanStream {
@@ -57,14 +59,24 @@ impl ScanStream {
             sequence: EntriesSequence::new(scan.ranges()),
             took: false,
             ended: false,
+            counted: true,
         })
+    }
+
+    /// The stream of a Scan that holds a read's version and reads no row: each frame it takes still gives the core back, and
+    /// counts no step of a read.
+    pub(crate) fn uncounted(mut self) -> Self {
+        self.counted = false;
+        self
     }
 
     /// The next frame, granting the credit the frame before it spent, read by `read` while its buffer lasts. A refusal of the
     /// partition's comes back as it was sent. A frame compute refuses closes the connection, and the read takes code 17; what the
     /// store holds that `read` cannot read takes this read alone, with code 17.
+    /// Each frame taken ends a step of the read, which gives its core back (design D3).
     /// A future dropped at its wait leaves the frame to come to the next call, which grants one more credit, so the
-    /// partition may send one frame ahead; dropping the stream cancels its Scan.
+    /// partition may send one frame ahead; dropped at the step's end, it leaves the frame taken and lost to the read, which
+    /// only a read's own end drops; dropping the stream cancels its Scan.
     pub(crate) async fn next<T>(
         &mut self,
         read: impl FnOnce(&EntriesView<'_>) -> Result<T, ReadFault>,
@@ -92,6 +104,9 @@ impl ScanStream {
             return Err(self.link.closed_under_read());
         };
         let taken = self.taken(&frame, read);
+        drop(frame);
+        // The frame is consumed: the step ends here, whatever the frame said (design D3).
+        self.link.step(self.counted).await;
         if let Err(Refused::Frame(why)) = &taken {
             self.ended = true;
             self.link.close(why);

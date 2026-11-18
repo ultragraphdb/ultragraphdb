@@ -276,7 +276,7 @@ the sections:
 
 | Body offset | Contents |
 |---|---|
-| 0 | the fixed part, `F` bytes, a multiple of 8. Every command body has `F = 0`; the write-set record has `F = 64` (section 12.2) and a resume key `F = 24` (section 11.8) |
+| 0 | the fixed part, `F` bytes, a multiple of 8. Every command body has `F = 0`; the write-set record has `F = 64` (section 12.2) and a resume key `F = 32` (section 11.8) |
 | F | the section table: for each of the command's `N` sections, `offset` u32 then `len` u32, both body offsets and lengths |
 | F + 8N | the sections, in order |
 

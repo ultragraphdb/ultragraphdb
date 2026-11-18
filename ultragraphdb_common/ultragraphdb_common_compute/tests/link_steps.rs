@@ -23,7 +23,7 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::Steps;
-use crate::endpoint_stage::{BIND_VERSION, CLUSTER, answer_empty, until};
+use crate::endpoint_stage::{BIND_VERSION, CLUSTER, until};
 use crate::played_stage::{Played, now, played_run};
 
 /// A refusal as a test's error.
@@ -604,45 +604,6 @@ fn a_subscription_opened_again(w: &mut Steps) -> TestResult {
     "the core reads Placement and, with Catalog, the current version of `t1` before it answers its next Begin, and its view then holds epoch 12, version 4 of `t1` and the placement in effect"
 )]
 fn a_subscription_opened_again_held(w: &mut Steps) {
-    assert!(w.ran, "the scenario ran");
-}
-
-#[when(
-    "the only compute process the frontend knows stops, another has joined the system group meanwhile, and a client sends a Read"
-)]
-fn a_later_compute(w: &mut Steps) -> TestResult {
-    played_run(w, || async {
-        let played = Played::start(SystemPlay::new(CLUSTER, 1), 1).await?;
-        let _partition = played.partition(1, ordinary).await?;
-        let first = played.compute(answer_empty).await?;
-        first.close();
-        let second = ultragraphdb_common_compute::RoleDouble::start(
-            &played.cluster,
-            ultragraphdb_protocol_transport::Endpoint::Compute,
-            answer_empty,
-        )
-        .await?;
-        // Joined meanwhile: listed by Members, which the core has not read since.
-        played.play.compute(second.address());
-        let mut client = played.ann(0).await?;
-        let transaction = client
-            .send(&Begin::new(0, 0, true).with_level(ReadLevel::Snapshot))
-            .await?;
-        assert_eq!(client.got(transaction).await?.command, Command::Begin);
-        let read = client.read(transaction, "http://ex.org/s").await?;
-        let got = client.got(read).await?;
-        assert_eq!(got.code, None, "{}", got.message);
-        assert_eq!(
-            second.count(Command::ComputeRead),
-            1,
-            "relayed to the new process"
-        );
-        Ok(())
-    })
-}
-
-#[then("the frontend reads Members, dials the new process and relays the Read to it")]
-fn a_later_compute_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 

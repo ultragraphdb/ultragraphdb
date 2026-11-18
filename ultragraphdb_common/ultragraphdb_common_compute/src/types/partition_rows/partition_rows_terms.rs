@@ -241,6 +241,7 @@ impl PartitionRows {
         let key = ResumeKey::new(
             read.pattern_hash,
             read.scope(),
+            self.partition(),
             table,
             ResumeRow::new(graph, subject, predicate, object, reifier),
         );

@@ -6,6 +6,7 @@
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("//bazel:test_ports.bzl", "port_env")
 
 # What the service links, for the test that fails when it links an engine.
 genquery(
@@ -15,8 +16,8 @@ genquery(
 )
 
 # The binaries as processes: each is copied into the sandbox, and the test starts it. No container is involved, so Bazel
-# caches the result. The port is declared and fixed, so `exclusive` keeps any other test from running beside this one; it
-# stays sandboxed.
+# caches the result. The ports are fixed within the block `port_env` gives the target, so it runs beside every other; it stays
+# sandboxed.
 rust_test(
     name = "bdd",
     srcs = ["tests/bdd.rs"],
@@ -28,10 +29,8 @@ rust_test(
         "//deploy/helm/ultragraphdb:profile",
         "//ultragraphdb/ultragraphdb_config:profiles",
     ],
-    tags = [
-        "exclusive",
-        "integration_test",
-    ],
+    env = port_env(0),
+    tags = ["integration_test", "config-integration-test"],
     use_libtest_harness = False,
     deps = all_crate_deps(normal_dev = True),
 )

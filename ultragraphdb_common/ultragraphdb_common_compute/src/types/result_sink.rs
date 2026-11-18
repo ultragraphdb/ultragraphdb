@@ -3,6 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use ultragraphdb_protocol_wire::{
@@ -12,7 +15,7 @@ use ultragraphdb_protocol_wire::{
 use crate::types::pushed::Pushed;
 
 /// Where a read's Result batches go: each built within the read's `max_frame`, one at a time, the next only once the one before
-/// has left and the stream holds credit (`PROTOCOL.md` §13.12).
+/// has left and the stream holds credit (`PROTOCOL.md` §11.3, §11.12, *Reads*).
 #[derive(Debug)]
 pub(crate) struct ResultSink {
     cluster: u64,
@@ -23,16 +26,18 @@ pub(crate) struct ResultSink {
     batch: ResultBatch,
     pushes: UnboundedSender<Pushed>,
     room: UnboundedReceiver<()>,
+    /// The core's count of its reads' steps, shared with the core on its one thread (Ultra rule 9).
+    steps: Rc<Cell<u64>>,
 }
 
 impl ResultSink {
-    /// The sink of a read on `stream` of frames of at most `max_frame` bytes and of `columns` columns.
+    /// The sink of a read on `stream` of frames of at most `max_frame` bytes and of `columns` columns, each batch but the last
+    /// a step counted in `steps`.
     pub(crate) fn new(
         (cluster, stream): (u64, u64),
-        max_frame: u32,
-        columns: u32,
-        pushes: UnboundedSender<Pushed>,
-        room: UnboundedReceiver<()>,
+        (max_frame, columns): (u32, u32),
+        (pushes, room): (UnboundedSender<Pushed>, UnboundedReceiver<()>),
+        steps: Rc<Cell<u64>>,
     ) -> Self {
         Self {
             cluster,
@@ -43,6 +48,7 @@ impl ResultSink {
             batch: ResultBatch::new(columns),
             pushes,
             room,
+            steps,
         }
     }
 
@@ -136,7 +142,13 @@ impl ResultSink {
         self.pushes
             .unbounded_send(Pushed::Frame(self.stream, frame))
             .map_err(|_| ErrorReply::new(ErrorCode::Unavailable, "the read's connection closed"))?;
-        if !last && self.room.next().await.is_none() {
+        if last {
+            return Ok(());
+        }
+        // The batch is built: the step ends at the wait for its room, which comes only once the batch has left, so the core
+        // runs its other ready tasks first (design D3).
+        self.steps.set(self.steps.get().saturating_add(1));
+        if self.room.next().await.is_none() {
             return Err(ErrorReply::new(
                 ErrorCode::Unavailable,
                 "the read's connection closed",

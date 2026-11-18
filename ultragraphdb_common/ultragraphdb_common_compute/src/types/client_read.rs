@@ -3,37 +3,19 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::time::Instant;
-
 use ultragraphdb_core_ids::Bucket;
-use ultragraphdb_protocol_wire::QuadPattern;
 
-use crate::types::role_link::RoleLink;
+use crate::types::read_pattern::ReadPattern;
 
-/// A read of a transaction, held or at a compute process.
+/// A read of a transaction, held behind its transaction's order or run by the session's executor.
 #[derive(Debug)]
 pub(crate) struct ClientRead {
     /// The transaction's stream.
     pub transaction: u64,
-    /// A ComputeRead's body, the read's sections, until a frame of it reached the client: what the next compute process gets.
-    pub body: Vec<u8>,
-    pub pattern: QuadPattern,
-    pub limit: u32,
+    /// What the read asks, read once as it arrived; a read run again after a refreshed map starts from it again.
+    pub request: ReadPattern,
     /// The bucket of the subject it binds, by which it routes; `None` for an unbound subject.
     pub subject: Option<Bucket>,
-    /// The credit its stream holds.
+    /// The credit its stream holds, which the connection keeps and a past limit's message names.
     pub credit: u32,
-    /// The compute process's stream and link, once sent.
-    pub route: Option<(RoleLink, u64)>,
-    /// Which of its sends is current.
-    pub attempt: u32,
-    /// The compute processes that closed under it.
-    pub tried: Vec<String>,
-    /// How many of its frames reached the client.
-    pub frames: u64,
-    /// When its last frame arrived, or it was sent.
-    pub last_frame: Instant,
-    /// Whether Members was read again for it, which a read finding no compute process left does once before it is refused
-    /// (design D9).
-    pub members_read: bool,
 }

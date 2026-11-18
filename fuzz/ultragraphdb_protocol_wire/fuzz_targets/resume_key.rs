@@ -20,9 +20,11 @@ fn check(data: &[u8]) {
     let key = ResumeKey::new(
         view.pattern(),
         view.scope(),
+        view.partition(),
         view.terms().to_table(),
         view.row(),
-    );
+    )
+    .with_ordering(view.ordering().to_vec());
     assert_eq!(key.encode(), data, "a key has one encoding");
 }
 

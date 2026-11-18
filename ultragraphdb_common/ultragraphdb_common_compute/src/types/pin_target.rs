@@ -46,6 +46,6 @@ impl PinTarget {
         (0..Self::FRAMES).for_each(|_| {
             scan.push_range(ScanRange::new(self.link.partition(), &first, &past));
         });
-        ScanStream::open(&self.link, &scan)
+        ScanStream::open(&self.link, &scan).map(ScanStream::uncounted)
     }
 }

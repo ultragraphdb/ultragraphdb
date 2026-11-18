@@ -191,7 +191,7 @@ fn a_client_past_its_bound_stops_being_read(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend counts at most the bound and one frame for it, reads no further frame of it, and sends it the reply of its Commit, another client commits on partition 2, and when partition 1 reads again the Begin is answered, each stream's Writes reach partition 1 in the order sent, and each Commit is answered"
+    "compute counts at most the bound and one frame for it, reads no further frame of it, and sends it the reply of its Commit, another client commits on partition 2, and when partition 1 reads again the Begin is answered, each stream's Writes reach partition 1 in the order sent, and each Commit is answered"
 )]
 fn a_client_past_its_bound_stops_being_read_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -234,7 +234,7 @@ fn a_limit_ends_what_a_stopped_partition_holds_back(w: &mut Steps) -> TestResult
 }
 
 #[then(
-    "each transaction is answered code 4, the frontend counts nothing for the client, and the Begin is answered while the partition still reads nothing"
+    "each transaction is answered code 4, compute counts nothing for the client, and the Begin is answered while the partition still reads nothing"
 )]
 fn a_limit_ends_what_a_stopped_partition_holds_back_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -317,7 +317,7 @@ fn what_never_left_is_taken_back(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "each one-frame write that never left is answered code 4, the frontend counts nothing for the client, and when the partition reads again it sees none of those, no Bind and no Cancel, and answers the ones that left"
+    "each one-frame write that never left is answered code 4, compute counts nothing for the client, and when the partition reads again it sees none of those, no Bind and no Cancel, and answers the ones that left"
 )]
 fn what_never_left_is_taken_back_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");

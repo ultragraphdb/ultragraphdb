@@ -50,6 +50,8 @@ pub(crate) struct Link {
     closing: RefCell<Option<oneshot::Sender<()>>>,
     /// When the partition last sent a frame on the connection.
     heard: Cell<Instant>,
+    /// The core's count of its reads' steps, shared with the core (Ultra rule 9).
+    steps: Rc<Cell<u64>>,
 }
 
 /// One stream's holder, and the Entries frames it may yet receive (`PROTOCOL.md` §11.3).
@@ -62,11 +64,12 @@ struct OpenStream {
 }
 
 impl Link {
-    /// The link of `partition` over the authenticated `client`, its reader and writer spawned on this core.
+    /// The link of `partition` over the authenticated `client`, its reader and writer spawned on this core, a partition silent
+    /// past `answer_wait` hung, each frame a read takes from it a step counted in `steps`.
     pub(crate) fn start(
         partition: u32,
         cluster: u64,
-        answer_wait: Duration,
+        (answer_wait, steps): (Duration, Rc<Cell<u64>>),
         client: RoleClient,
     ) -> Rc<Self> {
         let (reader, writer, welcome) = client.split();
@@ -83,10 +86,21 @@ impl Link {
             closed: Cell::new(false),
             closing: RefCell::new(Some(closing)),
             heard: Cell::new(now()),
+            steps,
         });
         spawn(write_frames(writer, sending)).detach();
         spawn(read_frames(reader, Rc::clone(&link), closed)).detach();
         link
+    }
+
+    /// Ends a step on this core, which consumed a frame of this link: the step is counted when it is a read's, and the core given
+    /// back, so every other ready task of the core runs before the next step (design D3).
+    /// A dropped future leaves the step counted.
+    pub(crate) async fn step(&self, counted: bool) {
+        if counted {
+            self.steps.set(self.steps.get().saturating_add(1));
+        }
+        yield_once().await;
     }
 
     /// The partition.

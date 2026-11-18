@@ -83,14 +83,44 @@ impl PartitionRows {
                 graph
             }
         };
+        self.enter_graph(&access, graph)?;
+        Ok(true)
+    }
+
+    /// Reads `graph` next: its predicates' list, or its range to come.
+    fn enter_graph(
+        &mut self,
+        access: &crate::types::access::Access,
+        graph: ultragraphdb_core_keys::Graph,
+    ) -> Result<(), ErrorReply> {
         self.graph = graph;
-        let range = self.range_in(&access, graph);
+        let range = self.range_in(access, graph);
         if access.lists_predicates() {
             self.open_listing(&range)?;
         } else {
             self.pending.push_back(range);
         }
-        Ok(true)
+        Ok(())
+    }
+
+    /// Opens the partition's first Scan of rows, where no Scan need come before it, so a partition waiting its turn in a read
+    /// is asked while the partitions before it are drained (`PROTOCOL.md` §11.12, *Reads*); a graph walked opens at its turn.
+    /// Nothing for a partition ended or reading already.
+    pub(crate) fn open_first(&mut self) -> Result<(), ErrorReply> {
+        if self.ended || self.open.is_some() || self.page.has_row() {
+            return Ok(());
+        }
+        if self.pending.is_empty()
+            && let Graphs::One(graph) = self.graphs
+            && let Some(access) = self.access.clone()
+        {
+            self.graphs = Graphs::Done;
+            self.enter_graph(&access, graph)?;
+        }
+        if self.open.is_none() && !self.pending.is_empty() {
+            self.open_pending()?;
+        }
+        Ok(())
     }
 
     /// Opens the Scan of a predicates' list.

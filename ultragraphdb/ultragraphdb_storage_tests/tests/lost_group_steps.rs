@@ -17,7 +17,7 @@ use ultragraphdb_tests::{STORAGE_BINARY, not_hosting, role, scratch, storage_hol
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::played_frontend::{
-    PLAYED_FRONTEND_ADDRESS, Push, STRAY_AHEAD, exit_of, play_frontend, until_seen,
+    Push, STRAY_AHEAD, exit_of, play_frontend, played_frontend_address, until_seen,
 };
 use crate::{Steps, services};
 
@@ -43,7 +43,7 @@ fn broken(w: &mut Steps, push: Push) -> TestResult {
     let settings = with(
         not_hosting(storage_holding()?),
         "cluster.system_address",
-        &format!("tcp://{PLAYED_FRONTEND_ADDRESS}"),
+        &format!("tcp://{}", played_frontend_address()?),
     );
     let util = services()?;
     Runtime::new()?.block_on(async {
@@ -54,7 +54,7 @@ fn broken(w: &mut Steps, push: Push) -> TestResult {
             &settings,
             &log,
             WaitStrategy::NoWait,
-        ))?;
+        )?)?;
         until_seen(|| Ok(played.joined()?.len() > 1), "a second Join").await?;
         w.lost.ended_at_rejoin = played.subscriptions_ended();
         played.hold_rejoins(false);
@@ -96,7 +96,7 @@ fn catalog_broken(w: &mut Steps, push: Push) -> TestResult {
     let settings = with(
         not_hosting(storage_holding()?),
         "cluster.system_address",
-        &format!("tcp://{PLAYED_FRONTEND_ADDRESS}"),
+        &format!("tcp://{}", played_frontend_address()?),
     );
     let util = services()?;
     Runtime::new()?.block_on(async {
@@ -106,7 +106,7 @@ fn catalog_broken(w: &mut Steps, push: Push) -> TestResult {
             &settings,
             &log,
             WaitStrategy::NoWait,
-        ))?;
+        )?)?;
         let joined = until_seen(|| Ok(!played.joined()?.is_empty()), "a Join").await;
         w.lost.catalog_connections = played.catalog_connections();
         w.lost.catalog_ended_at_second = played.catalog_ended_at_second();

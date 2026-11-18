@@ -17,7 +17,7 @@ use ultragraphdb_protocol_wire::{
     Command, DirectWrite, DropCommand, ObjectRecords, RequestTerm, ScanAt, TermTable, WriteChange,
 };
 use ultragraphdb_tests::{
-    CLIENT_ADDRESS, CLUSTER, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, answering, frontend_holding,
+    CLUSTER, FRONTEND_BINARY, answering, client_address, frontend_holding, frontend_observability,
     role, scratch, storage_holding, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -72,15 +72,15 @@ fn started(w: &mut Steps) -> TestResult {
         FRONTEND_BINARY,
         &frontend_holding()?,
         &scratch(FRONTEND_BINARY),
-        answering(FRONTEND_OBSERVABILITY, "/health"),
-    ))?;
+        answering(&frontend_observability()?, "/health"),
+    )?)?;
     w.roles = Some(util);
-    until_answering(FRONTEND_OBSERVABILITY, "/ready")
+    until_answering(&frontend_observability()?, "/ready")
 }
 
 /// The administrator's connection to the frontend's client endpoint.
 async fn admin() -> TestResult<RoleClient> {
-    let target = Address::parse(&format!("tcp://{CLIENT_ADDRESS}"))?;
+    let target = Address::parse(&format!("tcp://{}", client_address()?))?;
     Ok(RoleClient::dial(&target, CLUSTER, ADMIN, PASSWORD).await?)
 }
 

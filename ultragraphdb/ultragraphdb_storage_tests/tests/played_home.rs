@@ -22,13 +22,10 @@ use ultragraphdb_protocol_wire::{
     ReferenceView,
 };
 use ultragraphdb_store_quads::iri_bucket;
-use ultragraphdb_tests::{CLUSTER, SECRET, SYSTEM_ROLE_ADDRESS};
-use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+use ultragraphdb_tests::{CLUSTER, SECRET, system_role_address};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult, port};
 
 use crate::TENANT;
-
-/// The ports of partitions 3 and 4, which the home claims.
-const PORTS: [(u32, u16); 2] = [(3, 17_300), (4, 17_301)];
 
 /// How often a held answer looks whether it may go.
 const POLL: Duration = Duration::from_millis(2);
@@ -162,13 +159,15 @@ fn credentials() -> TestResult<RoleCredentials> {
 pub async fn play_home(script: &HomeScript) -> TestResult {
     let held = credentials()?;
     let mut frontend = RoleClient::dial(
-        &Address::parse(&format!("tcp://{SYSTEM_ROLE_ADDRESS}"))?,
+        &Address::parse(&format!("tcp://{}", system_role_address()?))?,
         CLUSTER,
         "storage",
         SECRET,
     )
     .await?;
-    for (partition, port) in PORTS {
+    // The ports of partitions 3 and 4, which the home claims: the second storage process's.
+    let second = port(crate::SECOND_PROCESS_OFFSET)?;
+    for (partition, port) in [(3, second), (4, second + 1)] {
         let address = format!("tcp://127.0.0.1:{port}");
         let listener = listen(&address).await?;
         let server =

@@ -99,7 +99,7 @@ becomes a corner case of `RoleLink`, written as a unit test in phase 2 (task 4.1
 
 | Left by stage 5.8 | Taken by |
 | --- | --- |
-| `common_frontend`'s 77 missed mutants and 77 timeouts (backlog item 25) | Task 5.9, after task 5.7 removes the relay's code and its mutants with it |
+| `common_frontend`'s 77 missed mutants and 77 timeouts (backlog item 25) | Task 9.1, the change's one mutation run, after group 5 removes the relay's code and its mutants with it |
 | `make property-random` not run at the close | Run on 2026-11-18, green; part of task 0.6's gate |
 | The registry's counterexample (group 4, finding 5) | Task 0.6 |
 | The reader rule in three places (backlog item 23) | Task 0.7 |

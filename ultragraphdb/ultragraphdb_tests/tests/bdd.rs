@@ -38,11 +38,11 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use ultragraphdb_protocol_wire::RoleKind;
 use ultragraphdb_tests::{
-    COMPUTE_BINARY, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS, CONFIG_BINARY, FRONTEND_BINARY,
-    FRONTEND_OBSERVABILITY, SECRET, STORAGE_BINARY, STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS,
-    SYSTEM_ROLE_ADDRESS, answering, compute_on_one_host, frontend_holding, holding, http_status,
-    members_at, role_of_service, scratch, start_config_service, storage_holding, until_answering,
-    with,
+    COMPUTE_BINARY, CONFIG_BINARY, FRONTEND_BINARY, SECRET, STORAGE_BINARY, answering,
+    compute_observability, compute_on_one_host, compute_role_address, frontend_holding,
+    frontend_observability, holding, http_status, members_at, role_of_service, scratch,
+    start_config_service, storage_holding, storage_observability, storage_role_address,
+    system_role_address, until_answering, with,
 };
 use ultragraphdb_tool_bdd::TestResult;
 
@@ -149,20 +149,21 @@ fn start_in_order(
         ],
     )?;
     let log = scratch(FRONTEND_BINARY);
-    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
+    let frontend = frontend_observability()?;
+    let wait = answering(&frontend, "/health");
     let _pid: u32 =
-        util.start_service_from_config(role_of_service(FRONTEND_BINARY, "frontend", &log, wait))?;
+        util.start_service_from_config(role_of_service(FRONTEND_BINARY, "frontend", &log, wait)?)?;
     assert_eq!(
-        http_status(FRONTEND_OBSERVABILITY, "/ready")?,
+        http_status(&frontend, "/ready")?,
         503,
         "the frontend is ready only once a partition answers it"
     );
     for (program, instance, address) in [
-        (STORAGE_BINARY, "storage", STORAGE_OBSERVABILITY),
-        (COMPUTE_BINARY, "compute", COMPUTE_OBSERVABILITY),
+        (STORAGE_BINARY, "storage", storage_observability()?),
+        (COMPUTE_BINARY, "compute", compute_observability()?),
     ] {
-        let ready = answering(address, "/ready");
-        let joined = role_of_service(program, instance, &scratch(program), ready);
+        let ready = answering(&address, "/ready");
+        let joined = role_of_service(program, instance, &scratch(program), ready)?;
         let _joined: u32 = util.start_service_from_config(joined)?;
     }
     w.roles = Some(util);
@@ -171,14 +172,14 @@ fn start_in_order(
 
 #[when("the frontend starts, then storage, then compute")]
 fn start_all(w: &mut Steps) -> TestResult {
-    w.system = format!("tcp://{}", SYSTEM_ROLE_ADDRESS);
-    w.storage = format!("tcp://{}", STORAGE_ROLE_ADDRESS);
-    w.compute = format!("tcp://{}", COMPUTE_ROLE_ADDRESS);
+    w.system = format!("tcp://{}", system_role_address()?);
+    w.storage = format!("tcp://{}", storage_role_address()?);
+    w.compute = format!("tcp://{}", compute_role_address()?);
     start_in_order(
         w,
         &frontend_holding()?,
         &storage_holding()?,
-        &holding(compute_on_one_host(), SECRET)?,
+        &holding(compute_on_one_host()?, SECRET)?,
     )
 }
 
@@ -204,7 +205,7 @@ fn start_all_unix(w: &mut Steps) -> TestResult {
         &st,
     );
     let compute_settings = with(
-        with(compute_on_one_host(), dialled, &g),
+        with(compute_on_one_host()?, dialled, &g),
         "compute.role_address",
         &c,
     );
@@ -223,10 +224,11 @@ fn start_all_unix(w: &mut Steps) -> TestResult {
     "every role's `/ready` answers, the frontend's last, and the frontend's members name storage and compute"
 )]
 fn all_ready(w: &mut Steps) -> TestResult {
-    assert_eq!(http_status(STORAGE_OBSERVABILITY, "/ready")?, 200);
-    assert_eq!(http_status(COMPUTE_OBSERVABILITY, "/ready")?, 200);
-    until_answering(FRONTEND_OBSERVABILITY, "/ready")?;
-    assert_eq!(http_status(FRONTEND_OBSERVABILITY, "/other")?, 404);
+    assert_eq!(http_status(&storage_observability()?, "/ready")?, 200);
+    assert_eq!(http_status(&compute_observability()?, "/ready")?, 200);
+    let frontend = frontend_observability()?;
+    until_answering(&frontend, "/ready")?;
+    assert_eq!(http_status(&frontend, "/other")?, 404);
     let expected = vec![
         (RoleKind::Compute, 0, w.compute.clone()),
         (RoleKind::Storage, 1, w.storage.clone()),

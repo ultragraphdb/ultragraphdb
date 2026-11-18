@@ -6,10 +6,11 @@
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("//bazel:test_ports.bzl", "port_env")
 
 # The supervisor as a process, with the binaries it starts beside it: each is copied into the sandbox, and the test starts the
-# supervisor. No container is involved, so Bazel caches the result. The ports are declared and fixed, so `exclusive` keeps any
-# other test from running beside this one; it stays sandboxed.
+# supervisor. No container is involved, so Bazel caches the result. The ports are fixed within the block `port_env` gives the
+# target, and the roles' sockets are the scenario's own, so it runs beside every other; it stays sandboxed.
 rust_test(
     name = "bdd",
     srcs = glob(["tests/**/*.rs"]),
@@ -23,10 +24,8 @@ rust_test(
         ":copy_supervisor_alone",
         "//ultragraphdb/ultragraphdb_config:profiles",
     ],
-    tags = [
-        "exclusive",
-        "integration_test",
-    ],
+    env = port_env(0),
+    tags = ["integration_test", "supervisor-integration-test"],
     use_libtest_harness = False,
     deps = all_crate_deps(normal_dev = True),
 )
@@ -34,7 +33,9 @@ rust_test(
 # The same scenarios' `@image` and `@docker` features in Docker: each image loaded for the daemon's platform by its load
 # target, run on the shipped profiles under the runtime's default seccomp profile and the shipped one. It reaches the daemon
 # through its socket as scrith's container tests do, stays sandboxed, and says it skipped where no daemon answers. Each
-# container publishes its ports at ports the daemon picks, but the cores are shared, so `exclusive` runs it alone.
+# container publishes its ports at ports the daemon picks and takes a name of the test process's own, but the target loads
+# the images under their fixed tags into the one Docker daemon and runs its containers on the host's cores, so `exclusive`
+# runs it alone. Its block from `port_env` serves whatever the steps derive from the base.
 rust_test(
     name = "image_bdd",
     srcs = glob(["tests/**/*.rs"]),
@@ -50,11 +51,14 @@ rust_test(
         "//ultragraphdb/ultragraphdb_storage:ultragraphdb_storage_multiarch",
         "//ultragraphdb/ultragraphdb_supervisor:development_test_load",
     ],
-    env = {"ULTRAGRAPHDB_IMAGE_TESTS": "1"},
+    env = port_env(
+        1,
+        {"ULTRAGRAPHDB_IMAGE_TESTS": "1"},
+    ),
     tags = [
         "exclusive",
         "image_test",
-        "integration_test",
+        "integration_test", "supervisor-integration-test",
     ],
     use_libtest_harness = False,
     deps = all_crate_deps(normal_dev = True),

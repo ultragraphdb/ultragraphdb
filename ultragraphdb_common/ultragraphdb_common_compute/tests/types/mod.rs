@@ -15,7 +15,6 @@ mod compute_core;
 mod compute_session_tests;
 #[cfg(test)]
 mod endpoint_view_tests;
-mod frontier_tests;
 mod link_tests;
 mod lookup_at_tests;
 mod names_tests;
@@ -25,6 +24,8 @@ mod page_tests;
 mod partition_rows;
 mod range_spec_tests;
 mod read_at_tests;
+mod read_executor_tests;
+mod read_pattern_tests;
 mod read_pins_tests;
 mod read_request_tests;
 mod read_route_tests;

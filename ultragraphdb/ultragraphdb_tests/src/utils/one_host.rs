@@ -6,38 +6,103 @@
 //! Where each binary runs on one host in these tests: its name, its declared ports, and the settings that start it. The role
 //! secret's file and the data directory are each scenario's own.
 
+use ultragraphdb_tool_bdd::{TestResult, loopback};
+
 /// The frontend binary's name.
 pub const FRONTEND_BINARY: &str = "ultragraphdb_frontend";
-
-/// The address the frontend's `/health` and `/ready` listen at.
-pub const FRONTEND_OBSERVABILITY: &str = "127.0.0.1:18081";
 
 /// The cluster a role of this host joins, which every frame's header names.
 pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
-/// The address the system group listens at, in the storage process hosting it, which every role dials.
-pub const SYSTEM_ROLE_ADDRESS: &str = "127.0.0.1:17081";
-
-/// The address clients connect to.
-pub const CLIENT_ADDRESS: &str = "127.0.0.1:17080";
-
 /// The compute binary's name.
 pub const COMPUTE_BINARY: &str = "ultragraphdb_compute";
-
-/// The address compute's `/health` and `/ready` listen at.
-pub const COMPUTE_OBSERVABILITY: &str = "127.0.0.1:18082";
-
-/// The address the frontend dials compute at.
-pub const COMPUTE_ROLE_ADDRESS: &str = "127.0.0.1:17082";
 
 /// The storage binary's name.
 pub const STORAGE_BINARY: &str = "ultragraphdb_storage";
 
+/// The offsets above the target's port base (`ultragraphdb_tool_bdd::port`) of the addresses below. The first storage
+/// process's partitions follow its role address, up to four of them; a test's own addresses take the offsets these leave
+/// free: 4 to 9, 15 to 19, and from 20 on.
+pub(crate) const CLIENT_OFFSET: u16 = 0;
+/// The system group's role address, as [`CLIENT_OFFSET`] says.
+pub(crate) const SYSTEM_ROLE_OFFSET: u16 = 1;
+/// Compute's role address, as [`CLIENT_OFFSET`] says.
+pub(crate) const COMPUTE_ROLE_OFFSET: u16 = 2;
+/// Storage's role address, its first partition's, as [`CLIENT_OFFSET`] says.
+pub(crate) const STORAGE_ROLE_OFFSET: u16 = 3;
+/// The config service's address, as [`CLIENT_OFFSET`] says.
+pub(crate) const CONFIG_OFFSET: u16 = 10;
+/// The config double's address, as [`CLIENT_OFFSET`] says.
+pub(crate) const DOUBLE_OFFSET: u16 = 11;
+/// The frontend's observability, as [`CLIENT_OFFSET`] says.
+pub(crate) const FRONTEND_OBSERVABILITY_OFFSET: u16 = 12;
+/// Compute's observability, as [`CLIENT_OFFSET`] says.
+pub(crate) const COMPUTE_OBSERVABILITY_OFFSET: u16 = 13;
+/// Storage's observability, as [`CLIENT_OFFSET`] says.
+pub(crate) const STORAGE_OBSERVABILITY_OFFSET: u16 = 14;
+
+/// The address the frontend's `/health` and `/ready` listen at.
+///
+/// # Errors
+///
+/// When the target sets no port base, as `ultragraphdb_tool_bdd::port` says.
+pub fn frontend_observability() -> TestResult<String> {
+    loopback(FRONTEND_OBSERVABILITY_OFFSET)
+}
+
+/// The address the system group listens at, in the storage process hosting it, which every role dials.
+///
+/// # Errors
+///
+/// As [`frontend_observability`].
+pub fn system_role_address() -> TestResult<String> {
+    loopback(SYSTEM_ROLE_OFFSET)
+}
+
+/// The address clients connect to.
+///
+/// # Errors
+///
+/// As [`frontend_observability`].
+pub fn client_address() -> TestResult<String> {
+    loopback(CLIENT_OFFSET)
+}
+
+/// The address compute's `/health` and `/ready` listen at.
+///
+/// # Errors
+///
+/// As [`frontend_observability`].
+pub fn compute_observability() -> TestResult<String> {
+    loopback(COMPUTE_OBSERVABILITY_OFFSET)
+}
+
+/// The address the frontend dials compute at.
+///
+/// # Errors
+///
+/// As [`frontend_observability`].
+pub fn compute_role_address() -> TestResult<String> {
+    loopback(COMPUTE_ROLE_OFFSET)
+}
+
 /// The address storage's `/health` and `/ready` listen at.
-pub const STORAGE_OBSERVABILITY: &str = "127.0.0.1:18083";
+///
+/// # Errors
+///
+/// As [`frontend_observability`].
+pub fn storage_observability() -> TestResult<String> {
+    loopback(STORAGE_OBSERVABILITY_OFFSET)
+}
 
 /// The address storage's partitions listen at, the first partition's.
-pub const STORAGE_ROLE_ADDRESS: &str = "127.0.0.1:17083";
+///
+/// # Errors
+///
+/// As [`frontend_observability`].
+pub fn storage_role_address() -> TestResult<String> {
+    loopback(STORAGE_ROLE_OFFSET)
+}
 
 fn named(settings: &[(&str, String)]) -> Vec<(String, String)> {
     settings
@@ -47,73 +112,82 @@ fn named(settings: &[(&str, String)]) -> Vec<(String, String)> {
 }
 
 /// The settings of a frontend dialling the system group, each named `table.key`.
-#[must_use]
-pub fn frontend_on_one_host() -> Vec<(String, String)> {
-    named(&[
+///
+/// # Errors
+///
+/// As [`frontend_observability`].
+pub fn frontend_on_one_host() -> TestResult<Vec<(String, String)>> {
+    Ok(named(&[
         (
             "observability.address",
-            format!("tcp://{FRONTEND_OBSERVABILITY}"),
+            format!("tcp://{}", frontend_observability()?),
         ),
         ("cluster.id", CLUSTER.to_string()),
         (
             "cluster.system_address",
-            format!("tcp://{SYSTEM_ROLE_ADDRESS}"),
+            format!("tcp://{}", system_role_address()?),
         ),
-        ("endpoint.address", format!("tcp://{CLIENT_ADDRESS}")),
+        ("endpoint.address", format!("tcp://{}", client_address()?)),
         ("endpoint.plaintext", "true".to_string()),
-    ])
+    ]))
 }
 
 /// The settings of a compute process joining the system group, each named `table.key`.
-#[must_use]
-pub fn compute_on_one_host() -> Vec<(String, String)> {
-    named(&[
+///
+/// # Errors
+///
+/// As [`frontend_observability`].
+pub fn compute_on_one_host() -> TestResult<Vec<(String, String)>> {
+    Ok(named(&[
         (
             "observability.address",
-            format!("tcp://{COMPUTE_OBSERVABILITY}"),
+            format!("tcp://{}", compute_observability()?),
         ),
         ("cluster.id", CLUSTER.to_string()),
         (
             "cluster.system_address",
-            format!("tcp://{SYSTEM_ROLE_ADDRESS}"),
+            format!("tcp://{}", system_role_address()?),
         ),
         (
             "compute.role_address",
-            format!("tcp://{COMPUTE_ROLE_ADDRESS}"),
+            format!("tcp://{}", compute_role_address()?),
         ),
-    ])
+    ]))
 }
 
 /// The settings of a storage process of one partition hosting the system group, which forms the placement over that
 /// partition, each named `table.key`: `[system]` but its `data_dir`, which is each scenario's own as `storage.data_dir` is.
-#[must_use]
-pub fn storage_on_one_host() -> Vec<(String, String)> {
-    named(&[
+///
+/// # Errors
+///
+/// As [`frontend_observability`].
+pub fn storage_on_one_host() -> TestResult<Vec<(String, String)>> {
+    Ok(named(&[
         (
             "observability.address",
-            format!("tcp://{STORAGE_OBSERVABILITY}"),
+            format!("tcp://{}", storage_observability()?),
         ),
         ("cluster.id", CLUSTER.to_string()),
         (
             "cluster.system_address",
-            format!("tcp://{SYSTEM_ROLE_ADDRESS}"),
+            format!("tcp://{}", system_role_address()?),
         ),
         ("cluster.partition_count", "1".to_string()),
         (
             "storage.role_address",
-            format!("tcp://{STORAGE_ROLE_ADDRESS}"),
+            format!("tcp://{}", storage_role_address()?),
         ),
         ("storage.partition_count", "1".to_string()),
         (
             "system.role_address",
-            format!("tcp://{SYSTEM_ROLE_ADDRESS}"),
+            format!("tcp://{}", system_role_address()?),
         ),
         ("sequencer.epoch_ms_min", "1".to_string()),
         ("sequencer.epoch_ms_max", "20".to_string()),
         // The `[metadata]` table a host holds, as the config service requires; 4,096 is the bound `PROTOCOL.md` §11.9
         // gives when it is not named, so the group runs as it would without it.
         ("metadata.sessions_max", "4096".to_string()),
-    ])
+    ]))
 }
 
 /// `settings`, a storage process's, without what makes it the system group's host: the `[system]`, `[metadata]` and

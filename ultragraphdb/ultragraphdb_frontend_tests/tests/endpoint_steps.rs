@@ -25,9 +25,9 @@ use ultragraphdb_protocol_wire::{
     MAX_FRAME_SIZE_U32, PatternSlot, QuadPattern, Read, TermTable, WriteChange,
 };
 use ultragraphdb_tests::{
-    CLIENT_ADDRESS, CLUSTER, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, SECRET, START_SECONDS,
-    STORAGE_BINARY, STORAGE_OBSERVABILITY, SYSTEM_ROLE_ADDRESS, answering, exit_is,
-    frontend_holding, role, scratch, storage_holding, until_answering, with,
+    CLUSTER, FRONTEND_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering, exit_is,
+    frontend_holding, frontend_observability, role, scratch, storage_holding,
+    storage_observability, system_role_address, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_tls::TestPki;
@@ -75,25 +75,26 @@ pub(crate) fn started(w: &mut Steps, settings: &[(String, String)]) -> TestResul
         STORAGE_BINARY,
         &bootstrapping()?,
         &scratch(STORAGE_BINARY),
-        answering(STORAGE_OBSERVABILITY, "/ready"),
-    ))?;
-    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
+        answering(&storage_observability()?, "/ready"),
+    )?)?;
+    let wait = answering(&frontend_observability()?, "/health");
     let _pid: u32 = util.start_service_from_config(role(
         FRONTEND_BINARY,
         settings,
         &scratch(FRONTEND_BINARY),
         wait,
-    ))?;
+    )?)?;
     w.roles = Some(util);
     until_listening()?;
     // Ready once the frontend's view holds a close and a placement and Members lists the partition (design D10).
-    until_answering(FRONTEND_OBSERVABILITY, "/ready")
+    until_answering(&frontend_observability()?, "/ready")
 }
 
 /// Waits for the client endpoint's listener, which opens after the first start has derived the administrator's verifier.
 pub(crate) fn until_listening() -> TestResult {
+    let client = ultragraphdb_tests::client_address()?;
     for _ in 0..START_SECONDS * 20 {
-        if TcpStream::connect(CLIENT_ADDRESS).is_ok() {
+        if TcpStream::connect(&client).is_ok() {
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -102,7 +103,10 @@ pub(crate) fn until_listening() -> TestResult {
 }
 
 pub(crate) fn client_address() -> TestResult<Address> {
-    Ok(Address::parse(&format!("tcp://{CLIENT_ADDRESS}"))?)
+    Ok(Address::parse(&format!(
+        "tcp://{}",
+        ultragraphdb_tests::client_address()?
+    ))?)
 }
 
 /// A client's connection after its handshake and authentication: what it writes next it numbers from `sent`.
@@ -210,7 +214,7 @@ fn tls_client(w: &mut Steps) -> TestResult {
     Runtime::new()?.block_on(async {
         let cluster = played_cluster()?;
         // The partition is the storage process hosting the system group, which `started` began; compute is played.
-        let frontend = Address::parse(&format!("tcp://{SYSTEM_ROLE_ADDRESS}"))?;
+        let frontend = Address::parse(&format!("tcp://{}", system_role_address()?))?;
         let compute = RoleDouble::start(&cluster, Endpoint::Compute, |frame| {
             batch_frame(CLUSTER, frame.stream(), &empty_batch(4, 1), true)
                 .map_or(Answer::Done, Answer::Reply)
@@ -297,7 +301,7 @@ fn no_decision(w: &mut Steps) -> TestResult {
         &settings,
         &log,
         WaitStrategy::NoWait,
-    ))?;
+    )?)?;
     w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(20))?);
     w.log = std::fs::read_to_string(&log)?;
     Ok(())

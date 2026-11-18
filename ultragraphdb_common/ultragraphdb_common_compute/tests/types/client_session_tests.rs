@@ -12,9 +12,9 @@ use compio::runtime::{Runtime, spawn};
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_compute::{
-    AskedCredentials, AuthThrottle, ClientSession, DoubleFrame, EndpointCore, EndpointLimits,
-    EveryAuthenticated, LoginLimits, RelayAuthenticator, RoleDouble, RoleLinks, SystemLink,
-    TenantGate, batch_frame, empty_batch, last_frame, partition_answer,
+    AskedCredentials, AuthThrottle, ClientSession, ComputeCore, DoubleFrame, EndpointCore,
+    EndpointLimits, EveryAuthenticated, LoginLimits, ReadTimes, RelayAuthenticator, RoleDouble,
+    RoleLinks, SystemLink, TenantGate, last_frame, partition_answer, scan_answer,
 };
 use ultragraphdb_common_role::{
     Answer, OpenRequests, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server, listen,
@@ -60,7 +60,11 @@ fn cluster_named(name: &str) -> TestResult<RoleCluster> {
 
 /// `owner` served at a role address of its own, as the system group's host serves it, and a core's link to it reading
 /// Members into `links`, once its view answers.
-async fn linked(owner: SystemHandle, links: RoleLinks, name: &str) -> TestResult<SystemLink> {
+async fn linked(
+    owner: SystemHandle,
+    links: RoleLinks,
+    name: &str,
+) -> TestResult<(SystemLink, Address)> {
     let cluster = cluster_named(name)?;
     let roles =
         Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
@@ -77,13 +81,13 @@ async fn linked(owner: SystemHandle, links: RoleLinks, name: &str) -> TestResult
         }
     })
     .detach();
-    let link = SystemLink::dial(address, cluster, links, 5_000, Readiness::default());
+    let link = SystemLink::dial(address.clone(), cluster, links, 5_000, Readiness::default());
     link.answering(
         compio::time::interval(Duration::from_secs(1)).tick().await + Duration::from_secs(5),
     )
     .await
     .map_err(|refusal| TestError::new(format!("{refusal:?}")))?;
-    Ok(link)
+    Ok((link, address))
 }
 
 /// A client endpoint over `owner` at a free port; its address.
@@ -115,7 +119,7 @@ async fn endpoint_within(
     let (throttle, throttling) = AuthThrottle::new(logins).serve();
     spawn(throttling).detach();
     let links = RoleLinks::new(cluster, "frontend".to_string());
-    let link = linked(owner, links.clone(), &format!("link-{port}")).await?;
+    let (link, _group) = linked(owner, links.clone(), &format!("link-{port}")).await?;
     let core = EndpointCore::new(
         link,
         throttle,
@@ -296,10 +300,17 @@ async fn counted_endpoint(
     let (throttle, throttling) = AuthThrottle::new(LoginLimits::default()).serve();
     spawn(throttling).detach();
     let map = links.map();
-    let link = linked(owner, links.clone(), "counted").await?;
+    let (link, group) = linked(owner, links.clone(), "counted").await?;
     if let Some(map) = map {
         links.set_map(map);
     }
+    // The core's reads run in it, over connections of its own to the partitions the group lists (design D3).
+    let compute = ComputeCore::new(
+        cluster_named("compute")?,
+        group,
+        ReadTimes::new(Duration::from_secs(30), Duration::from_secs(600)),
+        "frontend",
+    );
     let core = EndpointCore::new(
         link,
         throttle,
@@ -307,7 +318,8 @@ async fn counted_endpoint(
         TenantGate::new(EveryAuthenticated),
         EndpointLimits::new(1 << 22, Duration::from_secs(30)),
     )
-    .with_open(open.clone());
+    .with_open(open.clone())
+    .with_compute(compute);
     let server = Server::new(CLUSTER, "test", Endpoint::Client)?
         .with_iterations(ITERATIONS)
         .with_open(open);
@@ -332,6 +344,14 @@ async fn counted_endpoint(
 /// A client endpoint over `owner` reaching the roles through `links`, at a free port: its address.
 async fn endpoint_over(owner: SystemHandle, links: RoleLinks) -> TestResult<Address> {
     counted_endpoint(owner, links, OpenRequests::default()).await
+}
+
+/// A partition answering as nothing goes wrong but each Scan, which it takes and answers none until a test answers it.
+fn holding_scans(frame: &DoubleFrame) -> Answer {
+    if frame.command() == Command::Scan {
+        return Answer::Open;
+    }
+    partition_answer(frame, CLUSTER, 5 << 22)
 }
 
 /// A Write of one insert.
@@ -423,10 +443,10 @@ fn test_a_relayed_commit_stays_open_until_its_reply_leaves() -> TestResult {
     })
 }
 
-/// A read the endpoint relayed is one of its open requests until its `LAST` has left, so a frontend's stop waits for it
+/// A read the endpoint runs is one of its open requests until its `LAST` has left, so a stop waits for it
 /// (role-binaries, *Readiness, health and shutdown*), and nothing stays counted once it has.
 #[test]
-fn test_a_relayed_read_stays_open_until_its_last_leaves() -> TestResult {
+fn test_a_read_stays_open_until_its_last_leaves() -> TestResult {
     let data = directory("read-open");
     if data.exists() {
         std::fs::remove_dir_all(&data)?;
@@ -446,16 +466,16 @@ fn test_a_relayed_read_stays_open_until_its_last_leaves() -> TestResult {
             RoleSecret::read(&file.display().to_string())?,
             Duration::from_secs(1),
         );
-        let compute = RoleDouble::start(&cluster, Endpoint::Compute, |_| Answer::Open).await?;
+        let partition = RoleDouble::start(&cluster, Endpoint::Partition, holding_scans).await?;
         let links = RoleLinks::new(cluster, "frontend".to_string());
         links.set_map(owner.handle().map().await.context("a placement map")?);
-        // The system group lists it in Members, which the core's link reads into its links (design D9).
+        // The system group lists it in Members, which the core reads (design D9).
         owner
             .handle()
-            .join(Join::compute(compute.address()))
+            .join(Join::storage(partition.address(), vec![1]))
             .await
             .map_err(|refusal| TestError::new(format!("{refusal:?}")))?;
-        links.joined(&Join::compute(compute.address()));
+        links.joined(&Join::storage(partition.address(), vec![1]));
         let open = OpenRequests::default();
         let address = counted_endpoint(owner.handle().clone(), links, open.clone()).await?;
         let mut alice = RoleClient::dial(&address, CLUSTER, "alice", "pw").await?;
@@ -475,22 +495,19 @@ fn test_a_relayed_read_stays_open_until_its_last_leaves() -> TestResult {
         alice
             .send_only(&Read::new(transaction, 0, terms, pattern, Vec::new()))
             .await?;
-        until("the read at compute", || {
-            compute.count(Command::ComputeRead) == 1
-        })
-        .await?;
-        assert_eq!(open.count(), 1, "the relayed read is open");
-        let held = compute
-            .frames(Command::ComputeRead)
+        until("the read's Scan", || partition.count(Command::Scan) == 1).await?;
+        assert_eq!(open.count(), 1, "the read is open");
+        let held = partition
+            .frames(Command::Scan)
             .first()
             .cloned()
-            .context("the read held")?;
-        held.answer_with(batch_frame(
-            CLUSTER,
-            held.stream(),
-            &empty_batch(4, 1),
-            true,
-        )?);
+            .context("the read's Scan held")?;
+        match scan_answer(&held, CLUSTER, 5 << 22) {
+            Answer::Reply(frame) => held.answer_with(frame),
+            Answer::Open | Answer::Done | Answer::Refuse(_) | Answer::Close(_) => {
+                return Err(TestError::new("the Scan has no answer"));
+            }
+        }
         let reply = compio::time::timeout(WAIT, alice.next_frame())
             .await
             .map_err(|_| TestError::new("the read's LAST did not come"))??;
@@ -652,16 +669,16 @@ fn test_a_connection_holds_the_default_count_of_statements() -> TestResult {
             RoleSecret::read(&file.display().to_string())?,
             Duration::from_secs(1),
         );
-        let compute = RoleDouble::start(&cluster, Endpoint::Compute, |_| Answer::Open).await?;
+        let partition = RoleDouble::start(&cluster, Endpoint::Partition, holding_scans).await?;
         let links = RoleLinks::new(cluster, "frontend".to_string());
         links.set_map(owner.handle().map().await.context("a placement map")?);
-        // The system group lists it in Members, which the core's link reads into its links (design D9).
+        // The system group lists it in Members, which the core reads (design D9).
         owner
             .handle()
-            .join(Join::compute(compute.address()))
+            .join(Join::storage(partition.address(), vec![1]))
             .await
             .map_err(|refusal| TestError::new(format!("{refusal:?}")))?;
-        links.joined(&Join::compute(compute.address()));
+        links.joined(&Join::storage(partition.address(), vec![1]));
         let address = endpoint_over(owner.handle().clone(), links).await?;
         let mut alice = RoleClient::dial(&address, CLUSTER, "alice", "pw").await?;
         let mut statements = Vec::with_capacity(StatementCache::DEFAULT_CAPACITY);
@@ -687,8 +704,8 @@ fn test_a_connection_holds_the_default_count_of_statements() -> TestResult {
             Vec::new(),
         );
         alice.send_only(&execute).await?;
-        until("the first statement's read at compute", || {
-            compute.count(Command::ComputeRead) == 1
+        until("the first statement's read", || {
+            partition.count(Command::Scan) == 1
         })
         .await?;
         drop(alice.request(&prepared("http://ex.org/one-more")).await?);
@@ -799,12 +816,11 @@ fn broken_error(stream: u64) -> Answer {
     )
 }
 
-/// The frontend's relays to a partition double and a compute double, each answering as `armed` says first, and otherwise as a
-/// partition does and leaving a read open; `alice` connected to the client endpoint.
+/// The endpoint's relays to a partition double, answering as `armed` says first, and otherwise as a partition does; `alice`
+/// connected to the client endpoint, whose reads run over the core's own connection to the partition.
 struct Relaying {
     alice: RoleClient,
     partition: RoleDouble,
-    compute: RoleDouble,
     armed: Armed,
 }
 
@@ -827,18 +843,10 @@ async fn relaying(owner: &SystemThread, name: &str) -> TestResult<Relaying> {
         }
     })
     .await?;
-    let compute = RoleDouble::start(&cluster, Endpoint::Compute, {
-        let armed = Rc::clone(&armed);
-        move |frame| armed_answer(&armed, frame, |_| Answer::Open)
-    })
-    .await?;
     let links = RoleLinks::new(cluster, "frontend".to_string());
     links.set_map(owner.handle().map().await.context("a placement map")?);
-    // The system group lists them in Members, which the core's link reads into its links (design D9).
-    for join in [
-        Join::storage(partition.address(), vec![1]),
-        Join::compute(compute.address()),
-    ] {
+    // The system group lists it in Members, which the core's link reads into its links (design D9).
+    for join in [Join::storage(partition.address(), vec![1])] {
         owner
             .handle()
             .join(join.clone())
@@ -851,7 +859,6 @@ async fn relaying(owner: &SystemThread, name: &str) -> TestResult<Relaying> {
     Ok(Relaying {
         alice,
         partition,
-        compute,
         armed,
     })
 }
@@ -1114,8 +1121,8 @@ fn test_a_one_frame_write_answered_otherwise_closes_the_link() -> TestResult {
     })
 }
 
-/// Compute answering a read with a command a ComputeRead is not answered by, or with an Error whose body does not read, closes
-/// the role connection (`PROTOCOL.md` §2.5, step 3; §13); with no other compute process to send it to, the read is answered 17.
+/// A partition answering a read's Scan with a command a Scan is not answered by, or with an Error whose body does not read,
+/// closes the core's connection to it (`PROTOCOL.md` §2.5, step 3; §13): the read is answered 17.
 #[test]
 fn test_a_read_answered_by_a_frame_refused_closes_the_link() -> TestResult {
     Runtime::new()?.block_on(async {
@@ -1123,7 +1130,7 @@ fn test_a_read_answered_by_a_frame_refused_closes_the_link() -> TestResult {
         let mut relays = relaying(&owner, "read-refused").await?;
         let answers: [fn(u64) -> Answer; 2] = [held, broken_error];
         for (closed, answer) in (1..).zip(answers) {
-            relays.arm(Command::ComputeRead, answer);
+            relays.arm(Command::Scan, answer);
             let transaction = relays.begin(true).await?;
             relays.alice.send_only(&subject_read(transaction)).await?;
             let reading = relays.alice.last_stream();
@@ -1132,8 +1139,8 @@ fn test_a_read_answered_by_a_frame_refused_closes_the_link() -> TestResult {
                 (reading, ErrorCode::Unavailable),
                 "answer {closed}"
             );
-            until("the role connection closed", || {
-                relays.compute.connections_ended() == closed
+            until("the read's connection closed", || {
+                relays.partition.connections_ended() == closed
             })
             .await?;
         }

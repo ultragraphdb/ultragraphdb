@@ -4,10 +4,12 @@
  */
 
 use std::net::IpAddr;
+use std::rc::Rc;
 
 use ultragraphdb_common_role::OpenRequests;
 
 use crate::traits::authorizer::Authorizer;
+use crate::types::compute_core::ComputeCore;
 use crate::types::endpoint_limits::EndpointLimits;
 use crate::types::one_frame_phases::OneFramePhases;
 use crate::types::role_links::RoleLinks;
@@ -16,8 +18,8 @@ use crate::types::tenant_gate::TenantGate;
 use crate::types::throttle_handle::ThrottleHandle;
 
 /// What a client session shares on its endpoint core: its link to the system group, the way to the throttle, the connections
-/// to the other roles, the gate, the limits, the count of open requests a stop waits on and the phases of the one-frame writes
-/// it relays.
+/// to the other roles, the gate, the limits, the count of open requests a stop waits on, the phases of the one-frame writes
+/// it relays, and the core's connections to the partitions its clients' reads run over.
 #[derive(Debug, Clone)]
 pub struct EndpointCore<A> {
     system: SystemLink,
@@ -27,6 +29,8 @@ pub struct EndpointCore<A> {
     limits: EndpointLimits,
     open: OpenRequests,
     phases: OneFramePhases,
+    /// Shared by an `Rc` with every session on this core, so their reads share its links (Ultra rule 9).
+    compute: Option<Rc<ComputeCore>>,
 }
 
 impl<A: Authorizer> EndpointCore<A> {
@@ -48,6 +52,7 @@ impl<A: Authorizer> EndpointCore<A> {
             limits,
             open: OpenRequests::default(),
             phases: OneFramePhases::default(),
+            compute: None,
         }
     }
 
@@ -55,6 +60,14 @@ impl<A: Authorizer> EndpointCore<A> {
     #[must_use]
     pub fn with_core(mut self, core: usize) -> Self {
         self.phases = self.phases.with_core(core);
+        self
+    }
+
+    /// The core executing its clients' reads on `compute`, this core's connections to the partitions (design D3); a core
+    /// holding none answers a read code 17, as one with no compute process did.
+    #[must_use]
+    pub fn with_compute(mut self, compute: Rc<ComputeCore>) -> Self {
+        self.compute = Some(compute);
         self
     }
 
@@ -84,6 +97,11 @@ impl<A> EndpointCore<A> {
     #[must_use]
     pub fn links(&self) -> &RoleLinks {
         &self.links
+    }
+
+    /// The core's connections to the partitions its clients' reads run over; `None` for a core executing no read.
+    pub(crate) fn compute(&self) -> Option<&Rc<ComputeCore>> {
+        self.compute.as_ref()
     }
 
     /// The gate.

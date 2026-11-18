@@ -30,6 +30,7 @@ use crate::types::client_read::ClientRead;
 use crate::types::client_transaction::ClientTransaction;
 use crate::types::counted_frame::CountedFrame;
 use crate::types::endpoint_core::EndpointCore;
+use crate::types::read_executor::ReadExecutor;
 use crate::types::recall_answer::RecallAnswer;
 use crate::types::relay_authenticator::RelayAuthenticator;
 use crate::types::role_link::RoleLink;
@@ -87,7 +88,8 @@ struct Recalling {
 
 /// One client connection: the rules of `PROTOCOL.md` §§6 to 8 and 11 past those its connection's machine keeps. It holds nothing
 /// another connection reads: its requests arrive by [`ultragraphdb_common_role::Session::answer`], and everything else, each
-/// role's frames and each answer of the system group that does not wait, by message, so one request's wait holds up no other. Whatever it
+/// role's frames, each answer of the system group that does not wait and each frame of its reads, which the core's executor
+/// runs on this core (design D3), by message, so one request's wait holds up no other. Whatever it
 /// sends goes out in the order its transaction's rules need, through [`ultragraphdb_common_role::Session::next_push`].
 ///
 /// A request's future awaits the system group through the core's [`crate::SystemLink`] and nothing else, past its
@@ -118,6 +120,8 @@ pub struct ClientSession<A> {
     on_way: ParkedBytes,
     events_in: UnboundedSender<SessionEvent>,
     events: UnboundedReceiver<SessionEvent>,
+    /// The connection's reads, run on this core by the core's executor (design D3); `None` on a core executing no read.
+    reads_run: Option<ReadExecutor>,
     /// The frames for the client, in the order they leave. A read's are metered by the credit the client granted it, as
     /// the role link meters what compute sends, and every other stream's are its answers and its end, so the session's
     /// streams and their credit bound its length.
@@ -134,6 +138,9 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         // A role's frames reach it metered as `out`'s are, and the owner's answers one for each request asked: the
         // session's streams and their credit bound the channel's length.
         let (events_in, events) = unbounded();
+        let reads_run = core
+            .compute()
+            .map(|compute| ReadExecutor::new(std::rc::Rc::clone(compute)));
         Self {
             core,
             relay,
@@ -153,6 +160,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             on_way: ParkedBytes::new(bound),
             events_in,
             events,
+            reads_run,
             out: VecDeque::new(),
             counted: Vec::new(),
         }

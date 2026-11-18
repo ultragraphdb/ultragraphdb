@@ -29,10 +29,19 @@ use ultragraphdb_protocol_wire::{
     PreferredLeader, TenantRun,
 };
 use ultragraphdb_tests::{CLUSTER, SECRET, START_SECONDS};
-use ultragraphdb_tool_bdd::{TestError, TestResult};
+use ultragraphdb_tool_bdd::{TestError, TestResult, loopback};
+
+/// The offset above the target's port base (`ultragraphdb_tool_bdd::port`) the played frontend listens at.
+const PLAYED_FRONTEND_OFFSET: u16 = 15;
 
 /// Where the played frontend listens: a port of its own, so no other scenario's frontend meets it.
-pub const PLAYED_FRONTEND_ADDRESS: &str = "127.0.0.1:17095";
+///
+/// # Errors
+///
+/// When the target sets no port base.
+pub fn played_frontend_address() -> TestResult<String> {
+    loopback(PLAYED_FRONTEND_OFFSET)
+}
 
 /// The close it delivers first: a subscriber holding none expects close 1.
 pub const OUT_OF_ORDER_EPOCH: u64 = 5;
@@ -415,7 +424,7 @@ pub async fn play_frontend(push: Push) -> TestResult<Arc<Played>> {
     let file = std::env::temp_dir().join(format!("played-frontend-{}", std::process::id()));
     std::fs::write(&file, SECRET)?;
     let held: RoleCredentials = RoleSecret::read(&file.display().to_string())?.credentials()?;
-    let listener = listen(&format!("tcp://{PLAYED_FRONTEND_ADDRESS}")).await?;
+    let listener = listen(&format!("tcp://{}", played_frontend_address()?)).await?;
     let server =
         Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
     let played = Arc::new(Played::default());

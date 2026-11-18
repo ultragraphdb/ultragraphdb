@@ -7,6 +7,7 @@ load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("//bazel:test_ports.bzl", "port_env")
 
 rust_library(
     name = "ultragraphdb_tests",
@@ -19,7 +20,8 @@ rust_library(
     deps = all_crate_deps(normal = True),
 )
 
-# The harness's own unit tests, mirroring `src/`: they start no binary and bind no address a scenario declares.
+# The harness's own unit tests, mirroring `src/`: they start no binary, and bind the addresses they declare in a block of
+# their own.
 rust_test(
     name = "unit",
     srcs = glob([
@@ -27,6 +29,7 @@ rust_test(
         "tests/utils/**/*.rs",
     ]),
     crate_root = "tests/mod.rs",
+    env = port_env(0),
     tags = ["unit-test"],
     deps = [":ultragraphdb_tests"] + all_crate_deps(
         normal = True,
@@ -36,54 +39,63 @@ rust_test(
 
 # The feature files each scenario target runs, under `features/`: the scenarios split over several targets, so each ends
 # within Bazel's time. A target's runfiles hold its feature files alone, and cucumber runs what `features/` holds.
-BDD_FEATURES = {
+BDD_GROUPS = {
     "bdd_catalog": ["metadata-group/catalog.feature"],
-    "bdd_client_endpoint": [
-        "client-endpoint/endpoint.feature",
-        "client-endpoint/limits.feature",
-        "client-endpoint/lost_replies.feature",
-        "client-endpoint/processes.feature",
-        "client-endpoint/routing.feature",
-        "client-endpoint/shared.feature",
-        "client-endpoint/spread.feature",
-    ],
     "bdd_failure_frontend": ["transactions/failure_frontend.feature"],
     "bdd_failure_host": ["transactions/failure_host.feature"],
     "bdd_failure_link": ["transactions/failure_link.feature"],
     "bdd_failure_order": ["transactions/failure_order.feature"],
     "bdd_kubernetes": ["kubernetes-deployment/pods.feature"],
-    "bdd_quad_reads": [
-        "quad-reads/access_paths.feature",
-        "quad-reads/client_order.feature",
-        "quad-reads/levels.feature",
-        "quad-reads/limits.feature",
-        "quad-reads/resume_keys.feature",
-        "quad-reads/retention.feature",
-        "quad-reads/spread.feature",
-        "quad-reads/transaction_reads.feature",
+    "bdd_partitions": ["partitions/spread.feature"],
+    "bdd_schema_changes": [
+        "schema-changes/drops.feature",
+        "schema-changes/tightening.feature",
     ],
-    "bdd_sessions": [
-        "transactions/lost_replies.feature",
-        "transactions/processes.feature",
-    ],
-    "bdd_transactions": [
-        "transactions/limits.feature",
-        "transactions/operations.feature",
-        "transactions/requests.feature",
-        "transactions/spread.feature",
-        "transactions/tokens.feature",
-    ],
-    "bdd_wire_protocol": [
-        "wire-protocol/conformance.feature",
-        "wire-protocol/connections.feature",
-        "wire-protocol/credit.feature",
-        "wire-protocol/damaged_replies.feature",
-        "wire-protocol/lost_replies.feature",
-        "wire-protocol/process_faults.feature",
-        "wire-protocol/requests.feature",
-        "wire-protocol/terms.feature",
-    ],
+    "bdd_system_identity": ["system-identity/results.feature"],
 }
+
+# The feature files that run long together, each a target of its own, named for its path: `bdd_` and the path under
+# `features/` without `.feature`, every `/` and `-` an `_`.
+BDD_ALONE = [
+    "client-endpoint/endpoint.feature",
+    "client-endpoint/limits.feature",
+    "client-endpoint/lost_replies.feature",
+    "client-endpoint/processes.feature",
+    "client-endpoint/routing.feature",
+    "client-endpoint/shared.feature",
+    "client-endpoint/spread.feature",
+    "quad-reads/access_paths.feature",
+    "quad-reads/client_order.feature",
+    "quad-reads/levels.feature",
+    "quad-reads/limits.feature",
+    "quad-reads/resume_keys.feature",
+    "quad-reads/retention.feature",
+    "quad-reads/spread.feature",
+    "quad-reads/transaction_reads.feature",
+    "transactions/limits.feature",
+    "transactions/lost_replies.feature",
+    "transactions/operations.feature",
+    "transactions/processes.feature",
+    "transactions/requests.feature",
+    "transactions/spread.feature",
+    "transactions/tokens.feature",
+    "wire-protocol/conformance.feature",
+    "wire-protocol/connections.feature",
+    "wire-protocol/credit.feature",
+    "wire-protocol/damaged_replies.feature",
+    "wire-protocol/lost_replies.feature",
+    "wire-protocol/process_faults.feature",
+    "wire-protocol/requests.feature",
+    "wire-protocol/terms.feature",
+]
+
+BDD_FEATURES = dict(BDD_GROUPS.items() + [
+    (
+        "bdd_" + feature[:-len(".feature")].replace("/", "_").replace("-", "_"),
+        [feature],
+    )
+    for feature in BDD_ALONE
+])
 
 # What every scenario target runs beside its feature files: the binaries it starts and the golden bodies the client's
 # conformance suite plays, here sent to the real binaries.
@@ -96,25 +108,23 @@ BDD_DATA = [
 ]
 
 # Whole clusters as processes: each is copied into the sandbox, and the test starts it, its dependencies first. No
-# container is involved, so Bazel caches the result. The ports are declared and fixed, so `exclusive` keeps any other test
-# from running beside this one; it stays sandboxed.
+# container is involved, so Bazel caches the result. Each target listens in a block of ports of its own, from the base
+# `port_env` gives it (block 0 is `unit`'s, 1 `bdd`'s), so the targets run side by side; each stays sandboxed.
 [
     rust_test(
         name = name,
         srcs = glob(["tests/**/*.rs"]),
         crate_root = "tests/bdd.rs",
         data = ["features/" + feature for feature in features] + BDD_DATA,
-        tags = [
-            "exclusive",
-            "integration_test",
-        ],
+        env = port_env(2 + index),
+        tags = ["integration_test", "cluster-integration-test"],
         use_libtest_harness = False,
         deps = [":ultragraphdb_tests"] + all_crate_deps(
             normal = True,
             normal_dev = True,
         ),
     )
-    for name, features in BDD_FEATURES.items()
+    for index, (name, features) in enumerate(BDD_FEATURES.items())
 ]
 
 # Every feature file no target above names, so each scenario runs in exactly one target.
@@ -130,10 +140,8 @@ rust_test(
             for feature in features
         ],
     ) + BDD_DATA,
-    tags = [
-        "exclusive",
-        "integration_test",
-    ],
+    env = port_env(1),
+    tags = ["integration_test", "cluster-integration-test"],
     use_libtest_harness = False,
     deps = [":ultragraphdb_tests"] + all_crate_deps(
         normal = True,

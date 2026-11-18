@@ -17,7 +17,7 @@ use ultragraphdb_protocol_wire::{
     EpochCloseView, ErrorCode, ErrorReplyView, Recall, Subscribe, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tests::{
-    CLUSTER, SECRET, START_SECONDS, STORAGE_ROLE_ADDRESS, SYSTEM_ROLE_ADDRESS, frontend_holding,
+    CLUSTER, SECRET, START_SECONDS, frontend_holding, storage_role_address, system_role_address,
     with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -43,7 +43,7 @@ const TRANSACTION_MS: u64 = 10_000;
 /// The latest catalog version of the tenant at the system group, 0 for none, as a partition asks for it.
 fn latest_version() -> TestResult<u64> {
     Runtime::new()?.block_on(async {
-        let address = Address::parse(&format!("tcp://{SYSTEM_ROLE_ADDRESS}"))?;
+        let address = Address::parse(&format!("tcp://{}", system_role_address()?))?;
         let mut role = RoleClient::dial(&address, CLUSTER, "storage", SECRET).await?;
         let Ok(reply) = role.request(&Catalog::request(TENANT, 0)).await else {
             return Ok(0);
@@ -189,7 +189,7 @@ fn check_restored(w: &mut Steps) -> TestResult {
 
 /// What partition 1 answers a Recall of `request` of `session` with: its command, and an Error's code.
 async fn recalled(session: u128, request: u64) -> TestResult<(Command, Option<ErrorCode>)> {
-    let address = Address::parse(&format!("tcp://{STORAGE_ROLE_ADDRESS}"))?;
+    let address = Address::parse(&format!("tcp://{}", storage_role_address()?))?;
     let mut role = RoleClient::dial(&address, CLUSTER, "frontend", SECRET).await?;
     role.send_only(&Recall::new(1, session.to_be_bytes(), request))
         .await?;
@@ -237,7 +237,7 @@ fn session_evicted(w: &mut Steps) -> TestResult {
     std::thread::sleep(quiet_until.saturating_duration_since(Instant::now()));
     let seen = runtime.block_on(async {
         // A role connection as the frontend, subscribed at the latest close, which asks for the closes itself.
-        let address = Address::parse(&format!("tcp://{SYSTEM_ROLE_ADDRESS}"))?;
+        let address = Address::parse(&format!("tcp://{}", system_role_address()?))?;
         let mut role = RoleClient::dial(&address, CLUSTER, "frontend", SECRET).await?;
         let latest = closed_epoch(&role.request(&Subscribe::at_latest()).await?)?;
         // A close now: the next on the sequencer's own time is then 10 s away.

@@ -20,4 +20,5 @@ pub use crate::utils::compare::compare_bytes;
 pub use crate::utils::fuzz_regressions::{fuzz_regressions, fuzz_regressions_in};
 pub use crate::utils::golden_io::load_golden;
 pub use crate::utils::hides::hides;
+pub use crate::utils::ports::{PORT_BASE, PORT_BLOCK, loopback, port, port_from};
 pub use crate::utils::workspace::{features_dir, testdata_dir};

@@ -8,5 +8,6 @@
 //! yields to its runtime fails the test's bounded wait rather than holding the test.
 
 pub mod apart_cluster;
+pub mod apart_executor;
 pub mod apart_partition;
 pub mod apart_reads;

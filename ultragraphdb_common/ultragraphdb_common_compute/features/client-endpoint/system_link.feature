@@ -49,10 +49,6 @@ Feature: The endpoint asks the system group and keeps a view of what the closes 
     When a core's view holds the close of epoch 7 and version 3 of `t1`, its subscription is opened again with `latest`, and the first close on the new stream is that of epoch 12, version 4 of `t1` and a placement version having been announced by the closes of epochs 8 to 11
     Then the core reads Placement and, with Catalog, the current version of `t1` before it answers its next Begin, and its view then holds epoch 12, version 4 of `t1` and the placement in effect
 
-  Scenario: A compute process that joins later is found before a read is refused
-    When the only compute process the frontend knows stops, another has joined the system group meanwhile, and a client sends a Read
-    Then the frontend reads Members, dials the new process and relays the Read to it
-
   Scenario: A source past its failures is throttled, then banned
     When one address fails to authenticate past the throttle's threshold, and then past the ban's
     Then its attempts past the first threshold wait a growing delay, its connections past the second are closed as accepted, another address still authenticates, and once the ban's time has passed the address authenticates again

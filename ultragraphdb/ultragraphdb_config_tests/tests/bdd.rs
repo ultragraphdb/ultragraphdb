@@ -4,7 +4,7 @@
  */
 
 //! The config service and its CLI as processes, end to end and with no container, bound to `features/`. One scenario runs at
-//! a time: the service listens at a fixed port.
+//! a time: the service listens at a fixed port of the target's block, which `bazel/test_ports.bzl` gives it.
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
@@ -16,7 +16,7 @@ use std::time::Duration;
 use compio::runtime::Runtime;
 use cucumber::{World, then, when};
 use service_utils::{ServiceStartConfig, ServiceUtil, WaitStrategy};
-use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback};
 use ultragraphdb_transport_http_client::{HttpClient, HttpReply, HttpUrl};
 
 /// Where the sandbox holds the binaries, relative to the test's working directory: `copy_file` writes them to this package.
@@ -25,8 +25,19 @@ const ROOT_PATH: &str = "ultragraphdb/ultragraphdb_config_tests";
 const SERVICE: &str = "ultragraphdb_config";
 const CLI: &str = "ultragraphdb_config_cli";
 
+/// The offset above the target's port base of the address the service listens at.
+const ADDRESS_OFFSET: u16 = 0;
+
+/// The offset of the address a second service over the same data directory listens at.
+const SECOND_OFFSET: u16 = 1;
+
+/// The offset of an address nothing listens at.
+const SILENT_OFFSET: u16 = 2;
+
 /// The address the service listens at.
-const ADDRESS: &str = "127.0.0.1:17090";
+fn address() -> TestResult<String> {
+    loopback(ADDRESS_OFFSET)
+}
 
 /// How long the service has to answer, or to exit. A start takes milliseconds; the margin is for a loaded machine.
 const START_SECONDS: u64 = 20;
@@ -87,7 +98,8 @@ fn prepare(w: &mut Steps) -> TestResult {
     }
     std::fs::write(settings.join("targets.toml"), central)?;
     let own = format!(
-        "[config]\naddress = \"tcp://{ADDRESS}\"\nplaintext = true\ndata_dir = \"{}\"\nread_key_file = \"{}\"\nadmin_key_file = \"{}\"\ntargets_file = \"{}\"\n",
+        "[config]\naddress = \"tcp://{}\"\nplaintext = true\ndata_dir = \"{}\"\nread_key_file = \"{}\"\nadmin_key_file = \"{}\"\ntargets_file = \"{}\"\n",
+        address()?,
         w.folder.join("data").display(),
         w.folder.join("read.key").display(),
         w.folder.join("admin.key").display(),
@@ -130,13 +142,16 @@ fn start(w: &mut Steps, wait_strategy: WaitStrategy) -> TestResult<u32> {
     Ok(util.start_service_from_config(config)?)
 }
 
-fn answering() -> WaitStrategy {
-    WaitStrategy::WaitForHttpHealthCheck(format!("http://{ADDRESS}/health"), START_SECONDS)
+fn answering() -> TestResult<WaitStrategy> {
+    Ok(WaitStrategy::WaitForHttpHealthCheck(
+        format!("http://{}/health", address()?),
+        START_SECONDS,
+    ))
 }
 
 /// Starts the service and waits until it answers.
 fn start_serving(w: &mut Steps) -> TestResult<u32> {
-    start(w, answering())
+    start(w, answering()?)
 }
 
 /// Starts the service expecting it to exit, and holds its exit and its log.
@@ -150,7 +165,7 @@ fn start_refused(w: &mut Steps) -> TestResult {
 
 /// Asks the service, with `key`.
 fn ask(key: &str, method: &str, target: &str, body: &[u8]) -> TestResult<HttpReply> {
-    let url = HttpUrl::parse(&format!("http://{ADDRESS}"))?;
+    let url = HttpUrl::parse(&format!("http://{}", address()?))?;
     let client = HttpClient::new(url, None, key.to_string())?;
     Ok(Runtime::new()?.block_on(client.request(method, target, body))?)
 }
@@ -227,7 +242,7 @@ fn second_process(w: &mut Steps) -> TestResult {
     let own = std::fs::read_to_string(w.folder.join("service.toml"))?;
     std::fs::write(
         w.folder.join("service.toml"),
-        own.replace(ADDRESS, "127.0.0.1:17091"),
+        own.replace(&address()?, &loopback(SECOND_OFFSET)?),
     )?;
     w.folder
         .join("service.log")
@@ -715,10 +730,11 @@ fn still_sending(w: &mut Steps) -> TestResult {
     let _pid = start_serving(w)?;
     let piece = vec![b'x'; 64 * 1024];
     let declared = 512 * 1024 + 1;
+    let service_address = address()?;
     let head = format!(
-        "POST /v1/targets/ci/revisions?base=1 HTTP/1.1\r\nHost: {ADDRESS}\r\nAuthorization: Bearer {ADMIN_KEY}\r\nContent-Length: {declared}\r\nConnection: close\r\n\r\n"
+        "POST /v1/targets/ci/revisions?base=1 HTTP/1.1\r\nHost: {service_address}\r\nAuthorization: Bearer {ADMIN_KEY}\r\nContent-Length: {declared}\r\nConnection: close\r\n\r\n"
     );
-    let mut stream = TcpStream::connect(ADDRESS)?;
+    let mut stream = TcpStream::connect(&service_address)?;
     stream.set_read_timeout(Some(Duration::from_secs(START_SECONDS)))?;
     stream.write_all(&[head.as_bytes(), &piece].concat())?;
     let mut answer = vec![0; 1024];
@@ -1040,7 +1056,7 @@ fn restores(w: &mut Steps) -> TestResult {
     prepare(w)?;
     let pid = start_serving(w)?;
     assert_eq!(add(1, "edited")?.status(), 201);
-    restore(w, &format!("http://{ADDRESS}"), ADMIN_KEY)?;
+    restore(w, &format!("http://{}", address()?), ADMIN_KEY)?;
     let util = w.util.as_ref().context("the services")?;
     let _exit = util.stop_service(pid)?;
     Ok(())
@@ -1111,7 +1127,7 @@ fn partly_serving(w: &mut Steps) -> TestResult {
         ask(ADMIN_KEY, "DELETE", "/v1/targets/old", b"")?.status(),
         200
     );
-    restore(w, &format!("http://{ADDRESS}"), ADMIN_KEY)
+    restore(w, &format!("http://{}", address()?), ADMIN_KEY)
 }
 
 #[then(
@@ -1139,7 +1155,7 @@ fn left_out(w: &mut Steps) -> TestResult {
 fn restore_read_key(w: &mut Steps) -> TestResult {
     prepare(w)?;
     let _pid = start_serving(w)?;
-    restore(w, &format!("http://{ADDRESS}"), READ_KEY)
+    restore(w, &format!("http://{}", address()?), READ_KEY)
 }
 
 #[then(
@@ -1161,7 +1177,7 @@ fn restore_occupied(w: &mut Steps) -> TestResult {
     let folder = w.folder.join("restored");
     std::fs::create_dir_all(&folder)?;
     std::fs::write(folder.join("mine.toml"), "# an administrator's own\n")?;
-    restore(w, &format!("http://{ADDRESS}"), ADMIN_KEY)
+    restore(w, &format!("http://{}", address()?), ADMIN_KEY)
 }
 
 #[then("it exits with code 74 saying so, and the folder is as it was")]
@@ -1179,10 +1195,7 @@ fn restore_left_alone(w: &mut Steps) -> TestResult {
 #[when("a restore names a URL where nothing answers")]
 fn restore_down(w: &mut Steps) -> TestResult {
     prepare(w)?;
-    let port = std::net::TcpListener::bind("127.0.0.1:0")?
-        .local_addr()?
-        .port();
-    w.graph = format!("127.0.0.1:{port}");
+    w.graph = loopback(SILENT_OFFSET)?;
     let url = format!("http://{}", w.graph);
     restore(w, &url, ADMIN_KEY)
 }
@@ -1213,14 +1226,14 @@ fn restore_all_retired(w: &mut Steps) -> TestResult {
         ask(ADMIN_KEY, "DELETE", "/v1/targets/ci", b"")?.status(),
         200
     );
-    restore(w, &format!("http://{ADDRESS}"), ADMIN_KEY)
+    restore(w, &format!("http://{}", address()?), ADMIN_KEY)
 }
 
 #[then(
     "it exits with code 78 saying the service holds no target but retired ones, and no folder appears"
 )]
 fn restore_nothing_held(w: &mut Steps) -> TestResult {
-    restore_refused_with(w, 78, &["holds no target but retired ones", ADDRESS])
+    restore_refused_with(w, 78, &["holds no target but retired ones", &address()?])
 }
 
 #[when("a restore reads a listing holding a line that names no target")]
@@ -1296,7 +1309,7 @@ fn restore_trust_named(w: &mut Steps) -> TestResult {
     prepare(w)?;
     restore_with(
         w,
-        &format!("https://{ADDRESS}"),
+        &format!("https://{}", address()?),
         ADMIN_KEY,
         &["--ca-file", NO_TRUST_FILE],
         &[],
@@ -1308,7 +1321,7 @@ fn restore_trust_system(w: &mut Steps) -> TestResult {
     prepare(w)?;
     restore_with(
         w,
-        &format!("https://{ADDRESS}"),
+        &format!("https://{}", address()?),
         ADMIN_KEY,
         &[],
         &[("SSL_CERT_FILE", NO_TRUST_FILE)],
@@ -1368,7 +1381,7 @@ fn stopped_with_its_parent(w: &mut Steps) -> TestResult {
 )]
 fn port_held_a_moment(w: &mut Steps) -> TestResult {
     prepare(w)?;
-    let held = std::net::TcpListener::bind(ADDRESS)?;
+    let held = std::net::TcpListener::bind(address()?)?;
     let _pid = start(w, WaitStrategy::NoWait)?;
     let log = service(w).log;
     let mut retried = false;
@@ -1400,11 +1413,12 @@ fn took_the_port(w: &mut Steps) -> TestResult {
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert_eq!(status, Some(200), "{ADDRESS}/health");
+    let service_address = address()?;
+    assert_eq!(status, Some(200), "{service_address}/health");
     let log = std::fs::read_to_string(service(w).log)?;
     assert!(
         log.lines()
-            .any(|line| line.contains("in use") && line.contains(ADDRESS)),
+            .any(|line| line.contains("in use") && line.contains(&service_address)),
         "{log}"
     );
     Ok(())

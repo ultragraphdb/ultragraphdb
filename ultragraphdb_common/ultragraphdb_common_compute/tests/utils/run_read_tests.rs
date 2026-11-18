@@ -529,7 +529,8 @@ fn test_a_resume_key_naming_an_unheld_term_past_the_frame_is_refused_within_it()
             terms.iri(OBJECTS[0]),
             None,
         );
-        let forged = ResumeKey::new(key.pattern(), key.scope(), terms, row).encode();
+        let forged =
+            ResumeKey::new(key.pattern(), key.scope(), key.partition(), terms, row).encode();
         let (table, slots) = pattern.table()?;
         let resumed = ComputeRead::new(tenant, true, ReadLevel::Snapshot, table, slots, forged)
             .with_principal(1)

@@ -27,7 +27,7 @@ use ultragraphdb_protocol_wire::{
     TermTable, Write, WriteChange,
 };
 use ultragraphdb_store_quads::{ReferrerSet, iri_bucket, literal_key, tenant_base, term_key};
-use ultragraphdb_tests::{CLUSTER, SECRET, STORAGE_ROLE_ADDRESS, scratch, with};
+use ultragraphdb_tests::{CLUSTER, SECRET, scratch, storage_role_address, with};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::played_home::{HomeScript, play_home, played_id};
@@ -79,8 +79,8 @@ pub(crate) enum Frame {
     Other(Command),
 }
 
-pub(crate) fn address() -> String {
-    format!("tcp://{STORAGE_ROLE_ADDRESS}")
+pub(crate) fn address() -> TestResult<String> {
+    Ok(format!("tcp://{}", storage_role_address()?))
 }
 
 /// A frontend and one partition's storage; a Scan keeping `stall` milliseconds with no frame able to leave, when given.
@@ -95,16 +95,16 @@ pub(crate) fn one_partition(w: &mut Steps, stall: Option<&str>) -> TestResult {
 /// A frontend and one partition's storage, holding `settings` beside its own.
 pub(crate) fn partition_holding(w: &mut Steps, settings: &[(&str, &str)]) -> TestResult {
     use ultragraphdb_tests::{
-        FRONTEND_BINARY, FRONTEND_OBSERVABILITY, answering, frontend_holding, role, storage_holding,
+        FRONTEND_BINARY, answering, frontend_holding, frontend_observability, role, storage_holding,
     };
     let util = crate::services()?;
-    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
+    let wait = answering(&frontend_observability()?, "/health");
     let _frontend: u32 = util.start_service_from_config(role(
         FRONTEND_BINARY,
         &frontend_holding()?,
         &scratch(FRONTEND_BINARY),
         wait,
-    ))?;
+    )?)?;
     let held = settings
         .iter()
         .fold(storage_holding()?, |held, (setting, value)| {
@@ -121,7 +121,7 @@ pub(crate) async fn dial_at(target: &str) -> TestResult<RoleClient> {
 }
 
 pub(crate) async fn dial() -> TestResult<RoleClient> {
-    dial_at(&address()).await
+    dial_at(&address()?).await
 }
 
 /// The next frame of `client`, an Entries frame checked by `sequence` as a dialling side checks it.
@@ -398,7 +398,7 @@ fn hub_held(w: &mut Steps) -> TestResult<u64> {
     run(async {
         for batch in 0..objects.div_ceil(SUBJECTS_PER_COMMIT) {
             let write = hub_write(batch, objects);
-            let _version = commit_at(&address(), PARTITION, &write).await?;
+            let _version = commit_at(&address()?, PARTITION, &write).await?;
         }
         Ok::<_, TestError>(())
     })?;
@@ -419,7 +419,7 @@ async fn hub_key(client: &mut RoleClient) -> TestResult<Vec<u8>> {
 /// Scans the hub's list on a connection taking frames of `max_frame`: its frames and how many objects it holds.
 fn hub_read_through(w: &mut Steps, objects: u64, max_frame: u32) -> TestResult {
     let batches = run(async {
-        let target = Address::parse(&address())?;
+        let target = Address::parse(&address()?)?;
         let mut client =
             RoleClient::dial_taking(&target, CLUSTER, "compute", SECRET, max_frame).await?;
         let key = hub_key(&mut client).await?;
@@ -474,7 +474,7 @@ const COMMIT_BESIDE: Duration = Duration::from_secs(5);
 fn commit_beside_scans(w: &mut Steps) -> TestResult {
     let objects = hub_held(w)?;
     run(async {
-        let target = Address::parse(&address())?;
+        let target = Address::parse(&address()?)?;
         let mut client =
             RoleClient::dial_taking(&target, CLUSTER, "compute", SECRET, MAX_FRAME_SIZE_U32)
                 .await?;
@@ -496,7 +496,7 @@ fn commit_beside_scans(w: &mut Steps) -> TestResult {
             objects.div_ceil(SUBJECTS_PER_COMMIT),
             objects + SUBJECTS_PER_COMMIT,
         );
-        let at = address();
+        let at = address()?;
         let committing = commit_at(&at, PARTITION, &write);
         let committed = compio::time::timeout(COMMIT_BESIDE, committing).await;
         let _version: u64 = committed.map_err(|_| {
@@ -791,7 +791,7 @@ fn above_watermark(w: &mut Steps) -> TestResult {
     let subject = subject_of(PARTITION, 1, TENANT)?;
     run(async {
         let _version = commit_at(
-            &address(),
+            &address()?,
             PARTITION,
             &edge_write(&subject, "http://ex.org/o"),
         )
@@ -827,7 +827,7 @@ fn named_on_idle(w: &mut Steps) -> TestResult {
     let subject = subject_of(PARTITION, 1, TENANT)?;
     run(async {
         let version = commit_at(
-            &address(),
+            &address()?,
             PARTITION,
             &edge_write(&subject, "http://ex.org/o"),
         )
@@ -872,7 +872,7 @@ fn across_a_close(w: &mut Steps) -> TestResult {
     let subject = subject_of(PARTITION, 1, TENANT)?;
     run(async {
         let first = commit_at(
-            &address(),
+            &address()?,
             PARTITION,
             &edge_write(&subject, "http://ex.org/o1"),
         )
@@ -896,7 +896,7 @@ fn across_a_close(w: &mut Steps) -> TestResult {
         }
         let chosen = batches.first().context("the first frame")?.epoch;
         let second = commit_at(
-            &address(),
+            &address()?,
             PARTITION,
             &edge_write(&subject, "http://ex.org/o2"),
         )
@@ -1063,7 +1063,7 @@ fn tenant_rules(w: &mut Steps) -> TestResult {
     let subject = subject_of(PARTITION, 1, TENANT)?;
     run(async {
         let _version = commit_at(
-            &address(),
+            &address()?,
             PARTITION,
             &edge_write(&subject, "http://ex.org/o"),
         )
@@ -1108,7 +1108,7 @@ fn exact_limits(w: &mut Steps) -> TestResult {
     run(async {
         for at in ["http://ex.org/l1", "http://ex.org/l2"] {
             let _version =
-                commit_at(&address(), PARTITION, &edge_write(at, "http://ex.org/o")).await?;
+                commit_at(&address()?, PARTITION, &edge_write(at, "http://ex.org/o")).await?;
         }
         let mut client = dial().await?;
         let first = key_prefix(Keyspace::Forward, false, TENANT, None, None);
@@ -1181,7 +1181,7 @@ fn own_write_read(w: &mut Steps) -> TestResult {
     let (a, b, c) = ("http://ex.org/a", "http://ex.org/b", "http://ex.org/c");
     run(async {
         // `<a>` and `<p>` are held, so what the later commit conflicts with is the list alone.
-        let _held = commit_at(&address(), PARTITION, &edge_write(a, "http://ex.org/z")).await?;
+        let _held = commit_at(&address()?, PARTITION, &edge_write(a, "http://ex.org/z")).await?;
         let mut client = dial().await?;
         let reply = client.request(&bind_of(4, PRINCIPAL)).await?;
         let read = BindView::from_frame(&reply.view()?)?.read_version();
@@ -1220,7 +1220,7 @@ fn own_write_read(w: &mut Steps) -> TestResult {
         assert!(list_refused.is_none(), "{list_refused:?}");
         let other = plain(ScanAt::Latest, 0, 0, 0, &[alone(key)]);
         let (seen, _) = answer(&mut dial().await?, &other, false).await?;
-        let _second = commit_at(&address(), PARTITION, &edge_write(a, c)).await?;
+        let _second = commit_at(&address()?, PARTITION, &edge_write(a, c)).await?;
         w.kernel
             .refused
             .extend(commit_answer(&mut client, bind_stream).await?);
@@ -1375,12 +1375,12 @@ fn foreign_from_home(w: &mut Steps) -> TestResult {
     two_processes(w)?;
     let iri = subject_of(3, 4, TENANT)?;
     run(async {
-        let mut client = dial_at("tcp://127.0.0.1:17200").await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (_, read) = bind_first(&mut client, 7).await?;
         let (batches, refused) = answer(&mut client, &term_scan(7, read, &iri), false).await?;
         assert!(refused.is_none(), "{refused:?}");
         w.kernel.batches = batches;
-        let mut home = dial_at("tcp://127.0.0.1:17300").await?;
+        let mut home = dial_at(&crate::second_process()?).await?;
         let mut asked = Scan::new(ScanAt::Latest, 0, 0, PRINCIPAL, NO_TRANSACTION, 0, 0);
         let (first, past) = alone(term_key(TENANT, &iri));
         asked.push_range(ScanRange::new(3, &first, &past));
@@ -1544,8 +1544,8 @@ fn too_large_value(w: &mut Steps) -> TestResult {
     );
     let key = literal_key(TENANT, &Hash128::of(lexical.as_bytes()));
     run(async {
-        let _version = commit_at(&address(), PARTITION, &write).await?;
-        let target = Address::parse(&address())?;
+        let _version = commit_at(&address()?, PARTITION, &write).await?;
+        let target = Address::parse(&address()?)?;
         let taking = MAX_FRAME_FLOOR_U32;
         let mut small =
             RoleClient::dial_taking(&target, CLUSTER, "compute", SECRET, taking).await?;
@@ -1669,10 +1669,10 @@ fn emptied_range(w: &mut Steps) -> TestResult {
         object,
     });
     run(async {
-        let _held = commit_at(&address(), PARTITION, &inserted).await?;
-        let _gone = commit_at(&address(), PARTITION, &deleted).await?;
+        let _held = commit_at(&address()?, PARTITION, &inserted).await?;
+        let _gone = commit_at(&address()?, PARTITION, &deleted).await?;
         let _kept = commit_at(
-            &address(),
+            &address()?,
             PARTITION,
             &edge_write("http://ex.org/kept", "http://ex.org/o"),
         )
@@ -1766,7 +1766,7 @@ fn overlapping_scans(w: &mut Steps) -> TestResult {
     let script = HomeScript::holding();
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at("tcp://127.0.0.1:17200").await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (_, read) = bind_first(&mut client, 22).await?;
         client.send_only(&term_scan(22, read, &x)).await?;
         script.asked().await?;
@@ -1818,14 +1818,14 @@ fn scan_during_write(w: &mut Steps) -> TestResult {
     let script = HomeScript::holding();
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at("tcp://127.0.0.1:17200").await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (bind_stream, read) = bind_first(&mut client, 23).await?;
         client
             .send_on(bind_stream, &edge_write(&subject, &object))
             .await?;
         script.asked().await?;
         // The frontend holds the Bind stream's connection and compute dials its own, as this Scan does.
-        let mut compute = dial_at("tcp://127.0.0.1:17200").await?;
+        let mut compute = dial_at(&crate::first_process()?).await?;
         let scan = term_scan(23, read, &subject);
         w.kernel
             .refused
@@ -1851,7 +1851,7 @@ fn foreign_skolem(w: &mut Steps) -> TestResult {
     let bucket = iri_bucket(TENANT, &homed).context("a bucket")?;
     let skolem = Names::new(tenant_base(TENANT))?.skolem_iri(bucket, 1);
     run(async {
-        let mut client = dial_at("tcp://127.0.0.1:17200").await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (_, read) = bind_first(&mut client, 8).await?;
         // A second Scan of the IRI finds what the first did, asking no one, and the transaction still reads.
         for _ in 0..2 {
@@ -1883,7 +1883,7 @@ fn foreign_refused(w: &mut Steps) -> TestResult {
     let script = HomeScript::refusing(ErrorCode::Refused.number());
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at("tcp://127.0.0.1:17200").await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (bind_stream, read) = bind_first(&mut client, 24).await?;
         let scan = term_scan(24, read, &iri);
         client.send_only(&scan).await?;

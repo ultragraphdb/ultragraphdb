@@ -279,4 +279,6 @@ impl PartitionRows {
     }
 }
 
+#[cfg(feature = "test-utils")]
+pub(crate) use partition_rows_frames::page_bytes_of;
 pub(crate) use partition_rows_plan::terms_of;

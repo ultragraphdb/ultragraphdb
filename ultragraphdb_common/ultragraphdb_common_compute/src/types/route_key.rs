@@ -14,13 +14,6 @@ pub enum RouteKey {
         /// Which of its Binds.
         attempt: u32,
     },
-    /// A read's ComputeRead.
-    Read {
-        /// The read's stream.
-        read: u64,
-        /// Which of its sends.
-        attempt: u32,
-    },
     /// A one-frame write.
     OneFrame {
         /// The request's stream.

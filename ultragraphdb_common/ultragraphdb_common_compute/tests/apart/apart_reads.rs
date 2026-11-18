@@ -29,7 +29,7 @@ use super::apart_partition::{PlayedPartition, VERSION};
 pub const TENANT: u64 = 1;
 
 /// The transaction the reads belong to, bound at partition 1.
-const TRANSACTION: [u8; 16] = [7; 16];
+pub const TRANSACTION: [u8; 16] = [7; 16];
 
 /// How long the test waits on one frame of compute's: past every wait a test's times give compute.
 pub const ANSWER_WAIT: Duration = Duration::from_secs(5);
@@ -300,4 +300,49 @@ pub fn hold_two_predicates(partition: &PlayedPartition) -> TestResult<[&'static 
 /// A read of `<s>` alone.
 pub fn of_s(limit: u32, resume: Vec<u8>) -> ultragraphdb_protocol_wire::ComputeRead {
     read_of((false, Some(S), None), limit, resume)
+}
+
+/// Has `partition` hold, in tenant `tenant`, `subject`'s statements of `predicate` in the default graph, its `objects` in order,
+/// every term named and the subject's predicates listed, IDs drawn from `first`: what a read of the subject with its graph and
+/// predicate unbound reads.
+pub fn hold_subject(
+    partition: &PlayedPartition,
+    tenant: u64,
+    (subject, predicate): (&str, &str),
+    objects: &[&str],
+    first: u64,
+) -> TestResult {
+    let run = TenantRun::of(Tenant::new(tenant)).range();
+    let mut next = first;
+    let mut named = |iri: &str| -> TestResult<SystemId> {
+        let held = SystemId::new(
+            TypePrefix::RESOURCE,
+            Bucket::new(run.start())?,
+            Sequence::new(next)?,
+        );
+        next += 1;
+        partition.put(term_key(tenant, iri), held.to_be_bytes().to_vec());
+        partition.put(id_key(tenant, held), iri.as_bytes().to_vec());
+        Ok(held)
+    };
+    let subject = named(subject)?;
+    let predicate = named(predicate)?;
+    let objects = objects
+        .iter()
+        .map(|object| named(object))
+        .collect::<TestResult<Vec<_>>>()?;
+    let listed = QuadKey::SubjectPredicates {
+        tenant,
+        graph: Graph::Default,
+        subject,
+    };
+    partition.put(listed.to_bytes(), list_of(&[predicate]));
+    let forward = QuadKey::Forward {
+        tenant,
+        graph: Graph::Default,
+        predicate,
+        subject,
+    };
+    partition.put(forward.to_bytes(), list_of(&objects));
+    Ok(())
 }

@@ -106,10 +106,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             format!("the transaction on stream {transaction} ended at its Commit"),
         );
         for read in reads {
-            if let Some(ended) = self.reads.remove(&read) {
-                if let Some((link, stream)) = &ended.route {
-                    link.cancel(*stream);
-                }
+            if self.reads.remove(&read).is_some() {
+                self.stop_read(read);
                 self.push_error(read, &refusal);
             }
         }

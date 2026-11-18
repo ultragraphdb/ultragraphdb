@@ -22,18 +22,25 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
-    CLIENT_ADDRESS, CLUSTER, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, SECRET, START_SECONDS,
-    STORAGE_BINARY, STORAGE_OBSERVABILITY, SYSTEM_ROLE_ADDRESS, answering, not_hosting, role,
-    scratch, storage_holding, until_answering, with,
+    CLUSTER, FRONTEND_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering, client_address,
+    frontend_observability, not_hosting, role, scratch, storage_holding, storage_observability,
+    system_role_address, until_answering, with,
 };
-use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback};
 
 use crate::endpoint_steps::{ADMIN, PASSWORD, bootstrapping, until_listening};
 
 /// The second storage process's partition, 2 of two, listens here, and its `/health` and `/ready` at
-/// [`SECOND_OBSERVABILITY`]: it hosts no system group.
-pub(crate) const SECOND_ROLE_ADDRESS: &str = "127.0.0.1:17085";
-pub(crate) const SECOND_OBSERVABILITY: &str = "127.0.0.1:18085";
+/// [`second_observability`]: it hosts no system group. Offset 5 above the target's port base, one the harness leaves free.
+pub(crate) fn second_role_address() -> TestResult<String> {
+    loopback(5)
+}
+
+/// Where the second storage process's `/health` and `/ready` listen: offset 16 above the target's port base, one the harness
+/// leaves free.
+pub(crate) fn second_observability() -> TestResult<String> {
+    loopback(16)
+}
 
 /// The tenant every write of these scenarios names.
 pub(crate) const TENANT: u64 = 0;
@@ -75,7 +82,7 @@ impl Roles {
         let log = scratch(&format!("{name}-{}", self.logs.len()));
         let pid = self
             .util()?
-            .start_service_from_config(role(program, settings, &log, wait))?;
+            .start_service_from_config(role(program, settings, &log, wait)?)?;
         self.logs.push(log);
         Ok(pid)
     }
@@ -87,7 +94,7 @@ impl Roles {
         ready: bool,
     ) -> TestResult {
         let wait = if ready {
-            answering(STORAGE_OBSERVABILITY, "/ready")
+            answering(&storage_observability()?, "/ready")
         } else {
             WaitStrategy::NoWait
         };
@@ -98,7 +105,7 @@ impl Roles {
 
     /// Starts the second storage process on `settings`, once its `/ready` answers.
     pub(crate) fn start_second(&mut self, settings: Vec<(String, String)>) -> TestResult {
-        let wait = answering(SECOND_OBSERVABILITY, "/ready");
+        let wait = answering(&second_observability()?, "/ready");
         let pid = self.start(STORAGE_BINARY, &settings, "storage-second", wait)?;
         self.second = Some((pid, settings));
         Ok(())
@@ -111,12 +118,12 @@ impl Roles {
         settings: Vec<(String, String)>,
         ready: bool,
     ) -> TestResult {
-        let wait = answering(FRONTEND_OBSERVABILITY, "/health");
+        let wait = answering(&frontend_observability()?, "/health");
         let pid = self.start(FRONTEND_BINARY, &settings, "frontend", wait)?;
         self.frontend = Some((pid, settings));
         if ready {
             until_listening()?;
-            until_answering(FRONTEND_OBSERVABILITY, "/ready")?;
+            until_answering(&frontend_observability()?, "/ready")?;
         }
         Ok(())
     }
@@ -206,11 +213,11 @@ pub(crate) fn second_of() -> TestResult<Vec<(String, String)>> {
     let settings = [
         (
             "observability.address",
-            format!("tcp://{SECOND_OBSERVABILITY}"),
+            format!("tcp://{}", second_observability()?),
         ),
         (
             "storage.role_address",
-            format!("tcp://{SECOND_ROLE_ADDRESS}"),
+            format!("tcp://{}", second_role_address()?),
         ),
         ("storage.partition_first", "2".to_string()),
         ("storage.partition_count", "1".to_string()),
@@ -229,7 +236,7 @@ pub(crate) async fn admin(attempts: u32) -> TestResult<Admin> {
     let config =
         ClientConfig::new(CLUSTER, "ultragraphdb-frontend-tests").with_commit_attempts(attempts);
     let mut client = Client::new(
-        TcpConnector::new(CLIENT_ADDRESS.parse()?),
+        TcpConnector::new(client_address()?.parse()?),
         config,
         login,
         16,
@@ -253,7 +260,7 @@ pub(crate) fn write_of(subject: &str, object: &str) -> DirectWrite {
 /// The ranges of the placement the system group holds, as its Placement answers them: first bucket, past bucket, partition.
 pub(crate) fn placement_ranges() -> TestResult<Vec<(u32, u32, u32)>> {
     Runtime::new()?.block_on(async {
-        let address = Address::parse(&format!("tcp://{SYSTEM_ROLE_ADDRESS}"))?;
+        let address = Address::parse(&format!("tcp://{}", system_role_address()?))?;
         let mut client = RoleClient::dial(&address, CLUSTER, "storage", SECRET).await?;
         let reply = client.request(&Placement::request(0)).await?;
         let view = reply.view()?;

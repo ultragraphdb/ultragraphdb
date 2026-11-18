@@ -29,7 +29,6 @@ struct Played {
     partitions: u32,
     tenants: Vec<u64>,
     storage: Vec<(u32, String)>,
-    compute: Vec<String>,
     /// Each session's outcomes, answered in order, the last for every check after it.
     outcomes: BTreeMap<[u8; 16], VecDeque<CheckOutcome>>,
     holding: bool,
@@ -98,11 +97,6 @@ impl SystemPlay {
             .borrow_mut()
             .storage
             .push((partition, address.to_string()));
-    }
-
-    /// A compute process listed by Members at `address`.
-    pub fn compute(&self, address: &str) {
-        self.played.borrow_mut().compute.push(address.to_string());
     }
 
     /// The next check of `session` answers `outcome`, after those queued before it; the last queued answers every check
@@ -347,12 +341,8 @@ impl SystemPlay {
     fn members(&self) -> Members {
         let played = self.played.borrow();
         let mut members = Members::new();
-        // Compute first, by address, then storage, by partition (`PROTOCOL.md` §13.2).
-        let mut compute = played.compute.clone();
-        compute.sort();
-        for address in compute {
-            members.push_compute(address);
-        }
+        // Storage, by partition (`PROTOCOL.md` §13.2): the played group lists no compute process, which the endpoint reaches
+        // no longer.
         let mut storage = played.storage.clone();
         storage.sort();
         for (partition, address) in storage {

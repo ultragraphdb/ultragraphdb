@@ -18,9 +18,9 @@ use ultragraphdb_protocol_wire::{
     WriteChange,
 };
 use ultragraphdb_tests::{
-    CLUSTER, CONFIG_ADDRESS, SECRET, START_SECONDS, STORAGE_BINARY, STORAGE_OBSERVABILITY,
-    answering, compute_on_one_host, frontend_holding, holding, http_status, members_at,
-    role_of_service, scratch, start_config_service, storage_holding, until_answering, with,
+    CLUSTER, SECRET, START_SECONDS, STORAGE_BINARY, answering, compute_on_one_host, config_address,
+    frontend_holding, holding, http_status, members_at, role_of_service, scratch,
+    start_config_service, storage_holding, storage_observability, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -122,7 +122,7 @@ fn namespace_up(w: &mut Steps) -> TestResult {
     let cluster = running(w)?;
     // The scenario's own cluster listens at the declared ports, the config service at its declared address.
     assert_eq!(
-        http_status(CONFIG_ADDRESS, "/ready")?,
+        http_status(&config_address()?, "/ready")?,
         200,
         "the config service"
     );
@@ -195,7 +195,7 @@ fn secret_absent(w: &mut Steps) -> TestResult {
         &[
             ("frontend", &frontend_holding()?),
             ("storage", &storage),
-            ("compute", &holding(compute_on_one_host(), SECRET)?),
+            ("compute", &holding(compute_on_one_host()?, SECRET)?),
         ],
     )?;
     let log = scratch(&format!("storage-absent-secret-{}.log", w.scenario));
@@ -204,22 +204,23 @@ fn secret_absent(w: &mut Steps) -> TestResult {
         "storage",
         &log,
         WaitStrategy::NoWait,
-    ))?;
+    )?)?;
     let exited = util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?;
     let said = std::fs::read_to_string(&log)?;
     // The Secret made: its file mounted where the setting names it.
     std::fs::write(&missing, SECRET)?;
     let again = scratch(&format!("storage-secret-made-{}.log", w.scenario));
-    let ready = answering(STORAGE_OBSERVABILITY, "/ready");
+    let observability = storage_observability()?;
+    let ready = answering(&observability, "/ready");
     let _started: u32 =
-        util.start_service_from_config(role_of_service(STORAGE_BINARY, "storage", &again, ready))?;
+        util.start_service_from_config(role_of_service(STORAGE_BINARY, "storage", &again, ready)?)?;
     w.seen.facts = vec![
         exited
             .code()
             .map_or_else(String::new, |code| code.to_string()),
         said,
         named,
-        http_status(STORAGE_OBSERVABILITY, "/ready")?.to_string(),
+        http_status(&observability, "/ready")?.to_string(),
     ];
     w.roles = Some(util);
     Ok(())

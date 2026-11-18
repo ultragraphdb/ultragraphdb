@@ -39,6 +39,12 @@ impl<'a> BodyView<'a> for ReadView<'a> {
             terms,
             pattern,
             resume: sections.get(3),
+            // Section 0 is 32 bytes and section 1 a whole number of 24-byte records, so sections 1 and 2 each start where
+            // the one before ends (`PROTOCOL.md` §4.1, §4.4, §4.5).
+            pattern_sections: frame
+                .body()
+                .get(sections.offset(0)..sections.offset(2).saturating_add(sections.get(2).len()))
+                .unwrap_or_default(),
         })
     }
 

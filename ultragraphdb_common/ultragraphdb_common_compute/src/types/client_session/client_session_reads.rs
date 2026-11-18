@@ -3,12 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use compio::runtime::spawn;
 use ultragraphdb_common_role::Answer;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Command, ComputeRead, DETAIL_TRANSACTION_NOT_HELD, ErrorCode,
-    ErrorReply, FLAG_LAST, FrameView, Header, HeaderView, PatternSlot, QuadPattern, ReadLevel,
-    ReadView, RequestTermView, ResultBatch, TermTable, TermTableView,
+    BodyBuilder, BodyView, Command, DETAIL_TRANSACTION_NOT_HELD, ErrorCode, ErrorReply,
+    ErrorReplyView, FLAG_LAST, FrameView, Header, HeaderView, MAX_FRAME_SIZE, PatternSlot,
+    QuadPattern, ReadLevel, ReadView, RequestTermView, ResultBatch, TermTableView,
 };
 
 use super::client_session_bind::command_of;
@@ -16,10 +15,9 @@ use super::{ClientSession, now};
 use crate::traits::authorizer::Authorizer;
 use crate::types::bind_state::BindState;
 use crate::types::client_read::ClientRead;
-use crate::types::link_event::LinkEvent;
 use crate::types::queued::Queued;
-use crate::types::route_key::RouteKey;
-use crate::types::session_event::SessionEvent;
+use crate::types::read_pattern::ReadPattern;
+use crate::types::read_request::ReadRequest;
 use crate::utils::iri_place::{IriPlace, iri_place};
 use crate::utils::term_rules::{binds_nobody, check_pattern, check_table};
 
@@ -27,7 +25,7 @@ use crate::utils::term_rules::{binds_nobody, check_pattern, check_table};
 const RESULT_EPOCH: usize = 8;
 const RESULT_PARTITION: usize = 16;
 
-/// The `epoch` and `partition` of the Result `frame`, read in place: the frontend relays the batch, and looks at nothing else.
+/// The `epoch` and `partition` of the Result `frame`, read in place: the session passes the batch on, and looks at nothing else.
 fn read_at(frame: &[u8]) -> Option<(u64, u32)> {
     let header = HeaderView::new(frame).ok()?;
     let fields = header.command_header();
@@ -72,13 +70,12 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     /// A Read on `stream`.
     pub(super) fn read(&mut self, stream: u64, view: &FrameView<'_>) -> Result<Answer, ErrorReply> {
         let read = ReadView::from_frame(view).map_err(|rule| ErrorReply::protocol(&rule))?;
+        let request = ReadPattern::of_read(&read)?;
         self.take_read(
             stream,
             read.transaction(),
-            read.terms(),
-            read.pattern(),
-            read.limit(),
-            view.body().to_vec(),
+            (read.terms(), read.pattern()),
+            request,
         )
     }
 
@@ -87,10 +84,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         &mut self,
         stream: u64,
         transaction: u64,
-        table: &TermTableView<'_>,
-        pattern: &QuadPattern,
-        limit: u32,
-        body: Vec<u8>,
+        (table, pattern): (&TermTableView<'_>, &QuadPattern),
+        request: ReadPattern,
     ) -> Result<Answer, ErrorReply> {
         let Some(txn) = self.transactions.get(&transaction) else {
             return self.not_open(stream, transaction);
@@ -122,17 +117,9 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             stream,
             ClientRead {
                 transaction,
-                body,
-                pattern: *pattern,
-                limit,
+                request,
                 subject: subject_of(table, pattern, tenant),
                 credit,
-                route: None,
-                attempt: 0,
-                tried: Vec::new(),
-                frames: 0,
-                last_frame: now(),
-                members_read: false,
             },
         );
         if let Some(open) = self.transactions.get_mut(&transaction) {
@@ -182,8 +169,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         Ok(Answer::Open)
     }
 
-    /// Sends the read at the queue's front to the next compute process. A gated transaction's first holds its later requests until
-    /// its first frame or its Error.
+    /// Starts the read at the queue's front. A gated transaction's first holds its later requests until its first frame or its
+    /// Error.
     pub(super) fn send_next_read(&mut self, transaction: u64) {
         let Some(txn) = self.transactions.get_mut(&transaction) else {
             return;
@@ -201,23 +188,15 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         self.dispatch_read(read);
     }
 
-    /// The ComputeRead of `read`, what compute needs of its transaction as of now.
-    fn compute_read(&self, read: &ClientRead) -> Option<ComputeRead> {
+    /// The read `read` asks, with what it takes of its transaction as of now (`PROTOCOL.md` §11.12, *Reads*).
+    fn read_request(&self, read: &ClientRead) -> Option<ReadRequest> {
         let txn = self.transactions.get(&read.transaction)?;
         let left = txn.deadline.saturating_duration_since(now());
         let left = u32::try_from(left.as_millis()).unwrap_or(u32::MAX);
-        let body = ComputeRead::new(
-            txn.tenant,
-            txn.read_only,
-            txn.level,
-            TermTable::new(),
-            read.pattern,
-            Vec::new(),
-        )
-        .with_limit(read.limit)
-        .with_principal(self.principal)
-        .with_deadline_ms(left)
-        .with_client_limits(self.max_frame, read.credit);
+        let request = ReadRequest::new(read.request.clone(), txn.tenant, txn.read_only, txn.level)
+            .with_principal(self.principal)
+            .with_deadline_ms(left)
+            .with_max_frame(self.max_frame);
         Some(match (&txn.bind, txn.read_only) {
             (
                 BindState::Bound {
@@ -226,96 +205,67 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                     ..
                 },
                 false,
-            ) => body
+            ) => request
                 .with_partition(*partition)
                 .with_transaction(txn.identity)
                 .with_read_version(*read_version),
             (BindState::None | BindState::Binding { .. } | BindState::Bound { .. }, _) => {
                 match (txn.named, txn.level) {
-                    (Some(version), _) => body.with_named_version(version),
-                    (None, ReadLevel::Snapshot) => body
+                    (Some(version), _) => request.with_named_version(version),
+                    (None, ReadLevel::Snapshot) => request
                         .with_read_version(txn.read_version)
                         .with_epoch(txn.epoch),
-                    (None, ReadLevel::Latest) => body
+                    (None, ReadLevel::Latest) => request
                         .with_partition(txn.level_partition.unwrap_or(0))
                         .with_epoch(txn.epoch),
-                    (None, ReadLevel::MonotonicFast) => body.with_epoch(txn.floor),
+                    (None, ReadLevel::MonotonicFast) => request.with_epoch(txn.floor),
                 }
             }
         })
     }
 
-    /// Sends `read` to the next compute process it has not tried; with none left it is answered with code 17.
+    /// Hands `read` to the core's executor, which runs it on this core (design D3); a core executing no read answers it code 17.
     fn dispatch_read(&mut self, read: u64) {
-        let Some(state) = self.reads.get(&read) else {
+        let Some(request) = self
+            .reads
+            .get(&read)
+            .and_then(|state| self.read_request(state))
+        else {
             return;
         };
-        let Some((address, link)) = self.core.links().next_compute(&state.tried) else {
-            if !state.members_read {
-                // Members is read again before a read is refused for want of a compute process (design D9).
-                self.members_again(read);
-                return;
-            }
-            let refusal = ErrorReply::new(ErrorCode::Unavailable, "no compute process answers");
+        let Some(executor) = self.reads_run.as_mut() else {
+            let refusal = ErrorReply::new(
+                ErrorCode::Unavailable,
+                "this endpoint core executes no read",
+            );
             self.refuse_read(read, &refusal);
             return;
         };
-        let Some(body) = self.compute_read(state) else {
+        executor.start(read, request);
+    }
+
+    /// Ends what the executor runs of `read`; nothing for a read it does not run.
+    pub(super) fn stop_read(&mut self, read: u64) {
+        if let Some(executor) = self.reads_run.as_mut() {
+            executor.cancel(read);
+        }
+    }
+
+    /// A frame the executor gave of `read`: a Result batch, or, flagged `LAST`, its refusal as an Error frame.
+    pub(super) fn read_frame(&mut self, read: u64, frame: Vec<u8>) {
+        if command_of(&frame) != Some(Command::Error) {
+            self.relay_result(read, frame);
             return;
-        };
-        let stream = link.next_stream();
-        let header = Header::new(self.cluster(), Command::ComputeRead)
-            .with_stream(stream)
-            .with_command_header(body.command_header());
-        let frame = match header.encode_frame(&state.body) {
-            // Lossless: a `usize` is at most 64 bits.
-            Ok(frame) if frame.len() as u64 <= u64::from(link.max_frame()) => frame,
-            Ok(_) | Err(_) => {
-                let refusal = ErrorReply::new(
-                    ErrorCode::TooLarge,
-                    "the read's ComputeRead does not fit a frame",
+        }
+        let refusal = FrameView::validate(&frame, self.cluster(), MAX_FRAME_SIZE)
+            .and_then(|view| ErrorReplyView::from_frame(&view).and_then(|error| error.to_body()))
+            .unwrap_or_else(|rule| {
+                ErrorReply::new(
+                    ErrorCode::Unavailable,
+                    format!("a read's refusal did not read back: {rule}"),
                 )
-                .with_detail(u64::from(link.max_frame()));
-                self.refuse_read(read, &refusal);
-                return;
-            }
-        };
-        let attempt = state.attempt + 1;
-        let sink = self
-            .sink(RouteKey::Read { read, attempt })
-            .with_credit(state.credit);
-        let opened = link.open(self.counted(frame), sink);
-        if let Some(sent) = self.reads.get_mut(&read) {
-            sent.attempt = attempt;
-            sent.route = Some((link, opened));
-            sent.tried.push(address);
-            sent.last_frame = now();
-        }
-    }
-
-    /// Reads Members again for `read`, which is dispatched once it is read, or refused then if no compute process is left.
-    fn members_again(&mut self, read: u64) {
-        if let Some(state) = self.reads.get_mut(&read) {
-            state.members_read = true;
-        }
-        let system = self.core.system().clone();
-        let events = self.events_in.clone();
-        spawn(async move {
-            if let Err(refusal) = system.members().await {
-                tracing::debug!(
-                    reason = refusal.message(),
-                    "Members could not be read for a read"
-                );
-            }
-            // A session gone has no one to tell.
-            drop(events.unbounded_send(SessionEvent::MembersRead { read }));
-        })
-        .detach();
-    }
-
-    /// Members was read again for `read`: it goes to the next compute process.
-    pub(super) fn members_read(&mut self, read: u64) {
-        self.dispatch_read(read);
+            });
+        self.read_refused(read, &refusal);
     }
 
     /// Answers `read` with `refusal`, which ends it.
@@ -344,43 +294,6 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         self.pump(state.transaction);
     }
 
-    /// What a read's ComputeRead stream said.
-    pub(super) fn read_event(&mut self, read: u64, attempt: u32, event: LinkEvent) {
-        if self
-            .reads
-            .get(&read)
-            .is_none_or(|state| state.attempt != attempt)
-        {
-            return;
-        }
-        match event {
-            // A ComputeRead is answered by Result frames, relayed as they came, or an Error; the link closes on any other, so a
-            // Bind's, a Held or a Reference's answer stands as its close.
-            LinkEvent::Closed
-            | LinkEvent::Bound(_)
-            | LinkEvent::Held
-            | LinkEvent::Registered(_) => {
-                self.read_closed(read);
-            }
-            LinkEvent::Refused(refusal) => self.read_refused(read, &refusal),
-            LinkEvent::Frame(frame) => self.relay_result(read, frame),
-        }
-    }
-
-    /// A role connection closing under `read`: before any frame reached the client, the next compute process; after, code 17.
-    fn read_closed(&mut self, read: u64) {
-        let Some(state) = self.reads.get_mut(&read) else {
-            return;
-        };
-        state.route = None;
-        if state.frames == 0 {
-            self.dispatch_read(read);
-            return;
-        }
-        let refusal = self.unavailable();
-        self.refuse_read(read, &refusal);
-    }
-
     /// A batch for the client, on its stream: its first frame answers a first read, and its `LAST` the read.
     fn relay_result(&mut self, read: u64, mut frame: Vec<u8>) {
         let last = HeaderView::new(&frame).is_ok_and(|header| header.flags() & FLAG_LAST != 0);
@@ -391,10 +304,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return;
         };
         let transaction = state.transaction;
-        state.frames += 1;
         state.credit = state.credit.saturating_sub(1);
-        state.last_frame = now();
-        state.body = Vec::new();
         self.push(read, frame);
         if let (Some(txn), Some((epoch, partition))) = (self.transactions.get_mut(&transaction), at)
         {
@@ -414,12 +324,11 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         }
     }
 
-    /// Compute refused `read`.
+    /// The executor refused `read`.
     fn read_refused(&mut self, read: u64, refusal: &ErrorReply) {
-        let Some(state) = self.reads.get_mut(&read) else {
+        let Some(state) = self.reads.get(&read) else {
             return;
         };
-        state.route = None;
         let transaction = state.transaction;
         let read_write = self
             .transactions
@@ -443,7 +352,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         self.refuse_read(read, refusal);
     }
 
-    /// Compute answered `read` code 23: the Bind stream is cancelled, which aborts the transaction at its partition. A first read
+    /// The executor answered `read` code 23: the Bind stream is cancelled, which aborts the transaction at its partition. A first read
     /// waits for a refreshed map, which may move its subject; any other ends the transaction.
     fn read_crossed(&mut self, read: u64, transaction: u64, refusal: &ErrorReply) {
         let Some(txn) = self.transactions.get_mut(&transaction) else {
@@ -498,10 +407,6 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         again.first_read = None;
         let _was = again.reads_out.remove(&read);
         again.queue.push_front(Queued::Read(read));
-        if let Some(state) = self.reads.get_mut(&read) {
-            state.route = None;
-            state.tried.clear();
-        }
     }
 
     /// A read's code 23 ends its transaction while its stream stays open (`PROTOCOL.md` §11.12): relayed on the read's stream, the
@@ -516,10 +421,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             .map(|(other, _)| *other)
             .collect();
         for other in others {
-            if let Some(state) = self.reads.remove(&other) {
-                if let Some((link, stream)) = &state.route {
-                    link.cancel(*stream);
-                }
+            if self.reads.remove(&other).is_some() {
+                self.stop_read(other);
                 self.push_error(other, refusal);
             }
         }
@@ -553,13 +456,10 @@ impl<A: Authorizer + Clone> ClientSession<A> {
 
     /// The client cancelled `read`: one held is dropped unsent, one sent is cancelled and counts as answered.
     pub(super) fn read_cancelled(&mut self, read: u64) {
-        let Some(state) = self.reads.get(&read) else {
+        let Some(transaction) = self.reads.get(&read).map(|state| state.transaction) else {
             return;
         };
-        if let Some((link, stream)) = &state.route {
-            link.cancel(*stream);
-        }
-        let transaction = state.transaction;
+        self.stop_read(read);
         if let Some(txn) = self.transactions.get_mut(&transaction) {
             txn.queue
                 .retain(|queued| !matches!(queued, Queued::Read(held) if *held == read));
@@ -567,27 +467,10 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         self.read_answered(read);
     }
 
-    /// Cancels `read`'s ComputeRead and answers it with `refusal`.
-    pub(super) fn read_cancelled_answering(&mut self, read: u64, refusal: &ErrorReply) {
-        if let Some(state) = self.reads.get_mut(&read)
-            && let Some((link, stream)) = state.route.take()
-        {
-            link.cancel(stream);
-        }
-        self.refuse_read(read, refusal);
-    }
-
-    /// The client granted `read` credit, relayed to its compute process; a stream that had none starts its hung timer over.
+    /// The client granted `read` credit, which its connection counts and tells the executor of as room for its next batch.
     pub(super) fn read_credited(&mut self, read: u64, frames: u32) {
-        let Some(state) = self.reads.get_mut(&read) else {
-            return;
-        };
-        if state.credit == 0 {
-            state.last_frame = now();
-        }
-        state.credit = state.credit.saturating_add(frames);
-        if let Some((link, stream)) = &state.route {
-            link.credit(*stream, frames, &self.on_way);
+        if let Some(state) = self.reads.get_mut(&read) {
+            state.credit = state.credit.saturating_add(frames);
         }
     }
 
@@ -600,10 +483,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             .map(|(read, _)| *read)
             .collect();
         for read in reads {
-            if let Some(state) = self.reads.remove(&read)
-                && let Some((link, stream)) = &state.route
-            {
-                link.cancel(*stream);
+            if self.reads.remove(&read).is_some() {
+                self.stop_read(read);
             }
         }
         if let Some(txn) = self.transactions.get_mut(&transaction) {
@@ -618,7 +499,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     }
 }
 
-/// Compute's Error 1 of `detail` 1: a Scan named a transaction its partition no longer holds.
+/// A partition's Error 1 of `detail` 1, passed on by the executor: a Scan named a transaction its partition no longer holds.
 fn is_not_held(refusal: &ErrorReply) -> bool {
     refusal.code() == ErrorCode::Protocol && refusal.detail() == DETAIL_TRANSACTION_NOT_HELD
 }

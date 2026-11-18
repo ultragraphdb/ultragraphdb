@@ -20,7 +20,6 @@ use ultragraphdb_store_quads::{ReferrerMember, ReferrerSet, iri_bucket};
 
 use crate::types::asked::Asked;
 use crate::types::compute_core::ComputeCore;
-use crate::types::frontier::Frontier;
 use crate::types::opened::Opened;
 use crate::types::partition_rows::{PartitionRows, terms_of};
 use crate::types::pushed::Pushed;
@@ -80,7 +79,15 @@ async fn answer(
     let Opened { mut parts, reached } = opened_parts(core, &shared, &map, &route).await?;
     if let Some(terms) = &resume {
         let at = resume_at(core, &shared, &mut parts, terms).await?;
-        parts.iter_mut().for_each(|part| part.resume_at(at.clone()));
+        // Rows come partition by partition (`PROTOCOL.md` §9.1, §11.8): the partitions before the key's are passed over, the
+        // key's reads on strictly after its row, and every later one from its start.
+        for part in &mut parts {
+            match part.partition().cmp(&terms.partition) {
+                Ordering::Less => part.end(),
+                Ordering::Equal => part.resume_at(at.clone()),
+                Ordering::Greater => {}
+            }
+        }
     }
     let first = parts.first().and_then(PartitionRows::chosen);
     let epoch = answered_epoch(&shared.read, first.map(|(_, epoch)| epoch));
@@ -446,8 +453,10 @@ async fn ids_at_homes(
     Ok(ids)
 }
 
-/// Merges the partitions' rows in key order into batches, up to the read's limit, and ends the stream: with a resume key when
-/// the limit stopped it where a row may be left.
+/// Answers the partitions' rows one partition after another, in ascending order of partition and within a partition in its
+/// own order (`PROTOCOL.md` §9.1), into batches up to the read's limit, and ends the stream: with a resume key when the limit
+/// stopped it where a row may be left. Every partition's first Scan of rows is asked at once, so a partition waiting its turn
+/// is answering while those before it are drained, and one that stalls meanwhile is read on from where it stopped.
 /// A dropped future cancels each partition's Scan as its stream drops, and the batches sent stay sent.
 async fn merge(
     shared: &Rc<ReadShared>,
@@ -455,61 +464,34 @@ async fn merge(
     mut sink: ResultSink,
 ) -> Result<(), ErrorReply> {
     let read = &shared.read;
-    let order = |rows: &[PartitionRows], first: usize, second: usize| {
-        let row = |at: usize| rows.get(at).and_then(|part| part.page().peek());
-        match (row(first), row(second)) {
-            (Some(lower), Some(upper)) => lower.order(&upper),
-            // The frontier holds a partition only while its page holds a row.
-            (Some(_), None) | (None, Some(_)) | (None, None) => Ordering::Equal,
-        }
-    };
-    // Every partition's first page is read at once, so the read waits on the slowest rather than on each in turn.
-    let _filled = futures::future::try_join_all(parts.iter_mut().map(PartitionRows::fill)).await?;
-    let mut frontier = Frontier::with_capacity(parts.len());
-    for at in 0..parts.len() {
-        if parts.get(at).is_some_and(|part| part.page().has_row()) {
-            let held = &parts;
-            frontier.push(at, |first, second| order(held, first, second));
-        }
+    for part in &mut parts {
+        part.open_first()?;
     }
+    let count = parts.len();
     let mut sent = 0u32;
     let mut resume = Vec::new();
-    // Each turn sends one row and advances its partition's page: no partition holding a row, or the read's limit, ends
-    // it (Ultra rule 2).
-    loop {
-        let popped = {
-            let held = &parts;
-            frontier.pop(|first, second| order(held, first, second))
-        };
-        let Some(at) = popped else {
-            break;
-        };
-        let Some(part) = parts.get_mut(at) else {
-            break;
-        };
-        let cells = part.cells()?;
-        sink.push_row(&cells.columns(read)).await?;
-        sent = sent.saturating_add(1);
-        if read.limit != 0 {
-            shared.remaining.set(read.limit.saturating_sub(sent).max(1));
-        }
-        let stops = read.limit != 0 && sent == read.limit;
-        let key = if stops {
-            Some(part.resume_key_of_next()?)
-        } else {
-            None
-        };
-        part.advance();
-        if let Some(key) = key {
-            if !frontier.streams().is_empty() || part.may_hold_more() {
-                resume = key;
-            }
-            break;
-        }
+    // Each pass drains one partition: the read's partitions bound it.
+    for (at, part) in parts.iter_mut().enumerate() {
         part.fill().await?;
-        if part.page().has_row() {
-            let held = &parts;
-            frontier.push(at, |first, second| order(held, first, second));
+        // Each turn sends one row and reads on: the partition's end, or the read's limit, ends it (Ultra rule 2).
+        while part.page().has_row() {
+            let cells = part.cells()?;
+            sink.push_row(&cells.columns(read)).await?;
+            sent = sent.saturating_add(1);
+            if read.limit != 0 {
+                shared.remaining.set(read.limit.saturating_sub(sent).max(1));
+            }
+            if read.limit != 0 && sent == read.limit {
+                let key = part.resume_key_of_next()?;
+                part.advance();
+                // A later partition may hold a row, which this one reads no further to tell (`PROTOCOL.md` §9.1).
+                if at + 1 < count || part.may_hold_more() {
+                    resume = key;
+                }
+                return sink.finish(resume).await;
+            }
+            part.advance();
+            part.fill().await?;
         }
     }
     sink.finish(resume).await

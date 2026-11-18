@@ -30,12 +30,6 @@ const DUE: Duration = Duration::from_secs(5);
 /// How long a frame that must not come is watched for.
 const SILENCE: Duration = Duration::from_millis(50);
 
-/// What a storage process's first partition listens at.
-const FIRST_ADDRESS: &str = "tcp://127.0.0.1:17200";
-
-/// What the partition's other process listens at.
-const SECOND_ADDRESS: &str = "tcp://127.0.0.1:17300";
-
 /// The bound of the scenarios stopping a connection: a frame always reaches it.
 const STOPPING_BOUND: &str = "1";
 
@@ -133,7 +127,7 @@ fn second_beside_write(w: &mut Steps) -> TestResult {
     let seen = &mut w.parked;
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at(FIRST_ADDRESS).await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (stream, _) = bound_to(&mut client, PARTITION, 71).await?;
         parked_write(&mut client, stream, &script).await?;
         let second = second_request(&mut client).await?;
@@ -172,7 +166,7 @@ fn second_beside_direct(w: &mut Steps) -> TestResult {
     let seen = &mut w.parked;
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at(FIRST_ADDRESS).await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (subject, object) = (owned_by(PARTITION, 2)?, owned_by(3, 2)?);
         let mut terms = TermTable::new();
         let change = WriteChange::Insert {
@@ -223,7 +217,7 @@ fn write_behind_a_read(w: &mut Steps) -> TestResult {
     let seen = &mut w.parked;
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at(FIRST_ADDRESS).await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (stream, read) = bound_to(&mut client, PARTITION, 70).await?;
         client
             .send_only(&term_scan(70, read, &owned_by(3, 7)?))
@@ -278,7 +272,7 @@ fn behind_on_stream(w: &mut Steps) -> TestResult {
     let seen = &mut w.parked;
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at(FIRST_ADDRESS).await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (stream, _) = bound_to(&mut client, PARTITION, 72).await?;
         parked_write(&mut client, stream, &script).await?;
         let (subject, object) = (owned_by(PARTITION, 3)?, owned_by(3, 3)?);
@@ -321,7 +315,7 @@ fn refused_with_one_behind(w: &mut Steps) -> TestResult {
     let seen = &mut w.parked;
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at(FIRST_ADDRESS).await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (stream, read) = bound_to(&mut client, PARTITION, 73).await?;
         parked_write(&mut client, stream, &script).await?;
         let (subject, object) = (owned_by(PARTITION, 4)?, owned_by(3, 4)?);
@@ -382,7 +376,7 @@ fn cancelled_while_parked(w: &mut Steps) -> TestResult {
     let seen = &mut w.parked;
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at(FIRST_ADDRESS).await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (stream, read) = bound_to(&mut client, PARTITION, 74).await?;
         parked_write(&mut client, stream, &script).await?;
         client.send_on(stream, &Cancel).await?;
@@ -418,12 +412,12 @@ fn closed_while_parked(w: &mut Steps) -> TestResult {
     let seen = &mut w.parked;
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at(FIRST_ADDRESS).await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (stream, read) = bound_to(&mut client, PARTITION, 75).await?;
         parked_write(&mut client, stream, &script).await?;
         drop(client);
         let subject = owned_by(PARTITION, 1)?;
-        let mut compute = dial_at(FIRST_ADDRESS).await?;
+        let mut compute = dial_at(&crate::first_process()?).await?;
         // The connection's close reaches the core in its own time; until then a Scan is refused as behind the Write.
         for _ in 0..500 {
             compute.send_only(&term_scan(75, read, &subject)).await?;
@@ -465,7 +459,7 @@ fn second_past_the_bound(w: &mut Steps) -> TestResult {
     let seen = &mut w.parked;
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at(FIRST_ADDRESS).await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (stream, _) = bound_to(&mut client, PARTITION, 76).await?;
         parked_write(&mut client, stream, &script).await?;
         let second = second_request(&mut client).await?;
@@ -511,8 +505,8 @@ fn crossing_homes(w: &mut Steps) -> TestResult {
     crate::processes_holding(w, &[1, 3], &[("storage.held_bytes", STOPPING_BOUND)])?;
     let seen = &mut w.parked;
     run(async {
-        let mut first = dial_at(FIRST_ADDRESS).await?;
-        let mut second = dial_at(SECOND_ADDRESS).await?;
+        let mut first = dial_at(&crate::first_process()?).await?;
+        let mut second = dial_at(&crate::second_process()?).await?;
         let from_first = edge_write(&owned_by(1, 5)?, &owned_by(3, 6)?);
         let from_second = edge_write(&owned_by(3, 5)?, &owned_by(1, 6)?);
         let at_first = write_on(&mut first, 1, 77, &from_first).await?;
@@ -554,7 +548,7 @@ fn stopped_while_parked(w: &mut Steps) -> TestResult {
     let seen = &mut w.parked;
     run(async {
         play_home(&script).await?;
-        let mut client = dial_at(FIRST_ADDRESS).await?;
+        let mut client = dial_at(&crate::first_process()?).await?;
         let (stream, _) = bound_to(&mut client, PARTITION, 79).await?;
         parked_write(&mut client, stream, &script).await?;
         let _stopped = util.stop_service(pid)?;

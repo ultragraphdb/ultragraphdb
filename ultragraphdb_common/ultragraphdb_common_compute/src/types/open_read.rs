@@ -8,10 +8,10 @@ use futures::channel::mpsc::UnboundedSender;
 use ultragraphdb_common_role::OpenFrame;
 
 /// A read under way on a connection: its task, whose end cancels what it holds, the signal of room for its next batch, and its
-/// count among the requests a stop waits on.
+/// count among the requests a stop waits on, for a session that counts its reads there.
 #[derive(Debug)]
 pub(super) struct OpenRead {
     pub(crate) _task: JoinHandle<()>,
     pub(crate) room: UnboundedSender<()>,
-    pub(crate) _open: OpenFrame,
+    pub(crate) _open: Option<OpenFrame>,
 }

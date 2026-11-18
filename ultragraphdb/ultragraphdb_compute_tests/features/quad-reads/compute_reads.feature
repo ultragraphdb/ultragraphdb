@@ -12,15 +12,15 @@ Feature: Quad reads through compute
 
     Scenario: A bound literal object fans out
       When `<a>` in partition 1 and `<c>` in partition 2 each hold `name` `"Ann"`, and a read binds its object to `"Ann"` and its predicate to `name`
-      Then compute asks every partition of the tenant's run, reads no referrer set, and returns `<a>` and `<c>` merged in key order
+      Then compute asks every partition of the tenant's run, reads no referrer set, and returns `<a>`, partition 1's row, before `<c>`, partition 2's
 
     Scenario: A value-index lookup asks every partition
       When partitions 1, 2 and 3 each hold a subject whose `name` the `term` index lists under `ann`, and compute's API looks up `ann`
       Then compute asks the three partitions, and the API returns the three subjects merged in key order
 
-    Scenario: An unbound subject merges every partition
+    Scenario: An unbound subject answers partition by partition
       When a read leaves its subject and object unbound over two partitions that each hold matching rows
-      Then compute returns the rows of both partitions merged in key order
+      Then compute returns every row of partition 1 and then every row of partition 2
 
     Scenario: A vector object reads the forward lists
       When `<a>` in partition 1 and `<c>` in partition 2 each hold `embedding` `v`, `<d>` holds another vector, and a read binds its object to `v` and its predicate to `embedding`

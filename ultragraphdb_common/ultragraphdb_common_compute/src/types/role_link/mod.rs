@@ -10,10 +10,10 @@ use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use std::task::Waker;
 
-use ultragraphdb_common_role::{ParkedBytes, RoleClient};
+use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Cancel, Command, Credit, Header, HeaderView, MAX_FRAME_SIZE_U32,
+    BodyBuilder, Cancel, Command, Header, HeaderView, MAX_FRAME_SIZE_U32,
 };
 
 use crate::types::commit_hold::CommitHold;
@@ -208,7 +208,7 @@ impl RoleLink {
         self.leave(stream, frame);
     }
 
-    /// `frame` of `stream` waits to leave: a request, or a Credit or a Cancel, which no frame answers.
+    /// `frame` of `stream` waits to leave: a request, or a Cancel, which no frame answers.
     fn leave(&self, stream: u64, frame: CountedFrame) {
         let writer = self.routes.borrow_mut().queue(stream, false, frame);
         if let Some(writer) = writer {
@@ -225,16 +225,6 @@ impl RoleLink {
         // A Cancel that cannot be built sends nothing: the stream is forgotten here either way.
         if let Ok(frame) = Cancel.frame(self.header(Command::Cancel, stream)) {
             self.leave(stream, CountedFrame::uncounted(frame));
-        }
-    }
-
-    /// Grants `stream` credit for `frames` more frames, counted here before they can be spent, its frame counted in `count`.
-    pub fn credit(&self, stream: u64, frames: u32, count: &ParkedBytes) {
-        if let Some(route) = self.routes.borrow_mut().open.get_mut(&stream) {
-            route.sink.grant_credit(frames);
-        }
-        if let Ok(frame) = Credit::new(frames).frame(self.header(Command::Credit, stream)) {
-            self.leave(stream, CountedFrame::new(frame, count));
         }
     }
 

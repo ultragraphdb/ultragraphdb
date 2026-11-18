@@ -6,18 +6,18 @@
 use std::time::Instant;
 
 use ultragraphdb_protocol_wire::{
-    ComputeReadView, ErrorReply, PatternSlot, ReadLevel, RequestTerm, RequestTermView,
-    TermTableView,
+    ComputeReadView, ErrorReply, MAX_FRAME_FLOOR_U32, ReadLevel, RequestTerm,
 };
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::types::graph_slot::GraphSlot;
+use crate::types::read_pattern::ReadPattern;
 use crate::utils::clock::now;
-use crate::utils::refusals::term_refused;
 
-/// A ComputeRead, its frame given back: what the read needs of it for as long as it runs.
+/// A read as the executor runs it, for as long as it runs: what its request asks ([`ReadPattern`]) and what it takes of its
+/// transaction when it starts, built by [`ReadRequest::new`] and its setters, or from a ComputeRead, its frame given back.
 #[derive(Debug)]
-pub(crate) struct ReadRequest {
+pub struct ReadRequest {
     pub(crate) stream: u64,
     pub(crate) partition: u32,
     pub(crate) read_only: bool,
@@ -40,89 +40,124 @@ pub(crate) struct ReadRequest {
     pub(crate) arrived: Instant,
 }
 
-/// The IRI of `slot`, `None` when it is unbound; a term of another kind refused (`PROTOCOL.md` §4.4).
-fn iri_of(
-    terms: &TermTableView<'_>,
-    slot: PatternSlot,
-    rule: &str,
-) -> Result<Option<String>, ErrorReply> {
-    match slot {
-        PatternSlot::Unbound | PatternSlot::DefaultGraph | PatternSlot::Parameter(_) => Ok(None),
-        PatternSlot::Bound(index) => match terms.get(index) {
-            Some(RequestTermView::Iri(iri)) => Ok(Some(iri.to_string())),
-            Some(
-                RequestTermView::BlankNode(_)
-                | RequestTermView::Literal { .. }
-                | RequestTermView::LanguageLiteral { .. }
-                | RequestTermView::Triple { .. },
-            )
-            | None => Err(term_refused(index, rule)),
-        },
-    }
-}
-
-/// The object of `slot`; a blank node's label or a triple term refused (`PROTOCOL.md` §4.4).
-fn object_of(
-    terms: &TermTableView<'_>,
-    slot: PatternSlot,
-) -> Result<Option<RequestTerm>, ErrorReply> {
-    let PatternSlot::Bound(index) = slot else {
-        return Ok(None);
-    };
-    match terms.get(index) {
-        Some(
-            term @ (RequestTermView::Iri(_)
-            | RequestTermView::Literal { .. }
-            | RequestTermView::LanguageLiteral { .. }),
-        ) => Ok(Some(term.to_term())),
-        Some(RequestTermView::BlankNode(_) | RequestTermView::Triple { .. }) | None => Err(
-            term_refused(index, "a pattern's object slot holds an IRI or a literal"),
-        ),
-    }
-}
-
 impl ReadRequest {
+    /// The read `pattern` asks in a transaction of `tenant`, read-only or read-write, at `level`; every other field 0 until
+    /// set, as the transaction's state at the read's start says (`PROTOCOL.md` §11.12, *Reads*).
+    #[must_use]
+    pub fn new(pattern: ReadPattern, tenant: u64, read_only: bool, level: ReadLevel) -> Self {
+        let ReadPattern {
+            graph,
+            subject,
+            predicate,
+            object,
+            limit,
+            resume,
+            pattern_hash,
+        } = pattern;
+        Self {
+            stream: 0,
+            partition: 0,
+            read_only,
+            level,
+            named: false,
+            tenant,
+            read_version: 0,
+            epoch: 0,
+            principal: 0,
+            transaction: [0; 16],
+            limit,
+            deadline_ms: 0,
+            max_frame: MAX_FRAME_FLOOR_U32,
+            graph,
+            subject,
+            predicate,
+            object,
+            resume,
+            pattern_hash,
+            arrived: now(),
+        }
+    }
+
+    /// The transaction's partition, once bound, or the partition a level-1 transaction's first read bound it to.
+    #[must_use]
+    pub fn with_partition(mut self, partition: u32) -> Self {
+        self.partition = partition;
+        self
+    }
+
+    /// A read-write transaction's identity, as its Bind named it, which the read's resume key's `scope` hashes.
+    #[must_use]
+    pub fn with_transaction(mut self, transaction: [u8; 16]) -> Self {
+        self.transaction = transaction;
+        self
+    }
+
+    /// The version the read reads at: the Bind's answer, or the snapshot's version bound.
+    #[must_use]
+    pub fn with_read_version(mut self, read_version: u64) -> Self {
+        self.read_version = read_version;
+        self.named = false;
+        self
+    }
+
+    /// The version the client named, which the read reads at without waiting.
+    #[must_use]
+    pub fn with_named_version(mut self, read_version: u64) -> Self {
+        self.read_version = read_version;
+        self.named = true;
+        self
+    }
+
+    /// The epoch the read waits for: the snapshot's, the token's, or the read's floor.
+    #[must_use]
+    pub fn with_epoch(mut self, epoch: u64) -> Self {
+        self.epoch = epoch;
+        self
+    }
+
+    /// The client's principal.
+    #[must_use]
+    pub fn with_principal(mut self, principal: u64) -> Self {
+        self.principal = principal;
+        self
+    }
+
+    /// The milliseconds left until the transaction's deadline, counted from now.
+    #[must_use]
+    pub fn with_deadline_ms(mut self, deadline_ms: u32) -> Self {
+        self.deadline_ms = deadline_ms;
+        self.arrived = now();
+        self
+    }
+
+    /// The `max_frame` of the client's Hello, 524,288 to 1,048,576: every Result frame of the read is at most this.
+    #[must_use]
+    pub fn with_max_frame(mut self, max_frame: u32) -> Self {
+        self.max_frame = max_frame;
+        self
+    }
+
     /// The read `view` asks on `stream`.
     pub(crate) fn of(view: &ComputeReadView<'_>, stream: u64) -> Result<Self, ErrorReply> {
-        let terms = view.terms();
-        let pattern = view.pattern();
-        let graph = match pattern.graph() {
-            PatternSlot::DefaultGraph => GraphSlot::Default,
-            slot @ PatternSlot::Bound(_) => GraphSlot::Named(
-                iri_of(terms, slot, "a pattern's graph slot holds an IRI")?.unwrap_or_default(),
-            ),
-            PatternSlot::Unbound | PatternSlot::Parameter(_) => GraphSlot::Unbound,
+        let pattern = ReadPattern::of_parts(
+            (view.terms(), view.pattern()),
+            view.limit(),
+            view.resume(),
+            view.pattern_hash(),
+        )?;
+        let read = Self::new(pattern, view.tenant(), view.read_only(), view.level())
+            .with_partition(view.partition())
+            .with_transaction(view.transaction())
+            .with_epoch(view.epoch())
+            .with_principal(view.principal())
+            .with_deadline_ms(view.deadline_ms())
+            .with_max_frame(view.max_frame());
+        let read = if view.named() {
+            read.with_named_version(view.read_version())
+        } else {
+            read.with_read_version(view.read_version())
         };
-        Ok(Self {
-            stream,
-            partition: view.partition(),
-            read_only: view.read_only(),
-            level: view.level(),
-            named: view.named(),
-            tenant: view.tenant(),
-            read_version: view.read_version(),
-            epoch: view.epoch(),
-            principal: view.principal(),
-            transaction: view.transaction(),
-            limit: view.limit(),
-            deadline_ms: view.deadline_ms(),
-            max_frame: view.max_frame(),
-            graph,
-            subject: iri_of(
-                terms,
-                pattern.subject(),
-                "a pattern's subject slot holds an IRI",
-            )?,
-            predicate: iri_of(
-                terms,
-                pattern.predicate(),
-                "a pattern's predicate slot holds an IRI",
-            )?,
-            object: object_of(terms, pattern.object())?,
-            resume: view.resume().to_vec(),
-            pattern_hash: view.pattern_hash(),
-            arrived: now(),
-        })
+        Ok(Self { stream, ..read })
     }
 
     /// Whether the read is a read-write transaction's.

@@ -22,11 +22,11 @@ use ultragraphdb_protocol_wire::{
     LeaseView, Placement, PlacementView, Subscribe, TenantRun,
 };
 use ultragraphdb_tests::{CLUSTER, SECRET, START_SECONDS, exit_is, fresh_data, scratch, with};
-use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback};
 
 use crate::{
-    FIRST_OBSERVED, FIRST_PORT, SECOND_OBSERVED, SECOND_PORT, SYSTEM_ADDRESS, Steps, TENANT,
-    commit_on, edge_write, hosting, instance, rounds_replayed, services, started, subject_of,
+    FIRST_OFFSET, SECOND_OFFSET, Steps, TENANT, commit_on, edge_write, first_observed, hosting,
+    instance, rounds_replayed, second_observed, services, started, subject_of, system_address,
 };
 
 /// The closes the scenario's group holds before its host is killed.
@@ -58,7 +58,7 @@ const PIN_SKIP: usize = 1;
 
 /// A role connection to the system group as `role`.
 async fn group_as(role: &str) -> TestResult<RoleClient> {
-    let target = Address::parse(&format!("tcp://{SYSTEM_ADDRESS}"))?;
+    let target = Address::parse(&format!("tcp://{}", system_address()?))?;
     Ok(RoleClient::dial(&target, CLUSTER, role, SECRET).await?)
 }
 
@@ -105,7 +105,7 @@ fn bootstrapping(system: &str) -> TestResult<Vec<(String, String)>> {
     let file = scratch("books-bootstrap-secret");
     std::fs::write(&file, ADMIN_PASSWORD)?;
     Ok(with(
-        hosting((1, 1, FIRST_PORT, FIRST_OBSERVED), 1, system)?,
+        hosting((1, 1, FIRST_OFFSET, &first_observed()?), 1, system)?,
         "metadata.bootstrap_secret_file",
         &file.display().to_string(),
     ))
@@ -190,7 +190,7 @@ fn books_recover(w: &mut Steps) -> TestResult {
         &util,
         &settings,
         &scratch("storage-books.log"),
-        FIRST_OBSERVED,
+        &first_observed()?,
     )?;
     w.roles = Some(util);
     let (before, second) = Runtime::new()?.block_on(async {
@@ -203,7 +203,7 @@ fn books_recover(w: &mut Steps) -> TestResult {
     killed(w, pid)?;
     let roles = w.roles.as_ref().context("the processes")?;
     let again = scratch("storage-books-again.log");
-    let _restarted: u32 = started(roles, &settings, &again, FIRST_OBSERVED)?;
+    let _restarted: u32 = started(roles, &settings, &again, &first_observed()?)?;
     let (after, latest, third) = Runtime::new()?.block_on(async {
         let after = books().await?;
         let latest = latest_close().await?;
@@ -344,22 +344,22 @@ fn committed_at_or_after(
 fn partition_delayed(w: &mut Steps) -> TestResult {
     let util = services()?;
     let host = with(
-        hosting((1, 1, FIRST_PORT, FIRST_OBSERVED), 2, &fresh_data())?,
+        hosting((1, 1, FIRST_OFFSET, &first_observed()?), 2, &fresh_data())?,
         "sequencer.epoch_ms_max",
         &EPOCH_MS_MAX.to_string(),
     );
-    let delayed = instance(2, 1, SECOND_PORT, SECOND_OBSERVED)?;
+    let delayed = instance(2, 1, SECOND_OFFSET, &second_observed()?)?;
     let _host: u32 = started(
         &util,
         &host,
         &scratch("storage-delay-host.log"),
-        FIRST_OBSERVED,
+        &first_observed()?,
     )?;
     let pid = started(
         &util,
         &delayed,
         &scratch("storage-delayed.log"),
-        SECOND_OBSERVED,
+        &second_observed()?,
     )?;
     w.roles = Some(util);
     // Partition 2's process stopped whole: whatever sync of its log is in flight, and every read of its subscription,
@@ -385,8 +385,11 @@ fn partition_delayed(w: &mut Steps) -> TestResult {
     let during = during?;
     let last = *during.last().context("a close")?;
     // The partition's open epoch passes the last close the group sent while it was stopped once it has read them all.
-    let reached =
-        committed_at_or_after(&format!("tcp://127.0.0.1:{SECOND_PORT}"), (2, 2), last + 1)?;
+    let reached = committed_at_or_after(
+        &format!("tcp://{}", loopback(SECOND_OFFSET)?),
+        (2, 2),
+        last + 1,
+    )?;
     w.epochs = during;
     w.epochs.push(reached);
     Ok(())
@@ -424,12 +427,12 @@ fn closes_on_time(w: &mut Steps) -> TestResult {
 #[when("the hosting process restarts with a partition whose log names catalog version 3")]
 fn restarts_with_version(w: &mut Steps) -> TestResult {
     let util = services()?;
-    let settings = hosting((1, 1, FIRST_PORT, FIRST_OBSERVED), 1, &fresh_data())?;
+    let settings = hosting((1, 1, FIRST_OFFSET, &first_observed()?), 1, &fresh_data())?;
     let pid = started(
         &util,
         &settings,
         &scratch("storage-versions.log"),
-        FIRST_OBSERVED,
+        &first_observed()?,
     )?;
     w.roles = Some(util);
     let effective = Runtime::new()?.block_on(async {
@@ -461,12 +464,15 @@ fn restarts_with_version(w: &mut Steps) -> TestResult {
         TestResult::Ok(effective)
     })?;
     // A round at the epoch version 3 takes effect or later: its records name version 3.
-    let _epoch =
-        committed_at_or_after(&format!("tcp://127.0.0.1:{FIRST_PORT}"), (1, 1), effective)?;
+    let _epoch = committed_at_or_after(
+        &format!("tcp://{}", loopback(FIRST_OFFSET)?),
+        (1, 1),
+        effective,
+    )?;
     killed(w, pid)?;
     let again = scratch("storage-versions-again.log");
     let roles = w.roles.as_ref().context("the processes")?;
-    let _restarted: u32 = started(roles, &settings, &again, FIRST_OBSERVED)?;
+    let _restarted: u32 = started(roles, &settings, &again, &first_observed()?)?;
     w.logs = vec![std::fs::read_to_string(&again)?];
     Ok(())
 }
@@ -505,12 +511,12 @@ fn metadata_write_fails(w: &mut Steps) -> TestResult {
     // A snapshot after every round of the metadata group, each trimming its log through it: the trim writes the log's
     // superblock, a file created in `meta/` and renamed over its copy.
     let settings = with(
-        hosting((1, 1, FIRST_PORT, FIRST_OBSERVED), 1, &system)?,
+        hosting((1, 1, FIRST_OFFSET, &first_observed()?), 1, &system)?,
         "metadata.snapshot_rounds",
         "1",
     );
     let log = scratch("storage-failed-log.log");
-    let pid = started(&util, &settings, &log, FIRST_OBSERVED)?;
+    let pid = started(&util, &settings, &log, &first_observed()?)?;
     let meta = Path::new(&system).join("meta");
     // The log writes a superblock copy through a temporary file beside it, created and then renamed over the copy: a
     // directory standing at both copies' temporary paths makes the log's next superblock write fail at its create, the
@@ -574,14 +580,14 @@ fn stops_with_74(w: &mut Steps) -> TestResult {
 fn five_pinned(w: &mut Steps) -> TestResult {
     let util = services()?;
     let settings = hosting(
-        (1, PINNED_PARTITIONS, FIRST_PORT, FIRST_OBSERVED),
+        (1, PINNED_PARTITIONS, FIRST_OFFSET, &first_observed()?),
         PINNED_PARTITIONS,
         &fresh_data(),
     )?;
     let settings = with(settings, "runtime.pin_cores", "true");
     let settings = with(settings, "runtime.pin_skip", &PIN_SKIP.to_string());
     let log = scratch("storage-five-pinned.log");
-    let _pid: u32 = started(&util, &settings, &log, FIRST_OBSERVED)?;
+    let _pid: u32 = started(&util, &settings, &log, &first_observed()?)?;
     w.logs = vec![std::fs::read_to_string(&log)?];
     w.roles = Some(util);
     Ok(())

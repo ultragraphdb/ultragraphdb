@@ -20,9 +20,9 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_quads::{iri_bucket, term_key};
 use ultragraphdb_tests::{
-    CLUSTER, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, FRONTEND_BINARY, FRONTEND_OBSERVABILITY,
-    SECRET, STORAGE_BINARY, STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, answering,
-    compute_on_one_host, frontend_holding, holding, role, scratch, until_answering,
+    CLUSTER, COMPUTE_BINARY, FRONTEND_BINARY, SECRET, STORAGE_BINARY, answering,
+    compute_observability, compute_on_one_host, frontend_holding, frontend_observability, holding,
+    role, scratch, storage_observability, storage_role_address, until_answering,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -73,29 +73,29 @@ async fn connected() -> TestResult<Authenticated<Carrier>> {
 
 fn started(w: &mut Steps) -> TestResult {
     let util = services()?;
-    let frontend = answering(FRONTEND_OBSERVABILITY, "/health");
+    let frontend = answering(&frontend_observability()?, "/health");
     let _frontend: u32 = util.start_service_from_config(role(
         FRONTEND_BINARY,
         &frontend_holding()?,
         &scratch(FRONTEND_BINARY),
         frontend,
-    ))?;
+    )?)?;
     let _storage: u32 = util.start_service_from_config(role(
         STORAGE_BINARY,
         &bootstrapping()?,
         &scratch(STORAGE_BINARY),
-        answering(STORAGE_OBSERVABILITY, "/health"),
-    ))?;
+        answering(&storage_observability()?, "/health"),
+    )?)?;
     let _compute: u32 = util.start_service_from_config(role(
         COMPUTE_BINARY,
-        &holding(compute_on_one_host(), SECRET)?,
+        &holding(compute_on_one_host()?, SECRET)?,
         &scratch(COMPUTE_BINARY),
-        answering(COMPUTE_OBSERVABILITY, "/health"),
-    ))?;
+        answering(&compute_observability()?, "/health"),
+    )?)?;
     w.roles = Some(util);
     until_listening()?;
-    until_answering(STORAGE_OBSERVABILITY, "/ready")?;
-    until_answering(COMPUTE_OBSERVABILITY, "/ready")
+    until_answering(&storage_observability()?, "/ready")?;
+    until_answering(&compute_observability()?, "/ready")
 }
 
 /// A DirectWrite of tenant 0 holding `change`, its terms `terms`.
@@ -183,7 +183,7 @@ async fn read_rows(client: &mut Authenticated<Carrier>, from: u64) -> TestResult
 
 /// The bytes of the system ID the partition holds for `iri`.
 async fn system_id(iri: &str) -> TestResult<Vec<u8>> {
-    let address = Address::parse(&format!("tcp://{STORAGE_ROLE_ADDRESS}"))?;
+    let address = Address::parse(&format!("tcp://{}", storage_role_address()?))?;
     let mut client = RoleClient::dial(&address, CLUSTER, "frontend", SECRET).await?;
     let key = term_key(TENANT, iri);
     let past = [key.as_slice(), &[0]].concat();
@@ -415,7 +415,7 @@ fn write_then_read(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend sends the read to compute only after the write is answered, and the read returns the write"
+    "compute sends the read's first Scan only after the write is answered, and the read returns the write"
 )]
 fn read_returns_the_write(w: &mut Steps) {
     assert!(w.answered.names(A), "{:?}", w.answered.cells);

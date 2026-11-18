@@ -86,7 +86,7 @@ Sources: P §9.2, §11.3; quad-reads, "A read's batches fit the client's frame";
 | C5.29 | `initial_credit` 4 and an answer of six frames | four frames are sent, then one for each frame of the client's Credit |
 | C5.30 | `initial_credit` 1 | one frame, then one per frame of credit |
 | C5.31 | a stream's credit at 0 with frames ready | no Result frame is sent until a Credit arrives |
-| C5.32 | a Credit read in the turn of the step that built a frame the spent credit held back | the frame is sent in that turn |
+| C5.32 | a Credit read in the turn of the step that built a frame the spent credit held back | the frame is sent in that turn; read as L5.7 is (`notes/laws.md`, below L5.14): a read builds no frame credit holds back, the Credit wakes it in that turn and the frame leaves in its next step |
 | C5.33 | two Credits of `frames` 2³² − 1 | the credit saturates at 2³² − 1 |
 | C5.34 | a Credit of `frames` 0 | refused with Error 1 on its stream, `FieldValue` `"frames"`, which ends the read |
 | C5.35 | a Credit for a stream that is not open; after the read's `LAST` | ignored |

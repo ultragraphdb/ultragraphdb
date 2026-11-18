@@ -7,4 +7,5 @@ pub mod compare;
 pub mod fuzz_regressions;
 pub mod golden_io;
 pub mod hides;
+pub mod ports;
 pub mod workspace;

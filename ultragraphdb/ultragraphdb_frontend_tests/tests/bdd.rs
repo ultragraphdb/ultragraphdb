@@ -23,10 +23,10 @@ use ultragraphdb_client_compio::{Client, ClientConfig, TcpConnector};
 use ultragraphdb_common_service::BIND_RETRIES;
 use ultragraphdb_protocol_scram::{ScramLogin, system_nonce};
 use ultragraphdb_tests::{
-    CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, DOUBLE_ADDRESS, FRONTEND_BINARY,
-    FRONTEND_OBSERVABILITY, PARENT_PID, SECRET, START_SECONDS, STORAGE_BINARY, bootstrap, exit_is,
-    frontend_holding, http_status, process, render_settings, role, scratch, served_by_double,
-    start_double, until_answering, until_ports_free, with,
+    CLUSTER, COMPUTE_BINARY, FRONTEND_BINARY, PARENT_PID, SECRET, START_SECONDS, STORAGE_BINARY,
+    bootstrap, client_address, double_address, exit_is, frontend_holding, frontend_observability,
+    http_status, process, render_settings, role, scratch, served_by_double, start_double,
+    until_answering, until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -37,16 +37,18 @@ const ROOT_PATH: &str = "ultragraphdb/ultragraphdb_frontend_tests";
 const NO_INTERFACE: &str = "203.0.113.1:18099";
 
 /// The addresses a role of these scenarios holds beyond those every suite declares: the second storage process's.
-const OWN_ADDRESSES: [(&str, &str); 2] = [
-    (
-        processes::SECOND_ROLE_ADDRESS,
-        "the second storage process's partition",
-    ),
-    (
-        processes::SECOND_OBSERVABILITY,
-        "the second storage process's observability",
-    ),
-];
+fn own_addresses() -> TestResult<[(String, &'static str); 2]> {
+    Ok([
+        (
+            processes::second_role_address()?,
+            "the second storage process's partition",
+        ),
+        (
+            processes::second_observability()?,
+            "the second storage process's observability",
+        ),
+    ])
+}
 
 pub(crate) fn services() -> TestResult<ServiceUtil> {
     Ok(ServiceUtil::new(
@@ -75,7 +77,7 @@ pub(crate) struct Steps {
 fn client_refusal(name: &str, password: &str) -> TestResult<String> {
     Runtime::new()?.block_on(async {
         let login = ScramLogin::new(name, password, system_nonce)?;
-        let address = CLIENT_ADDRESS.parse()?;
+        let address = client_address()?.parse()?;
         let config = ClientConfig::new(CLUSTER, "ultragraphdb-test");
         let mut client = Client::new(TcpConnector::new(address), config, login, 16);
         let refused = client.connect().await.err().context("a refusal")?;
@@ -163,7 +165,7 @@ fn no_system_address(w: &mut Steps) -> TestResult {
         &settings,
         &log,
         WaitStrategy::NoWait,
-    ))?;
+    )?)?;
     w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
     w.log = std::fs::read_to_string(&log)?;
     Ok(())
@@ -182,7 +184,7 @@ fn parent_gone(w: &mut Steps) -> TestResult {
     let instance = served_by_double(FRONTEND_BINARY, &render_settings(&frontend_holding()?));
     // No process holds the largest identity, so it is no parent of the role's.
     let named = with(
-        bootstrap(DOUBLE_ADDRESS, &instance),
+        bootstrap(&double_address()?, &instance),
         PARENT_PID,
         &u32::MAX.to_string(),
     );
@@ -210,8 +212,12 @@ fn start_frontend(
     log: &std::path::Path,
 ) -> TestResult<u32> {
     let util = services()?;
-    let pid =
-        util.start_service_from_config(role(FRONTEND_BINARY, settings, log, WaitStrategy::NoWait))?;
+    let pid = util.start_service_from_config(role(
+        FRONTEND_BINARY,
+        settings,
+        log,
+        WaitStrategy::NoWait,
+    )?)?;
     w.roles = Some(util);
     Ok(pid)
 }
@@ -234,12 +240,13 @@ fn retries_of(log: &str, address: &str) -> usize {
 #[when("a role starts at a TCP address another process holds, which lets it go within the bound")]
 fn port_held_a_moment(w: &mut Steps) -> TestResult {
     let log = scratch("frontend-port-a-moment.log");
-    let held = std::net::TcpListener::bind(FRONTEND_OBSERVABILITY)?;
+    let observability = frontend_observability()?;
+    let held = std::net::TcpListener::bind(&observability)?;
     let _pid = start_frontend(w, &frontend_holding()?, &log)?;
     let mut retried = false;
     for _ in 0..START_SECONDS * 100 {
         w.log = std::fs::read_to_string(&log).unwrap_or_default();
-        retried = retries_of(&w.log, FRONTEND_OBSERVABILITY) > 0;
+        retried = retries_of(&w.log, &observability) > 0;
         if retried {
             break;
         }
@@ -251,15 +258,16 @@ fn port_held_a_moment(w: &mut Steps) -> TestResult {
         "a retry in the log, {START_SECONDS} s on: {}",
         w.log
     );
-    until_answering(FRONTEND_OBSERVABILITY, "/health")?;
+    until_answering(&observability, "/health")?;
     w.log = std::fs::read_to_string(&log)?;
     Ok(())
 }
 
 #[then("the role logs each retry naming the address, binds it, and answers `/health`")]
 fn took_the_port(w: &mut Steps) -> TestResult {
-    assert_eq!(http_status(FRONTEND_OBSERVABILITY, "/health")?, 200);
-    assert!(retries_of(&w.log, FRONTEND_OBSERVABILITY) > 0, "{}", w.log);
+    let observability = frontend_observability()?;
+    assert_eq!(http_status(&observability, "/health")?, 200);
+    assert!(retries_of(&w.log, &observability) > 0, "{}", w.log);
     Ok(())
 }
 
@@ -269,12 +277,13 @@ fn took_the_port(w: &mut Steps) -> TestResult {
 fn client_port_held_a_moment(w: &mut Steps) -> TestResult {
     let log = scratch("frontend-client-port-a-moment.log");
     // The frontend's one listener beside its observability: since the switch it listens at no role address (design D2).
-    let held = std::net::TcpListener::bind(CLIENT_ADDRESS)?;
+    let client = client_address()?;
+    let held = std::net::TcpListener::bind(&client)?;
     let _pid = start_frontend(w, &frontend_holding()?, &log)?;
     let mut retried = false;
     for _ in 0..START_SECONDS * 100 {
         w.log = std::fs::read_to_string(&log).unwrap_or_default();
-        retried = retries_of(&w.log, CLIENT_ADDRESS) > 0;
+        retried = retries_of(&w.log, &client) > 0;
         if retried {
             break;
         }
@@ -286,9 +295,10 @@ fn client_port_held_a_moment(w: &mut Steps) -> TestResult {
         w.log
     );
     // The observability address is bound, the client address is not.
-    w.status = http_status(FRONTEND_OBSERVABILITY, "/health")?;
+    let observability = frontend_observability()?;
+    w.status = http_status(&observability, "/health")?;
     drop(held);
-    until_answering(FRONTEND_OBSERVABILITY, "/health")?;
+    until_answering(&observability, "/health")?;
     w.log = std::fs::read_to_string(&log)?;
     Ok(())
 }
@@ -298,7 +308,7 @@ fn client_port_held_a_moment(w: &mut Steps) -> TestResult {
 )]
 fn health_after_binding(w: &mut Steps) -> TestResult {
     assert_eq!(w.status, 503, "{}", w.log);
-    let _connected = std::net::TcpStream::connect(CLIENT_ADDRESS)?;
+    let _connected = std::net::TcpStream::connect(client_address()?)?;
     w.roles = None;
     Ok(())
 }
@@ -307,7 +317,7 @@ fn health_after_binding(w: &mut Steps) -> TestResult {
 fn port_held_past_the_bound(w: &mut Steps) -> TestResult {
     let log = scratch("frontend-port-held.log");
     // The frontend's client endpoint: since the switch it listens at no role address (design D2).
-    let held = std::net::TcpListener::bind(CLIENT_ADDRESS)?;
+    let held = std::net::TcpListener::bind(client_address()?)?;
     let pid = start_frontend(w, &frontend_holding()?, &log)?;
     until_frontend_exits(w, pid, &log)?;
     drop(held);
@@ -320,7 +330,7 @@ fn port_held_past_the_bound(w: &mut Steps) -> TestResult {
 fn past_the_bound(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 69)?;
     assert_eq!(
-        retries_of(&w.log, CLIENT_ADDRESS),
+        retries_of(&w.log, &client_address()?),
         BIND_RETRIES as usize + 1,
         "a line per retry, and the error: {}",
         w.log
@@ -355,7 +365,7 @@ fn main() -> TestResult {
             .max_concurrent_scenarios(1)
             .before(|_, _, _, _| {
                 async {
-                    let freed = until_ports_free(&OWN_ADDRESSES);
+                    let freed = own_addresses().and_then(|own| until_ports_free(&own));
                     assert!(freed.is_ok(), "{freed:?}");
                 }
                 .boxed_local()

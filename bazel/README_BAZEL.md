@@ -7,6 +7,7 @@ around it. Everything here is built by Bazel, from sources and pinned inputs, wi
 |----------------------------------------------|-------------------------------------------------------------------------------------|
 | `bazel/binary.bzl`                           | `static_binary`, every release binary's rule                                       |
 | `bazel/container/img.bzl`                    | `scratch_multiarch_img`, `glibc_multiarch_img`, `sha256_tag`, and the platform lists |
+| `bazel/test_ports.bzl`                       | `port_env`, the block of ports each integration test target listens in               |
 | `bazel/oci_images/scrach_base/`              | The scratch base image: CA bundle and the `nobody` user, nothing else               |
 | `bazel/oci_images/glibc_base/`               | The glibc base image, built from Wolfi packages by apko                             |
 | `bazel/oci_images/seccomp/`                  | The seccomp profile the role images ship with: Docker's default plus io_uring       |

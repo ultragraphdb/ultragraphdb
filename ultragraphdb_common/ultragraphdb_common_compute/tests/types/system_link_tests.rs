@@ -417,16 +417,14 @@ fn test_a_close_request_names_partition_0() -> TestResult {
     })
 }
 
-/// Members name where the partitions and compute listen, and the core's links learn them (design D9).
+/// Members name where the partitions listen, and the core's links learn them (design D9).
 #[test]
 fn test_members_are_read_into_the_links() -> TestResult {
     Runtime::new()?.block_on(async {
         let at = played("members", SystemPlay::new(CLUSTER, 2)).await?;
         at.play.storage(1, "tcp://127.0.0.1:1");
         at.play.storage(2, "tcp://127.0.0.1:2");
-        at.play.compute("tcp://127.0.0.1:3");
         at.link.members().await.replied()?;
-        assert_eq!(at.links.compute_count(), 1);
         assert!(at.links.partition(1).is_some());
         assert!(at.links.partition(2).is_some());
         Ok(())

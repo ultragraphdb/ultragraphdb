@@ -8,8 +8,9 @@ use std::time::Duration;
 
 use compio::runtime::spawn;
 use ultragraphdb_common_compute::{
-    AuthThrottle, ClientSession, EndpointCore, EndpointLimits, EveryAuthenticated, LoginLimits,
-    RelayAuthenticator, RoleLinks, SystemLink, TenantGate, ThrottleHandle,
+    AuthThrottle, ClientSession, ComputeCore, EndpointCore, EndpointLimits, EveryAuthenticated,
+    LoginLimits, ReadTimes, RelayAuthenticator, RoleLinks, SystemLink, TenantGate, ThrottleHandle,
+    read_times_of,
 };
 use ultragraphdb_common_role::{
     ConnectionBound, OpenRequests, RoleCluster, Server, finish_open, serve_connection_with,
@@ -30,8 +31,7 @@ const OWNER_POLL: Duration = Duration::from_millis(20);
 /// How long a stop waits on the open requests: within the 60 s a stopping role has, so a peer reading no answer costs no failure.
 const FINISH_LIMIT: Duration = Duration::from_secs(50);
 
-/// How long a compute process goes unanswering before the frontend takes it for hung, when `[storage] scan_stall_ms` does not say
-/// (`PROTOCOL.md` §11.9).
+/// How long a partition may stall a Scan, when `[storage] scan_stall_ms` does not say (`PROTOCOL.md` §11.9).
 const SCAN_STALL_MS_DEFAULT: u64 = 30_000;
 
 /// The connections the endpoint holds when `[endpoint] connections_max` does not say (`PROTOCOL.md` §11.9).
@@ -79,9 +79,10 @@ pub(crate) async fn frontend_role(
         start_cores(config, &cluster, &address, clients, &stopping)?;
     }
     let mut accepting = Vec::new();
-    let core = clients
-        .as_ref()
-        .map(|clients| clients.core(system.clone(), links, 0));
+    let core = clients.as_ref().map(|clients| {
+        let reads = core_reads(&cluster, &address, config);
+        clients.core(system.clone(), links, (0, reads))
+    });
     if let (Some(clients), Some(core)) = (clients, &core) {
         accepting.push(spawn(accept_clients(
             clients.listener.on_this_core()?,
@@ -168,12 +169,13 @@ impl Clients {
         })
     }
 
-    /// Endpoint core `core`, asking the system group through `system` and reaching the roles through `links`.
+    /// Endpoint core `core`, asking the system group through `system`, reaching the roles through `links` and running its
+    /// clients' reads over `reads`, its own connections to the partitions (design D3).
     fn core(
         &self,
         system: SystemLink,
         links: RoleLinks,
-        core: usize,
+        (core, reads): (usize, Rc<ComputeCore>),
     ) -> EndpointCore<EveryAuthenticated> {
         EndpointCore::new(
             system.with_core(core),
@@ -184,6 +186,7 @@ impl Clients {
         )
         .with_open(self.open.clone())
         .with_core(core)
+        .with_compute(reads)
     }
 }
 
@@ -196,6 +199,16 @@ struct CoreStart {
     clients: Clients,
     stopping: Stopping,
     core: usize,
+}
+
+/// A core's connections to the partitions its clients' reads run over, dialling as the frontend: the placement map and where
+/// each partition listens asked at the system group's role address `system`, and no Join sent (`PROTOCOL.md` §11.12, *Reads*).
+fn core_reads(cluster: &RoleCluster, system: &Address, config: &ServiceConfig) -> Rc<ComputeCore> {
+    let times: ReadTimes = read_times_of(
+        config.storage().scan_stall_ms(),
+        config.storage().read_retain_ms(),
+    );
+    ComputeCore::new(cluster.clone(), system.clone(), times, "frontend")
 }
 
 /// A core's links to the other roles, dialling as the frontend; the placement map is its link's to read.
@@ -253,6 +266,7 @@ async fn serve_core(start: CoreStart) {
         core,
     } = start;
     let links = core_links(&cluster, &config);
+    let reads = core_reads(&cluster, &system, &config);
     let link = SystemLink::dial(
         system,
         cluster,
@@ -260,7 +274,7 @@ async fn serve_core(start: CoreStart) {
         endpoint_limits(&config).transaction_ms(),
         Readiness::default(),
     );
-    let endpoint = clients.core(link, links, core);
+    let endpoint = clients.core(link, links, (core, reads));
     let listener = match clients.listener.on_this_core() {
         Ok(listener) => listener,
         Err(error) => return tracing::error!(core, %error, "an endpoint core does not listen"),

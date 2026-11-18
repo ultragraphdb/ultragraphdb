@@ -10,8 +10,9 @@ use crate::types::page_entry::PageEntry;
 use crate::types::page_row::PageRow;
 use crate::types::row_view::RowView;
 
-/// What an Entries frame gave, its buffer returned: its keys and object encodings copied once, so a partition's stream holds
-/// this and no frame while the merge drains it.
+/// What an Entries frame gave, its buffer returned: its keys and object encodings copied once each, however many rows name an
+/// encoding, so a partition's stream holds this and no frame while the merge drains it, and a page's bytes are bounded by its
+/// frame's (design D3).
 #[derive(Debug, Default)]
 pub(crate) struct Page {
     entries: Vec<PageEntry>,
@@ -19,6 +20,8 @@ pub(crate) struct Page {
     rows: Vec<PageRow>,
     next: usize,
     named: usize,
+    /// Where `bytes` holds the last object added.
+    object: (u32, u32),
 }
 
 impl Page {
@@ -29,6 +32,7 @@ impl Page {
         self.rows.clear();
         self.next = 0;
         self.named = 0;
+        self.object = (0, 0);
     }
 
     /// Whether a row is left.
@@ -44,23 +48,34 @@ impl Page {
         });
     }
 
-    /// Adds a row of the last entry: `encoding`, under `statement`, of the property `property`.
-    pub(crate) fn add_row(
-        &mut self,
-        encoding: &[u8],
-        statement: Option<SystemId>,
-        property: Option<SystemId>,
-    ) {
-        debug_assert!(!self.entries.is_empty(), "a row follows its entry");
+    /// Adds the object `encoding` of the last entry, which the rows added next name.
+    pub(crate) fn add_object(&mut self, encoding: &[u8]) {
+        debug_assert!(!self.entries.is_empty(), "an object follows its entry");
         let start = self.bytes.len();
         self.bytes.extend_from_slice(encoding);
+        self.object = (
+            u32::try_from(start).unwrap_or(u32::MAX),
+            u32::try_from(self.bytes.len()).unwrap_or(u32::MAX),
+        );
+    }
+
+    /// Adds a row of the last entry's last object: under `statement`, of the property `property`.
+    pub(crate) fn add_row(&mut self, statement: Option<SystemId>, property: Option<SystemId>) {
+        debug_assert!(!self.entries.is_empty(), "a row follows its entry");
+        let (start, end) = self.object;
         self.rows.push(PageRow {
             entry: u32::try_from(self.entries.len().saturating_sub(1)).unwrap_or(u32::MAX),
-            start: u32::try_from(start).unwrap_or(u32::MAX),
-            end: u32::try_from(self.bytes.len()).unwrap_or(u32::MAX),
+            start,
+            end,
             statement,
             property,
         });
+    }
+
+    /// The bytes the page holds of its rows' object encodings.
+    #[cfg(feature = "test-utils")]
+    pub(crate) fn held_bytes(&self) -> usize {
+        self.bytes.len()
     }
 
     /// The row `at`, counted from the page's first.

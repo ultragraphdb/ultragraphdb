@@ -26,7 +26,7 @@ use ultragraphdb_protocol_wire::{
     WriteChange,
 };
 use ultragraphdb_tests::{
-    CLUSTER, SECRET, START_SECONDS, SYSTEM_ROLE_ADDRESS, http_status, until_answering,
+    CLUSTER, SECRET, START_SECONDS, http_status, system_role_address, until_answering,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -612,15 +612,15 @@ fn frontend_killed_once(w: &mut Steps) -> TestResult {
 }
 
 /// The system group's role address of a scenario's own cluster over TCP, which a [`GroupLink`] carries the frontend to.
-fn own_system() -> String {
-    format!("tcp://{SYSTEM_ROLE_ADDRESS}")
+fn own_system() -> TestResult<String> {
+    Ok(format!("tcp://{}", system_role_address()?))
 }
 
 #[when(
     "three sessions each have a Commit at partition 2 as the frontend's connection to the system group closes, a fourth session commits before the frontend has dialled again, and the frontend dials again"
 )]
 fn link_closed(w: &mut Steps) -> TestResult {
-    let link = GroupLink::to(&own_system())?;
+    let link = GroupLink::to(&own_system()?)?;
     let spec = Spec::one_partition()
         .second_storage()
         .frontend_dialling(&link.address());
@@ -935,7 +935,7 @@ async fn until_described(client: &mut TestClient, version: u64) -> TestResult<u6
     "a catalog version of the tenant takes effect while the frontend's endpoint cores hold none of the closes announcing it, and a client sends a Drop of the tenant's data through its session naming the version Describe gave"
 )]
 fn drop_behind(w: &mut Steps) -> TestResult {
-    let link = GroupLink::to(&own_system())?;
+    let link = GroupLink::to(&own_system()?)?;
     let spec = Spec::one_partition().frontend_dialling(&link.address());
     let cluster = start_own_as(w.carrier, &spec)?;
     let (at, system) = (cluster.client.clone(), cluster.system.clone());

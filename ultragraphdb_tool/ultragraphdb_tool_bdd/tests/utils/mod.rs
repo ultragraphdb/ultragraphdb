@@ -12,4 +12,6 @@ mod golden_io_tests;
 #[cfg(test)]
 mod hides_tests;
 #[cfg(test)]
+mod ports_tests;
+#[cfg(test)]
 mod workspace_tests;
