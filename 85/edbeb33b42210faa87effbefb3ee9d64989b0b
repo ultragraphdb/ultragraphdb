@@ -1,0 +1,90 @@
+openspec/changes/stage-5-9-compute-role/notes/group-0-registry.md
+  s_21eff977e05256::t_48a12c5738d5c0 44-45
+  s_21eff977e05256::t_03b13a7fc9158b 1-43,49-80
+  s_21eff977e05256::t_b3c78904448cb9 46-48
+openspec/changes/stage-5-9-compute-role/notes/corner-cases.md
+  s_21eff977e05256::t_164ca234636370 1-634
+  s_21eff977e05256::t_ca4a76015db988 635-636
+openspec/changes/stage-5-9-compute-role/notes/group-0-deltas.md
+  s_21eff977e05256::t_07c4baaa3fe70a 1-244
+openspec/changes/stage-5-9-compute-role/notes/laws.md
+  s_21eff977e05256::t_929e29b53c3206 184-187
+  s_21eff977e05256::t_c177339cceed72 291
+  s_21eff977e05256::t_be1bd3d423ad32 1-183,188-290,292-300
+  s_21eff977e05256::t_7f617a7200daef 301-302
+openspec/changes/stage-5-9-compute-role/notes/group-0-protocol.md
+  s_21eff977e05256::t_44625e11556578 1-167
+  s_21eff977e05256::t_2b8fe72f006fb9 168-302
+openspec/changes/stage-5-9-compute-role/design.md
+  s_21eff977e05256::t_f300146472c8c0 116
+openspec/changes/stage-5-9-compute-role/notes/feasibility.md
+  s_21eff977e05256::t_8e72f745cb8784 59-61
+openspec/changes/stage-5-9-compute-role/notes/group-0.md
+  s_21eff977e05256::t_fdffea8d055620 1-42
+openspec/changes/stage-5-9-compute-role/specs/client-endpoint/spec.md
+  s_21eff977e05256::t_16c8d2b06d786f 85-87,112,121-122,219-220,286-295,306-307,336-355,376-377,389-395,398-400,438
+openspec/changes/stage-5-9-compute-role/specs/config-service/spec.md
+  s_21eff977e05256::t_89b3290cec9163 14-15,18,25,57-60,65-69,117,121
+openspec/changes/stage-5-9-compute-role/specs/kubernetes-deployment/spec.md
+  s_21eff977e05256::t_02482acff939a5 82
+openspec/changes/stage-5-9-compute-role/specs/metadata-group/spec.md
+  s_21eff977e05256::t_613f8e7569d69a 54-55
+openspec/changes/stage-5-9-compute-role/specs/node-discovery/spec.md
+  s_21eff977e05256::t_4328fcb2712a46 177-183,193-198,201
+openspec/changes/stage-5-9-compute-role/specs/quad-reads/spec.md
+  s_21eff977e05256::t_cb289349941464 367-380,425-428,449
+openspec/changes/stage-5-9-compute-role/specs/role-binaries/spec.md
+  s_21eff977e05256::t_cb6f296aaffb9e 63,99-109,138-144,154-158
+openspec/changes/stage-5-9-compute-role/specs/schema-changes/spec.md
+  s_21eff977e05256::t_e7b327240a453b 5-11,18-34,118
+openspec/changes/stage-5-9-compute-role/specs/sequencer/spec.md
+  s_21eff977e05256::t_083051dc4d6684 24-31,38-39,50,93-94,103
+openspec/changes/stage-5-9-compute-role/specs/system-group/spec.md
+  s_21eff977e05256::t_72d351cecc049c 5-7,36,43-44,52-57,72-75,104-108,134-158
+openspec/changes/stage-5-9-compute-role/specs/transactions/spec.md
+  s_21eff977e05256::t_f4a558faf59f50 38-53,131-135,203-206
+openspec/changes/stage-5-9-compute-role/specs/wire-protocol/spec.md
+  s_21eff977e05256::t_4640612dc1e57f 58-69,82-91,141-144,147-148,313-314,335-336,350-351,378-379,383-384,387-390,394-395,403-404,411-412,416-417,425-428,431-434,438-439,454-458,474-475,532-536,546-550
+openspec/changes/stage-5-9-compute-role/tasks.md
+  s_21eff977e05256::t_ed13dc312725e9 29-35,45,59,74,90,102,119
+openspec/changes/stage-6-5-tile-store/notes/rebase-on-stage-5-8.md
+  s_21eff977e05256::t_55d6f233b8c8e1 33-243
+openspec/changes/stage-6-5-tile-store/tasks.md
+  s_21eff977e05256::t_b3e9893f676252 1-2
+openspec/changes/stage-6-6-ugs-data-definition/notes/rebase-on-stage-5-8.md
+  s_21eff977e05256::t_e96d118f5bd3ff 25-99
+openspec/changes/stage-6-6-ugs-data-definition/tasks.md
+  s_21eff977e05256::t_19b92da19f2da8 1-2
+openspec/notes/SECURITY.md
+  s_21eff977e05256::t_fb09b49461333d 33,40,57,78,84,154,181,189,191,241-242,327,329,350,422
+openspec/notes/backlog.md
+  s_21eff977e05256::t_e8954b22753cb9 336-341
+specification/binary_protocol/PROTOCOL.md
+  s_21eff977e05256::t_5284ad961b4b21 4-5,8,14-22,38,41,53,57,164,204,206-207,218-219,224-225,228-230,232-238,241-242,246,249-254,259,267-268,396,502,587,637,667-673,679,693-694,811,814,830,834,836,839,865,892,898,935,961,963,1020,1045,1049-1051,1064,1070,1206,1327-1328,1428,1449,1454,1489,1499-1500,1529,1636-1637,1708-1711,1719,1721,1730,1737,1745,1748-1750,1972,1983,1991,1993-1994,2003,2059,2062,2072,2076,2116,2134-2135,2137,2141,2150,2191-2192,2197,2217,2230-2231,2250,2307-2308,2333,2335,2342,2344,2351-2352,2354,2368,2371-2372,2423,2434,2448,2461-2467,2492,2494-2497,2515,2517,2525,2529,2541,2543-2545,2547,2555-2557,2559-2569,2594,2606,2631,2649,2662-2663,2665,2669-2670,2687,2689,2698,2701-2702,2705,2710,2712-2714,2717-2719,2721-2722,2724,2729-2732,2737,2742-2748,2751-2763,2765,2767,2772-2773,2811-2858,2873-2876,2878,2881,2883,2885-2886,2888,2898,2921,2929,2939,2944,2956,2965,3012-3013,3036,3041,3043,3050,3054-3055,3065-3066,3071-3073,3079-3083,3095-3109,3465-3466,3474-3479,3488-3489,3494-3510,3514-3515,3527,3529,3532,3535-3538,3544,3552,3555,3567-3570,3577,3588,3601,3608-3610,3725,3731,3754,3756,3758,3780,3782,3797,3806,3821,3823-3824,3921,3953,3990,4089,4110,4153,4158,4163,4248-4249,4262,4422,4492,4505,4547
+specification/query/QUERY-GQL-CORE.md
+  s_21eff977e05256::t_842f7477fd8693 431
+specification/query/QUERY-SPARQL-CORE.md
+  s_21eff977e05256::t_85dfde01f810e9 363
+specification/query/QUERY-ULTRA-QL.md
+  s_21eff977e05256::t_bcfdd7ba1d8882 859
+specification/schema/SCHEMA.md
+  s_21eff977e05256::t_b8ab579632f401 1388,2230
+specification/storage/STORAGE.md
+  s_21eff977e05256::t_a09b89bb6f3224 1482
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "85edbeb33b42210faa87effbefb3ee9d64989b0b",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
