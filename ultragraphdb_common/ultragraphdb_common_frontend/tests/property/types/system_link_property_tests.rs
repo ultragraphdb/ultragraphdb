@@ -118,14 +118,15 @@ fn test_a_begin_asks_no_other_process(tc: TestCase) {
                     play.close(closed, 0, &[]);
                     continue;
                 }
-                let before = group.commands(&[Command::EpochClose]).len();
+                // The link's own task reads Members every 100 ms until the group lists every partition, which this
+                // group never does: those frames are no Begin's, and one landing between the two counts is left out
+                // as a close is.
+                let own = [Command::EpochClose, Command::Members];
+                let before = group.commands(&own).len();
                 let answered = begin(&mut client).await?;
                 assert_eq!(answered, (Command::Begin, None));
-                assert_eq!(
-                    group.commands(&[Command::EpochClose]).len(),
-                    before,
-                    "no frame to the group"
-                );
+                let seen = group.commands(&own);
+                assert_eq!(seen.len(), before, "no frame to the group: {seen:?}");
             }
             Some(())
         })
