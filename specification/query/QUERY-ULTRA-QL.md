@@ -856,7 +856,7 @@ insert AssertedBy { statement: c, asserter: Source(id = "SRC:backfill") }
 
 ## 23. Open questions
 
-- What does `subscribe` read now that P24 gives each fact one owner and no change streams: a feed the frontend
+- What does `subscribe` read now that P24 gives each fact one owner and no change streams: a feed compute
   assembles from the partitions' commits at each epoch close, or one per partition merged by the client?
 - Is the reciprocal rank fusion constant fixed at 60, a parameter of `hybrid`, or the tenant's setting?
 - Does `matches` take a named dialect, such as RE2's syntax, so that every client library validates a pattern alike?

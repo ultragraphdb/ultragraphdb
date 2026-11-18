@@ -1479,8 +1479,7 @@ already in use needs. From stage 8 the replica catches up from its group, and a 
 
 ### 18.1 Lanes
 
-Every read request names a lane, which the role holding the client endpoint (the frontend until stage 5.9, compute
-from it) and the planner choose from the classification (`SCHEMA.md`
+Every read request names a lane, which compute and the planner choose from the classification (`SCHEMA.md`
 sections 9.2 and 9.6); every family allows the three lanes, L, S and X (T48, C41).
 
 | Lane | Answers at | Pins | Records a read set |

@@ -11,17 +11,18 @@ first. It SHALL check:
 | Parsing | a file is not the TOML subset, or names a table or key `ServiceConfig` does not hold |
 | Names | an instance's name does not begin with a role's name, or an instance file has no instance of the target |
 | Roles | the target has no compute instance or no storage instance |
-| Compute | a compute instance lacks `compute.advertised_address`, or the address is not `tcp://host:port` as `PROTOCOL.md` section 5.4 states it; its `compute.tags` hold none, more than eight, a repeat, or a tag that is not 1 to 32 bytes of `a` to `z`, `0` to `9` and `_`; two compute instances advertise one address; the target's compute instances hold more than 256 distinct tags |
+| Tables | an instance's file holds a table of another role, none of whose settings its own role reads: a storage instance's file a `[compute]` or an `[endpoint]` table, a compute instance's file a `[system]` table |
+| Compute | a compute instance lacks `compute.advertised_address`, or the address is not `tcp://host:port` as `PROTOCOL.md` section 5.4 states it, whose one encoding refuses a wildcard host, an upper-case letter in a DNS name and an IP literal out of its canonical form, so the check accepts exactly what a node's Join does; its `compute.tags` hold none, more than eight, a repeat, or a tag that is not 1 to 32 bytes of `a` to `z`, `0` to `9` and `_`; two compute instances advertise one address; the target's compute instances hold more than 256 distinct tags |
 | System | no storage instance holds a `[system]` table, or more than one does; an instance holding it lacks `system.role_address`, `system.data_dir`, a `[metadata]` or a `[sequencer]` table, or holds no partition, which stage 8 may lift; an instance not holding it, a compute instance included, holds a `[metadata]` or `[sequencer]` table |
 | Required | a role's required setting is absent from an instance |
-| Bounds | a value is outside its domain type's bound, by that type's own constructor, or `scan_stall_ms` or `held_bytes` is 0, or `scan_stall_ms` is above 30,000, the floor of the client's read timeout, or a `[tiles]` setting is outside its bound (the requirement below) |
+| Bounds | a value is outside its domain type's bound, by that type's own constructor, or `scan_stall_ms` or `held_bytes` is 0, or `scan_stall_ms` is above 30,000, the most the floor of the client's read timeout, 62,000 ms, covers twice over (`PROTOCOL.md` section 11.11), or a `[tiles]` setting is outside its bound (the requirement below) |
 | Relations | `epoch_ms_min` is above `epoch_ms_max`, or `close_request_ms` is below twice `epoch_ms_max` |
 | Identity | two instances name different `cluster.id` values |
 | Tiles | two storage instances hold different values of one `[tiles]` setting, an absent one counted as its default |
 | System address | an instance's `cluster.system_address` differs from the hosting instance's `system.role_address` in its scheme, its port or a Unix path; a host may differ, since a Service's name reaches a pod that binds its own |
 | Partitions | the storage instances' partitions do not cover 1 to `partition_count` once each |
 | Addresses | two listeners hold one address, a partition's derived address included: a named host or a Unix path across the target, a wildcard host within one instance, since each pod holds its own; a role address naming a wildcard host, since others dial it |
-| Data | two instances whose addresses name one host, or Unix paths, hold one `data_dir`; a `system.data_dir` is equal to, inside or containing a `data_dir` of an instance on its host |
+| Data | two instances whose addresses name one host, or Unix paths, hold one `data_dir`; a `system.data_dir` is equal to, inside or containing a `data_dir` of an instance on its host; two directories are compared component by component as written, a trailing separator ignored |
 | Security | an endpoint names neither TLS nor `plaintext = true`, both, or half a certificate pair |
 | Secrets | a path the settings name for a secret is not absolute, or `admin.key_sha256` is not 64 hexadecimal digits |
 | Fixed | against the active revision: `cluster.id`, `cluster.partition_count`, an instance's partitions or `data_dir`, or the instance holding `[system]` and its `system.data_dir` differ, while the placement is fixed; or a `[tiles]` setting differs, before stage 9.5 |
@@ -53,9 +54,18 @@ therefore still fail on what only its host knows, such as a port another process
 - **WHEN** any file holds a `[frontend]` table, `compute.role_address` or `cluster.frontend_address`
 - **THEN** the revision is refused naming the table or the setting as unknown
 
+#### Scenario: Another role's table is refused by name
+- **WHEN** `storage_1` holds a `[compute]` table
+- **THEN** the revision is refused naming `compute` and the instance
+
 #### Scenario: A compute instance without tags is refused
 - **WHEN** `compute_1` holds `compute.tags = []`
 - **THEN** the revision is refused naming `compute.tags` and the instance
+
+#### Scenario: An advertised address a Join would refuse is refused
+- **WHEN** `compute_1` holds `compute.advertised_address` of `tcp://0.0.0.0:7080`, of `tcp://DB.example:7080` or of
+  `tcp://192.0.2.07:7080`
+- **THEN** each revision is refused naming `compute.advertised_address` and the instance
 
 #### Scenario: Two compute instances advertising one address are refused
 - **WHEN** `compute_1` and `compute_2` both hold `compute.advertised_address = "tcp://db.example:7080"`
@@ -104,11 +114,11 @@ formatting and no stack. A value naming a secret SHALL never be printed.
 - **WHEN** `ci_storage_1.toml` sets `storage.scan_stall_ms = 0`
 - **THEN** the entry names `storage.scan_stall_ms`, the value 0 and the bound it must meet
 
-#### Scenario: A stall past the client's read timeout is refused
+#### Scenario: A stall past what the client's read timeout covers is refused
 - **WHEN** `ci_storage_1.toml` sets `storage.scan_stall_ms = 30001`
 - **THEN** the entry names `storage.scan_stall_ms`, the value 30001 and the bound it must meet
 
-#### Scenario: A hung compute's stall of no time is refused
+#### Scenario: A hung partition's stall of no time is refused
 - **WHEN** `ci_compute.toml` sets `storage.scan_stall_ms = 0`
 - **THEN** the entry names `storage.scan_stall_ms`, the value 0 and the bound it must meet
 

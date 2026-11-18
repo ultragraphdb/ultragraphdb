@@ -30,15 +30,14 @@ reasoning and its check against Dgraph's ACL are in `openspec/notes/security.md`
 
 ## Tiers
 
-A cluster is three role processes, the frontend, compute and storage, and the config service. One storage process, the
+A cluster is two role processes, compute and storage, and the config service. One storage process, the
 one whose settings hold a `[system]` table, hosts the **system group** on a core and logs of its own: the metadata
 state machine, with the principals' verifiers, the security catalog and the session registry, and the sequencer. Every
 process dials it at `cluster.system_address`.
 
 | Tier | Holds | A compromise exposes |
 |---|---|---|
-| The frontend | The client endpoint, its TLS key, the role secret, and in memory the counts of failed authentications, the throttle and the ban. Nothing durable and no data directory; no principal's verifier; it accepts no role connection | The frames of the clients it serves, and the role secret, which opens a role connection to every role. No stored key or server key, so no verifier to guess passwords against |
-| Compute | The role secret, and the rows of the reads passing through it. No store and nothing durable | Those rows, and the role secret |
+| Compute | The client endpoint, its TLS key, the role secret, in memory the counts of failed authentications, the throttle and the ban, and the rows of the reads it executes. Nothing durable, no store and no data directory; no principal's verifier; it accepts no role connection | The frames of the clients it serves, the rows of their reads, and the role secret, which opens a role connection to every partition and to the system group. No stored key or server key, so no verifier to guess passwords against |
 | Storage | Every tenant's data, the role secret and, in the process hosting the system group, the principals' verifiers, the secret an unknown name's verifier derives from, the session registry and the security catalog. That host alone reads the bootstrap secret | All data; on the system group's host also every verifier, each guessable only at its iteration count, and every session's identity. No client reaches it: every connection it accepts is a role connection |
 | The config service | Every target's settings, which name secret files and never hold a secret's value, and its two keys | The settings, and with the admin key every change to them; no credential of a principal |
 
@@ -55,7 +54,7 @@ A principal is an identity the server authenticates: a person, or a service.
 | `enabled` | a disabled principal authenticates no more |
 | roles | the roles granted to it |
 
-Principals are cluster-wide and live in the metadata group, a state machine of the system group, which every frontend
+Principals are cluster-wide and live in the metadata group, a state machine of the system group, which every compute node
 authenticates against. A tenant isolates;
 a namespace organises. A tenant is the engine's unit of isolation, one catalog of numbered versions, one run of buckets and the
 grants of its principals; a namespace is a unit of organisation inside it, one schema source installed in it with its graphs
@@ -76,13 +75,13 @@ principal, and a cluster with no principal refuses every connection. Removing th
 ### The exchange
 
 A connection authenticates by a SASL exchange (RFC 4422) on stream 0, after Welcome and before its first request. The
-Welcome says that authentication is required, as the frontend's client endpoint always does, and lists the mechanisms
+Welcome says that authentication is required, as compute's client endpoint always does, and lists the mechanisms
 the server accepts. The client sends Authenticate naming one, and the two sides exchange the mechanism's messages until
 the server's final Authenticate names the principal and when its credential expires, or the server refuses with code
 19 and closes the connection. A request before that is refused with code 20 on its own stream, and the connection
 stays open for authentication until its timeout. Every later request acts for the principal.
 
-The frontend holds no principal's verifier. For each exchange it sends the name to the system group in a Challenge and
+Compute holds no principal's verifier. For each exchange it sends the name to the system group in a Challenge and
 the AuthMessage with the client's proof in a Verify, and passes on the salt, the iteration count and the
 ServerSignature the group answers. The proof is checked in the system group, and a principal's stored key and server
 key leave its host in no frame.
@@ -152,7 +151,7 @@ connection with code 22: its open transactions abort, and its sessions carry ove
   the server answers an unknown name with a verifier derived from a secret the metadata group draws at the cluster's first
   start and holds durably, so every core, every restart and every process holding a client endpoint answers one name with
   one salt. The system group derives it, and answers a Challenge for an unknown name as for a known one.
-- Failed attempts are counted per source, an IPv4 address or an IPv6 /64, by one of the frontend's cores for every endpoint
+- Failed attempts are counted per source, an IPv4 address or an IPv6 /64, by one of a compute node's cores for every endpoint
   core, each process holding a client endpoint counting for itself, and a success resets the count. Past `[endpoint] auth_failures_before_throttle` failures, 50 by default, each further
   attempt waits a delay doubling from 100 ms to at most 30 s; past `auth_throttled_failures_before_ban` more, 20 by default,
   the source is banned for `auth_ban_ms`, 24 hours by default, its connections closed as they are accepted, before TLS or
@@ -179,7 +178,7 @@ Each listener takes TLS or `plaintext = true` by the endpoint's rule, and compar
 
 ### Running without authentication
 
-No role of a cluster runs without authentication: the frontend's client endpoint authenticates every connection
+No role of a cluster runs without authentication: compute's client endpoint authenticates every connection
 against the principals, and the development profile does too. A test server, such as the Rust client's, and the
 simulator run without it: such a server says so in its Welcome (`auth` 0), listens on the loopback interface only and
 refuses to start on any other address, logs that it runs without authentication at every start, and acts for the
@@ -187,9 +186,9 @@ anonymous principal, which holds every privilege.
 
 ### Role connections
 
-The frontend, compute and storage authenticate each other with the cluster's **role secret**, which every role reads at
+Compute and storage authenticate each other with the cluster's **role secret**, which every role reads at
 start from the file its `[cluster] role_secret_file` setting names, a Kubernetes Secret on a cluster; a role whose file
-is missing, unreadable or empty refuses to start. The frontend dials its role connections and accepts none. A role connection runs `SCRAM-SHA-256` with the secret as its
+is missing, unreadable or empty refuses to start. Compute dials its role connections and accepts none. A role connection runs `SCRAM-SHA-256` with the secret as its
 password before its first role command, and the accepting role verifies its peer locally, against a verifier it
 derives from the secret at start: a role connection to the system group must open before the metadata group's
 principals can be asked for. The secret
@@ -239,8 +238,8 @@ A privilege at a scope covers every scope inside it.
 
 ### Enforcement
 
-Every request naming a tenant, Begin, Prepare, Describe, Install, Drop, DirectWrite and ConditionalWrite, passes one gate at the
-frontend before it reaches another role or any state; a request it passes naming a tenant the metadata group does not hold
+Every request naming a tenant, Begin, Prepare, Describe, Install, Drop, DirectWrite and ConditionalWrite, passes one gate at
+compute before it reaches another role or any state; a request it passes naming a tenant the metadata group does not hold
 is refused there (`../../specification/binary_protocol/PROTOCOL.md` §11.10). When a transaction begins, the principal's privileges in its tenant resolve into an
 **access** value: the predicates and graphs it may read and write, with the roles its token's groups map to. A partition
 consults it at each read and write of its store, for the principal the Bind, the Scan or the one-frame write names; compute,
@@ -325,9 +324,9 @@ its next Begin.
 
 ## Sessions, statements and the log
 
-- A session belongs to the principal that registered it: its identity is 128 random bits the frontend draws and sends
+- A session belongs to the principal that registered it: its identity is 128 random bits compute draws and sends
   in a Session command, which the metadata group, in the system group, records with the principal. Only that principal
-  commits through it or reads its stored reply, which the frontend asks the system group's registry by a Check before
+  commits through it or reads its stored reply, which compute asks the system group's registry by a Check before
   it routes a commit, so a guessed session identity gives neither.
 - A prepared statement belongs to its connection, and so to the connection's principal.
 - A partition's write-set record names the principal of each committed transaction in `principal`; the metadata
@@ -348,7 +347,7 @@ version it dropped under.
 
 - **TLS 1.3**, through rustls, protects client connections from stage 5.5, and the traffic between roles and replicas
   from stage 8; until then role connections speak clear text, authenticated by the role secret.
-- The frontend's client endpoint speaks TLS 1.3 when its `[endpoint]` table names `tls_cert_file` and `tls_key_file`,
+- Compute's client endpoint speaks TLS 1.3 when its `[endpoint]` table names `tls_cert_file` and `tls_key_file`,
   and clear text only when it sets `plaintext = true`; naming neither, or a certificate and `plaintext = true`, stops
   the start with exit code 78, so clear text is always a visible choice. The `dev` profile sets `plaintext = true`. A
   client configured with a trust source verifies the server's certificate for the host it dials before the protocol's
@@ -420,6 +419,7 @@ output before starting a service from the folder.
 | Stage 5.5, between roles | The role secret: `SCRAM-SHA-256` against it on every role connection, each role verifying its peer locally, refused on the client endpoint as a wrong password is; role connections in clear text; Unix sockets of user 65532 with mode 0600 in the development container |
 | Stage 5.8, the system group | The metadata group, with the principals' verifiers, the secret an unknown name's verifier derives from and the session registry, and the sequencer, hosted by the storage process whose settings hold `[system]`, which reads the bootstrap secret; Challenge and Verify between the frontend and the system group, the frontend holding no verifier; Session, Check and Ended for the registry and the owner check; the counts of failed authentications, the throttle and the ban in the frontend, which holds nothing durable and accepts no role connection |
 | Stage 7 | The rest of the security catalog, in the metadata group: external identities, roles, grants, in as many tenants as a principal is given, trusted issuers and group mappings, the security epoch; enforcement through the access value; Describe filtered; the administration commands, creating and removing a tenant among them, and their audit |
+| Stage 5.9, two roles | Compute holds the client endpoint and executes its clients' reads, so the tiers are compute and storage: the client endpoint's TLS, the exchange against the principals, the counts of failed authentications, the throttle and the ban, and the tenant gate are compute's; the role secret authenticates compute and storage alone, under the SCRAM usernames `compute` and `storage`; the list of compute nodes reaches a connection only after it has authenticated |
 | Stage 8 | TLS between roles, with certificates per role; `SCRAM-SHA-256-PLUS`; `OAUTHBEARER` and single sign-on; `EXTERNAL`; replica certificates |
 
 ## Standards

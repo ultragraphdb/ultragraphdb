@@ -21,21 +21,22 @@ after the previous close, both settings with no default the binary chooses silen
 1,000: from 1 ms, epoch numbers of 42 bits last over a century, and up to 1 s, a waiting read or a full partition waits
 at most that long for its requested close. `epoch_ms_max` SHALL lie from `epoch_ms_min` to 10,000: up to 10 s, a
 snapshot never lags the latest commit by more than the read-write transaction limit, and twice it stays within
-`close_request_ms`'s bound of 60,000 (commit-rounds). A value out of its bounds SHALL stop compute at start with exit
-code 78 and an error naming the setting and the bound. It SHALL close before `epoch_ms_max`, as soon as `epoch_ms_min`
-has passed, when compute hosting it asks because a snapshot read waits on the open epoch (quad-reads, "A read's
-transaction names its level"), or when a partition asks because its sequence would run out (commit-rounds, "Commit
-versions are built from the epoch"). Each close SHALL record the epoch number and the sequencer's wall-clock time in
-microseconds, which SHALL never be below the previous close's time even when the clock steps back. An epoch number SHALL
-fit in 42 bits; the sequencer SHALL refuse to close past the largest 42-bit number with an error naming the limit.
+`close_request_ms`'s bound of 60,000 (commit-rounds). A value out of its bounds SHALL stop the storage process hosting
+the sequencer at start with exit code 78 and an error naming the setting and the bound. It SHALL close before
+`epoch_ms_max`, as soon as `epoch_ms_min` has passed, when compute asks because a snapshot read waits on the open epoch
+(quad-reads, "A read's transaction names its level"), or when a partition asks because its sequence would run out
+(commit-rounds, "Commit versions are built from the epoch"). Each close SHALL record the epoch number and the
+sequencer's wall-clock time in microseconds, which SHALL never be below the previous close's time even when the clock
+steps back. An epoch number SHALL fit in 42 bits; the sequencer SHALL refuse to close past the largest 42-bit number
+with an error naming the limit.
 
 #### Scenario: Epochs close in order
 - **WHEN** the sequencer runs for 100 ms with `epoch_ms_min` 5 and `epoch_ms_max` 10 on a stepped clock
 - **THEN** it closes between 10 and 20 epochs, numbered consecutively from 1
 
 #### Scenario: Epoch lengths out of their bounds stop the start
-- **WHEN** compute starts once with `epoch_ms_min` 0, once with `epoch_ms_min` 1,001, once with `epoch_ms_min` 5
-  and `epoch_ms_max` 4, and once with `epoch_ms_max` 10,001
+- **WHEN** the hosting storage process starts once with `epoch_ms_min` 0, once with `epoch_ms_min` 1,001, once with
+  `epoch_ms_min` 5 and `epoch_ms_max` 4, and once with `epoch_ms_max` 10,001
 - **THEN** each start exits with code 78 and an error naming the setting and its bound: 1, 1,000, `epoch_ms_min` and
   10,000
 
@@ -46,7 +47,7 @@ fit in 42 bits; the sequencer SHALL refuse to close past the largest 42-bit numb
 #### Scenario: A waiting read closes the epoch early
 - **WHEN** `epoch_ms_min` is 2 and `epoch_ms_max` 10, epoch 6 closed 1 ms ago, and a snapshot read waits on the open
   epoch 7
-- **THEN** compute asks its sequencer for a close, and epoch 7 closes once 2 ms have passed since epoch 6 closed
+- **THEN** compute asks the sequencer for a close, and epoch 7 closes once 2 ms have passed since epoch 6 closed
 
 #### Scenario: A clock stepping back does not lower close times
 - **WHEN** the clock steps back by one second between two closes
@@ -89,7 +90,8 @@ closes it missed, from its last delivered epoch.
 ### Requirement: An early close is asked by CloseRequest from either role
 The sequencer SHALL close its open epoch early when a CloseRequest names it, from a partition whose epoch is full, as
 before, or from compute with `partition` 0, for a snapshot read waiting on the open epoch (quad-reads, "A read's
-transaction names its level"). A CloseRequest naming an epoch already closed SHALL be answered and SHALL close nothing.
+transaction names its level"). A CloseRequest naming an epoch already closed SHALL close nothing and SHALL be answered
+by no frame (`PROTOCOL.md` section 13.16).
 
 #### Scenario: Compute's request closes the open epoch
 - **WHEN** epoch 12 is the latest close, and compute sends CloseRequest naming epoch 13 with `partition` 0
@@ -98,4 +100,4 @@ transaction names its level"). A CloseRequest naming an epoch already closed SHA
 
 #### Scenario: A request for a closed epoch closes nothing
 - **WHEN** epoch 13 is closed and a CloseRequest names epoch 13
-- **THEN** it is answered, and epoch 14 closes at its own time
+- **THEN** no frame answers it, and epoch 14 closes at its own time

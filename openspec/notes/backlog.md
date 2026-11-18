@@ -333,6 +333,12 @@ task 8.3). These findings were not taken into that change. Stage 5.9's change ta
 - **An unused dependency.** `ultragraphdb_common_frontend/Cargo.toml` declares `ultragraphdb_traits_catalog`, which Cargo
   reports unused.
 
+### 26. A failing property under a mutant reads as a timeout
+
+`scripts/mutants.sh` sets no `HEGEL_PHASES`, so a property test that fails under a mutant shrinks its case until
+cargo-mutants cuts the run, and the mutant is reported as a timeout where it is caught (found 2026-11-18, stage 5.9's
+task 0.7). Should the script run Hegel without the shrink phase, so such a mutant counts as caught?
+
 ### 24. The unused-dependency check reads no manifest
 
 `scripts/check.sh` runs `cargo machete-nk` 0.9.2, which cannot parse `edition = "2024"`. It prints a parse error for

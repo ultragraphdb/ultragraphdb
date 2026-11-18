@@ -174,9 +174,13 @@ entry no client could verify never enters the list.
 - **THEN** both start, and a client verifies each against the host it dialled
 
 ### Requirement: A draining node is announced before it stops
-A compute node about to stop SHALL join again with `state` 2 and SHALL stop no earlier than after it has sent each of
-its client connections a Nodes frame naming it draining. It SHALL then wait for its read-write transactions to end,
-at most `transaction_ms`, which bounds them already, and stop; a commit the stop cuts is in doubt and SHALL be resolved
+A compute node about to stop SHALL join again with `state` 2, send each of its client connections a Nodes frame naming
+it draining, wait for its read-write transactions to end, and stop. It SHALL stop no later than `transaction_ms` after
+it began to drain, whether or not its Nodes went out, and no earlier than its Nodes when they go out within that time
+(`PROTOCOL.md` section 11.14, *Draining*). From the moment it begins to drain it SHALL refuse a Begin, a DirectWrite, a
+ConditionalWrite, an Ingest and a Drop with code 33 (Draining), writing nothing, and a client so refused SHALL send the
+request to another serving node of its tag and give the refusing node no new work until a list of a higher version
+names it serving; a commit the stop cuts is in doubt and SHALL be resolved
 by its resend on another node. A client SHALL begin no transaction and send no one-frame
 request on a node its list names draining or names no longer; a transaction open there SHALL run to its end, its reads
 included, and a read-only transaction, which has no limit on its life, ends when the node stops.
@@ -186,9 +190,15 @@ included, and a read-only transaction, which has no limit on its life, ends when
 - **THEN** the client receives a Nodes frame naming that node draining before the node closes its connection, begins
   its next transaction on the other node, and a transaction open on the draining node commits there
 
+#### Scenario: A draining node refuses new work with code 33
+- **WHEN** a node has received SIGTERM, and a client that has not yet read its Nodes sends it a Begin and then a
+  DirectWrite through a session
+- **THEN** each is refused with code 33 and writes nothing, the client begins the transaction and sends the DirectWrite
+  with the same request number on the other node, and a read of a transaction open on the draining node is answered
+
 #### Scenario: A draining node stops within the transaction limit
 - **WHEN** a node receives SIGTERM while a client holds a read-write transaction open on it and sends nothing more
-- **THEN** the node stops no later than `transaction_ms` after the transaction began, and a read-only transaction
+- **THEN** the node stops no later than `transaction_ms` after it received SIGTERM, and a read-only transaction
   open on it ends with its connection
 
 #### Scenario: Two compute nodes serve one cluster

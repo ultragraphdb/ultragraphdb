@@ -113,7 +113,7 @@ live under compute's names, each at a task that waits for the user's approval. T
   removal and closes in any order, with one version naming one list and a version never falling; Nodes and Roster
   round-tripping and refusing by rule, every list within its bounds fitting a frame; the client's list never going
   back and its choice never naming a draining node; the executor's merge returning the rows of any drawn partitions
-  in key order whatever the frame boundaries.
+  partition by partition, each partition's in its own order (`PROTOCOL.md` section 9.1), whatever the frame boundaries.
 - **Two nodes.** Sessions through both, a resend on the other node while the original is on its way, a node drained
   and a node killed, a Drop sent through a node one close behind.
 - **The benchmark.** Rerun exactly as `openspec/benches/benches-2026-11-15.md` ran it, the last record of reads and

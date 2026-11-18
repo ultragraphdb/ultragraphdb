@@ -56,6 +56,9 @@ kept or its removal stated with its reason. A specification is fixed before code
 
 ### B3. A recorded disagreement between the session registry and its model
 
+**Closed on 2026-11-18 with no change** (`notes/group-0-registry.md`): the property's harness was at fault, and commit
+`758163d3` had corrected it before stage 5.8's note was committed. What follows is the assessment as it stood.
+
 **Finding.** Stage 5.8's group 4 recorded that `common_system`'s `test_the_registry_agrees_with_its_model` drew a
 counterexample under random seeds: "Session 2 of 1: left Some(Busy), right Some(Registered)", the registry answering
 code 14 where the model registers. The group recorded it for the code's owner, and no later note takes it up. The 20

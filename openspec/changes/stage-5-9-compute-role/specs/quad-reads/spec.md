@@ -364,20 +364,20 @@ A transaction SHALL name on Begin the level, the session token, if any, and the 
 transaction SHALL read its partition's latest state whatever the level, and a token SHALL make its commit carry an epoch
 at or above the token's (transactions, "Commits answer a session token"). A read-only transaction SHALL read at its
 level: the latest state of one partition, binding to the partition of its first read, a later read reaching another
-partition refused; a snapshot at a closed epoch (the default), the latest epoch the sequencer had closed when the
-transaction began or its session token's epoch if that is higher, one snapshot for all its reads, each waiting until
-every partition it asks has closed that epoch (sequencer, "Partitions learn each closed epoch and stamp the open one");
-or monotonic-fast, which quad-pattern reads may take since they are monotonic, each read answering at one epoch: the
-lowest closed epoch among the partitions it touches, but never below its floor, the larger of the session token's epoch
-and the highest epoch any read of the transaction has answered at when this read is sent, waiting only for a partition
-that has not closed the floor; a reverse read reads `R(o)` at the home's latest closed epoch `e`, waiting until `e` is
-at or above the floor, resolves its groups through the placement map at `e`, and has every member answer at `e`, waiting
-until each has closed `e`. A transaction's monotonic-fast reads therefore never go back and always see its token's
-commit, but need not share one snapshot. A read-only transaction carrying a token SHALL wait, within its deadline, until
-the token's epoch has closed. A snapshot read waiting on the open epoch SHALL make compute ask the sequencer for an
-early close, by CloseRequest naming the open epoch with `partition` 0 (sequencer, "An early close is asked by
-CloseRequest from either role"). Compute SHALL hold a latest-level transaction's later read until its first read's first
-Result names the partition, or that read ends; a first read refused leaves the next read first.
+partition refused; a snapshot at a closed epoch (the default), the latest closed epoch the endpoint core's view held
+when the transaction began or its session token's epoch if that is higher, one snapshot for all its reads, each waiting
+until every partition it asks has closed that epoch (sequencer, "Partitions learn each closed epoch and stamp the open
+one"); or monotonic-fast, which quad-pattern reads may take since they are monotonic, each read answering at one epoch:
+the lowest closed epoch among the partitions it touches, but never below its floor, the larger of the session token's
+epoch and the highest epoch any read of the transaction has answered at when this read is sent, waiting only for a
+partition that has not closed the floor; a reverse read reads `R(o)` at the home's latest closed epoch `e`, waiting
+until `e` is at or above the floor, resolves its groups through the placement map at `e`, and has every member answer at
+`e`, waiting until each has closed `e`. A transaction's monotonic-fast reads therefore never go back and always see its
+token's commit, but need not share one snapshot. A read-only transaction carrying a token SHALL wait, within its
+deadline, until the token's epoch has closed. A snapshot read waiting on the open epoch SHALL make compute ask the
+sequencer for an early close, by CloseRequest naming the open epoch with `partition` 0 (sequencer, "An early close is
+asked by CloseRequest from either role"). Compute SHALL hold a latest-level transaction's later read until its first
+read's first Result names the partition, or that read ends; a first read refused leaves the next read first.
 
 #### Scenario: A read after a commit sees it through its token
 - **WHEN** a client commits a write, receives a session token, and begins a transaction with that token whose read
@@ -422,10 +422,10 @@ Result names the partition, or that read ends; a first read refused leaves the n
 - **THEN** the third read's floor is 12
 
 ### Requirement: A read's batches fit the client's frame
-Compute SHALL build every Result frame of a read within the `max_frame` of the client's Hello, 524,288 to 1,048,576,
-and SHALL start the read's stream with the `initial_credit` of its Welcome to that client, at least 1; a Credit and a
-Cancel the client sends on a read's stream SHALL act on the read at once, with no relay. A row whose terms do not fit
-an otherwise empty batch SHALL be refused with code 6 (TooLarge), `detail` `max_frame`. A resume key that does not fit
+Compute SHALL build every Result frame of a read within the `max_frame` of the client's Hello, 524,288 to 1,048,576, and
+SHALL start the read's stream with the `initial_credit` of its Welcome to that client, at least 1; a Credit and a Cancel
+the client sends on a read's stream SHALL act on the read in the turn compute reads it. A row whose terms do not fit an
+otherwise empty batch SHALL be refused with code 6 (TooLarge), `detail` `max_frame`. A resume key that does not fit
 beside its rows SHALL go alone in a last batch of `rows` 0, which spends credit as any batch does; a key too large for
 that batch, or for a Read within the Welcome's `max_frame`, SHALL refuse the read with code 6.
 
@@ -446,6 +446,6 @@ that batch, or for a Read within the Welcome's `max_frame`, SHALL refuse the rea
 - **WHEN** a client's Welcome names `initial_credit` 4, and a read's answer takes more frames
 - **THEN** compute sends 4 frames, and one more for each frame of the client's Credit
 
-#### Scenario: A Cancel stops a read without a relay
+#### Scenario: A Cancel stops a read in the turn it is read
 - **WHEN** a client cancels a read whose Scans are open at two partitions
 - **THEN** compute cancels both Scans in the turn it reads the Cancel, and no further Result frame is sent

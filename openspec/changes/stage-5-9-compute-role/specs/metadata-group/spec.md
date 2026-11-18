@@ -51,7 +51,8 @@ hold one.
 - **THEN** the offer is refused with an error naming versions 2 and 3, and version 3 stays current
 
 #### Scenario: A catalog version past its cap is refused at its Commit
-- **WHEN** a transaction's declarations build a catalog version of 16,777,217 bytes, and the client commits it
+- **WHEN** declaring Commits, each within one Declare frame, build a tenant's catalog version until one more would pass
+  16,777,216 bytes, and the client commits that one
 - **THEN** the Commit is refused with code 7, `detail` 16,777,216, the message naming the size, and the current version
   stays
 

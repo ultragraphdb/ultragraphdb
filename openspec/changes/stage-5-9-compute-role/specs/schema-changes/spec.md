@@ -2,14 +2,35 @@
 
 ### Requirement: A partition checks the catalog version a Drop names
 A partition SHALL refuse a Drop of kind 3 or 4 whose `catalog` is not the catalog version in effect at its round's
-epoch, with code 2, kind 5, decided at the round as it refuses an Ingest share, since each endpoint core holds a view
-of its own and a core one close behind would pass a Drop aimed at an earlier schema. The check compute makes before it
-sends the Drop stays, as an early refusal.
+epoch, with code 2, kind 5, decided at the round as it refuses an Ingest share, since each endpoint core holds a view of
+its own and a core one close behind would pass a Drop aimed at an earlier schema. The check compute makes before it
+sends the Drop stays, as an early refusal, against the version in effect at the endpoint core's open epoch, the version
+a partition checks at a round of that epoch, which the core's view holds from the effective epochs the closes announce,
+the Catalog replies name and its Declare replies imply: it SHALL never refuse a Drop a partition would take at that
+epoch, a version committed as pending being in effect nowhere, and SHALL refuse nothing where its view cannot name that
+version. A Drop it passes MAY still be refused at its round, when a version takes effect first.
 
 #### Scenario: A Drop aimed at an earlier schema is refused by the partition
 - **WHEN** version 4 of a tenant takes effect, an endpoint core whose view still holds version 3 sends a Drop of kind 4
   naming `catalog` 3, and the partition decides it in a round of the epoch at which version 4 is in effect
 - **THEN** the partition refuses the Drop with code 2, kind 5, and removes nothing
+
+#### Scenario: Compute refuses a Drop naming another version than the one in effect
+- **WHEN** version 1 of a tenant is in effect at the endpoint core's open epoch, and a client sends Drops of kind 3
+  naming `catalog` 0, 2 and 1, then a Drop of kind 2 and one of kind 1, naming none
+- **THEN** the first two are refused with code 2, kind 5, each message naming its version and version 1, before any
+  partition sees them, and the other three reach the partition
+
+#### Scenario: A pending version leaves a Drop naming the version in effect to the partition
+- **WHEN** version 1 of a tenant is in effect, a Drop of kind 1 makes version 2 pending, and a client sends a Drop of
+  kind 3 naming `catalog` 1
+- **THEN** compute passes it to the partition
+
+#### Scenario: During a check a Drop names the version being checked
+- **WHEN** version 2 of a tenant is being checked, its effective epoch at or below the endpoint core's open epoch,
+  Describe names version 1, and a client sends a Drop of kind 3 naming `catalog` 2 and one naming `catalog` 1
+- **THEN** the first reaches the partition, and the second is refused with code 2, kind 5, the message naming versions 1
+  and 2
 
 ### Requirement: Drops
 Dropping a predicate SHALL remove, in every graph of its tenant and in every partition holding the tenant, its forward,
@@ -32,10 +53,6 @@ and builds that version.
 - **WHEN** `knows` is held for `a` and `b` and is dropped
 - **THEN** no key of `knows` remains, and neither the subject predicates of `a` nor of `b` holds `knows`
 
-#### Scenario: Dropping a vector predicate drops its vector index
-- **WHEN** `emb` is declared with a vector index, holds vectors, and is dropped
-- **THEN** no forward or vector-index key of `emb` remains
-
 #### Scenario: Dropping a graph keeps the other graphs
 - **WHEN** graphs `<g1>` and `<g2>` hold statements and `<g1>` is dropped
 - **THEN** no key of `<g1>` remains, and every statement of `<g2>` is still held
@@ -43,16 +60,6 @@ and builds that version.
 #### Scenario: Dropping data keeps the catalog
 - **WHEN** a tenant's data is dropped
 - **THEN** its predicates hold no data and its catalog is unchanged
-
-#### Scenario: Dropping a tenant's everything survives a restart
-- **WHEN** everything in tenant 3 is dropped and the roles are restarted
-- **THEN** tenant 3 holds no quad key, and the metadata group holds its initial catalog
-
-#### Scenario: A tenant's drop leaves a tenant sharing its run
-- **WHEN** tenants 7 and 8 share a bucket run, each holds statements in one partition, and everything in tenant 7 is
-  dropped
-- **THEN** tenant 7 holds no quad key, its catalog is the initial catalog, and every statement and the catalog of tenant
-  8 are unchanged
 
 #### Scenario: A resent Drop builds the version a stopped compute node left
 - **WHEN** a Drop of `p` through a session commits at its partition, compute stops before the catalog
@@ -108,7 +115,7 @@ and wait `catalog_check_ms` anew.
 - **WHEN** `friend` is declared an edge, and a client commits a declaration of `friend` a property
 - **THEN** the Commit is refused with code 7, `detail` its declaration's index, naming `friend`, and the catalog is unchanged
 
-#### Scenario: A check outlives compute that asked for it
+#### Scenario: A check outlives the compute node that asked for it
 - **WHEN** a client commits a declaration of `nick` single-valued, compute stops before any partition reports, and a partition then reports that the data refuses it
 - **THEN** the metadata group holds a version restoring the previous declaration, and no Describe reports `nick` single-valued
 

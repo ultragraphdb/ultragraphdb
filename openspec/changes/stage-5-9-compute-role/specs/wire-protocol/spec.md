@@ -55,16 +55,18 @@ the schema id; a literal bound at a slot that takes a node SHALL be refused. A r
 only, and rows SHALL come in the store's key order. Compute SHALL answer Describe itself, from the catalog version in
 effect, read from the system group with Catalog, and the tenant's default-entry records, read with Defaults, asking no
 partition, as far as the connection's principal may read it, so it names what is declared and recorded rather than what
-data holds: `read_version` the version bound of the latest epoch the sequencer closed, or of epoch 0 before the first
-close; the entity types declared in effect at that epoch; the predicates of kind edge or either that it declares or
-holds a default entry for as relationship types, those of kind property or either as property keys; and the catalog's
-declarations. An answer that does not fit one frame within the client's `max_frame` SHALL continue in further Describe
-frames on the stream, each with the first's command header, the last alone flagged `LAST`; a frame SHALL split a section
-of records or u32s only between whole ones and a text only on a character boundary, and the client SHALL read the frames
-as one body, each of its nine sections the concatenation, in frame order, of that section's bytes in every frame.
-Describe frames SHALL spend credit as Result frames do, the stream starting with the Welcome's `initial_credit`. An
-answer whose sections hold more than `catalog_bytes_max` bytes together SHALL be refused with code 6 (TooLarge),
-`detail` that bound.
+data holds: `read_version` the version bound of the latest closed epoch the endpoint core's view holds, or of epoch 0
+before the first close; `catalog` the tenant's catalog version the answer is drawn from, 0 for a tenant holding none,
+which every frame of the answer names alike and a client names in a Drop of kind 3 or 4, an Ingest and an Install, a
+client's Describe naming 0 and refused with `FieldValue` (`"catalog"`) otherwise; the entity types declared in effect at
+that epoch; the predicates of kind edge or either that it declares or holds a default entry for as relationship types,
+those of kind property or either as property keys; and the catalog's declarations. An answer that does not fit one frame
+within the client's `max_frame` SHALL continue in further Describe frames on the stream, each with the first's command
+header, the last alone flagged `LAST`; a frame SHALL split a section of records or u32s only between whole ones and a
+text only on a character boundary, and the client SHALL read the frames as one body, each of its nine sections the
+concatenation, in frame order, of that section's bytes in every frame. Describe frames SHALL spend credit as Result
+frames do, the stream starting with the Welcome's `initial_credit`. An answer whose sections hold more than
+`catalog_bytes_max` bytes together SHALL be refused with code 6 (TooLarge), `detail` that bound.
 
 #### Scenario: A stale statement is refused
 - **WHEN** a statement is prepared, the catalog of its tenant changes, and the statement is executed
@@ -76,6 +78,16 @@ answer whose sections hold more than `catalog_bytes_max` bytes together SHALL be
 - **THEN** compute answers asking no partition: `read_version` is the version bound of the latest closed epoch,
   the declarations list `name` with its `term` index, the property keys hold `name` and `score`, and the relationship
   types hold `score`
+
+#### Scenario: Describe names the catalog version it is drawn from
+- **WHEN** a client describes a tenant holding no catalog version, then declares `name`, and describes it again once the
+  version declaring `name` is in effect at the latest close
+- **THEN** the first answer's `catalog` is 0, and the second's is the version the system group holds, the one that
+  declares `name`
+
+#### Scenario: A client's Describe naming a catalog version is refused
+- **WHEN** a client sends a Describe whose `catalog` is 1
+- **THEN** it is refused at the client endpoint with `FieldValue` naming `catalog`
 
 #### Scenario: A literal at a node slot is refused
 - **WHEN** a statement's subject parameter is bound to a literal
@@ -126,14 +138,14 @@ holds. Compute SHALL compare the base exactly. One under it naming another tenan
 change or an operation, and SHALL answer a read binding it itself with no row, binding nothing.
 
 #### Scenario: A skolem IRI nobody can hold binds nothing
-- **WHEN** a read-write transaction's first request is a Read binding its subject to an IRI under tenant 7's skolem base in
-  tenant 0, and its next request is a Write of `<a>`
-- **THEN** the Read is answered one batch flagged `LAST`, `rows` 0, no role sees it, and the transaction binds to `<a>`'s
-  partition
+- **WHEN** a read-write transaction's first request is a Read binding its subject to an IRI under tenant 7's skolem base
+  in tenant 0, and its next request is a Write of `<a>`
+- **THEN** the Read is answered one batch flagged `LAST`, `rows` 0, no role sees it, and the transaction binds to
+  `<a>`'s partition
 
 #### Scenario: A skolem IRI nobody can hold is refused in a change
-- **WHEN** a Write names as a subject an IRI under the tenant's skolem base whose tail states no bucket, and another under
-  tenant 7's
+- **WHEN** a Write names as a subject an IRI under the tenant's skolem base whose tail states no bucket, and another
+  under tenant 7's
 - **THEN** each is refused with Error 7, `detail` the term's index, and no partition is asked
 
 #### Scenario: The same path under another base is an ordinary IRI
@@ -298,7 +310,8 @@ before; in a batch of one range, a key below the range's first key, or at or abo
 
 #### Scenario: A Write on a Bind stream is answered by Held
 - **WHEN** compute sends a Write on a Bind stream, its references registered and its changes held by the partition
-- **THEN** the partition answers Held on the stream, which stays open; the dialling side's check accepts it, and compute relays nothing to the client
+- **THEN** the partition answers Held on the stream, which stays open; the dialling side's check accepts it, and compute
+  relays nothing to the client
 
 #### Scenario: Held elsewhere is refused
 - **WHEN** a Held frame arrives on a stream whose request's answers do not list it, or carries a nonzero command-header
@@ -319,8 +332,8 @@ before; in a batch of one range, a key below the range's first key, or at or abo
 - **WHEN** a Welcome names `initial_credit` 0
 - **THEN** it is refused with `FieldValue` naming `initial_credit`
 
-#### Scenario: The retired relay command is refused
-- **WHEN** a role connection sends command 523, which carried a read to a compute node until stage 5.9
+#### Scenario: Command 523 is refused as unknown
+- **WHEN** a role connection sends command 523
 - **THEN** it is refused as an unknown command
 
 #### Scenario: A Scan's `after` is read from the frame
@@ -334,8 +347,8 @@ before; in a batch of one range, a key below the range's first key, or at or abo
 - **THEN** the first is read as ranges 2 to 5, each ended, and the second is refused with `FieldValue` naming `through`
 
 #### Scenario: A version field holds a version or a version bound
-- **WHEN** an Entries frame's `version`, a Scan's `read_version` and a Begin's `read_version` each hold an odd sequence, and
-  then each holds an epoch's version bound
+- **WHEN** an Entries frame's `version`, a Scan's `read_version` and a Begin's `read_version` each hold an odd sequence,
+  and then each holds an epoch's version bound
 - **THEN** the first three are refused with `FieldValue` naming the field, and the bound is read
 
 #### Scenario: A frame of another version is refused
@@ -362,20 +375,24 @@ which the partition stops reading that connection until they fall below it, refu
 
 #### Scenario: A write parked on a home's Reference holds no role connection
 - **WHEN** a Write on a Bind stream waits on a home's answer, and a second request arrives on its connection
-- **THEN** the second request is answered while the Write waits, and the Write is answered Held on its stream once the home answers
+- **THEN** the second request is answered while the Write waits, and the Write is answered Held on its stream once the
+  home answers
 
 #### Scenario: A one-frame write parked on a home's Reference holds no role connection
 - **WHEN** a DirectWrite waits on a home's answer, and a second request arrives on its connection
-- **THEN** the second request is answered while the DirectWrite waits, and its Commit reply follows once the home answers
+- **THEN** the second request is answered while the DirectWrite waits, and its Commit reply follows once the home
+  answers
 
 #### Scenario: A write behind a read's wait holds no role connection
-- **WHEN** a Scan of a transaction waits on a home's answer, a Write follows on the transaction's stream, and a second request arrives on the connection
-- **THEN** the second request is answered while the Write waits its turn, and the Write is answered Held once the home answers
+- **WHEN** a Scan of a transaction waits on a home's answer, a Write follows on the transaction's stream, and a second
+  request arrives on the connection
+- **THEN** the second request is answered while the Write waits its turn, and the Write is answered Held once the home
+  answers
 
 #### Scenario: What follows a parked write on its stream keeps its order
 - **WHEN** a Write waits on a home's answer, and a second Write and the Commit follow on its stream
-- **THEN** nothing is answered on the stream until the home answers, and then Held, Held and the Commit, in that order, and the
-  commit holds both writes
+- **THEN** nothing is answered on the stream until the home answers, and then Held, Held and the Commit, in that order,
+  and the commit holds both writes
 
 #### Scenario: A home's refusal drops what is parked behind the write
 - **WHEN** a Write waits on a home's answer, a second Write follows on its stream, and the home refuses the registration
@@ -383,21 +400,21 @@ which the partition stops reading that connection until they fall below it, refu
 
 #### Scenario: A Cancel reaches a parked write
 - **WHEN** a Write waits on a home's answer, and its stream is cancelled
-- **THEN** the partition holds no such transaction by the time a later request on the connection is answered, and no Held follows
-  once the home answers
+- **THEN** the partition holds no such transaction by the time a later request on the connection is answered, and no
+  Held follows once the home answers
 
 #### Scenario: A connection closing with a write parked aborts its transaction
 - **WHEN** a Write waits on a home's answer, and its connection closes
 - **THEN** the partition no longer holds the transaction
 
 #### Scenario: A connection at its parked bound stops reading
-- **WHEN** a Write's frame takes its connection's parked bytes to `storage.held_bytes`, the Write waiting on a home's answer, and a
-  second request follows on the connection
+- **WHEN** a Write's frame takes its connection's parked bytes to `storage.held_bytes`, the Write waiting on a home's
+  answer, and a second request follows on the connection
 - **THEN** the second request is unanswered until the home answers and is then answered, and nothing is refused
 
 #### Scenario: Writes parked on each other's homes both answer
-- **WHEN** both storage processes hold `storage.held_bytes` of 1, and a Write on partition 1 names an entity partition 3 owns while
-  a Write on partition 3 names an entity partition 1 owns
+- **WHEN** both storage processes hold `storage.held_bytes` of 1, and a Write on partition 1 names an entity partition 3
+  owns while a Write on partition 3 names an entity partition 1 owns
 - **THEN** both are answered Held and both transactions commit
 
 #### Scenario: A stop with a write parked answers or closes
@@ -405,18 +422,21 @@ which the partition stops reading that connection until they fall below it, refu
 - **THEN** the stream is answered with code 17 or the connection closes
 
 #### Scenario: A connection is read on while its core syncs
-- **WHEN** a partition's log sync is in progress and its compute node sends ten DirectWrites on ten streams of one role connection
-- **THEN** the partition reads all ten frames before the sync completes, and each is answered on its stream once its round is
-  durable
+- **WHEN** a partition's log sync is in progress and a compute node sends ten DirectWrites on ten streams of one role
+  connection
+- **THEN** the partition reads all ten frames before the sync completes, and each is answered on its stream once its
+  round is durable
 
 #### Scenario: Requests waiting for the core count against the bound
-- **WHEN** `storage.held_bytes` is 4,096, the core is in a sync, and compute sends DirectWrites of 1,500 bytes on one role
-  connection
-- **THEN** the partition reads three of them and stops reading that connection until the core has taken them, refusing nothing
+- **WHEN** `storage.held_bytes` is 4,096, the core is in a sync, and compute sends DirectWrites of 1,500 bytes on one
+  role connection
+- **THEN** the partition reads three of them and stops reading that connection until the core has taken them, refusing
+  nothing
 
 #### Scenario: An Abort's stream ends with no frame
 - **WHEN** a transaction's Abort arrives on its Bind stream while the core is in a sync
-- **THEN** the stream ends with no frame once the core takes the Abort, and a later request on the connection is answered
+- **THEN** the stream ends with no frame once the core takes the Abort, and a later request on the connection is
+  answered
 
 ### Requirement: A frame past its stream's credit is refused
 Every receiver of Result or Entries frames, always the side that dialled, SHALL refuse a frame past its stream's credit
@@ -428,12 +448,13 @@ sending no Error, which only the side that accepted sends.
 - **THEN** the client refuses it as `PastCredit`, naming the stream, and closes the connection
 
 #### Scenario: An Entries frame past its credit closes compute's role connection
-- **WHEN** a partition sends a Scan's stream an Entries frame with the stream's credit spent, a second read's Scan being open on the connection
-- **THEN** compute closes the role connection and answers both reads code 17
-
-#### Scenario: An Entries frame past its credit closes compute's role connection
 - **WHEN** a partition sends a Scan's stream an Entries frame with the stream's credit spent
 - **THEN** compute refuses it as `PastCredit`, naming the stream, and closes the role connection
+
+#### Scenario: An Entries frame past its credit ends every read its connection carried
+- **WHEN** a partition sends a Scan's stream an Entries frame with the stream's credit spent, a second read's Scan being
+  open on the connection
+- **THEN** compute closes the role connection and answers both reads code 17
 
 ### Requirement: A commit in flight is in doubt once sent
 When a connection is lost or closed with a commit in flight, the client SHALL answer `ConnectionLost` if the commit's
@@ -450,7 +471,8 @@ code 17 reports its outcome as unknown.
 
 #### Scenario: An unsent commit is lost, a sent one in doubt
 - **WHEN** the connection closes once with a commit queued and unsent, and once with a commit sent and unanswered
-- **THEN** the first answers `ConnectionLost`, the second `InDoubt`, and resolving the second reports whether it committed
+- **THEN** the first answers `ConnectionLost`, the second `InDoubt`, and resolving the second reports whether it
+  committed
 
 #### Scenario: Code 17 on a commit is in doubt
 - **WHEN** a client's Commit through a session is answered code 17
@@ -507,9 +529,11 @@ at or above that number as answering no request.
 
 ### Requirement: The client's timeout leaves a read its deadline
 The Rust client's timeout for a read SHALL run from the later of its last progress and the Begin's deadline, SHALL be at
-least 30 s, the most `scan_stall_ms` holds, and SHALL not run for a stream whose credit is spent, since a read's silence
-within its transaction's deadline is a wait for a close and a hung compute node is answered with code 17 by the deadline
-plus `scan_stall_ms`.
+least twice the most `scan_stall_ms` holds and 2,000 ms more, 62,000 ms, and SHALL not run for a stream whose credit is
+spent. A read's silence within its transaction's deadline is a wait for a close; past it a partition keeps a Scan or a
+Frontier with no frame able to leave for at most `scan_stall_ms`, and compute answers code 17 for a partition that left
+a request unanswered for twice `scan_stall_ms` beyond the request's deadline, so a client hears of a hung partition as
+code 17 before its own timeout gives the connection up (`PROTOCOL.md` section 11.11).
 
 #### Scenario: A long deadline survives the client's timeout
 - **WHEN** a read-only transaction's deadline is 40 s, and its read waits 35 s for a close, the client's timeout set at
@@ -519,3 +543,8 @@ plus `scan_stall_ms`.
 #### Scenario: A stream without credit runs no timeout
 - **WHEN** a read's stream has spent its credit, and its caller takes no batch for longer than the timeout
 - **THEN** the connection stays open
+
+#### Scenario: A hung partition is heard as code 17
+- **WHEN** a read-only transaction's deadline has passed, `scan_stall_ms` is 30,000, and compute answers the read with
+  code 17 after 60 s more, a partition having left its Scan unanswered
+- **THEN** the client returns code 17 to its caller, and the connection stays open

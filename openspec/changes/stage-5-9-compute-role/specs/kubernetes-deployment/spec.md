@@ -79,7 +79,7 @@ SHALL hold nothing a restart could lose.
 - **THEN** the session's next commit is accepted and the catalog version is still the tenant's
 
 #### Scenario: A deleted compute pod loses nothing
-- **WHEN** compute's pod is deleted and its Deployment starts another
+- **WHEN** a compute pod is deleted and its StatefulSet starts another
 - **THEN** a client reconnects, authenticates, and commits through the session it registered before
 
 ### Requirement: The bench runs inside the cluster

@@ -1385,7 +1385,7 @@ in the order the table lists them, a value in its canonical lexical form. Equal 
 
 ### 9.6 What the schema gives request typing and query classification
 
-The compiled catalog carries, per predicate, the facts the role holding the client endpoint (the frontend until stage 5.9, compute from it) decides a request's path from before it reads a term
+The compiled catalog carries, per predicate, the facts compute decides a request's path from before it reads a term
 (`../binary_protocol/PROTOCOL.md` section 11.2a; `UltraGraphDB Distribution Protocol.md`, "What qualifies"): whether a write of it is
 blind (coordination-free, no check that reads beyond the instance), whether it needs a unique claim, whether it is
 single-valued, whether a check or a bound reads it, whether it is derived, and its mutability class. Per type it carries
@@ -2227,7 +2227,7 @@ that begin with one, `Asset.all_parts` and `Company.suppliers`.
 | A reifier's name | Decided 2026-11-10: an edge-encoded instance of a declared relation is named by the handle IRI of its type, presented as an IRI, since an instance has one name; a skolem IRI names the reifier of a statement of no declared relation |
 | `statement` as a word | Decided 2026-11-10: a keyword after `abstract` alone and an identifier elsewhere, as `import`, `unit` and `version` are placed, so Gen5 keeps `statement` as the role its provenance links name; a name differing from a reserved word by case alone is a name, and the parser's refusal names a mistyped keyword |
 | One condition, one number | Decided 2026-11-10: the most specific diagnostic naming a condition is raised, `UGS0710` is retired into `UGS0116`, a commit reports the first rule broken in section 8.2's order, and an expression that cannot be evaluated has a number of its own (`UGS1039`), apart from a check that evaluated and did not hold |
-| Creation | Decided 2026-11-10: a transaction creates an instance by writing `rdf:type` on a blank node or on a keyed type's minted IRI; a creation on a key the tree holds is a duplicate (`UGS1008`) and never an update, and a keyed instance under a blank node is refused (`UGS1038`), the IRI being a pure function every client computes. Chosen over minting for the client, which has the frontend assemble an instance to route it |
+| Creation | Decided 2026-11-10: a transaction creates an instance by writing `rdf:type` on a blank node or on a keyed type's minted IRI; a creation on a key the tree holds is a duplicate (`UGS1008`) and never an update, and a keyed instance under a blank node is refused (`UGS1038`), the IRI being a pure function every client computes. Chosen over minting for the client, which has compute assemble an instance to route it |
 | One-frame writes | Decided 2026-11-10: a rule over the instance's own fields is validated in a DirectWrite's one turn; a claim, and a rule reading beyond the instance, take a transaction (section 9.6); an Ingest share claims its instances' keys and `@idempotency` values, which their own bucket holds |
 | A recreated IRI | Decided 2026-11-10: the new instance's record names the ID it replaced and the tombstone the delete's version, so a read of the past never answers absence where an instance was; the term-to-ID record is replaced at the re-creation's version (T48, C16; section 8.5) |
 | Order of sources | Decided 2026-11-10: schemas by name, then modules after what they extend, so prefix allocation is a function of the sources alone (section 7.1) |

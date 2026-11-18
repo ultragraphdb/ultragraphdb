@@ -2,9 +2,9 @@
 
 ### Requirement: The system group serves the node list
 The system group SHALL take a compute node's Join, durable before the answer, propose the removal of an entry whose
-connection has been closed for twice `epoch_ms_max`, and serve Roster (node-discovery). It SHALL end a subscription whose frames
-have gone unacknowledged by the transport for twice `epoch_ms_max`, closing its connection, so a node that fell silent
-does not count as connected.
+connection has been closed for twice `epoch_ms_max`, and serve Roster (node-discovery). A compute node's connection that
+the sequencer closes for a silent subscription (sequencer, "A subscriber holding no close begins at the latest") SHALL
+count as closed from then, so a node that fell silent does not stay listed as connected.
 
 #### Scenario: A silent node's connection is closed
 - **WHEN** a compute node's machine stops answering without closing its connection, and twice `epoch_ms_max` passes
@@ -33,15 +33,15 @@ SHALL host partitions alone and SHALL listen at no system group address.
 - **THEN** the process exits with code 78 and an error naming `system.data_dir`
 
 #### Scenario: Compute holds no book
-- **WHEN** compute binary's dependency graph is listed
+- **WHEN** the compute binary's dependency graph is listed
 - **THEN** it names neither `ultragraphdb_cluster_metadata`, `ultragraphdb_cluster_sequencer` nor
   `ultragraphdb_transactions_log`
 
 ### Requirement: The system group serves the books' role commands at its role address
 The system group SHALL accept role connections at `system.role_address`, authenticated with the cluster's role secret as
 every role connection is (role-binaries, "Roles authenticate each other with the cluster's role secret"), and SHALL
-serve there, besides Hello, Authenticate, Credit and Cancel, the commands `PROTOCOL.md` section 11.12a lists from stage
-5.9:
+serve there, besides Hello, Authenticate, Credit and Cancel, the commands the endpoint table of `PROTOCOL.md` section
+11.12 lists:
 
 | Command | Requested by |
 |---|---|
@@ -49,9 +49,12 @@ serve there, besides Hello, Authenticate, Credit and Cancel, the commands `PROTO
 | Lease, DefaultEntry, Report | storage |
 | Challenge, Verify, Session, Check, Ended, Roster, Declare, Defaults | compute |
 
-It SHALL refuse every other command as `CommandNotServed`, naming the command. Every process SHALL reach the group at
-`cluster.system_address`, the partitions of the hosting process included: they dial the address as the partitions of
-any other process do, so one path carries a partition's asks wherever it runs.
+It SHALL refuse every other command as `CommandNotServed`, naming the command, and SHALL refuse the same way a command
+the table does not have the connection's role request, the role being the connection's SCRAM username; a Subscribe's
+`latest` and a CloseRequest's `partition` SHALL keep their own `FieldValue` rules (`PROTOCOL.md` sections 13.3 and
+13.16). Every process SHALL reach the group at `cluster.system_address`, the partitions of the hosting process included:
+they dial the address as the partitions of any other process do, so one path carries a partition's asks wherever it
+runs.
 
 #### Scenario: A partition of the hosting process dials the group
 - **WHEN** the hosting storage process starts with partition 1
@@ -65,6 +68,10 @@ any other process do, so one path carries a partition's asks wherever it runs.
 #### Scenario: A command the endpoint does not serve is refused
 - **WHEN** a role connection to the system group sends a Bind
 - **THEN** it is refused as `CommandNotServed` naming Bind
+
+#### Scenario: A command another role requests is refused
+- **WHEN** a connection whose role is `storage` sends a Verify
+- **THEN** it is refused as `CommandNotServed` naming Verify
 
 ### Requirement: The hosting process starts the group first and stops it last
 The hosting process SHALL start the system group, wait until it has recovered and listens, and then start its
@@ -94,7 +101,11 @@ epoch, SHALL refuse with code 5 once that epoch is full and its close request ha
 needs the group with code 17 (Unavailable): a request through a session, cancelling the Bind stream of a transaction
 whose Check went unanswered, a Register, a declaring Commit and a Describe; and SHALL answer an authentication it cannot
 relay with Error 17 on stream 0, closing the connection and counting no failure, so an outage bans no source. A Begin, a
-read and a commit through no session SHALL go on from its view.
+read and a commit through no session SHALL go on from its view. A storage process that dials again SHALL join again on
+the new connection unless the group still lists it, so a restarted group, which holds no storage process's Join from
+before, lists it as soon as it answers; a compute node that dials again SHALL join as node-discovery states ("A compute
+node joins with what clients need of it"), its entry kept across the group's restart by the log ("The node list is a
+function of the log").
 
 #### Scenario: A compute node started before storage waits
 - **WHEN** compute starts while no process listens at `cluster.system_address`, and the hosting storage process
@@ -120,3 +131,28 @@ read and a commit through no session SHALL go on from its view.
 #### Scenario: An outage bans no source
 - **WHEN** one address authenticates 80 times while the system group cannot be reached, and once after it answers again
 - **THEN** each of the 80 is answered Error 17 and counted as no failure, and the last authenticates
+
+#### Scenario: A connection error ending a subscription's connection is joined again
+- **WHEN** the system group ends the connection a storage process that does not host it subscribes on with Error 1 on
+  stream 0
+- **THEN** the process joins and subscribes again on a new connection, and runs on
+
+#### Scenario: A frame on a stream storage has not opened closes the subscription's connection
+- **WHEN** the system group sends a storage process that does not host it a frame on a stream it has not opened, on the
+  connection it subscribes on
+- **THEN** the process closes that connection before it joins again on a new one, subscribes again, and runs on
+
+#### Scenario: A late frame among a catalog version's frames is dropped
+- **WHEN** the system group answers a storage process that does not host it a catalog version in two Catalog frames, and
+  sends between them an Error on a stream the process has ended
+- **THEN** the process reads the version whole on that connection, joins, and runs on
+
+#### Scenario: A catalog version's frame on stream 0 closes the connection
+- **WHEN** the system group sends a storage process that does not host it the second of a catalog version's Catalog
+  frames on stream 0
+- **THEN** the process closes that connection before it reads the catalog again on a new one, joins, and runs on
+
+#### Scenario: A catalog version's frame on a stream storage has not opened closes the connection
+- **WHEN** the system group sends a storage process that does not host it the second of a catalog version's Catalog
+  frames on a stream it has not opened
+- **THEN** the process closes that connection before it reads the catalog again on a new one, joins, and runs on

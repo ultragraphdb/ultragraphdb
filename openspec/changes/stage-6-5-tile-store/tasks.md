@@ -1,3 +1,5 @@
+**Read `notes/rebase-on-stage-5-8.md` first.** This change's deltas predate stage 5.8's archived specifications and stage 5.9's two roles. The note lists the deltas that would undo stage 5.8, this change's own defects, and every requirement to compare. The rebase (task 0.7) comes before any other task, after stage 5.9 is archived.
+
 Every task group follows `openspec/protocols/tdd-protocol.md`'s five phases, in order, as stage 6.6's groups do: (1) the
 group's public surface compiling with bare `unimplemented!()` bodies; (2) the full suite written against it and
 observed failing for that reason, its run and test count recorded in `notes/group-N.md`: the group's scenarios verbatim

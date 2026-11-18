@@ -60,7 +60,7 @@ failed, 128 plus the signal's number for a role a signal killed, or 0 after a cl
 - **THEN** the supervisor stops compute and exits with code 74
 
 #### Scenario: A role killed by a signal is reported as a shell would
-- **WHEN** the compute node is killed by SIGKILL while the others run
+- **WHEN** the compute process is killed by SIGKILL while the others run
 - **THEN** the supervisor stops storage and exits with code 137
 
 #### Scenario: SIGTERM shuts down in order
@@ -96,13 +96,17 @@ failed, 128 plus the signal's number for a role a signal killed, or 0 after a cl
 Each role SHALL run one compio runtime per core it uses, a storage partition on its own and the system group on its own
 in the instance hosting it, sharing no mutable state with another; what crosses between them SHALL go by message.
 `[runtime] pin_cores` SHALL ask each runtime to bind to one CPU, chosen from those the process is permitted, as a
-container's cpuset restricts them. `[runtime] pin_skip` SHALL leave that many of the permitted CPUs free, from the lowest, for the CPUs a host gives its interrupts, none by default, and a role running more runtimes than the CPUs left SHALL bind them in turn. The role SHALL read its permitted CPUs once, before it binds any thread, and SHALL bind the thread that starts its runtimes to all the CPUs they take and to no single one, since a thread bound to one CPU leaves every thread it starts that CPU alone to ask for. Pinning SHALL be a performance choice and never a condition of correctness: where the
-platform cannot bind a thread, as macOS cannot, offering only a cache-locality hint, the role SHALL run unpinned and say
-so. Compute SHALL accept and serve clients on each of its runtimes, one per CPU it may use, on one client address bound
-once: its readiness on the first, each runtime dialling its own connections to the system group and to the other roles,
-and its counts of failed authentications held by its first runtime for all of them (client-endpoint, "Connections
-authenticate against the metadata group's principals"). At start each role SHALL log, per runtime, the CPU it asked for
-and what it has, read back from the operating system where it can be.
+container's cpuset restricts them. `[runtime] pin_skip` SHALL leave that many of the permitted CPUs free, from the
+lowest, for the CPUs a host gives its interrupts, none by default, and a role running more runtimes than the CPUs left
+SHALL bind them in turn. The role SHALL read its permitted CPUs once, before it binds any thread, and SHALL bind the
+thread that starts its runtimes to all the CPUs they take and to no single one, since a thread bound to one CPU leaves
+every thread it starts that CPU alone to ask for. Pinning SHALL be a performance choice and never a condition of
+correctness: where the platform cannot bind a thread, as macOS cannot, offering only a cache-locality hint, the role
+SHALL run unpinned and say so. Compute SHALL accept and serve clients on each of its runtimes, one per CPU it may use,
+on one client address bound once: its readiness on the first, each runtime dialling its own connections to the system
+group and to the partitions, and its counts of failed authentications held by its first runtime for all of them
+(client-endpoint, "Connections authenticate against the metadata group's principals"). At start each role SHALL log, per
+runtime, the CPU it asked for and what it has, read back from the operating system where it can be.
 
 #### Scenario: A pinned role reports what it holds
 - **WHEN** a role starts with `pin_cores = true` on a platform that allows binding
@@ -131,9 +135,13 @@ SHALL also serve `/ready`, answering once its dependencies are reachable: storag
 their logs and joined, and in the hosting instance once the system group has recovered and listens before them
 (system-group, "The hosting process starts the group first and stops it last"); compute once the system group answers
 it, its view holds a placement and a close, Members lists every partition of the placement and a storage partition
-answers. On SIGTERM compute SHALL announce itself draining (node-discovery, "A draining node is announced before it
-stops"), stop accepting connections and finish its open requests, and storage SHALL apply and sync what its partitions'
-logs hold, then stop the system group it hosts, before it exits.
+answers. Compute's `/ready` SHALL answer 503 from the moment its connection to the system group closes until the group
+answers it again, its view holds a close, Members lists every partition of the placement and a storage partition
+answers, and 200 again from then (system-group, "A lost system group is waited for until the deadline"); its `/health`
+is unaffected, and storage's `/ready` stays as stated above. On SIGTERM compute SHALL announce itself draining
+(node-discovery, "A draining node is announced before it stops"), stop accepting connections and finish its open
+requests, and storage SHALL apply and sync what its partitions' logs hold, then stop the system group it hosts, before
+it exits.
 
 #### Scenario: Storage is not ready before recovery
 - **WHEN** a storage process restarts with 10,000 rounds to replay
@@ -142,6 +150,11 @@ logs hold, then stop the system group it hosts, before it exits.
 #### Scenario: Compute is ready only once the books answer
 - **WHEN** compute starts while the hosting storage process still recovers
 - **THEN** compute's `/health` answers, and its `/ready` answers only after storage's
+
+#### Scenario: Compute is unready while its system group is unreachable
+- **WHEN** compute is ready, and the hosting storage process is killed and started again within `join_deadline_ms`
+- **THEN** compute's `/ready` answers 503 once its connection to the system group has closed while its `/health` answers
+  200, and its `/ready` answers 200 again once the group answers it, Members lists every partition and one answers
 
 #### Scenario: Storage flushes on shutdown
 - **WHEN** storage receives SIGTERM after acknowledging commits

@@ -82,9 +82,9 @@ no owner, and compute SHALL answer it to the client. Until a transaction's first
 none of its later requests to a partition, keeping them, and on code 26 SHALL send them after the resend, in order; a
 first read SHALL count as answered, for this rule alone, at its first frame or its Error. When a first read ends with
 code 23, compute SHALL cancel the Bind stream and refresh its map: if the refreshed map moves the read's subject, it
-SHALL bind to the owner and resend the read once. Otherwise, and for any later read compute answers so, it SHALL relay
-code 23 on the read's stream, drop the writes it holds, cancel the transaction's other reads still open, and answer with
-code 23, the first's `detail`, each of those reads, each read it holds, every later Read, Execute or Query naming the
+SHALL bind to the owner and run the read again once. Otherwise, and for any later read ending so, it SHALL answer code
+23 on the read's stream, drop the writes it holds, cancel the transaction's other reads still open, and answer with code
+23, the first's `detail`, each of those reads, each read it holds, every later Read, Execute or Query naming the
 transaction and the next request on the transaction's stream, which ends it.
 
 #### Scenario: A write reaches its partition
@@ -109,7 +109,7 @@ transaction and the next request on the transaction's stream, which ends it.
 #### Scenario: A first read moved by a stale map is resent
 - **WHEN** a transaction's first request is a read, the read ends with code 23, and the refreshed map moves the read's
   subject to partition 2
-- **THEN** compute cancels the Bind stream, binds to partition 2 and resends the read once, and the client receives
+- **THEN** compute cancels the Bind stream, binds to partition 2 and runs the read again once, and the client receives
   its rows
 
 #### Scenario: A first read the map does not move is refused
@@ -118,8 +118,8 @@ transaction and the next request on the transaction's stream, which ends it.
 - **THEN** the client's read is refused with code 23, and its next request on the transaction's stream too
 
 #### Scenario: A read's code 23 answers the transaction's other reads
-- **WHEN** reads A and C of a read-write transaction are open and a Write is held behind them, compute answers A with code
-  23, and the client then sends read D
+- **WHEN** reads A and C of a read-write transaction are open and a Write is held behind them, read A ends with code 23,
+  and the client then sends read D
 - **THEN** A, C and D are each answered code 23, the `detail` of A's, the Write is sent to no partition, and the next
   request on the transaction's stream is answered code 23 and ends it
 
@@ -216,7 +216,8 @@ Compute SHALL bound the Write and Operation frames it holds for a connection beh
 
 #### Scenario: Credit still drains a read under held writes
 - **WHEN** a read holds Writes back, and the client grants the read credit
-- **THEN** compute reads the Credit and relays it, the read reaches its `LAST`, and the held Writes are then sent
+- **THEN** compute reads the Credit and grants it to the read, which reaches its `LAST`, and the held Writes are then
+  sent
 
 ### Requirement: Compute bounds what a connection has on its way to a role
 Compute SHALL count, per client connection, what it keeps for that connection on the way to a role, as `PROTOCOL.md`
@@ -282,12 +283,16 @@ DirectWrite, a ConditionalWrite or an Ingest through a session, kind 2, and befo
 routing the request only once its check passed and answering the client with the code a failed check gave; and Ended
 when a checked request ended before reaching a partition, its partition answered it, for an Ingest its last share's, or
 the role connection carrying it closed. When every partition has answered a Recall with 18, the core SHALL send a second
-Check of kind 1 and answer 12 on outcome 12, else 18. A core SHALL gather the Endeds of one turn into one frame and then
-the Checks of that turn into one frame, one check per session, a further request through a session waiting for the next
-frame, so an eviction takes effect for the next commit on any core and a commit's check costs one round trip per turn. A
-core whose connection to the system group closed SHALL refuse what needs a check with code 17 until it has dialled again
-(system-group, "A lost system group is waited for until the deadline"), and SHALL send the Ended of a request that ends
-meanwhile on its next connection.
+Check of kind 1 and answer 12 on outcome 12, 21 on outcome 21, 14 on outcome 14, and 18 on outcome 1. A core SHALL
+gather the Endeds of one turn into one frame and then the Checks of that turn into one frame, one check per session, a
+further request through a session waiting for the next frame, each frame holding as many checks, or sessions, as the
+role connection's `max_frame` takes, in ascending order of their sessions, those past that waiting for the next turn, so
+an eviction takes effect for the next commit on any core and a commit's check costs one round trip per turn. A turn
+SHALL be one run of the task that sends on the core's connection to the system group: it takes every Ended and every
+Check the core's requests have queued since its last run, a request queued while it sends waits for its next run, and it
+waits for no reply (`PROTOCOL.md` section 11.5). A core whose connection to the system group closed SHALL refuse what
+needs a check with code 17 until it has dialled again (system-group, "A lost system group is waited for until the
+deadline"), and SHALL send the Ended of a request that ends meanwhile on its next connection.
 
 #### Scenario: An eviction reaches every core at once
 - **WHEN** a session is evicted while a connection on another core holds it, and that connection commits next
@@ -298,7 +303,8 @@ meanwhile on its next connection.
 - **THEN** reads and writes of other connections on that core go on
 
 #### Scenario: One turn's commits share one Check frame
-- **WHEN** eight connections of one endpoint core each send a Commit through a session of their own within one turn
+- **WHEN** eight connections of one endpoint core each queue the check of a Commit through a session of their own before
+  the core's sending task runs next
 - **THEN** the core sends one Check frame holding eight checks, in ascending order of their sessions, and routes each
   Commit by its own outcome
 
@@ -327,17 +333,26 @@ meanwhile on its next connection.
 Each endpoint core SHALL subscribe to the sequencer's closes on its connection to the system group, with `latest` set
 since it holds no close of its own, opening a subscription the sequencer ended as no longer held the same way, and SHALL
 keep a view: the latest closed and the open epoch, the placement in effect with the tenants its runs list, read again
-with Placement when a close assigns a placement version, each tenant's latest catalog version as the closes and its own
-Declare replies name it, the versions it read with Catalog, and each version's schema id, which it computes from the
-version's bytes. A Begin and the gate's question whether a tenant exists SHALL be answered from the view, asking no
-other process, so one connection's snapshots never go back, while two connections may answer at an epoch and then the
-one before and only a token carries the floor from one to the other (decided 2026-11-12). A token whose epoch is above
-the core's open epoch SHALL not be refused: a Begin naming it SHALL be held until the core's stream delivers the close
-before the token's epoch and refused with code 24 at its deadline, and a one-frame write naming it SHALL go to its
-partition. A Describe SHALL ask the system group which version to report, by a Catalog request of `version` 0 naming the
-latest closed epoch. Nothing SHALL be decided from the view alone: a declaring Commit built on a version the view holds
-is refused by the system group when that version is no longer current (schema-changes), and compute SHALL pass the
-refusal on.
+with Placement when a close assigns a placement version, each tenant's catalog versions with the epoch each takes effect
+at, as the closes announce them, the Catalog replies name them and its own Declare replies imply them, a version
+committed as pending holding none until a close announces it or a Catalog reply names its epoch, from the highest
+version in effect at the open epoch on; each tenant's current version, the highest of them; and the schema id of each
+version it read with Catalog, which it computes from the version's bytes. A subscription opened again with `latest`
+skips closes and with them their announcements: after its first close arrives the core SHALL read Placement again, and
+SHALL read again with Catalog the current version of each tenant its view holds, before it answers from the view. A
+Begin and the gate's question whether a tenant exists SHALL be answered from the view, asking no other process, so one
+connection's snapshots never go back, while two connections may answer at an epoch and then the one before and only a
+token carries the floor from one to the other (decided 2026-11-12). A token whose epoch is above the core's open epoch
+SHALL not be refused: a Begin naming it SHALL be held until the core's stream delivers the close before the token's
+epoch, a close that has arrived when the deadline is reached SHALL be taken first and the Begin answered, the Begin
+SHALL be refused with code 24 only when its deadline is reached with that close not arrived, and a one-frame write
+naming it SHALL go to its partition. A Describe SHALL ask the system group which version to report, by a Catalog request
+of `version` 0 naming the latest closed epoch. Nothing SHALL be decided from the view alone, apart from the early
+refusals of `PROTOCOL.md` sections 6.5 and 6.8, which read a tenant's version in effect at the open epoch: the highest
+version taking effect at or below it, where the view holds every version above it, none of them in effect yet, and none
+where the view cannot name it, the tenant never read with Catalog or a version above the highest in effect never
+learned. A declaring Commit built on a version the view holds is refused by the system group when that version is no
+longer current (schema-changes), and compute SHALL pass the refusal on.
 
 #### Scenario: A Begin asks no other process
 - **WHEN** an authenticated client sends a Begin naming tenant 0
@@ -358,8 +373,8 @@ refusal on.
 #### Scenario: A token ahead of the core's view waits and is not refused
 - **WHEN** a client's commit returned a token of epoch 9 while the core's stream has delivered the close of epoch 7, and
   the client sends a Begin naming the token on that core
-- **THEN** the Begin is answered once the close of epoch 8 arrives, and is refused with code 24 only if its deadline
-  passes first
+- **THEN** the Begin is answered once the close of epoch 8 arrives, and is refused with code 24 only if its deadline is
+  reached with that close not arrived
 
 #### Scenario: A token carries the floor to another connection
 - **WHEN** a client reads at epoch 9 on one connection, commits there, and begins a transaction naming the commit's
@@ -371,11 +386,18 @@ refusal on.
   Declare
 - **THEN** the Describe reports the version before it
 
+#### Scenario: A subscription opened again reads what its skipped closes announced
+- **WHEN** a core's view holds the close of epoch 7 and version 3 of `t1`, its subscription is opened again with
+  `latest`, and the first close on the new stream is that of epoch 12, version 4 of `t1` and a placement version having
+  been announced by the closes of epochs 8 to 11
+- **THEN** the core reads Placement and, with Catalog, the current version of `t1` before it answers its next Begin, and
+  its view then holds epoch 12, version 4 of `t1` and the placement in effect
+
 ### Requirement: Compute finds the partitions in Members
 Compute SHALL accept no role connection. It SHALL join the system group as a compute node (node-discovery, "A compute
-node joins with what clients need of it") and SHALL read Members, which holds storage members alone: at its start,
-again until Members lists every partition of the placement or `[cluster] join_deadline_ms` has passed, and again when
-one of its role connections to a partition closes. Each endpoint core SHALL dial the addresses Members names.
+node joins with what clients need of it") and SHALL read Members, which holds storage members alone: at its start, again
+until Members lists every partition of the placement or `[cluster] join_deadline_ms` has passed, and again when one of
+its role connections closes. Each endpoint core SHALL dial the addresses Members names.
 
 #### Scenario: Compute listens at no role address
 - **WHEN** compute has started
@@ -413,7 +435,7 @@ client through the error table"). Spreading clients over compute nodes is the cl
 - TO: `### Requirement: Compute bounds what a connection's reads hold back`
 
 - FROM: `### Requirement: The frontend bounds what a connection has on its way to a role`
-- TO: `### Requirement: Compute bounds what a connection has on its way to a partition`
+- TO: `### Requirement: Compute bounds what a connection has on its way to a role`
 
 - FROM: `### Requirement: The frontend times a read-write transaction`
 - TO: `### Requirement: Compute times a read-write transaction`
