@@ -7,8 +7,8 @@
 //! and the closes.
 
 use std::future::poll_fn;
-use std::task::Poll;
-use std::time::Duration;
+use std::task::{Poll, Waker};
+use std::time::{Duration, Instant};
 
 use compio::runtime::spawn;
 use compio::time::timeout;
@@ -17,7 +17,7 @@ use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, CheckView, Command, Credit, EpochCloseView, ErrorReply, ErrorReplyView,
-    FLAG_LAST, FrameView, Header, Subscribe,
+    FLAG_LAST, FrameView, Header, SessionCheck, Subscribe,
 };
 
 use super::{LinkState, SystemLink, unavailable};
@@ -60,7 +60,8 @@ pub(super) fn spawn_connection(
     .detach();
 }
 
-/// Runs one connection until it closes: subscribed with `latest` first, its sending task beside its reading.
+/// Runs one connection until it closes: subscribed with `latest` first, its sending task beside its reading. A future
+/// dropped at the runtime's end leaves the link as it stood, and its sending task to the runtime.
 async fn run(link: &SystemLink, client: RoleClient) {
     let (reader, mut writer, welcome) = client.split();
     if link.state.borrow().stopped {
@@ -90,23 +91,26 @@ async fn run(link: &SystemLink, client: RoleClient) {
     // The read ends when the connection does, or once the link is stopped and its sending side shut, or an answer read on it
     // was refused.
     let reading = read(link, reader);
-    let stopping = poll_fn(|cx| {
+    let stopping = poll_fn(|context| {
         let mut state = link.state.borrow_mut();
         if state.stopped || state.refused {
             return Poll::Ready(());
         }
-        state.watchers.push(cx.waker().clone());
+        state.watchers.push(context.waker().clone());
         Poll::Pending
     });
+    // Whichever ends first ends the connection, and the other is dropped with it.
     let _first = futures::future::select(std::pin::pin!(reading), std::pin::pin!(stopping)).await;
     closed(link);
+    // Awaited so the sending side is shut before the next dial; the task returns nothing to read.
     drop(sending.await);
 }
 
 /// Queues a Subscribe with `latest` on a stream of its own: the sending task's waker, for after the borrow.
-fn subscribe(state: &mut LinkState) -> Option<std::task::Waker> {
+fn subscribe(state: &mut LinkState) -> Option<Waker> {
     let stream = state.stream();
     let header = Header::new(state.cluster, Command::Subscribe).with_stream(stream);
+    // A Subscribe that cannot be built queues nothing, and the link holds no subscription on this connection.
     let frame = Subscribe::at_latest().frame(header).ok()?;
     state.subscription = Some(stream);
     state.close_parts.clear();
@@ -127,9 +131,10 @@ async fn send(link: SystemLink, mut writer: RoleWriter) {
     writer.shutdown().await;
 }
 
-/// The next frame to send: one waiting, or a turn's frames once nothing waits; `None` once the connection closed.
+/// The next frame to send: one waiting, or a turn's frames once nothing waits; `None` once the connection closed. A
+/// dropped future leaves what waits queued and its waker registered, which the next frame wakes for nothing.
 async fn next_frame(link: &SystemLink) -> Option<Vec<u8>> {
-    poll_fn(|cx| {
+    poll_fn(|context| {
         let mut state = link.state.borrow_mut();
         if !state.open {
             return Poll::Ready(None);
@@ -140,7 +145,7 @@ async fn next_frame(link: &SystemLink) -> Option<Vec<u8>> {
         if let Some(frame) = state.outgoing.pop_front() {
             return Poll::Ready(Some(frame));
         }
-        state.sender = Some(cx.waker().clone());
+        state.sender = Some(context.waker().clone());
         Poll::Pending
     })
     .await
@@ -149,6 +154,10 @@ async fn next_frame(link: &SystemLink) -> Option<Vec<u8>> {
 /// One turn (`PROTOCOL.md` §11.5, *Turns*): the Ended frame, then the Check frame, of what the core's requests queued
 /// since the last; the Check frame's checks wait for its reply, timed from now.
 fn turn(state: &mut LinkState) {
+    debug_assert!(
+        state.outgoing.is_empty(),
+        "a turn runs once nothing waits to leave"
+    );
     let (checks_max, ended_max) = (state.checks_max, state.ended_max);
     let turn = state.turns.take(checks_max, ended_max);
     let ended_stream = state.stream();
@@ -171,6 +180,7 @@ fn turn(state: &mut LinkState) {
         None => {
             for (ticket, _) in turn.checks() {
                 if let Some(waiting) = state.waiting.remove(ticket) {
+                    // A waiter gone has no one to tell.
                     drop(waiting.send(Err(unavailable("a Check frame could not be built"))));
                 }
             }
@@ -180,7 +190,8 @@ fn turn(state: &mut LinkState) {
 
 /// The reading task: hands each frame to what waits on its stream, until the connection ends, or until the link refuses a
 /// frame, which ends it as the side that dialled refusing a frame does (`PROTOCOL.md` §2.6, §13): the frames after a refused
-/// one answer nothing on this connection, so what waits on it is refused and the link dials again.
+/// one answer nothing on this connection, so what waits on it is refused and the link dials again. A future dropped at
+/// the runtime's end drops the reader with a frame read in part.
 async fn read(link: &SystemLink, mut reader: RoleReader) {
     // An event loop: the connection's end ends it (Ultra rule 2).
     loop {
@@ -247,6 +258,7 @@ fn deliver(link: &SystemLink, frame: &ReceivedFrame, view: &FrameView<'_>) -> Re
     {
         let refusal = error_of(view)?;
         if let Some(ask) = state.asks.remove(&stream) {
+            // An asker gone has no one to tell.
             drop(ask.reply.send(Err(refusal)));
         }
         return Ok(());
@@ -254,6 +266,7 @@ fn deliver(link: &SystemLink, frame: &ReceivedFrame, view: &FrameView<'_>) -> Re
     if last {
         if let Some(mut ask) = state.asks.remove(&stream) {
             ask.frames.push(frame.bytes().to_vec());
+            // An asker gone has no one to tell.
             drop(ask.reply.send(Ok(ask.frames)));
         }
         return Ok(());
@@ -334,6 +347,7 @@ fn delivered_close(link: &SystemLink, view: &FrameView<'_>) -> Result<(), String
         if placement != 0 {
             state.placement_asked = placement;
         }
+        // A close at or below the latest held applies nothing, and the view's waiters are told either way.
         let _applied = state.view.close(epoch, placement, &every_announced);
     }
     link.notify();
@@ -351,8 +365,8 @@ fn delivered_close(link: &SystemLink, view: &FrameView<'_>) -> Result<(), String
 fn delivered_checks(
     link: &SystemLink,
     view: &FrameView<'_>,
-    checks: &[(u64, ultragraphdb_protocol_wire::SessionCheck)],
-    sent: std::time::Instant,
+    checks: &[(u64, SessionCheck)],
+    sent: Instant,
 ) -> Result<(), String> {
     let answered = now();
     let outcomes = if view
@@ -385,6 +399,7 @@ fn delivered_checks(
                 .ok_or_else(|| unavailable("a Check reply of fewer checks")),
             Err(refusal) => Err(refusal.clone()),
         };
+        // A waiter gone has no one to tell.
         drop(waiting.send(outcome));
     }
     Ok(())
@@ -422,8 +437,10 @@ fn closed(link: &SystemLink) {
         state.checks_out.clear();
         let tickets: Vec<u64> = state.waiting.keys().copied().collect();
         for ticket in tickets {
+            // Queued or sent, the check is refused alike: one that left is answered by no reply on this connection.
             let _queued = state.turns.withdraw(ticket);
             if let Some(waiting) = state.waiting.remove(&ticket) {
+                // A waiter gone has no one to tell, here and for each ask below.
                 drop(waiting.send(Err(unavailable(
                     "the connection to the system group closed under the check",
                 ))));

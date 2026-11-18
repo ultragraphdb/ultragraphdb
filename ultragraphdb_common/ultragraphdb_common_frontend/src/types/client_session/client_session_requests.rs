@@ -353,6 +353,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         let mut ready = Vec::new();
         if let Some((waiting, credit)) = self.describes.get_mut(&stream) {
             *credit = credit.saturating_add(frames);
+            // Each pass spends one credit on one frame, so the lesser of the two bounds it (Ultra rule 2).
             while *credit > 0 {
                 let Some(frame) = waiting.pop_front() else {
                     break;

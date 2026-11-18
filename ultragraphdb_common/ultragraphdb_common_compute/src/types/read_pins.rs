@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 
 use compio::runtime::{JoinHandle, spawn};
 
-use crate::types::link::Link;
 use crate::types::pin_target::PinTarget;
 use crate::types::read_times::ReadTimes;
 use crate::types::scan_stream::ScanStream;
@@ -26,8 +25,9 @@ pub(crate) struct ReadPins {
     /// The frames the read has taken, shared by an `Rc` with each pin's task on the read's one core, which compares it
     /// across its grants to see whether the read goes on.
     taken: Rc<Cell<u64>>,
-    /// What keeps each partition's version, named by the partition and the version: a `RefCell`, since the read's partitions
-    /// add to it through the `ReadShared` they share on the read's one core, never across an `.await` (Ultra rule 9).
+    /// What keeps each partition's version, named by the partition and the version, one per partition the read reaches and
+    /// version it reads there: a `RefCell`, since the read's partitions add to it through the `ReadShared` they share on the
+    /// read's one core, never across an `.await` (Ultra rule 9).
     keeping: RefCell<Vec<(u32, u64, JoinHandle<()>)>>,
 }
 
@@ -52,9 +52,10 @@ impl ReadPins {
         }
     }
 
-    /// `version` of the partition of `link` is what the read reads there. It is held already when the read chose it before.
-    pub(crate) fn add(&self, link: &Rc<Link>, tenant: u64, principal: u64, version: u64) {
-        let partition = link.partition();
+    /// `target`'s version of its link's partition is what the read reads there. It is held already when the read chose it
+    /// before.
+    pub(crate) fn add(&self, target: PinTarget) {
+        let (partition, version) = (target.link.partition(), target.version);
         let mut keeping = self.keeping.borrow_mut();
         if keeping
             .iter()
@@ -62,12 +63,6 @@ impl ReadPins {
         {
             return;
         }
-        let target = PinTarget {
-            link: Rc::clone(link),
-            tenant,
-            principal,
-            version,
-        };
         // Sent before anything that follows on the link, so a Scan after this frame finds the version held or says what became of it.
         let opened = self.from.is_none().then(|| target.open());
         let wait = self

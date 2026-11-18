@@ -51,6 +51,7 @@ impl Page {
         statement: Option<SystemId>,
         property: Option<SystemId>,
     ) {
+        debug_assert!(!self.entries.is_empty(), "a row follows its entry");
         let start = self.bytes.len();
         self.bytes.extend_from_slice(encoding);
         self.rows.push(PageRow {

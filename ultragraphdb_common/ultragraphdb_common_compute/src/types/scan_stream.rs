@@ -50,6 +50,7 @@ impl ScanStream {
             link: Rc::clone(link),
             stream,
             wait,
+            // Half the answer bound, which is twice `scan_stall_ms`, so the division leaves no remainder.
             given_up: deadline.saturating_add(link.answer_wait() / 2),
             asked: None,
             frames,

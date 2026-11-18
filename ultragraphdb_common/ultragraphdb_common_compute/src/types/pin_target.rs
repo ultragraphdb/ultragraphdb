@@ -14,12 +14,15 @@ use crate::utils::keys::past_alone;
 
 /// A version to keep.
 #[derive(Debug)]
-pub(super) struct PinTarget {
+pub(crate) struct PinTarget {
     pub(crate) link: Rc<Link>,
     pub(crate) tenant: u64,
     pub(crate) principal: u64,
     pub(crate) version: u64,
 }
+
+// A pin takes every frame but the last at its pace, then the last once the next pin is open, so it holds one at least.
+const _: () = assert!(PinTarget::FRAMES >= 1);
 
 impl PinTarget {
     /// The empty ranges of a Scan holding a version: each answers one small frame, and a frame leaves per grant, so the Scan stays
@@ -27,6 +30,7 @@ impl PinTarget {
     /// reads, each range a key's copy on the wire and at the partition, and a read outlasting it opens another.
     pub(crate) const FRAMES: usize = 16;
 
+    /// Opens a Scan of [`PinTarget::FRAMES`] empty ranges at the version, which the partition holds while the Scan is open.
     pub(crate) fn open(&self) -> Result<ScanStream, ultragraphdb_protocol_wire::ErrorReply> {
         let first = key_prefix(Keyspace::Referrers, false, self.tenant, None, None);
         let past = past_alone(&first);

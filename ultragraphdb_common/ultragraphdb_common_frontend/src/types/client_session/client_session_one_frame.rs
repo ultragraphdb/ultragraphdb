@@ -254,6 +254,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         one.attempt += 1;
         let attempt = one.attempt;
         let mut frame = one.frame.bytes().to_vec();
+        // A frame the framer took holds its header.
         drop(Header::stamp_stream(&mut frame, link.next_stream()));
         let sink = self.sink(RouteKey::OneFrame { stream, attempt });
         // Counted as the frame it keeps for a resend.
@@ -445,6 +446,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             LinkEvent::Bound(_) => {
                 if let Some(dropping) = self.drops.get_mut(&stream) {
                     let mut relayed = dropping.frame.clone();
+                    // A frame the framer took holds its header.
                     drop(Header::stamp_stream(&mut relayed, dropping.stream));
                     dropping
                         .link
@@ -503,6 +505,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         self.drop_answered(stream);
         match (outcome, reply) {
             (Ok(()), Some(mut frame)) => {
+                // A frame the link's reader took holds its header.
                 drop(Header::stamp_stream(&mut frame, stream));
                 self.push(stream, frame);
             }

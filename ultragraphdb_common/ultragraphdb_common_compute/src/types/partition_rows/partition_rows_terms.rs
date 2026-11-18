@@ -5,10 +5,11 @@
 
 use ultragraphdb_core_keys::Graph;
 use ultragraphdb_protocol_wire::{
-    EntriesView, ErrorReply, RequestTerm, ResultTerm, ResumeKey, ResumeRow, ScanRange, TermTable,
+    EntriesView, ErrorReply, RequestTerm, ResumeKey, ResumeRow, ScanRange, TermTable,
 };
 
-use super::{PartitionRows, RANGES_PER_SCAN};
+use super::row_cells::RowCells;
+use super::{PartitionRows, RANGES_PER_SCAN_MAX};
 use crate::types::graph_slot::GraphSlot;
 use crate::types::names::Names;
 use crate::types::read_fault::ReadFault;
@@ -21,47 +22,14 @@ use crate::utils::keys::{hex, past_alone};
 use crate::utils::refusals::unavailable;
 
 /// The dictionary bytes a partition's read takes before it lets the merge go on: no Result frame holds more.
-const NAME_BYTES: usize = 1 << 20;
+const NAME_BYTES_MAX: usize = 1 << 20;
 
-/// A row's unbound positions, by their terms, each named by the partition that answered it.
-#[derive(Debug, Default)]
-pub(crate) struct RowCells {
-    pub(crate) graph: Option<ResultTerm>,
-    pub(crate) subject: Option<ResultTerm>,
-    pub(crate) predicate: Option<ResultTerm>,
-    pub(crate) object: Option<ResultTerm>,
-    pub(crate) reifier: Option<ResultTerm>,
-}
-
-impl RowCells {
-    /// The cells in the columns of `read`: its unbound slots in slot order, then the reifier.
-    pub(crate) fn columns(&self, read: &ReadRequest) -> Vec<Option<&ResultTerm>> {
-        let mut cells = Vec::with_capacity(5);
-        if read.graph == GraphSlot::Unbound {
-            cells.push(self.graph.as_ref());
-        }
-        if read.subject.is_none() {
-            cells.push(self.subject.as_ref());
-        }
-        if read.predicate.is_none() {
-            cells.push(self.predicate.as_ref());
-        }
-        if read.object.is_none() {
-            cells.push(self.object.as_ref());
-        }
-        cells.push(self.reifier.as_ref());
-        cells
-    }
-}
-
-/// The dictionary keys of what `row` names in an unbound position of `read`, or the row's refusal.
-fn wants(
-    read: &ReadRequest,
-    row: &RowView<'_>,
-    names: &Names,
-    keys: &mut WantedNames,
-) -> Option<()> {
-    let ids = RowIds::of(row)?;
+/// The dictionary keys of what `row` names in an unbound position of `read`, into `keys`; false for a row whose key or
+/// encoding is not one a row is read from, which gives none.
+fn wants(read: &ReadRequest, row: &RowView<'_>, names: &Names, keys: &mut WantedNames) -> bool {
+    let Some(ids) = RowIds::of(row) else {
+        return false;
+    };
     if read.graph == GraphSlot::Unbound
         && let Graph::Named(id) = ids.graph
     {
@@ -83,7 +51,7 @@ fn wants(
     if let Some(statement) = ids.statement {
         names.want_id(statement, keys);
     }
-    Some(())
+    true
 }
 
 impl PartitionRows {
@@ -99,7 +67,7 @@ impl PartitionRows {
     /// Whether every name `row` wants is held.
     fn has_names(&self, row: &RowView<'_>) -> bool {
         let mut still = WantedNames::default();
-        wants(&self.shared.read, row, &self.names, &mut still).is_some() && still.is_empty()
+        wants(&self.shared.read, row, &self.names, &mut still) && still.is_empty()
     }
 
     /// Gives the page's next row its names, and as many rows after it as a read of the names reaches: one Scan of one-key ranges,
@@ -119,14 +87,14 @@ impl PartitionRows {
         let mut wanted = WantedNames::default();
         let mut rows = 0usize;
         for row in self.page.rows_unnamed().take(room) {
-            if wants(&self.shared.read, &row, &self.names, &mut wanted).is_none() {
+            if !wants(&self.shared.read, &row, &self.names, &mut wanted) {
                 if rows == 0 {
                     return Err(self.dangling(row.key));
                 }
                 break;
             }
             rows = rows.saturating_add(1);
-            if wanted.len() >= RANGES_PER_SCAN {
+            if wanted.len() >= RANGES_PER_SCAN_MAX {
                 break;
             }
         }
@@ -148,7 +116,7 @@ impl PartitionRows {
         Ok(())
     }
 
-    /// Reads the texts of `wanted`, as far as the page's next row's and [`NAME_BYTES`] take it.
+    /// Reads the texts of `wanted`, as far as the page's next row's and [`NAME_BYTES_MAX`] take it.
     /// A dropped future cancels the Scan as its stream drops, and the names read so far stay.
     async fn read_names(&mut self, wanted: &WantedNames) -> Result<(), ErrorReply> {
         let mut scan = self.scan(0);
@@ -173,7 +141,7 @@ impl PartitionRows {
                 .rows_unnamed()
                 .next()
                 .is_none_or(|row| self.has_names(&row));
-            if bytes >= NAME_BYTES && next_named {
+            if bytes >= NAME_BYTES_MAX && next_named {
                 return Ok(());
             }
         }
@@ -242,7 +210,13 @@ impl PartitionRows {
             (Some(iri), _) => iri.clone(),
             (None, Some(subject)) => match request_term(subject, &self.names) {
                 Some(RequestTerm::Iri(iri)) => iri,
-                _ => return Err(lost()),
+                Some(
+                    RequestTerm::BlankNode(_)
+                    | RequestTerm::Literal { .. }
+                    | RequestTerm::LanguageLiteral { .. }
+                    | RequestTerm::Triple { .. },
+                )
+                | None => return Err(lost()),
             },
             (None, None) => return Err(lost()),
         };

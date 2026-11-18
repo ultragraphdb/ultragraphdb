@@ -233,6 +233,7 @@ pub(super) fn spawn_members(link: SystemLink, links: RoleLinks, readiness: Readi
                     }
                 }
                 Either::Right(_) => {
+                    // With no limit it returns only once ready.
                     let _ready = until_ready(&link, &links, &readiness, None).await;
                 }
             }
@@ -243,7 +244,7 @@ pub(super) fn spawn_members(link: SystemLink, links: RoleLinks, readiness: Readi
 
 /// Reads Members every [`MEMBERS_RETRY`] until the connection to the group is open, the group answers it, the view answers,
 /// Members lists every partition of the placement and one of them answers, then sets `readiness`: whether it did, `false`
-/// once `limit` has passed first.
+/// once `limit` has passed first. A future dropped at the runtime's end leaves the Members it asked with the link.
 async fn until_ready(
     link: &SystemLink,
     links: &RoleLinks,
@@ -273,12 +274,12 @@ async fn until_ready(
 /// ready by its deadline (`was_ready` false), which stays unready as before. A dropped future leaves its waker, which the
 /// next change wakes for nothing.
 async fn withdrawn(link: &SystemLink, was_ready: bool) {
-    poll_fn(|cx| {
+    poll_fn(|context| {
         let mut state = link.state.borrow_mut();
         if was_ready && !state.readiness.is_ready() {
             return Poll::Ready(());
         }
-        state.watchers.push(cx.waker().clone());
+        state.watchers.push(context.waker().clone());
         Poll::Pending
     })
     .await;

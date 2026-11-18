@@ -18,8 +18,10 @@ use ultragraphdb_protocol_wire::{DEFAULT_TRANSACTION_MS, Join, MembersView, Role
 
 use crate::types::role_link::RoleLink;
 
+/// What a core's links hold, shared by their clones on the core's one thread.
 #[derive(Debug, Default)]
 struct Held {
+    /// The link to each role address dialled, one for each process that joined.
     open: HashMap<String, RoleLink>,
     partitions: BTreeMap<u32, String>,
     computes: Vec<String>,
@@ -99,6 +101,7 @@ impl RoleLinks {
         let _replaced = self.held.borrow_mut().open.insert(address, link);
     }
 
+    /// The link to the role at `address`, dialled when none is open; `None` for an address that does not parse.
     fn link(&self, address: &str) -> Option<RoleLink> {
         let mut held = self.held.borrow_mut();
         if let Some(link) = held.open.get(address).filter(|link| !link.is_closed()) {
@@ -262,12 +265,12 @@ impl RoleLinks {
     /// Waits until a link is found closed: the moment Members is read again (design D9). A dropped future leaves its waker,
     /// which the next closed link wakes for nothing.
     pub async fn closed_found(&self) {
-        poll_fn(|cx| {
+        poll_fn(|context| {
             let mut held = self.held.borrow_mut();
             if std::mem::take(&mut held.closed_found) {
                 return Poll::Ready(());
             }
-            held.reader = Some(cx.waker().clone());
+            held.reader = Some(context.waker().clone());
             Poll::Pending
         })
         .await;

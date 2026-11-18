@@ -82,7 +82,11 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         };
         let request = FrameView::validate(&frame, self.cluster(), MAX_FRAME_SIZE)
             .ok()
-            .and_then(|view| CommitView::from_frame(&view).ok().map(|c| c.request()))
+            .and_then(|view| {
+                CommitView::from_frame(&view)
+                    .ok()
+                    .map(|commit| commit.request())
+            })
             .unwrap_or(0);
         self.release_session(&txn);
         self.refuse_reads_behind_commit(transaction);
@@ -214,6 +218,10 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 }
             }
         }
+        debug_assert!(
+            recalling.unanswered.saturating_add(recalling.answers.len()) == partitions.len(),
+            "each partition is asked or answered"
+        );
         let _none = self.recalls.insert(stream, recalling);
         self.recall_decides(stream);
         Ok(Answer::Open)
@@ -257,7 +265,11 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     /// Answers a retried Commit once every partition has, in `PROTOCOL.md` §11.5's order: a stored reply, 14, 17, 13, then the
     /// second Check of kind 1 when every partition answered 18. A Recall marks nothing, so it ends with no Ended.
     fn recall_decides(&mut self, stream: u64) {
-        let Some(recalling) = self.recalls.get(&stream).filter(|r| r.unanswered == 0) else {
+        let Some(recalling) = self
+            .recalls
+            .get(&stream)
+            .filter(|recalling| recalling.unanswered == 0)
+        else {
             return;
         };
         match recall_decision(&recalling.answers) {

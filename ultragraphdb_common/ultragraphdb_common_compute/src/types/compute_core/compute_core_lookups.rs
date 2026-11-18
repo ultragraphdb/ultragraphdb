@@ -12,8 +12,9 @@ use ultragraphdb_protocol_wire::{ErrorReply, ObjectRecords, Scan, ScanAt, ScanRa
 use ultragraphdb_store_quads::{id_key, term_key};
 
 use super::ComputeCore;
-use crate::types::link::Link;
+use super::lookup_partition::LookupPartition;
 use crate::types::lookup_at::LookupAt;
+use crate::types::pin_target::PinTarget;
 use crate::types::read_fault::ReadFault;
 use crate::types::read_pins::ReadPins;
 use crate::types::scan_stream::ScanStream;
@@ -21,14 +22,7 @@ use crate::utils::keys::{hex, past_alone};
 use crate::utils::refusals::unavailable;
 
 /// The one-key ranges a lookup's Scan of names holds at most.
-const NAMES_PER_SCAN: usize = 4_096;
-
-/// A lookup's one partition, its version chosen by the first Scan.
-#[derive(Debug)]
-struct LookupPartition {
-    link: Rc<Link>,
-    version: u64,
-}
+const NAMES_PER_SCAN_MAX: usize = 4_096;
 
 impl ComputeCore {
     /// The partitions holding `tenant`'s run, asked at `at`: each past a dictionary Scan at the epoch, so no list Scan waits on
@@ -80,7 +74,12 @@ impl ComputeCore {
                         })
                 })
                 .await?;
-            pins.add(&link, tenant, 0, facts.version);
+            pins.add(PinTarget {
+                link: Rc::clone(&link),
+                tenant,
+                principal: 0,
+                version: facts.version,
+            });
             parts.push((
                 LookupPartition {
                     link,
@@ -128,7 +127,7 @@ impl ComputeCore {
         ids: &[SystemId],
     ) -> Result<Vec<(SystemId, String)>, ErrorReply> {
         let mut named = Vec::with_capacity(ids.len());
-        for batch in ids.chunks(NAMES_PER_SCAN) {
+        for batch in ids.chunks(NAMES_PER_SCAN_MAX) {
             let keys: Vec<Vec<u8>> = batch.iter().map(|id| id_key(tenant, *id)).collect();
             let mut scan = Scan::new(ScanAt::ReadVersion, part.version, 0, 0, [0; 16], 0, 0);
             for key in &keys {

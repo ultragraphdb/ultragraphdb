@@ -52,6 +52,7 @@ impl ResultSink {
         self.batch = self.empty_batch();
     }
 
+    /// A batch of no row, naming what the read was read at.
     fn empty_batch(&self) -> ResultBatch {
         ResultBatch::new(self.columns).with_read_at(self.read_at.0, self.read_at.1)
     }
@@ -81,7 +82,7 @@ impl ResultSink {
                 alone
                     .push_row(row)
                     .map_err(|rule| ErrorReply::protocol(&rule))?;
-                if !self.fits_exactly(&alone)? {
+                if !self.fits_exactly(&alone) {
                     return Err(self.too_large("row"));
                 }
             }
@@ -91,12 +92,11 @@ impl ResultSink {
             .map_err(|rule| ErrorReply::protocol(&rule))
     }
 
-    /// Whether `batch` builds to a frame within the read's `max_frame`.
-    fn fits_exactly(&self, batch: &ResultBatch) -> Result<bool, ErrorReply> {
-        match batch.frame(self.header(false)) {
-            Ok(frame) => Ok(frame.len() <= self.max_frame),
-            Err(_) => Ok(false),
-        }
+    /// Whether `batch` builds to a frame within the read's `max_frame`; a batch the wire refuses to build fits none.
+    fn fits_exactly(&self, batch: &ResultBatch) -> bool {
+        batch
+            .frame(self.header(false))
+            .is_ok_and(|frame| frame.len() <= self.max_frame)
     }
 
     /// Ends the read's stream with what is held and `resume`, alone in a last batch of `rows` 0 when it does not fit beside it.
@@ -114,6 +114,7 @@ impl ResultSink {
         self.send_batch(true, resume).await
     }
 
+    /// The header of a Result frame on the read's stream, the stream's `last` or not.
     fn header(&self, last: bool) -> Header {
         let header = Header::new(self.cluster, Command::Result).with_stream(self.stream);
         if last {

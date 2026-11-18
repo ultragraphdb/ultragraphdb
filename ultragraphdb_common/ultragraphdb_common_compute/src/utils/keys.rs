@@ -11,6 +11,10 @@ pub fn prefix_end(prefix: &[u8]) -> Vec<u8> {
     while let Some(last) = end.pop() {
         if let Some(raised) = last.checked_add(1) {
             end.push(raised);
+            debug_assert!(
+                end.as_slice() > prefix,
+                "the key past a prefix sorts after it"
+            );
             return end;
         }
     }

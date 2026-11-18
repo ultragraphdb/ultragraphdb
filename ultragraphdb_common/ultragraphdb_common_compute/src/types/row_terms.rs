@@ -171,6 +171,7 @@ pub(crate) fn result_term(tenant: u64, term: &EncodedTerm, names: &Names) -> Opt
     })
 }
 
+/// `term` with the `text` and the `annotation` it names by hash or ID, each where one is given.
 fn with_texts(term: ResultTerm, text: Option<String>, annotation: Option<String>) -> ResultTerm {
     let term = match text {
         Some(text) => term.with_text(text),

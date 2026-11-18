@@ -6,6 +6,7 @@
 mod compute_core_catalog;
 mod compute_core_lookups;
 mod dial_under_way;
+mod lookup_partition;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -27,7 +28,8 @@ use crate::types::read_times::ReadTimes;
 use crate::utils::bounded::bounded;
 use crate::utils::refusals::unavailable;
 
-/// Who else waits on a partition's dial under way.
+/// Who else waits on a partition's dial under way: one per call of [`ComputeCore::link`] waiting, so the reads under way
+/// on the core, each by the partitions it reaches, bound it (Ultra rule 2).
 type DialWaiters = Vec<oneshot::Sender<Result<Rc<Link>, ErrorReply>>>;
 
 /// One core's connections to the system group and the partitions, and what it read of them: no state is shared between cores, and
@@ -43,7 +45,10 @@ pub struct ComputeCore {
     times: ReadTimes,
     name: String,
     placement: RefCell<Option<Rc<PlacementMap>>>,
+    /// Where each storage partition listens: one entry per partition the group's Members lists, which bounds it.
     addresses: RefCell<HashMap<u32, Address>>,
+    /// The core's one connection per partition, and the dials under way: each one entry per partition a read reaches at most,
+    /// which the placement map bounds.
     links: RefCell<HashMap<u32, Rc<Link>>>,
     dialling: RefCell<HashMap<u32, DialWaiters>>,
 }

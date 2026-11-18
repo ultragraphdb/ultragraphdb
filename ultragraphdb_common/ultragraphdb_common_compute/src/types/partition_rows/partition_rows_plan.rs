@@ -67,18 +67,25 @@ impl PartitionRows {
         let object = match &read.object {
             Some(object) => match object_encoding(object, ids, home_object)? {
                 Some(encoded) => Some(encoded),
-                None => return self.no_rows(),
+                None => {
+                    self.end();
+                    return Ok(());
+                }
             },
             None => None,
         };
         let Some((access, filter)) = self.access_of(read, ids, object) else {
-            return self.no_rows();
+            self.end();
+            return Ok(());
         };
         let graphs = match &read.graph {
             GraphSlot::Default => Graphs::One(Graph::Default),
             GraphSlot::Named(iri) => match ids.get(iri) {
                 Some(id) => Graphs::One(Graph::Named(*id)),
-                None => return self.no_rows(),
+                None => {
+                    self.end();
+                    return Ok(());
+                }
             },
             GraphSlot::Unbound => Graphs::Walk {
                 keyspace: access.keyspace(),
@@ -88,11 +95,6 @@ impl PartitionRows {
         self.access = Some(access);
         self.filter = filter;
         self.graphs = graphs;
-        Ok(())
-    }
-
-    fn no_rows(&mut self) -> Result<(), ErrorReply> {
-        self.end();
         Ok(())
     }
 

@@ -165,6 +165,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             .map(|(_, frame)| frame.clone());
         let answer = match ended {
             Some(mut error) => {
+                // A frame this session built holds its header.
                 drop(Header::stamp_stream(&mut error, stream));
                 error
             }

@@ -17,11 +17,16 @@ impl RangeSpec {
     /// The range holding `key` alone, resuming its list at `after`.
     pub(crate) fn alone(key: Vec<u8>, after: Vec<u8>) -> Self {
         let past = past_alone(&key);
-        Self {
+        let range = Self {
             first: key,
             past,
             after,
-        }
+        };
+        debug_assert!(
+            range.is_alone(),
+            "a range of one key ends at the key past it alone"
+        );
+        range
     }
 
     /// Whether the range holds one key alone.

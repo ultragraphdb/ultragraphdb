@@ -5,6 +5,7 @@
 
 use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_error_protocol::ProtocolError;
+use ultragraphdb_protocol_transport::TransportError;
 use ultragraphdb_protocol_wire::{
     BodyView, CATALOG_BYTES_MAX, Catalog, CatalogFrames, Command, Credit, ErrorReply,
     ErrorReplyView, MAX_FRAME_FLOOR,
@@ -56,7 +57,7 @@ async fn read_catalog(
     client: &mut RoleClient,
     request: &Catalog,
 ) -> Result<CatalogFrames, ErrorReply> {
-    let lost = |error: &dyn std::fmt::Display| unavailable(format!("the catalog: {error}"));
+    let lost = |error: &TransportError| unavailable(format!("the catalog: {error}"));
     let refused =
         |rule: &ProtocolError| unavailable(format!("a frame of the catalog was refused: {rule}"));
     client

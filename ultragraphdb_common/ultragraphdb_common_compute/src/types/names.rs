@@ -113,6 +113,7 @@ impl Names {
         }
     }
 
+    /// The dictionary key of `text` where a hash names it, into `keys` unless held; an inline text names itself.
     fn want_text(&self, text: Text<'_>, keys: &mut WantedNames) {
         match text {
             Text::Inline(_) => {}
@@ -120,6 +121,7 @@ impl Names {
         }
     }
 
+    /// `key` into `keys`, unless its text is held.
     fn want(&self, key: Vec<u8>, keys: &mut WantedNames) {
         if !self.texts.contains_key(&key) {
             keys.want(key);

@@ -494,6 +494,7 @@ impl SystemPlay {
         let commit_version = if declare.drop_kind().is_some() {
             0
         } else {
+            // The first commit version of the open epoch: an epoch sits above a version's 22 sequence bits.
             (self.closed() + 1) << 22
         };
         self.reply(

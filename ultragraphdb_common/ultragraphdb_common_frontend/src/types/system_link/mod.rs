@@ -26,6 +26,7 @@ use ultragraphdb_protocol_wire::{
 use crate::types::check_round_trips::CheckRoundTrips;
 use crate::types::client_session::now;
 use crate::types::endpoint_view::EndpointView;
+use crate::types::hold_outcome::HoldOutcome;
 use crate::types::role_links::RoleLinks;
 use crate::types::system_turns::SystemTurns;
 use crate::utils::recall_order::check_refusal;
@@ -48,11 +49,14 @@ struct LinkState {
     cluster: u64,
     view: EndpointView,
     turns: SystemTurns,
-    /// The outcome each check queued or sent waits for, by its ticket.
+    /// The outcome each check queued or sent waits for, by its ticket: one for each request waiting on its check, so
+    /// the core's connections and their streams bound it (Ultra rule 2).
     waiting: HashMap<u64, oneshot::Sender<Result<CheckOutcome, ErrorReply>>>,
-    /// The Check frames on their way, by stream: their checks in frame order, and when each left.
+    /// The Check frames on their way, by stream: their checks in frame order, and when each left. A turn sends one, so
+    /// the turns run between a frame and its reply bound it.
     checks_out: HashMap<u64, (Vec<(u64, SessionCheck)>, Instant)>,
-    /// The asks on their way, by stream.
+    /// The asks on their way, by stream: one for each request or task of the core waiting on its answer, so the core's
+    /// connections and their streams bound it.
     asks: HashMap<u64, Ask>,
     /// The subscription's stream on the open connection, and the frames of a close continuing past one.
     subscription: Option<u64>,
@@ -63,6 +67,9 @@ struct LinkState {
     /// closes it (`PROTOCOL.md` §2.6).
     connection: u64,
     refused: bool,
+    /// A frame for each ask on its way, the Subscribe, a CloseRequest for each Begin that asked for one, a Credit for
+    /// each Catalog or Defaults frame read and a turn's two: each is queued for a request of the core's connections or
+    /// for a frame read, and the sending task takes them all at each run, so those connections' bounds bound it.
     outgoing: VecDeque<Vec<u8>>,
     sender: Option<Waker>,
     next_stream: u64,
@@ -72,9 +79,11 @@ struct LinkState {
     lost_since: Option<Instant>,
     /// Bumped by every change the view's waiters wait for, which wakes them.
     changes: u64,
+    /// The waiters' wakers, taken whole at each change: a waiter adds its own each time it is polled with no change, so
+    /// it holds one for each such poll since the last change.
     watchers: Vec<Waker>,
-    /// The Begins a token holds, decided and not yet taken by their waiter.
-    decided: HashMap<u64, crate::types::endpoint_view::HoldOutcome>,
+    /// The Begins a token holds, decided and not yet taken by their waiter: one for each [`SystemLink::token`] waiting.
+    decided: HashMap<u64, HoldOutcome>,
     next_hold: u64,
     /// The placement version the latest close assigned, which the next Placement read holds.
     placement_asked: u64,
@@ -92,6 +101,7 @@ impl LinkState {
     /// A stream for the next request on the open connection.
     fn stream(&mut self) -> u64 {
         let stream = self.next_stream;
+        debug_assert!(stream != 0, "stream 0 is the connection's own");
         self.next_stream = stream.saturating_add(1);
         stream
     }
@@ -117,6 +127,12 @@ impl LinkState {
 /// trip is counted in its [`CheckRoundTrips`]. While it is closed, what needs the system group is refused with code 17,
 /// and the Endeds of requests that end meanwhile leave on the next connection (`PROTOCOL.md` §11.12, *While the system
 /// group cannot be reached*). Shared by an `Rc`, on its one core.
+///
+/// Cancellation: a check or an ask whose future is dropped before its answer stays with the link until the answer
+/// arrives or the connection closes, and the answer then finds no one to tell; a check that marked its session in
+/// flight leaves it so, as [`crate::ClientSession`] says. A [`SystemLink::token`] dropped leaves its hold with the view
+/// until its close or its deadline, and its outcome with the link, which nothing takes. [`SystemLink::answering`]
+/// dropped leaves its waker, which the next change wakes for nothing.
 ///
 /// Data plane (Ultra rule 3) for the Checks and Endeds of a commit's path, each frame the `Vec` the wire's builders return
 /// and each check's answer a channel of its own; control plane for the rest.
@@ -309,6 +325,7 @@ impl SystemLink {
             let header = Header::new(state.cluster, Command::CloseRequest).with_stream(stream);
             match body.frame(header) {
                 Ok(frame) => state.queue(frame),
+                // A frame that cannot be built asks nothing, as a closed link does: the close comes at its own time.
                 Err(_) => None,
             }
         };
@@ -340,8 +357,8 @@ impl SystemLink {
                 state.decided.extend(released);
                 if let Some(outcome) = state.decided.remove(&ticket) {
                     return match outcome {
-                        crate::types::endpoint_view::HoldOutcome::Answered => Ok(()),
-                        crate::types::endpoint_view::HoldOutcome::TimedOut => Err(ErrorReply::new(
+                        HoldOutcome::Answered => Ok(()),
+                        HoldOutcome::TimedOut => Err(ErrorReply::new(
                             ErrorCode::TimedOut,
                             format!(
                                 "the close before the token's epoch {token_epoch} did not arrive by the deadline"
@@ -357,15 +374,16 @@ impl SystemLink {
 
     /// Waits until a change past `seen`, or `deadline`.
     async fn changed_or(&self, seen: u64, deadline: Instant) {
-        let changed = poll_fn(|cx| {
+        let changed = poll_fn(|context| {
             let mut state = self.state.borrow_mut();
             if state.changes != seen {
                 return Poll::Ready(());
             }
-            state.watchers.push(cx.waker().clone());
+            state.watchers.push(context.waker().clone());
             Poll::Pending
         });
         let wait = deadline.saturating_duration_since(now());
+        // A change and the deadline both end the wait: the caller reads the view and the clock again.
         let _waited: Result<(), _> = compio::time::timeout(wait, changed).await;
     }
 

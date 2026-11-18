@@ -111,7 +111,8 @@ fn take_statement(
 ) -> Result<(), ReadFault> {
     let record = StatementRecord::decode(key, value).map_err(stored)?;
     let mut properties: Vec<&(SystemId, EncodedTerm)> = record.properties().iter().collect();
-    properties.sort_by(|a, b| (a.0, a.1.as_bytes()).cmp(&(b.0, b.1.as_bytes())));
+    properties
+        .sort_by(|left, right| (left.0, left.1.as_bytes()).cmp(&(right.0, right.1.as_bytes())));
     let from = match skip {
         Some(Skip::Property {
             predicate,

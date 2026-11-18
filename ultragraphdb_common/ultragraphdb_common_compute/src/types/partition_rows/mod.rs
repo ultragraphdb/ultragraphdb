@@ -11,6 +11,7 @@ mod partition_rows_frames;
 mod partition_rows_plan;
 mod partition_rows_terms;
 mod reading;
+mod row_cells;
 mod row_filter;
 mod skip;
 
@@ -31,6 +32,7 @@ use crate::types::access::Access;
 use crate::types::link::Link;
 use crate::types::names::Names;
 use crate::types::page::Page;
+use crate::types::pin_target::PinTarget;
 use crate::types::range_spec::RangeSpec;
 use crate::types::read_at::ReadAt;
 use crate::types::read_shared::ReadShared;
@@ -65,7 +67,7 @@ pub(crate) struct PartitionRows {
 }
 
 /// The ranges of a Scan at most: a frame holds these with room to spare.
-const RANGES_PER_SCAN: usize = 4_096;
+const RANGES_PER_SCAN_MAX: usize = 4_096;
 
 impl PartitionRows {
     /// A read of the partition of `link`, whose first Scan reads as `first` says.
@@ -143,9 +145,12 @@ impl PartitionRows {
             let read = &self.shared.read;
             // A named read's referrer set, read at the latest version for what it holds alone, is no version the read reads.
             if read.read_only && !(read.named && self.first.at == ScanAt::Latest) {
-                self.shared
-                    .pins
-                    .add(&self.link, read.tenant, read.principal, facts.version);
+                self.shared.pins.add(PinTarget {
+                    link: Rc::clone(&self.link),
+                    tenant: read.tenant,
+                    principal: read.principal,
+                    version: facts.version,
+                });
             }
         }
     }
@@ -164,6 +169,7 @@ impl PartitionRows {
         let mut unique: Vec<(Vec<u8>, String)> = Vec::with_capacity(terms.len());
         for term in terms {
             if read.is_read_write() {
+                // A transaction's Scan names its IRIs in its term table (`Scan::with_terms`); no range names one by its index.
                 let _index = table.iri(&term);
             }
             let key = term_key(read.tenant, &term);
@@ -242,7 +248,7 @@ impl PartitionRows {
         keys: &[Vec<u8>],
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, ErrorReply> {
         let mut found = Vec::new();
-        for chunk in keys.chunks(RANGES_PER_SCAN) {
+        for chunk in keys.chunks(RANGES_PER_SCAN_MAX) {
             let mut scan = self.scan(0);
             for key in chunk {
                 let past = past_alone(key);

@@ -14,18 +14,21 @@ use crate::played_reads::played_data::{id_of, ids_list, name, name_key, tenant_o
 use crate::played_reads::played_partition::{PLAYED_EPOCH, PlayedPartition};
 
 #[test]
-fn test_the_key_past_a_prefix_raises_its_last_byte() {
+fn test_the_key_past_a_prefix_raises_its_last_byte() -> TestResult {
     assert_eq!(prefix_end(&[1, 2, 3]), [1, 2, 4]);
+    Ok(())
 }
 
 #[test]
-fn test_the_key_past_a_prefix_drops_what_cannot_rise() {
+fn test_the_key_past_a_prefix_drops_what_cannot_rise() -> TestResult {
     assert_eq!(prefix_end(&[1, 2, 255, 255]), [1, 3]);
+    Ok(())
 }
 
 #[test]
-fn test_no_key_lies_past_a_prefix_of_every_byte_at_its_top() {
+fn test_no_key_lies_past_a_prefix_of_every_byte_at_its_top() -> TestResult {
     assert_eq!(prefix_end(&[255, 255]), Vec::<u8>::new());
+    Ok(())
 }
 
 const PREDICATE: &str = "http://ex.org/name";

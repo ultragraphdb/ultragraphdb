@@ -61,6 +61,7 @@ fn command_of(frame: &CountedFrame) -> Option<Command> {
 #[derive(Debug, Default)]
 struct Routes {
     next: u64,
+    /// One for each stream a session opened that has not ended, so the sessions' own streams bound it (Ultra rule 2).
     open: HashMap<u64, Route>,
     closed: bool,
     /// Whether the peer answered the dial: its Welcome and its proof of the secret came.
@@ -90,6 +91,9 @@ impl Routes {
 /// each frame that arrives to the session whose stream it answers, so no session waits on another's frame. Shared by an `Rc`, on its one
 /// core. What waits in the queue is counted against its client connection's bound, and a stream that ends takes its frames back
 /// (`PROTOCOL.md` §11.12, *Frames on their way*). When it closes, each stream on it is told, and a stream opened after that is told at once.
+///
+/// Data plane (Ultra rule 3): a frame queued is the `Vec` its builder or the client's connection gave, written as it
+/// is.
 #[derive(Debug, Clone)]
 pub struct RoleLink {
     cluster: u64,
@@ -121,6 +125,7 @@ impl RoleLink {
         link
     }
 
+    /// A link of `cluster` holding no stream, its first numbered 1: stream 0 is the connection's own.
     fn parts(cluster: u64) -> Self {
         Self {
             cluster,
@@ -168,6 +173,7 @@ impl RoleLink {
     pub(crate) fn open(&self, frame: CountedFrame, sink: RouteSink) -> u64 {
         let mut routes = self.routes.borrow_mut();
         let stream = routes.next;
+        debug_assert!(stream != 0, "stream 0 is the connection's own");
         routes.next = stream.saturating_add(1);
         let opened = command_of(&frame);
         let Some(opened) = opened.filter(|_| !routes.closed) else {
@@ -216,6 +222,7 @@ impl RoleLink {
         if self.forget(stream) {
             return;
         }
+        // A Cancel that cannot be built sends nothing: the stream is forgotten here either way.
         if let Ok(frame) = Cancel.frame(self.header(Command::Cancel, stream)) {
             self.leave(stream, CountedFrame::uncounted(frame));
         }

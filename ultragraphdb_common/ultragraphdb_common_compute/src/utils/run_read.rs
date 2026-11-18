@@ -18,9 +18,10 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_quads::{ReferrerMember, ReferrerSet, iri_bucket};
 
+use crate::types::asked::Asked;
 use crate::types::compute_core::ComputeCore;
 use crate::types::frontier::Frontier;
-use crate::types::link::Link;
+use crate::types::opened::Opened;
 use crate::types::partition_rows::{PartitionRows, terms_of};
 use crate::types::pushed::Pushed;
 use crate::types::read_at::ReadAt;
@@ -136,12 +137,6 @@ fn resume_terms(read: &ReadRequest) -> Result<Option<ResumeTerms>, ErrorReply> {
         .ok_or_else(|| resume_refused(&"its last row holds a term no row names"))
 }
 
-/// The partitions a read goes on reading, and how many it has reached.
-struct Opened {
-    parts: Vec<PartitionRows>,
-    reached: usize,
-}
-
 /// The read's partitions, each past its dictionary Scan: a partition's terms resolved and its epoch closed.
 /// A dropped future cancels each Scan it holds as its stream drops.
 async fn opened_parts(
@@ -185,19 +180,7 @@ async fn first_at(
     Ok(ReadAt::at_epoch(lowest.max(read.epoch)))
 }
 
-/// A stream of a link asked one question, forgotten however its wait ends, a read cancelled meanwhile included.
-struct Asked {
-    link: Rc<Link>,
-    stream: u64,
-}
-
-impl Drop for Asked {
-    fn drop(&mut self) {
-        self.link.forget(self.stream);
-    }
-}
-
-/// The latest epoch `partition` has closed. A partition silent past [`Link::answer_wait`] is hung, and its connection closes.
+/// The latest epoch `partition` has closed. A partition silent past [`crate::types::link::Link::answer_wait`] is hung, and its connection closes.
 /// A dropped future forgets its stream, by its `Asked`.
 async fn closed_epoch(core: &Rc<ComputeCore>, partition: u32) -> Result<u64, ErrorReply> {
     use futures::StreamExt;
@@ -282,11 +265,7 @@ async fn reverse_parts(
     let terms = terms_of(read, false);
     let gate = at_home.open_gate(terms)?;
     let ids = at_home.finish_gate(gate).await?;
-    let object = match &read.object {
-        Some(RequestTerm::Iri(iri)) => ids.get(iri).copied(),
-        _ => None,
-    };
-    let Some(object) = object else {
+    let Some(object) = object_at_home(read, &ids) else {
         at_home.plan(&ids, None)?;
         return Ok(Opened {
             parts: vec![at_home],
@@ -326,7 +305,11 @@ async fn reverse_parts(
         reached.sort_unstable();
     }
     ReadRoute::check_reached(read, &reached)?;
-    let others: Vec<u32> = members.iter().copied().filter(|p| *p != home).collect();
+    let others: Vec<u32> = members
+        .iter()
+        .copied()
+        .filter(|member| *member != home)
+        .collect();
     let first = member_at(read, epoch);
     let mut held = Vec::new();
     if members.contains(&home) {
@@ -342,6 +325,21 @@ async fn reverse_parts(
         parts,
         reached: reached.len(),
     })
+}
+
+/// The ID `read`'s object has among `ids`, those its home resolved: `None` for an object that is no IRI, and for one the home
+/// holds no statement of.
+fn object_at_home(read: &ReadRequest, ids: &HashMap<String, SystemId>) -> Option<SystemId> {
+    match &read.object {
+        Some(RequestTerm::Iri(iri)) => ids.get(iri).copied(),
+        Some(
+            RequestTerm::BlankNode(_)
+            | RequestTerm::Literal { .. }
+            | RequestTerm::LanguageLiteral { .. }
+            | RequestTerm::Triple { .. },
+        )
+        | None => None,
+    }
 }
 
 /// How a reverse read first reads a member of its home's referrer set, at the epoch the home answered.
@@ -457,11 +455,12 @@ async fn merge(
     mut sink: ResultSink,
 ) -> Result<(), ErrorReply> {
     let read = &shared.read;
-    let order = |rows: &[PartitionRows], a: usize, b: usize| {
+    let order = |rows: &[PartitionRows], first: usize, second: usize| {
         let row = |at: usize| rows.get(at).and_then(|part| part.page().peek());
-        match (row(a), row(b)) {
-            (Some(a), Some(b)) => a.order(&b),
-            _ => Ordering::Equal,
+        match (row(first), row(second)) {
+            (Some(lower), Some(upper)) => lower.order(&upper),
+            // The frontier holds a partition only while its page holds a row.
+            (Some(_), None) | (None, Some(_)) | (None, None) => Ordering::Equal,
         }
     };
     // Every partition's first page is read at once, so the read waits on the slowest rather than on each in turn.
@@ -470,7 +469,7 @@ async fn merge(
     for at in 0..parts.len() {
         if parts.get(at).is_some_and(|part| part.page().has_row()) {
             let held = &parts;
-            frontier.push(at, |a, b| order(held, a, b));
+            frontier.push(at, |first, second| order(held, first, second));
         }
     }
     let mut sent = 0u32;
@@ -480,7 +479,7 @@ async fn merge(
     loop {
         let popped = {
             let held = &parts;
-            frontier.pop(|a, b| order(held, a, b))
+            frontier.pop(|first, second| order(held, first, second))
         };
         let Some(at) = popped else {
             break;
@@ -510,7 +509,7 @@ async fn merge(
         part.fill().await?;
         if part.page().has_row() {
             let held = &parts;
-            frontier.push(at, |a, b| order(held, a, b));
+            frontier.push(at, |first, second| order(held, first, second));
         }
     }
     sink.finish(resume).await

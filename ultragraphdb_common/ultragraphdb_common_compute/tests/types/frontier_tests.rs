@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_common_compute::Frontier;
+use ultragraphdb_tool_bdd::TestResult;
 
 /// Pops `heads`' streams with each pushed once: their order by the rows they hold, and one pop past them, which a frontier
 /// emptied answers with nothing.
@@ -25,7 +26,7 @@ fn rows_popped(heads: &[u32]) -> Vec<u32> {
 }
 
 #[test]
-fn test_streams_come_out_lowest_row_first() {
+fn test_streams_come_out_lowest_row_first() -> TestResult {
     let heads = [5, 1, 9, 3, 7, 2, 8, 4, 6, 0];
     let popped = drained(&heads);
     let rows: Vec<u32> = popped
@@ -35,17 +36,19 @@ fn test_streams_come_out_lowest_row_first() {
     let mut sorted = heads.to_vec();
     sorted.sort_unstable();
     assert_eq!(rows, sorted);
+    Ok(())
 }
 
 #[test]
-fn test_an_empty_frontier_pops_nothing() {
+fn test_an_empty_frontier_pops_nothing() -> TestResult {
     let mut frontier = Frontier::default();
     assert_eq!(frontier.pop(|a, b| a.cmp(&b)), None);
     assert!(frontier.streams().is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_a_stream_pushed_back_takes_its_place_by_its_next_row() {
+fn test_a_stream_pushed_back_takes_its_place_by_its_next_row() -> TestResult {
     let mut heads = [2, 4];
     let mut frontier = Frontier::with_capacity(2);
     (0..2).for_each(|stream| frontier.push(stream, |a, b| heads.get(a).cmp(&heads.get(b))));
@@ -60,21 +63,23 @@ fn test_a_stream_pushed_back_takes_its_place_by_its_next_row() {
         Some(1)
     );
     assert_eq!(frontier.streams(), [0]);
+    Ok(())
 }
 
 /// Sixteen streams pushed highest row first, each climbing past every parent on its way up: the frontier still pops them lowest
 /// row first, each once.
 #[test]
-fn test_streams_pushed_highest_first_come_out_lowest_first() {
+fn test_streams_pushed_highest_first_come_out_lowest_first() -> TestResult {
     let heads: Vec<u32> = (0..16).rev().collect();
     let mut sorted = heads.clone();
     sorted.sort_unstable();
     assert_eq!(rows_popped(&heads), sorted);
+    Ok(())
 }
 
 /// Each pop takes the lowest row of those left, the one moved up in its place sinking below a lower child first.
 #[test]
-fn test_each_pop_takes_the_lowest_row_left() {
+fn test_each_pop_takes_the_lowest_row_left() -> TestResult {
     let heads = [1, 2, 3, 4];
     let order = |a: usize, b: usize| heads.get(a).cmp(&heads.get(b));
     let mut frontier = Frontier::with_capacity(heads.len());
@@ -83,4 +88,5 @@ fn test_each_pop_takes_the_lowest_row_left() {
         assert_eq!(frontier.pop(order), Some(stream));
     }
     assert_eq!(frontier.pop(order), None);
+    Ok(())
 }

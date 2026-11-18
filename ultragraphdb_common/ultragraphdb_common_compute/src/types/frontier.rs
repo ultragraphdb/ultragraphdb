@@ -28,6 +28,7 @@ impl Frontier {
         let mut at = self.heap.len().saturating_sub(1);
         // Each turn moves the entry one level up, so the loop ends within the heap's depth (Ultra rule 2).
         while at > 0 {
+            // The parent's place, the division rounded down: both children of a place share it.
             let parent = (at - 1) / 2;
             if !self.less(at, parent, &order) {
                 return;
@@ -68,11 +69,13 @@ impl Frontier {
         &self.heap
     }
 
-    /// Whether the entry at `a` sorts below the one at `b`.
-    fn less(&self, a: usize, b: usize, order: &impl Fn(usize, usize) -> Ordering) -> bool {
-        match (self.heap.get(a), self.heap.get(b)) {
-            (Some(a), Some(b)) => order(*a, *b) == Ordering::Less,
-            _ => false,
+    /// Whether the entry at the place `first` sorts below the one at the place `second`, both places of the heap.
+    fn less(&self, first: usize, second: usize, order: &impl Fn(usize, usize) -> Ordering) -> bool {
+        debug_assert!(first < self.heap.len(), "a place compared is in the heap");
+        debug_assert!(second < self.heap.len(), "a place compared is in the heap");
+        match (self.heap.get(first), self.heap.get(second)) {
+            (Some(lower), Some(upper)) => order(*lower, *upper) == Ordering::Less,
+            (Some(_), None) | (None, Some(_)) | (None, None) => false,
         }
     }
 }

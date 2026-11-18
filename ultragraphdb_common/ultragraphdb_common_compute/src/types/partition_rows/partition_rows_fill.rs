@@ -14,7 +14,7 @@ use super::partition_rows_frames::{predicates_of, take_rows};
 use super::partition_rows_plan::listed_after;
 use super::reading::Reading;
 use super::skip::Skip;
-use super::{PartitionRows, RANGES_PER_SCAN};
+use super::{PartitionRows, RANGES_PER_SCAN_MAX};
 use crate::types::range_spec::RangeSpec;
 use crate::types::scan_stream::ScanStream;
 use crate::utils::keys::{past_alone, prefix_end};
@@ -158,12 +158,13 @@ impl PartitionRows {
     /// Opens the Scan of the ranges next to come: as many one-key ranges as the rows still wanted can fill, or one whole range at
     /// most those rows' keys.
     fn open_pending(&mut self) -> Result<(), ErrorReply> {
+        debug_assert!(!self.pending.is_empty(), "a Scan opens for a range to come");
         let remaining = self.shared.remaining.get();
         let alone = self.pending.front().is_some_and(RangeSpec::is_alone);
         let wanted = if remaining == 0 {
-            RANGES_PER_SCAN
+            RANGES_PER_SCAN_MAX
         } else {
-            (remaining as usize).min(RANGES_PER_SCAN) // a `u32`, lossless
+            (remaining as usize).min(RANGES_PER_SCAN_MAX) // a `u32`, lossless
         };
         let count = if alone { wanted } else { 1 };
         let limit = if alone { 0 } else { remaining };

@@ -9,6 +9,8 @@ use ultragraphdb_protocol_wire::{
     BodyBuilder, Check, CheckKind, Command, Ended, Header, MAX_FRAME_SIZE, SessionCheck,
 };
 
+use crate::types::turn::Turn;
+
 /// The bytes one check takes in a Check frame's section 0 (`PROTOCOL.md` §13.24).
 const CHECK_BYTES: usize = 32;
 /// The bytes one session takes in an Ended frame's section 0 (`PROTOCOL.md` §13.25).
@@ -28,14 +30,6 @@ pub struct SystemTurns {
     next_ticket: u64,
 }
 
-/// What one turn sends: the sessions of its Ended frame and the checks of its Check frame, each ascending by session, each
-/// check with the ticket its queueing gave.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Turn {
-    ended: Vec<[u8; 16]>,
-    checks: Vec<(u64, SessionCheck)>,
-}
-
 impl SystemTurns {
     /// Nothing queued.
     #[must_use]
@@ -44,6 +38,7 @@ impl SystemTurns {
     }
 
     /// Queues the check of `session` for `principal`, of `kind`: the ticket its outcome is told by.
+    #[must_use]
     pub fn queue_check(&mut self, session: [u8; 16], principal: u64, kind: CheckKind) -> u64 {
         let ticket = self.next_ticket;
         self.next_ticket = ticket.wrapping_add(1);
@@ -72,6 +67,7 @@ impl SystemTurns {
 
     /// One turn: at most `ended_max` sessions of the queued Endeds and at most `checks_max` checks, one per session, each the
     /// session's first queued, both the lowest sessions; the rest stay queued in their order.
+    #[must_use]
     pub fn take(&mut self, checks_max: usize, ended_max: usize) -> Turn {
         let ended: Vec<[u8; 16]> = self.ended.iter().take(ended_max).copied().collect();
         for session in &ended {
@@ -89,10 +85,7 @@ impl SystemTurns {
         firsts.truncate(checks_max);
         let taken: BTreeSet<u64> = firsts.iter().map(|(ticket, _)| *ticket).collect();
         self.checks.retain(|(ticket, _)| !taken.contains(ticket));
-        Turn {
-            ended,
-            checks: firsts,
-        }
+        Turn::new(ended, firsts)
     }
 
     /// The checks one Check frame of at most `max_frame` bytes holds, at least one.
@@ -105,7 +98,7 @@ impl SystemTurns {
             Check::new(checks)
                 .frame(Header::new(0, Command::Check))
                 .ok()
-                .map(|f| f.len())
+                .map(|frame| frame.len())
         };
         per_frame(build, CHECK_BYTES, max_frame)
     }
@@ -118,48 +111,9 @@ impl SystemTurns {
             Ended::new(sessions)
                 .frame(Header::new(0, Command::Ended))
                 .ok()
-                .map(|f| f.len())
+                .map(|frame| frame.len())
         };
         per_frame(build, SESSION_BYTES, max_frame)
-    }
-}
-
-impl Turn {
-    /// The sessions of its Ended frame, ascending.
-    #[must_use]
-    pub fn ended(&self) -> &[[u8; 16]] {
-        &self.ended
-    }
-
-    /// The checks of its Check frame with their tickets, ascending by session.
-    #[must_use]
-    pub fn checks(&self) -> &[(u64, SessionCheck)] {
-        &self.checks
-    }
-
-    /// Whether it sends nothing.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.ended.is_empty() && self.checks.is_empty()
-    }
-
-    /// Its Ended frame on `header`'s stream, `None` when it ends no session.
-    #[must_use]
-    pub fn ended_frame(&self, header: Header) -> Option<Vec<u8>> {
-        if self.ended.is_empty() {
-            return None;
-        }
-        Ended::new(self.ended.clone()).frame(header).ok()
-    }
-
-    /// Its Check frame on `header`'s stream, `None` when it checks no session.
-    #[must_use]
-    pub fn check_frame(&self, header: Header) -> Option<Vec<u8>> {
-        if self.checks.is_empty() {
-            return None;
-        }
-        let checks = self.checks.iter().map(|(_, check)| *check).collect();
-        Check::new(checks).frame(header).ok()
     }
 }
 
@@ -178,8 +132,9 @@ fn per_frame(build: impl Fn(usize) -> Option<usize>, unit: usize, max_frame: u32
         .saturating_sub(one)
         .checked_div(unit)
         .map_or(1, |more| more.saturating_add(1));
-    // A frame of half as many entries measures what an entry takes, its share of the chunk table included, which grows in
-    // proportion to the frame's length: the count those bytes predict for the bound is the last that fits or a step from it.
+    // A frame of half as many entries, rounded down and at least two, measures what an entry takes, its share of the
+    // chunk table included, which grows in proportion to the frame's length: the count those bytes predict for the
+    // bound is the last that fits or a step from it.
     let half = (most / 2).max(2);
     let predicted = build(half)
         .and_then(|len| {
@@ -201,6 +156,11 @@ fn per_frame(build: impl Fn(usize) -> Option<usize>, unit: usize, max_frame: u32
             count -= 1;
         }
     }
+    debug_assert!(count >= 1, "a frame takes at least one entry");
+    debug_assert!(
+        count <= most,
+        "a frame takes no more entries than its bytes hold"
+    );
     count
 }
 

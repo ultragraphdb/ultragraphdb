@@ -177,6 +177,10 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         let core = &self.core;
         self.counted
             .extend(std::iter::repeat_with(|| core.open().enter()).take(more));
+        debug_assert!(
+            self.counted.len() == open,
+            "one count is held for each open request"
+        );
     }
 
     fn cluster(&self) -> u64 {

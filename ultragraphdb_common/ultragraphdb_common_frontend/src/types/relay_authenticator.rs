@@ -8,16 +8,10 @@ use std::fmt;
 use std::rc::Rc;
 
 use ultragraphdb_protocol_scram::{MECHANISM, ScramError, ScramRelay};
-use ultragraphdb_protocol_transport::{Authenticator, Credential, MechanismStep, ServerMechanism};
+use ultragraphdb_protocol_transport::{Authenticator, Credential, MechanismStep};
 
-/// Where a relayed exchange stands between the session that asks the system group and the machine that answers the client.
-#[derive(Default)]
-struct RelayState {
-    relay: Option<ScramRelay>,
-    name: Option<String>,
-    /// What the next step answers, prepared by the session before the machine runs it.
-    answer: Option<Result<MechanismStep, ScramError>>,
-}
+use crate::types::relay_mechanism::RelayMechanism;
+use crate::types::relay_state::RelayState;
 
 /// A client connection's authentication relayed to the system group (design D8; `PROTOCOL.md` §11.1): the connection's
 /// session reads each client message with [`ScramRelay`], asks the system group by Challenge and Verify, and prepares the
@@ -25,11 +19,10 @@ struct RelayState {
 /// holds no key: a verifier never reaches the frontend. Shared by an `Rc` of a `RefCell` between the session and the
 /// machine on the connection's one task, a borrow lasting one call, never across a wait (Ultra rule 9). Its `Debug` holds
 /// whether an answer waits and the relay's own redacted form, never a message's text.
+///
+/// Control plane (Ultra rule 3): an exchange runs once per connection, and each step allocates its messages.
 #[derive(Clone, Default)]
 pub struct RelayAuthenticator(Rc<RefCell<RelayState>>);
-
-/// One relayed exchange, the transport's server mechanism: each step answers what the session prepared for it.
-pub struct RelayMechanism(Rc<RefCell<RelayState>>);
 
 impl RelayAuthenticator {
     /// Reads the client-first-message `message` of a new exchange whose server nonce part is `nonce`: the name to ask
@@ -107,20 +100,7 @@ impl Authenticator for RelayAuthenticator {
 
     /// An exchange of `SCRAM-SHA-256`; `None` for any other mechanism.
     fn start(&mut self, mechanism: &str) -> Option<RelayMechanism> {
-        (mechanism == MECHANISM).then(|| RelayMechanism(Rc::clone(&self.0)))
-    }
-}
-
-impl ServerMechanism for RelayMechanism {
-    type Error = ScramError;
-
-    /// The answer the session prepared for this step; an exchange none was prepared for fails.
-    fn step(&mut self, _message: &[u8]) -> Result<MechanismStep, ScramError> {
-        self.0
-            .borrow_mut()
-            .answer
-            .take()
-            .unwrap_or_else(|| Err(ScramError::out_of_step()))
+        (mechanism == MECHANISM).then(|| RelayMechanism::over(Rc::clone(&self.0)))
     }
 }
 
@@ -132,11 +112,5 @@ impl fmt::Debug for RelayAuthenticator {
             .field("named", &state.name.is_some())
             .field("answer", &state.answer.as_ref().map(Result::is_ok))
             .finish()
-    }
-}
-
-impl fmt::Debug for RelayMechanism {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("RelayMechanism").finish_non_exhaustive()
     }
 }

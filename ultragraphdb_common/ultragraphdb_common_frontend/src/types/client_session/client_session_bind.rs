@@ -57,6 +57,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     /// Sends what the transaction `transaction` may send now, in the order its client sent it: a transaction's first request
     /// answered before any later one goes, a read only once earlier writes have answered, a write only once earlier reads have.
     pub(super) fn pump(&mut self, transaction: u64) {
+        // Each step that does not return takes the request at the queue's front, so the queue's length bounds the loop
+        // (Ultra rule 2).
         while let Some(step) = self.next_step(transaction) {
             match step {
                 Step::Bind(partition) => {
@@ -129,7 +131,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 let other = self
                     .owners(destination)
                     .into_iter()
-                    .find(|p| p != partition);
+                    .find(|owner| owner != partition);
                 Some(match other {
                     Some(other) => Step::Refuse(cross_partition(*partition, other)),
                     None => then,
@@ -364,6 +366,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         txn.commit_out = Some(session);
         if let BindState::Bound { link, stream, .. } = &txn.bind {
             let mut frame = frame;
+            // A frame the framer took holds its header.
             drop(Header::stamp_stream(&mut frame, *stream));
             link.send(*stream, CountedFrame::uncounted(frame));
         }

@@ -25,11 +25,13 @@ impl ReadTimes {
     /// How long after a read begins it starts holding a version it chose as it began, well within what a partition retains between
     /// Scans.
     pub(crate) fn pin_after(&self) -> Duration {
+        // Rounded down, which only begins the hold sooner.
         self.read_retain / 4
     }
 
     /// How often a held version's Scan takes a frame, well within what a partition waits on a stream.
     pub(crate) fn pin_every(&self) -> Duration {
+        // Rounded down, which only takes a frame sooner.
         self.scan_stall / 3
     }
 

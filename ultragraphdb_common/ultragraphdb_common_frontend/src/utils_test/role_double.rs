@@ -18,14 +18,16 @@ use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::{
     Bind, BindKind, BindView, BodyBuilder, BodyView, Command, Commit, CommitView,
     ConditionalWriteView, DirectWriteView, DropCommandView, ErrorCode, ErrorReply, ErrorReplyView,
-    FLAG_LAST, FrameView, Header, Held, Join, MAX_FRAME_SIZE, Monotonic, ResultBatch, TermTable,
+    FLAG_LAST, FrameView, Header, Held, Join, MAX_FRAME_SIZE, Monotonic, ResultBatch,
 };
 
 use crate::utils_test::double_frame::DoubleFrame;
 use crate::utils_test::double_session::DoubleSession;
 
 /// A role a test plays: it accepts what a role's endpoint takes, keeps every frame, and answers as `script` says. Reads against
-/// compute and writes against storage run over these, so a scenario decides what the frontend hears, when.
+/// compute and writes against storage run over these, so a scenario decides what the frontend hears, when. Its clones
+/// share what it took and its tasks by `Rc`s of `RefCell`s on the test's one thread, a borrow lasting one call (Ultra
+/// rule 9).
 #[derive(Debug, Clone)]
 pub struct RoleDouble {
     address: String,
@@ -316,7 +318,6 @@ fn bind_reply(
 /// A batch of no row for a pattern of `columns` columns, read at `partition`.
 #[must_use]
 pub fn empty_batch(columns: u32, partition: u32) -> ResultBatch {
-    let _terms = TermTable::new();
     ResultBatch::new(columns)
         .with_read_at(0, partition)
         .with_monotonic(Monotonic::Snapshot)

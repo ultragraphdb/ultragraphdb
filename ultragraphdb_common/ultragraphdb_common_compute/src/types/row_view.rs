@@ -9,7 +9,7 @@ use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::QuadKey;
 
 /// A row of a page, read in place.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct RowView<'a> {
     pub(crate) key: &'a [u8],
     pub(crate) parsed: &'a QuadKey,

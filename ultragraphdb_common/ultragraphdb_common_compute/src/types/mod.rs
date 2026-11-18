@@ -4,6 +4,7 @@
  */
 
 pub mod access;
+pub mod asked;
 pub mod compute_core;
 pub mod compute_session;
 pub mod frontier;
@@ -12,6 +13,7 @@ pub mod link;
 pub mod lookup_at;
 pub mod names;
 pub mod open_read;
+pub mod opened;
 pub mod page;
 pub mod page_entry;
 pub mod page_row;

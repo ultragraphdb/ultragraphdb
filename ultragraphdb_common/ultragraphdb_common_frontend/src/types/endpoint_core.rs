@@ -99,7 +99,8 @@ impl<A> EndpointCore<A> {
     }
 
     /// Whether a connection accepted from `peer` may go on: one with no address, over a Unix socket, always; one from a banned
-    /// source not, as its throttle says (design D15). The frontend asks before TLS or any frame.
+    /// source not, as its throttle says (design D15). The frontend asks before TLS or any frame. A dropped future
+    /// leaves what [`ThrottleHandle`] says.
     pub async fn admits(&self, peer: Option<IpAddr>) -> bool {
         match peer {
             Some(peer) => self.logins.admits(peer).await,

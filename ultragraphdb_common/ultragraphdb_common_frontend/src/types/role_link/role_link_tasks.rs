@@ -82,7 +82,7 @@ async fn write(link: RoleLink, mut writer: RoleWriter) {
 /// The next frame to leave, which is no longer counted, once there is one; `None` once the connection closed.
 /// A dropped future leaves the frame queued and its waker registered, which the next frame wakes for nothing.
 async fn next_outgoing(link: &RoleLink) -> Option<Vec<u8>> {
-    poll_fn(|cx| {
+    poll_fn(|context| {
         let mut routes = link.routes.borrow_mut();
         if let Some(waiting) = routes.outgoing.pop_front() {
             return Poll::Ready(Some(waiting.frame.into_bytes()));
@@ -90,7 +90,7 @@ async fn next_outgoing(link: &RoleLink) -> Option<Vec<u8>> {
         if routes.closed {
             return Poll::Ready(None);
         }
-        routes.writer = Some(cx.waker().clone());
+        routes.writer = Some(context.waker().clone());
         Poll::Pending
     })
     .await

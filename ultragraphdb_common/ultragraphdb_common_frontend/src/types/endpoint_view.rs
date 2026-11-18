@@ -10,14 +10,7 @@ use ultragraphdb_cluster_placement::PlacementMap;
 use ultragraphdb_core_catalog::{CatalogContents, describe_of};
 use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
 
-/// What a Begin naming a token ahead of the view came to (`PROTOCOL.md` §4.8).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HoldOutcome {
-    /// The close before the token's epoch arrived: the Begin is answered.
-    Answered,
-    /// Its deadline was reached with that close not arrived: code 24.
-    TimedOut,
-}
+use crate::types::hold_outcome::HoldOutcome;
 
 /// One endpoint core's view of what the system group's closes announce (design D6; `PROTOCOL.md` §11.12, *Epochs*): the
 /// latest closed epoch, the placement in effect and the tenants its runs list, each tenant's latest catalog version as the
@@ -48,7 +41,8 @@ pub struct EndpointView {
     schema_ids: BTreeMap<u64, (u64, u64)>,
     /// The tenants to read again before the view answers.
     refresh: BTreeSet<u64>,
-    /// The held Begins: each token's epoch and deadline.
+    /// The held Begins: each token's epoch and deadline. One for each Begin waiting on its token, which its deadline
+    /// ends, so the core's connections and their streams bound it (Ultra rule 2).
     holds: BTreeMap<u64, (u64, Instant)>,
 }
 
@@ -227,7 +221,8 @@ impl EndpointView {
         let versions = self.effective.get(&tenant);
         let mut version = self.current_version(tenant);
         // Versions are numbered from 1, each one above the version it is built on: down from the current one, each held,
-        // until one in effect.
+        // until one in effect. A step passes one held version or ends the walk, so the versions held bound it (Ultra
+        // rule 2).
         while version > 0 {
             match versions.and_then(|held| held.get(&version)) {
                 Some(at) if *at != 0 && *at <= open => return Some(version),
@@ -257,6 +252,7 @@ impl EndpointView {
 
     /// A Begin of `ticket` naming a token of `token_epoch`, held until `deadline`: answered at once when the token's epoch is
     /// at most the open epoch, else `None`, and held.
+    #[must_use]
     pub fn hold(
         &mut self,
         ticket: u64,
@@ -272,6 +268,7 @@ impl EndpointView {
 
     /// The held Begins decided at `now`, after every close taken: those whose close has arrived answered, those whose
     /// deadline is reached without it timed out.
+    #[must_use]
     pub fn released(&mut self, now: Instant) -> Vec<(u64, HoldOutcome)> {
         let open = self.open_epoch();
         let mut released = Vec::new();

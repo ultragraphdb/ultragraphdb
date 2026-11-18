@@ -168,7 +168,8 @@ impl Link {
 
     /// Watches a request asked at `asked` and given up before its answer, as a read cancelled while it waits: a connection that
     /// has sent no frame by `asked` and `wait` is hung, as the request's own wait would have found, and closes
-    /// (`PROTOCOL.md` §11.12, *Errors*).
+    /// (`PROTOCOL.md` §11.12, *Errors*). One task per request given up, each ending by `asked` and `wait`, so the reads
+    /// given up within one answer bound bound them (Ultra rule 2).
     pub(crate) fn watch(self: &Rc<Self>, asked: Instant, wait: Duration) {
         let link = Rc::clone(self);
         spawn(async move {
@@ -265,12 +266,12 @@ async fn read_frames(mut reader: RoleReader, link: Rc<Link>, mut closed: oneshot
 /// A dropped future leaves nothing.
 async fn yield_once() {
     let mut yielded = false;
-    std::future::poll_fn(|cx| {
+    std::future::poll_fn(|context| {
         if yielded {
             return std::task::Poll::Ready(());
         }
         yielded = true;
-        cx.waker().wake_by_ref();
+        context.waker().wake_by_ref();
         std::task::Poll::Pending
     })
     .await;
