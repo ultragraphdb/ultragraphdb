@@ -16,71 +16,90 @@ them. A weakness found in a specification is fixed in that specification first.
 A group that moves code moves its suite with it first: the moved suite is green with the same test count before any
 behaviour changes, in a commit of its own.
 
-Waves: 0; then 1 and 2 in parallel; 3; 5; 6; 7; 8; 9. A wave's agents work on disjoint crates, and
-the whole repository is gated by `make build` and `make test` when a wave returns.
+Waves: 0; 5; 6; 4; then 1 and 2 in parallel; 3; 7; 8; 9 (design D12). The relay goes first, the switch to two roles
+second and the node list third, so the cluster's processes speak one protocol at every commit and every group is gated
+by the full `make test`. A wave's agents work on disjoint crates, and the whole repository is gated by `make build`,
+`make test` and the Clippy aspect over `//...` when a wave returns. `make check` is no part of a gate.
 
-## 0. Specifications first
+Mutation runs after task 5.2 set `MUTANTS_UNCHANGED_BY` to the merge's commit, so a moved line is mutated only once
+this stage changes it (`scripts/mutants.sh`).
 
-- [ ] 0.1 Stage 5.8's change archived, and, as a gate before group 1, every delta of this change read in full against the capabilities as archived: every MODIFIED requirement equal to the archived text but for this change's edits, and no sentence the renaming left wrong, circular or without meaning, each defect corrected in the delta; the requirements this change and stage 5.8 both modify, with the stage 5.8 scenarios its deltas do not hold, are listed in `notes/rebase-on-stage-5-8.md`
+## 0. Specifications and blockers first
+
+- [ ] 0.1 As a gate before group 5, every delta of this change read in full against the capabilities as stage 5.8's change archived them (`openspec/changes/archive/2026-11-17-stage-5-8-system-group`): every MODIFIED requirement equal to the archived text but for this change's edits, and no sentence the renaming left wrong, circular or without meaning, each defect corrected in the delta; the 33 requirements this change and stage 5.8 both modify, with the stage 5.8 scenarios its deltas do not hold, are listed in `notes/rebase-on-stage-5-8.md`, and each of those scenarios is kept, or its removal stated in the delta with its reason; config-service gains the scenario of a role's file holding another role's table, refused by name (task 6.3)
 - [ ] 0.2 `PROTOCOL.md` brought to this stage's text: sections 1 to 13 saying "compute" for the role holding the client endpoint, section 13.12 and the relay's rules of section 11.12 removed, the "From stage 5.9" paragraphs folded into the sections they amend, section 4.7's rows for Nodes and Roster, no section renumbered
 - [ ] 0.3 `SECURITY.md`'s tiers and `AGENTS.md`'s role descriptions brought to two roles
-
 - [ ] 0.4 The laws of every group enumerated in `notes/laws.md` before its phase 2, each with the property that states it, and the groups that hold none named
-- [ ] 0.5 The corner cases of every group enumerated in `notes/corner-cases.md` before its phase 2
+- [ ] 0.5 The corner cases of every group enumerated in `notes/corner-cases.md` before its phase 2, those of `notes/feasibility.md` section 4 among group 4's
+- [ ] 0.6 Code, test first (`notes/feasibility.md`, blocker B3): the session registry's counterexample that stage 5.8's group 4 recorded and no one took up, "Session 2 of 1: left Some(Busy), right Some(Registered)" of `ultragraphdb_common_system`'s `test_the_registry_agrees_with_its_model`, written as a unit test from its shrunk case; the registry or the model corrected by `PROTOCOL.md` sections 11.5 and 13.23 if it fails, and the test kept if it passes; `make property-random` green before and after (20 of 20 on each of the ten targets on 2026-11-18)
+- [ ] 0.7 Code, test first (blocker B4): one reader rule in `ultragraphdb_common_role`. A `RoleClient` method reads a request's next frame by `PROTOCOL.md` section 2.5 step 3 and section 2.6: a late frame checked whole and dropped, the peer's Error on stream 0 or on the request's stream its refusal, any other stream refused and the connection closed. `RoleClient::arrived` and storage's `subscribed` and `catalog_frame` call it, with their tests unchanged and green, before group 3 writes Roster's reader as a fourth
+
+## 5. The endpoint executes reads → `ultragraphdb_common_compute`, `ultragraphdb_common_frontend` (emptied), `ultragraphdb_frontend`, `ultragraphdb_frontend_tests`, `ultragraphdb_tests`
+
+After this group the frontend binary executes its clients' reads in process, and nothing sends a ComputeRead. The compute binary and `ultragraphdb_compute_tests` are unchanged: its role session still answers the ComputeRead its own battery sends, until the switch removes both (task 6.4).
+
+- [ ] 5.1 Ultra Style lift of `common_compute` and of `common_frontend`, each in its own commit
+- [ ] 5.2 The merge, in its own commit (design D1): the sources, tests, features, test data and test doubles of `ultragraphdb_common_frontend` moved into `ultragraphdb_common_compute` by `git mv`, its dependencies and Bazel targets joined to that crate's without the unused `ultragraphdb_traits_catalog`, a module or item name both crates hold settled there, every dependant naming `common_compute`; the merged suite green with the sum of the two counts; `common_frontend` left an empty crate until task 6.5
+- [ ] 5.3 Scenarios: quad-reads ("Compute runs each read on one core", "A read's step is bounded by one frame", "A read's batches fit the client's frame", the modified transaction and level requirements); client-endpoint ("Requests are routed to the partitions that serve them", "Errors reach the client through the error table", "Compute finds the partitions in Members", the renamed requirements), as Gherkin
+- [ ] 5.4 Phases 1 to 3: the executor taking a read as a message from `ClientSession` and answering by messages, over the connections to the partitions `ComputeCore` holds today (design D2 follows in group 4); the client's `max_frame` and credit applied directly; Credit and Cancel acting in the turn they are read; the step bound of design D3
+- [ ] 5.5 Property tests, written in phase 2: the merge returns the rows of any drawn partitions' sorted entries in key order, each once, whatever the drawn boundaries of the Entries frames and of the client's frames; a read resumed from the key of any drawn row returns exactly the rows after it; under any drawn interleaving of a read's steps and commits' relays on one core, no commit waits for more than one step
+- [ ] 5.6 Phase 4: the above; every read feature of `ultragraphdb_tests` and `ultragraphdb_frontend_tests` green with its scenarios unchanged, the reads executed in process; a cluster of the harnesses runs with or without a compute process
+- [ ] 5.7 After the user's approval: the relay code of `RoleLinks` (compute spread in turn, the hung-compute timer, the resend of an unsent read, the relay of a read's Credit and Cancel), its scenarios of a relayed read and their steps and doubles removed
+- [ ] 5.8 Phase 5: `scripts/mutants.sh` over each changed crate
+- [ ] 5.9 Carried from stage 5.8 (backlog item 25): each mutant of the archived change's `notes/mutants-common-frontend.md` whose code outlives task 5.7, 77 missed and 77 timeouts at most, resolved: killed by a test, entered in `.cargo/mutants.toml` with its argument, shown killed by a scenario over the binaries, or kept open with its reason; a timeout counted a noticed hang only where tests failed before the cut; one run of `scripts/mutants.sh ultragraphdb_common_compute --diff <the commit before task 5.2> --re <the files those mutants name>` confirming the kills, its outcome kept in `notes/group-5.md`
+
+## 6. The switch: two roles → `ultragraphdb_compute`, `ultragraphdb_compute_tests`, `ultragraphdb_common_compute`, `ultragraphdb_common_system`, `ultragraphdb_common_role`, `ultragraphdb_common_service`, `ultragraphdb_common_service_config`, `ultragraphdb_common_config_check`, `ultragraphdb_supervisor`, `ultragraphdb_tests`, `deploy/helm/ultragraphdb`, `bazel/oci_images`
+
+- [ ] 6.1 The scenarios of `ultragraphdb_frontend_tests` moved into `ultragraphdb_compute_tests`, in their own commit, green with the same count against the frontend binary
+- [ ] 6.2 Scenarios: role-binaries (all modified requirements but a node's Join and its certificate's check, which are group 3's); kubernetes-deployment (the modified requirements); config-service (the Roles rule, the retired settings refused by name, another role's table refused, "A configuration error tells the administrator what to do"); system-group (the endpoint's table for two roles), as Gherkin
+- [ ] 6.3 The switch, one commit, once no binary reads an old setting or sends ComputeRead (design D12): `ultragraphdb_compute` running the endpoint and the executor with no role listener, under the role name, SCRAM username and settings tables of `compute`; the system group's table giving the role `compute` the commands the frontend sent; the role names `compute` and `storage` alone, the Roles check, the `[frontend]` table, `compute.role_address`, instance names beginning `frontend` and another role's table refused by name; readiness, the stop on SIGTERM bounded by `transaction_ms` and the exit for a lost system group; the supervisor's order config service, storage, compute; the development image with two role binaries; the chart's StatefulSet of one replica per compute instance without a volume, its headless Service and the client Service; the profiles rewritten and passing `ultragraphdb_config_cli`; `scripts/cluster_local.sh`; every test and harness that writes settings or names a role brought to them. From this commit until task 3.7 a compute process sends no Join: nothing dials it, and the node list is group 3's
+- [ ] 6.4 After the user's approval, in the switch or the commit after it: `ComputeSession`'s role session, `CoreListener`, compute's Join by its role address with `joining.rs`' asks, and the features of `ultragraphdb_compute_tests` that drove reads by ComputeRead removed, each read feature among them bound to the client endpoint first with its scenarios unchanged
+- [ ] 6.5 After the user's approval: `ultragraphdb_common_frontend`, `ultragraphdb_frontend`, `ultragraphdb_frontend_tests`, the frontend's image, chart entries, `FrontendTable` and profiles removed; `AGENTS.md`'s crate table and the workspace's members follow
+- [ ] 6.6 Carried from stage 5.8 (backlog item 23): `Server::machine_of`'s idle limit by role pinned by a test through a clock the shell takes, test first, so its mutant (`serve.rs`, `==` with `!=`) is killed without a real-time wait
+- [ ] 6.7 Phase 5: `scripts/mutants.sh` over each changed crate; this group's binaries and deployment hold no law of their own
+- [ ] 6.8 The development image booted once per architecture, amd64 under emulation, reaching `/ready` with two roles; the search for `frontend` across the workspace's members, images, chart and profiles finding nothing
+
+## 4. One connection per core and partition → `ultragraphdb_common_compute`
+
+Design D2, once the switch has left the executor one caller. (A partition's check of a Drop, this group's first content, is built in stage 5.8 by its group 4; task 8.2 runs it across two compute nodes.)
+
+- [ ] 4.1 Scenarios: client-endpoint and quad-reads, the requirements of task 5.3 that name the connection a read's Scans travel on, as Gherkin; the corner cases of `notes/feasibility.md` section 4 as unit tests, written in phase 2
+- [ ] 4.2 Phases 1 to 4: a core's `RoleLink` to a partition carrying the Scans, Frontier requests and Closed of the reads that core executes beside its Bind streams; `RoleLink` recording each as a request of its stream, so an Entries or Neighbours frame no Scan asked for closes the link as a Bind's stray reply does; a stream whose request could not be sent forgotten at once; a failed write marking the link closed, its streams answered 17 and the link dialled again; the played partition gaining a tap that grants more credit than compute sent, so the past-credit refusal is pinned in the crate's own suite; the doubles of a test taken in the order the test's subject lists them, never by the order they bound a port
+- [ ] 4.3 After the user's approval: `ComputeCore`'s own connections, `Link` and `ScanStream`'s use of it removed with their tests, each test's law held by a test over `RoleLink` first
+- [ ] 4.4 Phase 5: `scripts/mutants.sh ultragraphdb_common_compute --diff <base>`
 
 ## 1. The wire → `ultragraphdb_protocol_wire`
 
 - [ ] 1.1 Scenarios: wire-protocol ("The node list's frames are bodies of the protocol"; the modified "Roles exchange role commands" and "A frame past its stream's credit is refused"), as Gherkin
-- [ ] 1.2 Phases 1 to 3: builders and views for Nodes (27) and Roster (537); Join's `state`, advertised address and tags; EpochClose's `nodes`; Members for storage alone; command 523 and role kind 1 retired; the advertised address's form; golden frames `nodes.frame`, `roster.frame`, `roster_reply.frame`, `roster_reply_empty.frame`, `join_compute.frame`, `join_storage.frame` and `epoch_close_nodes.frame` from their generator
+- [ ] 1.2 Phases 1 to 3: builders and views for Nodes (27) and Roster (537); Join's `state`, advertised address and tags, a compute node's Join by a role address gone; EpochClose's `nodes`; Members for storage alone; command 523 and role kind 1 retired; the advertised address's form; golden frames `nodes.frame`, `roster.frame`, `roster_reply.frame`, `roster_reply_empty.frame`, `join_compute.frame`, `join_storage.frame` and `epoch_close_nodes.frame` from their generator
 - [ ] 1.3 Property tests, written in phase 2: a Nodes and a Roster built from a drawn list within the bounds (1 to 1,024 nodes, one to eight of at most 256 tags) decode to that list and build again to the same bytes, and never pass 524,288 bytes; a list with one drawn rule broken (an address out of order or malformed, a repeated tag, a reference past the tags, `self` past the nodes) is refused with that rule's refusal and its index; an advertised address is accepted exactly when it is `tcp://`, a host of the stated forms and a port of 1 to 65,535
 - [ ] 1.4 Phase 4: every body's checks in its "Order" line's order
 - [ ] 1.5 After the user's approval: the ComputeRead builder, view, golden frame and fuzz target removed
 - [ ] 1.6 Phase 5: fuzz targets and seeds for Nodes and Roster; `scripts/mutants.sh ultragraphdb_protocol_wire --diff <base>`
 
-## 2. Settings → `ultragraphdb_common_service_config`, `ultragraphdb_common_config_check`, `ultragraphdb_common_role`
+## 2. Settings of a node → `ultragraphdb_common_service_config`, `ultragraphdb_common_config_check`
 
-- [ ] 2.1 Scenarios: config-service ("The config service validates every setting before it serves one", its Roles and Compute rules; "A configuration error tells the administrator what to do"), as Gherkin
-- [ ] 2.2 Phases 1 to 4: `compute.advertised_address` and `compute.tags`; `compute.role_address` and the `[frontend]` table removed; the role names `compute` and `storage`; the checks Roles and Compute; the profiles rewritten with `compute` instances and passing `ultragraphdb_config_cli`
+- [ ] 2.1 Scenarios: config-service ("The config service validates every setting before it serves one", its Compute rule), as Gherkin
+- [ ] 2.2 Phases 1 to 4: `compute.advertised_address` and `compute.tags`; the Compute check; the profiles naming each compute instance's advertised address and passing `ultragraphdb_config_cli`
 - [ ] 2.3 Property tests, written in phase 2: over drawn targets, the Compute check refuses exactly those with a compute instance lacking an address, a tag list empty, longer than eight, repeated or malformed, two instances advertising one address, or more than 256 distinct tags
-- [ ] 2.4 Phase 5: `scripts/mutants.sh` over the three crates
+- [ ] 2.4 Phase 5: `scripts/mutants.sh` over the two crates
 
-## 3. The node list → `ultragraphdb_cluster_metadata`, `ultragraphdb_cluster_sequencer`, `ultragraphdb_common_system`
+## 3. The node list → `ultragraphdb_cluster_metadata`, `ultragraphdb_cluster_sequencer`, `ultragraphdb_common_system`, `ultragraphdb_common_compute`, `ultragraphdb_compute`, `ultragraphdb_common_storage`, `ultragraphdb_storage`
 
 - [ ] 3.1 Ultra Style lift of `cluster_metadata` and `cluster_sequencer`, each in its own commit
-- [ ] 3.2 Scenarios: node-discovery ("A compute node joins with what clients need of it", "The node list is a function of the log", "A close tells compute that the list changed"); metadata-group ("The metadata group holds the node list"); sequencer ("A close names a change of the node list"); system-group ("The system group serves the node list" and its endpoint's table), as Gherkin
+- [ ] 3.2 Scenarios: node-discovery ("A compute node joins with what clients need of it", "The node list is a function of the log", "A close tells compute that the list changed"); metadata-group ("The metadata group holds the node list"); sequencer ("A close names a change of the node list"); system-group ("The system group serves the node list"); role-binaries (a node's Join and its certificate's check), as Gherkin
 - [ ] 3.3 Phases 1 to 3: the list's commands and snapshot in the metadata state machine; the close record's flag; `SystemSession` serving Roster and a compute node's Join; the removal proposed once a connection has been closed for twice `epoch_ms_max`; a Join moving an entry to another connection of its node; a silent subscription's connection closed
 - [ ] 3.4 Property tests, written in phase 2, as a Hegel state machine against a model written from `PROTOCOL.md` section 11.14: drawn sequences of Joins of both states, connections' closes, closes of epochs and restarts of the group, with the invariants that one version names one list, a version never falls, an entry belongs to the connection of its latest Join, an entry leaves once its connection has been closed for twice `epoch_ms_max` and never before or while it is open, whatever the number of closes in between, a node whose joining connection closes while another is open is never removed, the list never passes 1,024 nodes or 256 tags, and recovery from any prefix of the log gives the list the model holds
 - [ ] 3.5 Phase 4: the above
-- [ ] 3.6 Phase 5: fuzz seeds for the frames a `SystemSession` reads; `scripts/mutants.sh` over each changed crate
-
-## 4. A partition's check of a Drop
-
-The check is built in stage 5.8, by its group 4; task 8.2 runs it across two compute nodes.
-
-## 5. The endpoint executes reads → `ultragraphdb_common_compute`, `ultragraphdb_common_frontend` (emptied)
-
-- [ ] 5.1 Ultra Style lift of `common_compute` and of `common_frontend`, each in its own commit
-- [ ] 5.2 The merge, in its own commit (design D1): the sources, tests, features, test data and test doubles of `ultragraphdb_common_frontend` moved into `ultragraphdb_common_compute` by `git mv`, its dependencies and Bazel targets joined to that crate's, a module or item name both crates hold settled there, every dependant naming `common_compute`; the merged suite green with the sum of the two counts; `common_frontend` left an empty crate until task 6.4
-- [ ] 5.3 Scenarios: quad-reads ("Compute runs each read on one core", "A read's step is bounded by one frame", "A read's batches fit the client's frame", the modified transaction and level requirements); client-endpoint ("Requests are routed to the partitions that serve them", "Errors reach the client through the error table", "Compute finds the partitions in Members", the renamed requirements), as Gherkin
-- [ ] 5.4 Phases 1 to 3: the executor taking a read as a message from `ClientSession` and answering by messages; a core's `RoleLink` to a partition carrying Scans, Frontier requests and Closed beside Bind streams; the client's `max_frame` and credit applied directly; Credit and Cancel acting in the turn they are read; the step bound of design D3
-- [ ] 5.5 Property tests, written in phase 2: the merge returns the rows of any drawn partitions' sorted entries in key order, each once, whatever the drawn boundaries of the Entries frames and of the client's frames; a read resumed from the key of any drawn row returns exactly the rows after it; under any drawn interleaving of a read's steps and commits' relays on one core, no commit waits for more than one step
-- [ ] 5.6 Phase 4: the above; every read feature of `compute_tests` green against the in-process executor
-- [ ] 5.7 After the user's approval: `ComputeSession`'s role session, `CoreListener`, the relay code of `RoleLinks` (compute spread in turn, the hung-compute timer, the resend of an unsent read) and their tests removed
-- [ ] 5.8 Phase 5: `scripts/mutants.sh` over each changed crate
-
-## 6. The compute binary → `ultragraphdb_compute`, `ultragraphdb_compute_tests`, `ultragraphdb_supervisor`, `deploy/helm/ultragraphdb`, `bazel/oci_images`
-
-- [ ] 6.1 The scenarios of `ultragraphdb_frontend_tests` moved into `ultragraphdb_compute_tests`, in their own commit, green with the same count against the frontend binary
-- [ ] 6.2 Scenarios: role-binaries (all modified requirements); kubernetes-deployment (the modified requirements), as Gherkin
-- [ ] 6.3 Phases 1 to 4: `ultragraphdb_compute` running the endpoint and the executor, joining as a compute node, with no role listener; readiness, draining on SIGTERM and the exit for a lost system group; the supervisor's order config service, storage, compute; the development image with two role binaries; the node's check at start that its certificate names the host it advertises; the drain bounded by `transaction_ms`; the chart's StatefulSet of one replica per compute instance without a volume, its headless Service and the client Service; the profiles; `scripts/cluster_local.sh`
-- [ ] 6.4 After the user's approval: `ultragraphdb_common_frontend`, `ultragraphdb_frontend`, `ultragraphdb_frontend_tests`, the frontend's image, chart entries, `FrontendTable` and profiles removed; `AGENTS.md`'s crate table and the workspace's members follow
-- [ ] 6.5 Phase 5: `scripts/mutants.sh` over each changed crate; this group's binaries and deployment hold no law of their own
+- [ ] 3.6 Carried from stage 5.8 (backlog item 23), each test first: storage's `held_versions` failing a catalog read whose version's stream answers an Error 7 after its first frame, where it ended that tenant's versions quietly; `StorageSession::answered` counting `Push::Close` as the end of its stream
+- [ ] 3.7 The compute binary joins: once per process, on its first core's connection to the group, with its advertised address, tags and state; again at once on another open connection when that one closes; every core holding the list its process read by Roster; the node's check at start that its certificate names the host it advertises; the pace of its asks, if any remain, taken from the crate's clock, so no law of it rests on real time
+- [ ] 3.8 Phase 5: fuzz seeds for the frames a `SystemSession` reads; `scripts/mutants.sh` over each changed crate
 
 ## 7. Several compute nodes and the clients → `ultragraphdb_client_core`, `ultragraphdb_client_compio`, `ultragraphdb_client_tokio`, `ultragraphdb_common_compute`
 
 - [ ] 7.1 Ultra Style lift of the three client crates, each in its own commit
 - [ ] 7.2 Scenarios: node-discovery ("A client receives the list once it has authenticated", "A client holds the list of the highest version", "A client is started with seeds and picks nodes by tag", "A draining node is announced before it stops"), as Gherkin: the server's in `common_compute`, the client's in `client_core`
-- [ ] 7.3 Phases 1 to 3: the endpoint sending Nodes after authentication and on a higher version, with `self`; a draining node's Join and its last Nodes; the client core's seeds, list, tag, choice of a node, backoff and return to the seeds, over `TestServer` extended to several servers; the shells dialling listed addresses
+- [ ] 7.3 Phases 1 to 3: the endpoint sending Nodes after authentication and on a higher version, with `self`; a draining node's Join and its last Nodes, sent on SIGTERM before the stop of task 6.3; the client core's seeds, list, tag, choice of a node, backoff and return to the seeds, over `TestServer` extended to several servers; the shells dialling listed addresses
 - [ ] 7.4 Property tests, written in phase 2, as a Hegel state machine in `client_core` against a model: drawn sequences of Nodes frames of any versions from any connection, connections refused and restored, and requests begun, with the invariants that the list held is the highest version received and never goes back, no transaction begins on a node the list names draining or names no longer, every node chosen carries the client's tag, a client with any reachable serving node of its tag is never refused, and the seeds are dialled only while no listed node can be reached
 - [ ] 7.5 Phase 4: the above
 - [ ] 7.6 Phase 5: fuzz seeds for the Nodes frame as a client reads it; `scripts/mutants.sh` over each changed crate
@@ -90,12 +109,11 @@ The check is built in stage 5.8, by its group 4; task 8.2 runs it across two com
 - [ ] 8.1 Every client-facing feature green with its scenarios unchanged, the count before and after recorded; each edited scenario listed with the step that named the relay or the frontend
 - [ ] 8.2 Two compute processes and one storage process on one host: node-discovery ("Two compute nodes serve one cluster", "A drained node takes no new transaction"); a session used through both nodes; a resend on the second node while the original is on its way from the first, answered code 14; a node killed, its entry gone once twice `epoch_ms_max` has passed and its clients served by the other; a reconnect within that time removing nothing at `epoch_ms_min` 1; a token carrying a snapshot's floor from one node to the other; a Drop through a node one close behind refused by the partition
 - [ ] 8.3 A read and a commit on one core: a commit's relay measured beside a merge over four partitions, waiting at most one frame's merge, and a commit's latency under a mixed load within the spread of its latency without reads; outside either, the executor moved to a runtime of its own behind design D3's seam, with the user's decision
-- [ ] 8.4 The development image booted once per architecture, amd64 under emulation, reaching `/ready` with two roles
-- [ ] 8.5 The search for `frontend` across the workspace's members, images, chart and profiles finding nothing
+- [ ] 8.4 The development image booted once per architecture with two compute instances, amd64 under emulation, each reaching `/ready`
 
 ## 9. The benchmark and the exit gate → `ultragraphdb_tool_bench`, `openspec/benches/`
 
-- [ ] 9.1 With one compute node, so the figures compare with stage 5.8's, and a run with two nodes recorded apart and gating nothing: the benchmark of `openspec/benches/benches-2026-11-09.md` and the read record of stage 5.8 rerun on this change exactly as recorded, in process and across two virtual machines
-- [ ] 9.2 The run recorded as a dated baseline, every write and read figure beside stage 5.8's with the change in absolute and relative terms and whether it lies outside both runs' spread; named in `ROADMAP.md` as the baseline stage 6.5 compares against
+- [ ] 9.1 With one compute node, and a run with two nodes recorded apart and gating nothing: the read and write workloads of `openspec/benches/benches-2026-11-15.md`, the last record of both, rerun on this change exactly as recorded with `scripts/bench_cluster.sh` on the same machines, its settings brought to two roles
+- [ ] 9.2 The run recorded as a dated baseline in that file's structure, every write and read figure beside the 2026-11-15 figure with the change in absolute and relative terms and whether it lies outside both runs' spread; the difference holds stage 5.8's Check round trip and this stage's removed hop together, and the record says so; named in `ROADMAP.md` as the baseline stage 6.5 compares against
 - [ ] 9.3 Each regression outside the spread root-caused and fixed, or recorded with its cause and the user's decision
-- [ ] 9.4 The exit gate: `ROADMAP.md`'s stage 5.9 row marked done with the headline figures; this change archived; the change sets of stages 6.5 and 6.6 rebased on two roles and the system group before stage 6.5 starts
+- [ ] 9.4 The exit gate: `ROADMAP.md`'s stage 5.9 row marked done with the headline figures; this change archived; the change sets of stages 6.5 and 6.6 rebased on two roles and the system group before stage 6.5 starts; backlog items 23 and 25 closed with what this change did of each

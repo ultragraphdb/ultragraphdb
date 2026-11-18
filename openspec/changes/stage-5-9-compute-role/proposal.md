@@ -29,8 +29,8 @@ for a node that drains (`specification/binary_protocol/PROTOCOL.md` sections 5.4
    moves between them.
 5. **Laws are stated as properties.** The node list, the client's list handling and the changed bodies carry Hegel
    property tests, run by `make test`'s property step.
-6. **The baseline for the tile store.** The benchmark is rerun after the merge, so stage 6.5's comparison measures the
-   tile store and not the hop this stage removes.
+6. **The baseline for the tile store.** The benchmark of `openspec/benches/benches-2026-11-15.md` is rerun after the
+   merge, so stage 6.5's comparison measures the tile store and not the hop this stage removes.
 
 ## What Changes
 
@@ -53,8 +53,10 @@ for a node that drains (`specification/binary_protocol/PROTOCOL.md` sections 5.4
   `ultragraphdb_frontend_tests`, the chart's frontend entries, the `FrontendTable` and the frontend's profiles, once
   their contents live under compute's names.
 
-This change's deltas are written against the capabilities as stage 5.8's change leaves them, so stage 5.8 is archived
-before this change's first group starts.
+This change's deltas were written against the capabilities as stage 5.8's change was drafted. Stage 5.8 is archived
+(`openspec/changes/archive/2026-11-17-stage-5-8-system-group`), and task 0.1 brings each delta to the archived text
+before the first group starts. The groups run in the order of design D12, the relay first. What stage 5.8 left
+unfinished is taken by the groups whose code it concerns (design D13).
 
 ## Capabilities
 

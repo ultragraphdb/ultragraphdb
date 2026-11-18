@@ -259,10 +259,11 @@ Measured 2026-11-15 (`openspec/benches/benches-2026-11-15.md`): a read costs two
 thirteen packets on the client endpoint's network card, and that machine's interrupt CPU is what stops read throughput. A
 one-frame read would take one of the two round trips away.
 
-### 18. One Scan for a read (stage 5.9, whose group 5 rewrites the read's path)
+### 18. One Scan for a read (to decide with item 15, stage 7)
 
 A read of one subject's statements sends its partition three Scans one after another: the dictionary's gate, the list and
-the terms' resolution (`ultragraphdb_common_compute`, `run_read.rs` and `partition_rows_terms.rs`). Measured 2026-11-15
+the terms' resolution (`ultragraphdb_common_compute`, `run_read.rs` and `partition_rows_terms.rs`). Stage 5.9 leaves it:
+its group 5 moves the read's path without changing what a partition is asked (its `notes/feasibility.md`, section 6). Measured 2026-11-15
 (`openspec/benches/benches-2026-11-15.md`): a partition answers a Scan in 38 µs while its round trip takes 2.6 ms, and a
 monotonic-fast read, which sends two, reads 15% more a second. Can the partition take the three as one request, resolving
 the terms and scanning at one version, and what do sections 11.12 and 13.13 of `PROTOCOL.md` then say about a snapshot
@@ -304,7 +305,8 @@ vector index" moved here from stage 5.8's change on 2026-11-17, verbatim, under 
 ### 23. What the refused-frame fixes of stage 5.8 left (stage 5.9)
 
 Stage 5.8 made each side that reads role replies follow `PROTOCOL.md` §2.5 step 3 and §2.6 (its `notes/group-8.md`,
-task 8.3). These findings were not taken into that change, and stage 5.9 settles each of them:
+task 8.3). These findings were not taken into that change. Stage 5.9's change takes each of them (its design D13 and
+`notes/feasibility.md`, section 5, which names the task for each), and closes this item at its exit gate:
 
 - **One reader rule.** The rule for late frames, stray frames and frames on stream 0 is written three times:
   `RoleClient::arrived` and storage's `subscribed` and `catalog_frame`. Should a `RoleClient` method that reads a
@@ -343,8 +345,8 @@ Stage 5.8's last mutation run of `ultragraphdb_common_frontend` (base `443a7f54`
 77 timeouts unresolved when the stage closed. They are listed in the archived change's `notes/mutants-common-frontend.md`.
 They concentrate in the system link's reads and turns, the client session and the `system_play` test double. Each one
 calls for a test that kills it, an entry in `.cargo/mutants.toml` with its argument, evidence that a process scenario
-kills it, or a stated reason it stays open. Each timeout also needs a check that tests failed before the cut. Which
-change takes them: stage 5.9, which rewrites the frontend into compute, or a run on a new base once 5.9 lands?
+kills it, or a stated reason it stays open. Each timeout also needs a check that tests failed before the cut. Stage
+5.9's task 5.9 takes them, after its task 5.7 removes the relay's code and the mutants in it (decided 2026-11-18).
 
 ## Source material: requirements
 

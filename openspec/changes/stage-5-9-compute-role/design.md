@@ -53,7 +53,9 @@ off when one of them needs a crate of its own.
 carried Bind streams and one-frame writes, also carries the Scans, Frontier requests and Closed of the reads that
 core executes. `ComputeCore`'s own connections go. The core that holds a transaction's Bind stream sends its Scans,
 so the order between a transaction's writes and reads is kept by one task queue where it was kept by a rule between
-two processes.
+two processes. D2 lands after the switch, in group 4: until then the executor keeps the connections `ComputeCore`
+holds, so one executor serves the endpoint in process and, until the switch removes it, the compute binary's role
+session, with no second kind of link beneath it.
 
 **D3. A read is a task of the endpoint core, and a step is one frame.** The architecture asks for the bound on read
 work per turn and for where longer work runs. A read's task gives the core back after it has consumed one Entries or
@@ -74,7 +76,8 @@ the group proposes a removal once an entry's connection has been closed for twic
 reconnect). The close record gains
 one flag, and the list's version is that close's epoch. A compute node joins once per process, on its first core's
 connection, joins again at once on another open connection when that one closes, and every core holds the list its
-process read. *Why not membership by open stream:* a restart of the
+process read. Compute's Join is built in group 3 (D12); between the switch and group 3 a compute process joins nothing.
+*Why not membership by open stream:* a restart of the
 group would empty the list, and one version would name two lists.
 
 **D6. Compute is told its address and its tags.** `[compute] advertised_address` and `[compute] tags` are settings of
@@ -113,8 +116,34 @@ live under compute's names, each at a task that waits for the user's approval. T
   in key order whatever the frame boundaries.
 - **Two nodes.** Sessions through both, a resend on the other node while the original is on its way, a node drained
   and a node killed, a Drop sent through a node one close behind.
-- **The benchmark.** Rerun exactly as `openspec/benches/benches-2026-11-09.md` and stage 5.8's record ran it, and
-  recorded as the baseline stage 6.5 compares against.
+- **The benchmark.** Rerun exactly as `openspec/benches/benches-2026-11-15.md` ran it, the last record of reads and
+  writes, since stage 5.8 took none (decided 2026-11-18). The difference from that record holds stage 5.8's Check round
+  trip and this stage's removed hop together. It is recorded as the baseline stage 6.5 compares against, so that
+  comparison measures the tile store and not the hop.
+
+**D12. The relay goes first, the switch second, the node list third** (decided 2026-11-18; `notes/feasibility.md`).
+From stage 5.9 a compute node's Join carries no role address, Members lists storage alone and the role name `frontend`
+is refused (`PROTOCOL.md` sections 13.1 and 13.2; config-service). Each of those ends the relay, so none can land while
+a frontend binary still relays reads. The groups therefore run 0, 5, 6, 4, 1 and 2, 3, 7, 8, 9:
+
+- **Group 5** moves the endpoint's code beside the executor and executes reads in process. Nothing sends a ComputeRead
+  after it.
+- **Group 6** is the switch, one commit as stage 5.8's task 7.4 was: the compute binary takes the endpoint under the
+  role's one name, and every retired name is refused. From the switch until group 3 a compute process sends no Join,
+  since nothing dials it.
+- **Group 4** puts a core's reads on its `RoleLink` (D2), once the executor has one caller.
+- **Groups 1, 2, 3 and 7** build the node list on two roles: the wire, a node's settings, the list in the system group
+  with compute's Join, and the clients.
+
+Every group passes the full `make test`, and the processes of a cluster speak one protocol at every commit.
+*Alternative:* the order 1 to 9 under two gates, as stage 5.8 ran: most of the stage would run without a test over the
+built binaries, and stage 5.8's first full gate after such a window found the defects of four groups at once.
+
+**D13. What stage 5.8 left is taken where its code changes** (decided 2026-11-18). The mutation survivors of the
+endpoint's code are resolved in group 5, after the relay's removal has taken those of the relay with it (task 5.9).
+The findings on compute's `Link` are corner cases of group 4, which removes `Link` and holds `RoleLink` to the same
+rules. The reader rule written three times becomes one before group 3 writes a fourth (task 0.7). The two mutants only
+real time tells apart take a clock (tasks 3.7 and 6.6). Storage's two findings land in group 3 (task 3.6).
 
 ## Risks / Trade-offs
 
@@ -132,7 +161,7 @@ live under compute's names, each at a task that waits for the user's approval. T
 
 ## Migration Plan
 
-No data migrates. The groups land in the order of `tasks.md`; the tree builds and `make test` passes after each. The
+No data migrates. The groups land in the order of D12; the tree builds and `make test` passes after each. The
 frontend's files are removed last, after their tests have moved. This change is archived, and stages 6.5 and 6.6 are
 rebased, before stage 6.5 starts.
 
