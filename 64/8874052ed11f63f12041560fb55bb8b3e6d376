@@ -1,0 +1,27 @@
+openspec/changes/stage-5-9-compute-role/notes/feasibility.md
+  s_21eff977e05256::t_4abd487ce19a03 1-125
+openspec/changes/stage-5-9-compute-role/design.md
+  s_21eff977e05256::t_0e526ba7bb7431 56-58,79-80,119-146,164
+openspec/changes/stage-5-9-compute-role/proposal.md
+  s_21eff977e05256::t_1b585fa96ec205 32-33,56-59
+openspec/changes/stage-5-9-compute-role/tasks.md
+  s_21eff977e05256::t_53c8b96eb1680e 19-22,24-25,27-29,33-69,74,80,82-83,85,87,90,94-96,102,112,116-117,119
+openspec/notes/backlog.md
+  s_21eff977e05256::t_d9fd6194bd46b0 262,265-266,308-309,348-349
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "648874052ed11f63f12041560fb55bb8b3e6d376",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
