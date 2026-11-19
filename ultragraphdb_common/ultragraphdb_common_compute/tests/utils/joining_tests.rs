@@ -28,7 +28,7 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::played::played_cluster::{CLUSTER, SECRET, role_cluster, run};
-use crate::played::played_frontend::{PlayedFrontend, even_ranges};
+use crate::played::played_system::{PlayedSystem, even_ranges};
 
 /// The deadline of the holding tests, which their clock passes: a peer gone that long is lost.
 const DEADLINE: Duration = Duration::from_millis(200);
@@ -99,8 +99,8 @@ type Ended<T> = Rc<RefCell<Option<T>>>;
 fn test_compute_dials_until_the_group_answers_and_a_partition_joined() -> TestResult {
     run(async {
         let cluster = role_cluster(SECRET, Duration::from_secs(30))?;
-        let group = PlayedFrontend::start(&cluster, even_ranges(1)?).await?;
-        let partition = PlayedFrontend::start(&cluster, even_ranges(1)?).await?;
+        let group = PlayedSystem::start(&cluster, even_ranges(1)?).await?;
+        let partition = PlayedSystem::start(&cluster, even_ranges(1)?).await?;
         group.answer(false);
         let joined: Ended<Result<Option<Vec<Address>>, RoleError>> = Rc::default();
         let address = Address::parse(group.address())?;
@@ -138,7 +138,7 @@ fn test_compute_dials_until_the_group_answers_and_a_partition_joined() -> TestRe
 fn test_a_group_refusing_the_secret_is_asked_until_the_deadline() -> TestResult {
     run(async {
         let other = role_cluster("another secret", Duration::from_secs(5))?;
-        let group = PlayedFrontend::start(&other, even_ranges(1)?).await?;
+        let group = PlayedSystem::start(&other, even_ranges(1)?).await?;
         let cluster = role_cluster(SECRET, Duration::from_millis(300))?;
         let address = Address::parse(group.address())?;
         let refused = find_partitions(&address, &cluster, &Stopping::default())
@@ -160,7 +160,7 @@ fn test_a_group_refusing_the_secret_is_asked_until_the_deadline() -> TestResult 
 fn test_a_stop_ends_a_search_with_nothing() -> TestResult {
     run(async {
         let cluster = role_cluster(SECRET, Duration::from_secs(30))?;
-        let group = PlayedFrontend::start(&cluster, even_ranges(1)?).await?;
+        let group = PlayedSystem::start(&cluster, even_ranges(1)?).await?;
         group.answer(false);
         let stopping = Stopping::default();
         stopping.set();
@@ -175,8 +175,8 @@ fn test_a_stop_ends_a_search_with_nothing() -> TestResult {
 
 /// The group and a peer standing in for a partition, held by compute on a clock the test moves.
 struct Held {
-    group: PlayedFrontend,
-    partition: PlayedFrontend,
+    group: PlayedSystem,
+    partition: PlayedSystem,
     clock: Rc<Cell<Duration>>,
     stopping: Stopping,
     ended: Ended<Result<(), RoleError>>,
@@ -188,8 +188,8 @@ impl Held {
     async fn start(group_secret: &str, deadline: Duration) -> TestResult<Self> {
         let cluster = role_cluster(SECRET, deadline)?;
         let group =
-            PlayedFrontend::start(&role_cluster(group_secret, deadline)?, even_ranges(1)?).await?;
-        let partition = PlayedFrontend::start(&cluster, even_ranges(1)?).await?;
+            PlayedSystem::start(&role_cluster(group_secret, deadline)?, even_ranges(1)?).await?;
+        let partition = PlayedSystem::start(&cluster, even_ranges(1)?).await?;
         let held = Self {
             group,
             partition,
@@ -466,7 +466,7 @@ async fn holding_stray(stray: Stray) -> TestResult<(Rc<Cell<u32>>, Stopping)> {
         }
     })
     .detach();
-    let partition = PlayedFrontend::start(&cluster, even_ranges(1)?).await?;
+    let partition = PlayedSystem::start(&cluster, even_ranges(1)?).await?;
     let partitions = vec![Address::parse(partition.address())?];
     let stopping = Stopping::default();
     let stops = stopping.clone();

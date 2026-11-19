@@ -3,7 +3,7 @@
 
 @both_carriers
 Feature: Requests are routed through the three binaries
-  openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request; run over TCP and again over Unix sockets. The second scenario is beyond the spec: a one-frame write read back at the default level.
+  openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md, through the real compute and storage, the client crates' own client sending every request; run over TCP and again over Unix sockets. The second scenario is beyond the spec: a one-frame write read back at the default level.
 
   Rule: Requests are routed to the partitions and compute that serve them
 

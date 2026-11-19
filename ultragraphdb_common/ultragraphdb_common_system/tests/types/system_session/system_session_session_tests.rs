@@ -170,8 +170,8 @@ fn test_a_storage_process_may_not_ask_for_the_latest() -> TestResult {
     })
 }
 
-/// L3.34, and the scenario "A late subscriber is not refused for trimmed closes": a frontend's Subscribe of `latest` 1 begins with
-/// the latest durable close, whatever its epoch, and the close one above it follows.
+/// L3.34, and the scenario "A late subscriber is not refused for trimmed closes": compute's Subscribe of `latest` 1
+/// begins with the latest durable close, whatever its epoch, and the close one above it follows.
 #[test]
 fn test_a_subscriber_holding_no_close_begins_at_the_latest() -> TestResult {
     Runtime::new()?.block_on(async {
@@ -224,10 +224,10 @@ fn test_a_subscriber_holding_no_close_before_any_begins_at_epoch_one() -> TestRe
     })
 }
 
-/// C3.73, C3.74, L3.35, and the scenarios "The frontend's request closes the open epoch" and "A request for a closed epoch closes
-/// nothing": a frontend's CloseRequest of `partition` 0 naming the open epoch closes it early; one naming a closed epoch, one
-/// above the open one, one of `partition` 0 from storage and one of `partition` 3 from the compute are dropped, and no frame
-/// answers any of them.
+/// C3.73, C3.74, L3.35, and the scenarios "Compute's request closes the open epoch" and "A request for a closed epoch
+/// closes nothing": compute's CloseRequest of `partition` 0 naming the open epoch closes it early; one naming a closed
+/// epoch, one above the open one, one of `partition` 0 from storage and one of `partition` 3 from the compute are
+/// dropped, and no frame answers any of them.
 #[test]
 fn test_a_close_request_is_taken_by_its_senders_role() -> TestResult {
     Runtime::new()?.block_on(async {
@@ -413,7 +413,7 @@ fn test_a_catalog_request_naming_an_epoch_is_answered_at_it() -> TestResult {
 /// kind 1 on another connection answers 14 before twice `transaction_ms` and passes after it.
 #[test]
 fn test_a_closed_connections_marks_hold_for_twice_the_limit() -> TestResult {
-    use super::system_session_frontend_tests::checked;
+    use super::system_session_compute_tests::checked;
     Runtime::new()?.block_on(async {
         let group = served("closed-marks", 509).await?;
         let alice = principal(&group.handle, "alice").await?;

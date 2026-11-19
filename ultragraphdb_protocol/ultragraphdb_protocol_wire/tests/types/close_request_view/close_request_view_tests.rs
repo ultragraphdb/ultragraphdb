@@ -45,7 +45,7 @@ fn test_unused_header_bytes_are_refused() -> TestResult {
     Ok(())
 }
 
-/// C1.99: `partition` 0, the frontend's, reads with an epoch, as the stage 5.8 constructor builds it, and so does
+/// C1.99: `partition` 0, compute's, reads with an epoch, as the stage 5.8 constructor builds it, and so does
 /// any partition; which sender may name which is the receiving session's rule (`PROTOCOL.md` §13.16).
 #[test]
 fn test_a_request_of_partition_zero_reads() -> TestResult {

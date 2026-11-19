@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: Requests name terms by their text, through the three binaries
-  openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: A skolem IRI nobody can hold binds nothing
     When a read-write transaction's first request is a Read binding its subject to an IRI under tenant 7's skolem base in tenant 0, and its next request is a Write of `<a>`

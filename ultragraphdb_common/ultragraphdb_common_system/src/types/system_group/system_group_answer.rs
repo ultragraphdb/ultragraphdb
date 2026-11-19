@@ -57,13 +57,6 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
                 principal,
                 reply,
             } => drop(reply.send(self.check(session, principal))),
-            SystemAsked::BeginCommit {
-                session,
-                principal,
-                writes,
-                reply,
-            } => drop(reply.send(self.begin_commit(session, principal, writes))),
-            SystemAsked::CommitEnded { session } => self.marks.end_in_process(session),
             SystemAsked::SessionHeld { session, reply } => {
                 let held = self.metadata.state().session_principal(session).is_ok();
                 let _unheard: Result<(), bool> = reply.send(held);
@@ -131,8 +124,6 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
             | SystemAsked::Verifier { .. }
             | SystemAsked::RegisterSession { .. }
             | SystemAsked::CheckSession { .. }
-            | SystemAsked::BeginCommit { .. }
-            | SystemAsked::CommitEnded { .. }
             | SystemAsked::SessionHeld { .. }
             | SystemAsked::Connect { .. }
             | SystemAsked::Disconnect { .. }
@@ -148,8 +139,7 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
         Ok(())
     }
 
-    /// Takes what a role connection to the group asked at `now_us` of what the frontend's endpoint asked in process before
-    /// (`PROTOCOL.md` §11.12, the system group's commands).
+    /// Takes what a role connection to the group asked at `now_us` (`PROTOCOL.md` §11.12, the system group's commands).
     /// An asker gone has no one to tell, so every send's failure is dropped.
     fn take_system(&mut self, asked: SystemAsked, now_us: u64) -> Result<(), RoleError> {
         match asked {
@@ -201,8 +191,6 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
             | SystemAsked::Verifier { .. }
             | SystemAsked::RegisterSession { .. }
             | SystemAsked::CheckSession { .. }
-            | SystemAsked::BeginCommit { .. }
-            | SystemAsked::CommitEnded { .. }
             | SystemAsked::SessionHeld { .. }
             | SystemAsked::TenantFacts { .. }
             | SystemAsked::Map { .. }
@@ -287,20 +275,6 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
             Err(refused) => drop(reply.send(Err(refused_or_stop(&refused)?))),
         }
         Ok(())
-    }
-
-    /// The owner check of a commit, one in flight per session (`PROTOCOL.md` §11.5).
-    fn begin_commit(
-        &mut self,
-        session: u128,
-        principal: u64,
-        writes: bool,
-    ) -> Result<(), ErrorReply> {
-        system_group_syncing::begin_commit(
-            self.metadata.reads(),
-            &mut self.marks,
-            (session, principal, writes),
-        )
     }
 
     fn tenant_facts(&self, tenant: u64) -> TenantFacts {

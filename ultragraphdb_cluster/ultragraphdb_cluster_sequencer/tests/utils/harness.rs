@@ -17,8 +17,8 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_log::{OrderedLog, RoundRef};
 use ultragraphdb_transactions_log::{SimStorage, Wal, WalConfig};
 
-/// The sequencer's log directory in the simulated storage, under its root as the frontend's `/data/seq` is under
-/// `/data`.
+/// The sequencer's log directory in the simulated storage, under its root as the system group's `seq` log is under
+/// its data directory.
 pub const DIR: &str = "/seq";
 
 /// The log every test runs the sequencer over.

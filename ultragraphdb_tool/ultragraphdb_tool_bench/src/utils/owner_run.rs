@@ -3,12 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The frontend's owner check timed as an endpoint core meets it (task 12.5b): the production owner started on its own
-//! thread over its logs in the run's directory, closing epochs within the bounds given and syncing each close, the
+//! Compute's owner check timed as the system group's owner meets it (task 12.5b): the production owner started on its
+//! own thread over its logs in the run's directory, closing epochs within the bounds given and syncing each close, the
 //! bootstrap administrator created from a password file and one session of it registered; then, from this thread's
-//! runtime, one check after another, each the commit's `begin_commit` from its ask to its answer, its `commit_ended`
-//! sent after it as a commit's end sends it. The time is the hop to the owner's core and back and any wait for the
-//! owner's turn, its sync of a close among them; the check itself is a lookup in the registry.
+//! runtime, as the session of one role connection asks it, one check after another, each a Commit's Check of that
+//! session from its ask to its answer, the Ended of its mark sent after it as a commit's end sends it. The time is the
+//! hop to the owner's core and back and any wait for the owner's turn, its sync of a close among them; the check itself
+//! is a lookup in the registry. Compute's role connection to the storage process hosting the group is not in it.
 
 use std::time::Duration;
 
@@ -16,7 +17,7 @@ use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_service_config::ServiceConfig;
 use ultragraphdb_common_system::{SystemStart, start_system};
-use ultragraphdb_protocol_wire::ErrorReply;
+use ultragraphdb_protocol_wire::{CheckKind, CheckOutcome, ErrorReply, SessionCheck};
 
 use crate::errors::bench_error::BenchError;
 use crate::traits::clock::Clock;
@@ -69,17 +70,23 @@ pub fn run_owner(args: &OwnerArgs) -> Result<String, BenchError> {
             .register_session(SESSION, ADMIN)
             .await
             .map_err(|refusal| refused(&refusal))?;
+        let connection = handle
+            .connect()
+            .await
+            .ok_or_else(|| BenchError::commit("the owner stopped".to_string()))?;
         let clock = WallClock::new();
         // At most `checks` times, each pushed once.
         let mut checks_us = Vec::with_capacity(usize::try_from(args.checks()).unwrap_or(0));
         for _ in 0..args.checks() {
+            let check = SessionCheck::new(SESSION.to_be_bytes(), ADMIN, CheckKind::Marks);
             let asked = clock.elapsed();
-            handle
-                .begin_commit(SESSION, ADMIN)
+            let answered = handle
+                .check(connection, vec![check])
                 .await
                 .map_err(|refusal| refused(&refusal))?;
             checks_us.push(micros(clock.elapsed().saturating_sub(asked)));
-            handle.commit_ended(SESSION);
+            passed(&answered)?;
+            handle.ended(connection, vec![SESSION]);
         }
         drop(handle);
         owner.stopped().await.map_err(failed)?;
@@ -96,6 +103,16 @@ fn micros(elapsed: Duration) -> u64 {
 /// The owner's failure as the run's.
 fn failed(error: impl std::fmt::Display) -> BenchError {
     BenchError::commit(error.to_string())
+}
+
+/// A check the owner answered other than passed, as the run's failure.
+fn passed(answered: &[SessionCheck]) -> Result<(), BenchError> {
+    match answered.first().map(SessionCheck::outcome) {
+        Some(CheckOutcome::Passed) => Ok(()),
+        outcome => Err(BenchError::commit(format!(
+            "the check answered {outcome:?}"
+        ))),
+    }
 }
 
 /// The owner's refusal as the run's.

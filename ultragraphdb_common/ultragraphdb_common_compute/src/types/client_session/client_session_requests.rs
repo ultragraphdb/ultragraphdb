@@ -35,7 +35,7 @@ pub(super) fn unknown_tenant(tenant: u64) -> ErrorReply {
     .with_detail(tenant)
 }
 
-/// A command the frontend does not serve in this stage: code 7, naming the command and the stage (`PROTOCOL.md` §11.2).
+/// A command compute does not serve in this stage: code 7, naming the command and the stage (`PROTOCOL.md` §11.2).
 fn later_stage(command: &str, stage: &str) -> ErrorReply {
     ErrorReply::new(
         ErrorCode::Refused,
@@ -143,7 +143,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     }
 
     /// The gate on a request naming `tenant`, then whether the core's view holds it, its current version read once when it is
-    /// first used (`PROTOCOL.md` §11.13, *The frontend's reads*). A view not yet answering is waited for within
+    /// first used (`PROTOCOL.md` §11.13, *Compute's reads*). A view not yet answering is waited for within
     /// `transaction_ms`.
     pub(super) async fn gate(&self, action: Action, tenant: u64) -> Result<ViewFacts, ErrorReply> {
         self.core
@@ -291,7 +291,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         Err(later_stage("a Migrate", "9.5"))
     }
 
-    /// What the system group says of a tenant (`PROTOCOL.md` §8.3, §11.13, *The frontend's reads*): the catalog version a
+    /// What the system group says of a tenant (`PROTOCOL.md` §8.3, §11.13, *Compute's reads*): the catalog version a
     /// client reads at the view's latest closed epoch, by a Catalog of `version` 0 naming it, which the answer names in
     /// `catalog` on every frame, and the default-entry records by Defaults; answered across frames within the client's
     /// `max_frame`, under its credit.

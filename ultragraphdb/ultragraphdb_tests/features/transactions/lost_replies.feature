@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: Exactly-once through a network that loses frames
-  openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request. A link between the client and the frontend takes the frame the scenario names, and the reply it took is compared with the resend's.
+  openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md, through the real compute and storage, the client crates' own client sending every request. A link between the client and compute takes the frame the scenario names, and the reply it took is compared with the resend's.
 
   @both_shells
   Scenario: A retried commit commits once

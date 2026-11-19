@@ -6,8 +6,8 @@
 //! Whole clusters as processes, every role started through the config service, bound to `features/`, with no container. One
 //! scenario runs at a time: the binaries listen at their declared ports. Every scenario runs through the compio shell over
 //! TCP; those tagged `both_carriers` again with every address a Unix socket; those tagged `core` again over TLS, and through
-//! the tokio shell over TCP and over TLS; those tagged `both_shells`, which lose frames on a link between the client and the
-//! frontend, through the tokio shell over TCP; and those tagged `over_tls`, of a TLS endpoint, over TLS alone.
+//! the tokio shell over TCP and over TLS; those tagged `both_shells`, which lose frames on a link between the client
+//! and compute, through the tokio shell over TCP; and those tagged `over_tls`, of a TLS endpoint, over TLS alone.
 
 mod client_reads;
 mod cluster;

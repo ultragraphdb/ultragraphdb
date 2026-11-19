@@ -35,7 +35,7 @@ pub(super) fn checked(
             let session = u128::from_be_bytes(check.session());
             let outcome = outcome_of(reads, marks, quiet, session, &check);
             if outcome == CheckOutcome::Passed && check.kind() == CheckKind::Marks {
-                marks.mark(session, Some(connection), true);
+                marks.mark(session, connection, true);
             }
             check.with_outcome(outcome)
         })
@@ -110,8 +110,9 @@ impl<M: OrderedLog, S: OrderedLog> SystemGroup<M, S> {
             .register_session(session, &name, |held| marks.protects(held))
         {
             Ok(_) => self.durable.push(Durable::Registered(reply)),
-            // Every other session is marked, or the evictions awaiting a close are at their bound: either passes, so the frontend
-            // answers its client's Register with 14, and the client registers again after a delay (`PROTOCOL.md` §11.5).
+            // Every other session is marked, or the evictions awaiting a close are at their bound: either passes, so
+            // compute answers its client's Register with 14, and the client registers again after a delay
+            // (`PROTOCOL.md` §11.5).
             Err(refused) if matches!(refused.0, ClusterErrorEnum::Full { .. }) => {
                 let busy = ErrorReply::new(ErrorCode::SessionBusy, refused.to_string());
                 drop(reply.send(Err(busy)));

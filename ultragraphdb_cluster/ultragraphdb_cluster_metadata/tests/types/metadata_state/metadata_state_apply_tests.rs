@@ -495,7 +495,7 @@ fn test_a_session_registers_once_for_a_principal_that_exists() -> TestResult {
         ClusterError::session_exists(10).0
     );
     state.apply(&register(20, 1, &[]))?;
-    // Evictions name held sessions, oldest first: the frontend skips one with a commit in flight.
+    // Evictions name held sessions, oldest first: the system group skips one with a commit in flight.
     let rule = contradicts("a registration evicts held sessions, oldest first");
     for evicts in [&[20, 10][..], &[10, 10], &[10, 99], &[10, 20, 99]] {
         assert_eq!(refused(&mut state, &register(30, 1, evicts))?, rule);

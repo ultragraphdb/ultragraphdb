@@ -13,7 +13,7 @@ use crate::played::played_cluster::{PlayedCluster, quiet_times, run};
 use crate::played::played_data::OneList;
 use crate::played::played_read::{Bound, cancel, read, send, snapshot_of};
 
-/// How long the frontend holds compute's question where a partition listens, while the read asking it is cancelled.
+/// How long the system group holds compute's question where a partition listens, while the read asking it is cancelled.
 const HELD: Duration = Duration::from_millis(500);
 
 /// A read cancelled while its core dials a partition leaves the next read to dial it, which reads at once.
@@ -28,19 +28,19 @@ fn test_a_read_cancelled_while_its_core_dials_leaves_the_next_to_dial() -> TestR
             predicate: Some(list.predicate.iri.clone()),
             object: None,
         };
-        played.frontend().delay_members(HELD);
+        played.system().delay_members(HELD);
         let mut client = played.client();
         let stream = send(&mut client, &snapshot_of(&bound)?)?;
         let asked = async {
-            while played.frontend().members_asked() == 0 {
+            while played.system().members_asked() == 0 {
                 compio::time::sleep(Duration::from_millis(5)).await;
             }
         };
         compio::time::timeout(HELD * 2, asked)
             .await
-            .map_err(|_| TestError::new("compute never asked the frontend for the members"))?;
+            .map_err(|_| TestError::new("compute never asked the system group for the members"))?;
         cancel(&mut client, stream)?;
-        played.frontend().delay_members(Duration::ZERO);
+        played.system().delay_members(Duration::ZERO);
         compio::time::sleep(HELD / 5).await;
         let mut next = played.client();
         let answer = compio::time::timeout(HELD * 4, read(&mut next, &snapshot_of(&bound)?))
@@ -65,29 +65,29 @@ fn test_a_read_waiting_on_a_dial_given_up_dials_for_itself() -> TestResult {
             predicate: Some(list.predicate.iri.clone()),
             object: None,
         };
-        played.frontend().delay_members(HELD);
+        played.system().delay_members(HELD);
         let mut dialling = played.client();
         let stream = send(&mut dialling, &snapshot_of(&bound)?)?;
         let asked = async {
-            while played.frontend().members_asked() == 0 {
+            while played.system().members_asked() == 0 {
                 compio::time::sleep(Duration::from_millis(5)).await;
             }
         };
         compio::time::timeout(HELD * 2, asked)
             .await
-            .map_err(|_| TestError::new("compute never asked the frontend for the members"))?;
+            .map_err(|_| TestError::new("compute never asked the system group for the members"))?;
         let mut waiting = played.client();
         let waiting_stream = send(&mut waiting, &snapshot_of(&bound)?)?;
         // The second read reaches the dial under way and waits on it.
         compio::time::sleep(HELD / 5).await;
         cancel(&mut dialling, stream)?;
-        played.frontend().delay_members(Duration::ZERO);
+        played.system().delay_members(Duration::ZERO);
         let answer = compio::time::timeout(HELD * 4, answer_of(&mut waiting, waiting_stream))
             .await
             .map_err(|_| TestError::new("the waiting read did not end"))??;
         assert_eq!(answer.answered()?.column(0), list.object_iris());
         assert_eq!(
-            played.frontend().members_asked(),
+            played.system().members_asked(),
             2,
             "the waiting read asked anew"
         );

@@ -56,7 +56,7 @@ impl<A: Authorizer> EndpointCore<A> {
         }
     }
 
-    /// The core numbered `core` among the frontend's endpoint cores, which its phases' log names.
+    /// The core numbered `core` among compute's endpoint cores, which its phases' log names.
     #[must_use]
     pub fn with_core(mut self, core: usize) -> Self {
         self.phases = self.phases.with_core(core);
@@ -117,7 +117,7 @@ impl<A> EndpointCore<A> {
     }
 
     /// Whether a connection accepted from `peer` may go on: one with no address, over a Unix socket, always; one from a banned
-    /// source not, as its throttle says (design D15). The frontend asks before TLS or any frame. A dropped future
+    /// source not, as its throttle says (design D15). Compute asks before TLS or any frame. A dropped future
     /// leaves what [`ThrottleHandle`] says.
     pub async fn admits(&self, peer: Option<IpAddr>) -> bool {
         match peer {

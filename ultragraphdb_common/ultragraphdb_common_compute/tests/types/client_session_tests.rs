@@ -95,8 +95,8 @@ async fn endpoint(owner: SystemHandle) -> TestResult<Address> {
     endpoint_within(owner, LoginLimits::default(), limits).await
 }
 
-/// A client endpoint over `owner` of `limits` at a free port, each connection admitted by a throttle of `logins` first as the
-/// frontend admits it; its address.
+/// A client endpoint over `owner` of `limits` at a free port, each connection admitted by a throttle of `logins` first as
+/// compute admits it; its address.
 async fn endpoint_within(
     owner: SystemHandle,
     logins: LoginLimits,
@@ -365,7 +365,7 @@ fn one_insert() -> Write {
     Write::new(terms, vec![change])
 }
 
-/// A Commit the endpoint relayed is one of its open requests until its reply has left, so a frontend's stop waits for it
+/// A Commit the endpoint relayed is one of its open requests until its reply has left, so compute's stop waits for it
 /// (role-binaries, *Readiness, health and shutdown*), and nothing stays counted once it has.
 #[test]
 fn test_a_relayed_commit_stays_open_until_its_reply_leaves() -> TestResult {
@@ -919,7 +919,7 @@ fn subject_read(stream: u64) -> Read {
     Read::new(stream, 0, terms, pattern, Vec::new())
 }
 
-/// A partition answering a Bind with a frame the frontend refuses closes the role connection, as the side that dialled does
+/// A partition answering a Bind with a frame compute refuses closes the role connection, as the side that dialled does
 /// (`PROTOCOL.md` §2.6, §13): a body breaking its rules, a command a Bind is not answered by (§2.5, step 3), and an Error whose
 /// body does not read. The transaction is answered 17, and the next is relayed over a connection dialled again, which a
 /// partition's good answers commit.

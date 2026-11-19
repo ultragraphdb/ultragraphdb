@@ -3,8 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A cluster on the test's own runtime: a played frontend and played partitions, each over a TCP port of its own, every connection
-//! authenticated as the roles authenticate, and the crate's compute core, whose reads a client's session hands to its executor.
+//! A cluster on the test's own runtime: a played system group and played partitions, each over a TCP port of its own, every
+//! connection authenticated as the roles authenticate, and the crate's compute core, whose reads a client's session hands to
+//! its executor.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -25,8 +26,8 @@ use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 use crate::apart::apart_session::ReadSession;
 
-use super::played_frontend::FrontendConnection;
 use super::played_partition::{PartitionConnection, PlayedPartition};
+use super::played_system::SystemConnection;
 
 /// The cluster every played role serves.
 pub const CLUSTER: u64 = 7;
@@ -137,19 +138,16 @@ impl PlayedCluster {
             )?;
             played.push(at);
         }
-        let (frontend_listener, frontend) = listener().await?;
-        serve(
-            frontend_listener,
-            Endpoint::System,
-            credentials,
-            move || FrontendConnection {
+        let (system_listener, system) = listener().await?;
+        serve(system_listener, Endpoint::System, credentials, move || {
+            SystemConnection {
                 cluster: CLUSTER,
                 partitions,
                 listed: listed.clone(),
-            },
-        )?;
+            }
+        })?;
         let cluster = RoleCluster::new(CLUSTER, secret, Duration::from_secs(5));
-        let core = ComputeCore::new(cluster, frontend, times, "compute");
+        let core = ComputeCore::new(cluster, system, times, "compute");
         Ok(Self {
             partitions: played,
             core,

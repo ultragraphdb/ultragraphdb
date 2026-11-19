@@ -25,7 +25,7 @@ pub struct ConditionalWriteView<'a> {
 }
 
 impl<'a> ConditionalWriteView<'a> {
-    /// The principal the frontend filled; 0 from a client.
+    /// The principal compute filled; 0 from a client.
     #[must_use]
     pub fn principal(&self) -> u64 {
         self.header.principal

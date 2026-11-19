@@ -241,7 +241,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     }
 }
 
-/// `now`, in the shell: a transaction's limit and a read's deadline run on the frontend's own clock.
+/// `now`, in the shell: a transaction's limit and a read's deadline run on compute's own clock.
 #[expect(
     clippy::disallowed_methods,
     reason = "a deadline in the shell, which no simulation replays"

@@ -3,7 +3,7 @@
 
 @both_shells
 Feature: A real reply damaged on its way to the client
-  The conformance suites flip every bit of every golden reply over a simulated network. Beyond the spec: a link between a real client and a real frontend flips one in the header and one in the body, of a reply the frontend really sent.
+  The conformance suites flip every bit of every golden reply over a simulated network. Beyond the spec: a link between a real client and a real compute node flips one in the header and one in the body, of a reply compute really sent.
 
   Scenario: A damaged reply is refused by the connection's rule
     When a real reply is damaged on its way to the client

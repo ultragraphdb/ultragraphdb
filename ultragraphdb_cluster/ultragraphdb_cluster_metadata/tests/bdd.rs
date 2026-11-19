@@ -833,7 +833,7 @@ fn daves_sessions_evicted(w: &mut Steps) -> TestResult {
     assert!(state.principal("dave").is_none(), "dave is removed");
     assert_eq!(state.pending_evictions(), evicted);
     for session in [first, second] {
-        // The frontend's owner check refuses the commit before it is routed.
+        // The system group's owner check refuses the commit before it is routed.
         let refusal = state
             .session_principal(session)
             .err()
@@ -900,7 +900,7 @@ fn oldest_evicted(w: &mut Steps) -> TestResult {
     let state = w.group()?.state();
     assert_eq!(state.sessions(), 3);
     assert_eq!(state.pending_evictions(), vec![11]);
-    // The frontend's owner check refuses the commit before it is routed.
+    // The system group's owner check refuses the commit before it is routed.
     let refusal = state.session_principal(11).err().context("a refusal")?;
     assert_eq!(refusal.0, ClusterErrorEnum::SessionEvicted { session: 11 });
     let carol = state.principal("carol").context("carol")?.id();

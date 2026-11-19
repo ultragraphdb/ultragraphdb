@@ -5,7 +5,7 @@
 
 mod recall_body_builder;
 
-/// The frontend asks a partition for a session's stored reply (`PROTOCOL.md` §13.11), for a retried Commit or Drop it
+/// Compute asks a partition for a session's stored reply (`PROTOCOL.md` §13.11), for a retried Commit or Drop it
 /// cannot answer itself. Answered on its stream with the stored Commit or Drop frame, or an Error.
 ///
 /// | Command header | Field | Type |

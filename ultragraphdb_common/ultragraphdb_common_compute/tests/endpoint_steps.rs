@@ -1296,7 +1296,7 @@ fn a_relayed_commit_is_not_timed_held(w: &mut Steps) {
 #[when(
     "a client begins a read-write transaction and sends Commit through its session with nothing else"
 )]
-fn an_empty_transaction_commits_at_the_frontend(w: &mut Steps) -> TestResult {
+fn an_empty_transaction_commits_at_compute(w: &mut Steps) -> TestResult {
     let options = Options::default();
     run(w, options, |stage| async move {
         let _whole = &stage;
@@ -1318,7 +1318,7 @@ fn an_empty_transaction_commits_at_the_frontend(w: &mut Steps) -> TestResult {
 #[then(
     "compute answers `commit_version` 0, the token zero and no results, and no partition sees it"
 )]
-fn an_empty_transaction_commits_at_the_frontend_held(w: &mut Steps) {
+fn an_empty_transaction_commits_at_compute_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 

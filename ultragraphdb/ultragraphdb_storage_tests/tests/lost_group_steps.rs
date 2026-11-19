@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A storage process that does not host the system group, over the played frontend standing in for the group, which breaks the
+//! A storage process that does not host the system group, over the system group the test plays, which breaks the
 //! connection the process subscribes on (`PROTOCOL.md` §2.5, step 3; §2.6; §11.12, *Joining*): the process closes it, if the
 //! group has not, joins and subscribes again on a new one, and runs on. Or it breaks a catalog version's frames on the connection
 //! the process reads its catalog on as it starts (§13.7): a late frame is dropped, and a frame on a stream that answers no
@@ -16,8 +16,8 @@ use std::time::Duration;
 use ultragraphdb_tests::{STORAGE_BINARY, not_hosting, role, scratch, storage_holding, with};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-use crate::played_frontend::{
-    Push, STRAY_AHEAD, exit_of, play_frontend, played_frontend_address, until_seen,
+use crate::played_system::{
+    Push, STRAY_AHEAD, exit_of, play_system, played_system_address, until_seen,
 };
 use crate::{Steps, services};
 
@@ -36,18 +36,19 @@ pub(crate) struct LostSteps {
     catalog_ended_at_second: usize,
 }
 
-/// A storage process over the played frontend, which breaks its first subscription's connection by `push`: each Join after
-/// the first is held until the test has read what had ended by then, and the process is stopped once it subscribed again.
+/// A storage process over the played system group, which breaks its first subscription's connection by `push`: each
+/// Join after the first is held until the test has read what had ended by then, and the process is stopped once it
+/// subscribed again.
 fn broken(w: &mut Steps, push: Push) -> TestResult {
     let log = scratch("storage-broken-subscription.log");
     let settings = with(
         not_hosting(storage_holding()?),
         "cluster.system_address",
-        &format!("tcp://{}", played_frontend_address()?),
+        &format!("tcp://{}", played_system_address()?),
     );
     let util = services()?;
     Runtime::new()?.block_on(async {
-        let played = play_frontend(push).await?;
+        let played = play_system(push).await?;
         played.hold_rejoins(true);
         let pid = util.start_service_from_config(role(
             STORAGE_BINARY,
@@ -89,18 +90,18 @@ fn stray_ahead(w: &mut Steps) -> TestResult {
     broken(w, Push::StrayAhead)
 }
 
-/// A storage process over the played frontend, which breaks a catalog version's frames by `push` on the first connection the
-/// process reads its catalog on: the process is stopped once it joined.
+/// A storage process over the played system group, which breaks a catalog version's frames by `push` on the first
+/// connection the process reads its catalog on: the process is stopped once it joined.
 fn catalog_broken(w: &mut Steps, push: Push) -> TestResult {
     let log = scratch("storage-broken-catalog.log");
     let settings = with(
         not_hosting(storage_holding()?),
         "cluster.system_address",
-        &format!("tcp://{}", played_frontend_address()?),
+        &format!("tcp://{}", played_system_address()?),
     );
     let util = services()?;
     Runtime::new()?.block_on(async {
-        let played = play_frontend(push).await?;
+        let played = play_system(push).await?;
         let pid = util.start_service_from_config(role(
             STORAGE_BINARY,
             &settings,

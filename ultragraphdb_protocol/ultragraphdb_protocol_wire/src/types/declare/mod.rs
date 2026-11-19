@@ -8,7 +8,7 @@ mod declare_body_builder;
 use crate::types::declared::Declared;
 use crate::types::drop_kind::DropKind;
 
-/// The frontend asks the system group for a catalog version (`PROTOCOL.md` §13.27): of `kind` 1 the version a
+/// Compute asks the system group for a catalog version (`PROTOCOL.md` §13.27): of `kind` 1 the version a
 /// transaction's declarations make, built on the version current when the transaction began; of `kind` 2 the version
 /// a committed Drop calls for. The reply holds every field as sent with `version` and `commit_version` filled.
 ///

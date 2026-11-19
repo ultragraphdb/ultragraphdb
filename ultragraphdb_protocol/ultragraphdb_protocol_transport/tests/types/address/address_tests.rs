@@ -61,10 +61,7 @@ fn test_a_tcp_address_names_its_host_and_port() -> TestResult {
         ("tcp://127.0.0.1:1", "127.0.0.1:1"),
         ("tcp://[::1]:65535", "[::1]:65535"),
         ("tcp://[::ffff:127.0.0.1]:80", "[::ffff:127.0.0.1]:80"),
-        (
-            "tcp://frontend.ultragraph.svc:1",
-            "frontend.ultragraph.svc:1",
-        ),
+        ("tcp://compute.ultragraph.svc:1", "compute.ultragraph.svc:1"),
         ("tcp://Host-1.Example.COM:80", "Host-1.Example.COM:80"),
     ] {
         let address = Address::parse(text)?;
@@ -80,8 +77,8 @@ fn test_a_tcp_address_names_its_host_and_port() -> TestResult {
 fn test_a_unix_address_names_its_socket_path() -> TestResult {
     for (text, path) in [
         (
-            "unix:///run/ultragraph/frontend.sock",
-            "/run/ultragraph/frontend.sock",
+            "unix:///run/ultragraph/compute.sock",
+            "/run/ultragraph/compute.sock",
         ),
         ("unix:///s", "/s"),
         // A path is the file system's: `%`, `@`, `?` and `#` are characters of a file's name.

@@ -555,7 +555,7 @@ impl Session for Listing {
 }
 
 #[test]
-fn test_members_at_lists_what_the_frontend_answers() -> TestResult {
+fn test_members_at_lists_what_the_system_group_answers() -> TestResult {
     let mut members = Members::new();
     members.push_compute("tcp://127.0.0.1:7082");
     members.push_storage(1, "tcp://127.0.0.1:7000");
@@ -575,7 +575,7 @@ fn test_members_at_lists_what_the_frontend_answers() -> TestResult {
     compio::runtime::Runtime::new()?.block_on(async {
         let listener = listen(&address).await?;
         let server =
-            Server::new(CLUSTER, "frontend", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
+            Server::new(CLUSTER, "system", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
         let session = Listing(members);
         spawn(async move {
             if let Ok(carrier) = listener.accept().await {

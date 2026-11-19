@@ -431,7 +431,7 @@ fn test_members_are_read_into_the_links() -> TestResult {
     })
 }
 
-/// Design D10, role-binaries "Readiness, health and shutdown": the frontend is ready once the group answers it, its view
+/// Design D10, role-binaries "Readiness, health and shutdown": compute is ready once the group answers it, its view
 /// holds a placement and a close, Members lists every partition of the placement and a storage partition answers. Every
 /// partition listed where nothing listens leaves it unready.
 #[test]
@@ -447,14 +447,14 @@ fn test_readiness_waits_for_a_partition_to_answer() -> TestResult {
             at.links.lists(1) && at.links.lists(2)
         })
         .await?;
-        // Members is read again every 100 ms until the frontend is ready: five of those rounds pass unready.
+        // Members is read again every 100 ms until compute is ready: five of those rounds pass unready.
         compio::time::sleep(Duration::from_millis(500)).await;
         assert!(!readiness.is_ready(), "no partition answers");
         Ok(())
     })
 }
 
-/// As above: every partition listed and one of them answering makes the frontend ready, the other listed where nothing
+/// As above: every partition listed and one of them answering makes compute ready, the other listed where nothing
 /// listens.
 #[test]
 fn test_readiness_comes_once_a_partition_answers() -> TestResult {
@@ -474,7 +474,7 @@ fn test_readiness_comes_once_a_partition_answers() -> TestResult {
     })
 }
 
-/// A ready frontend over a played group of one partition, which a double answers for: the group, its link, and readiness.
+/// Compute ready over a played group of one partition, which a double answers for: the group, its link, and readiness.
 async fn ready(name: &str) -> TestResult<(Played, RoleDouble, Readiness)> {
     let partition = RoleDouble::start(
         &cluster(&format!("{name}-partition"))?,
@@ -491,7 +491,7 @@ async fn ready(name: &str) -> TestResult<(Played, RoleDouble, Readiness)> {
     Ok((at, partition, readiness))
 }
 
-/// Role-binaries "Readiness, health and shutdown": the frontend's `/ready` is withdrawn from the moment its connection to
+/// Role-binaries "Readiness, health and shutdown": compute's `/ready` is withdrawn from the moment its connection to
 /// the system group closes, and set again once the group answers it, its view holds a close, Members lists every partition
 /// and one answers.
 #[test]
@@ -508,8 +508,8 @@ fn test_readiness_is_withdrawn_while_the_link_is_down_and_set_again_after() -> T
     })
 }
 
-/// As above: a connection open again is not enough; while the group sends no close on it, the view does not answer and the
-/// frontend stays unready.
+/// As above: a connection open again is not enough; while the group sends no close on it, the view does not answer and
+/// compute stays unready.
 #[test]
 fn test_readiness_waits_for_the_view_after_the_link_returns() -> TestResult {
     Runtime::new()?.block_on(async {
@@ -521,7 +521,7 @@ fn test_readiness_waits_for_the_view_after_the_link_returns() -> TestResult {
         })
         .await?;
         assert!(at.link.is_up(), "the connection is open again");
-        // Members is read again every 100 ms while the frontend is unready: five of those rounds pass unready.
+        // Members is read again every 100 ms while compute is unready: five of those rounds pass unready.
         compio::time::sleep(Duration::from_millis(500)).await;
         assert!(!readiness.is_ready(), "no close on the new subscription");
         Ok(())

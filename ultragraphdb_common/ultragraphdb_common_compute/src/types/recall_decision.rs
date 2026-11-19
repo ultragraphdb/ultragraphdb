@@ -5,7 +5,7 @@
 
 use ultragraphdb_protocol_wire::ErrorReply;
 
-/// What the frontend answers a retried Commit once every partition answered its Recall (`PROTOCOL.md` §11.5).
+/// What compute answers a retried Commit once every partition answered its Recall (`PROTOCOL.md` §11.5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecallDecision {
     /// The stored reply a partition gave.

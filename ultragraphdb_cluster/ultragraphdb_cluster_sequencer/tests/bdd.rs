@@ -210,7 +210,7 @@ fn read_waits(w: &mut Steps) -> TestResult {
 #[then(
     "compute asks the sequencer for a close, and epoch 7 closes once 2 ms have passed since epoch 6 closed"
 )]
-fn frontend_asks(w: &mut Steps) -> TestResult {
+fn compute_asks(w: &mut Steps) -> TestResult {
     let (_, since_ms) = w.close_ms.context("the close of 6")?;
     let waiting = w.waiting_read.context("the waiting read")?;
     w.sequencer()?.request_close(waiting)?;

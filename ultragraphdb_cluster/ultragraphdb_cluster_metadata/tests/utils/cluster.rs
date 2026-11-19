@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The metadata group beside the real sequencer, as the frontend hosts them: both over the write-ahead log on one
+//! The metadata group beside the real sequencer, as the system group holds them: both over the write-ahead log on one
 //! simulated storage, the sequencer's close announcing the versions the group holds pending and carrying its pending
 //! evictions, and the group learning each durable close. The BDD target's alone, which includes it by path.
 
@@ -23,7 +23,7 @@ pub const SEQUENCER_DIR: &str = "/seq";
 /// The partition number the host subscribes as, to learn every close.
 const HOST: u32 = 1_000;
 
-/// The metadata group and the sequencer of one frontend.
+/// The metadata group and the sequencer of one system group.
 pub struct Cluster {
     pub group: Group,
     pub sequencer: Sequencer<Log>,

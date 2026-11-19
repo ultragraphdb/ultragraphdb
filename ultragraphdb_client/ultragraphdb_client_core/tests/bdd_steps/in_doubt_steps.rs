@@ -332,7 +332,7 @@ fn recall_reaches_no_answer(w: &mut Steps) -> TestResult {
     h.server.drop_after_next_commit();
     let p = h.core.commit(tx, session, h.now)?;
     h.until(|h| h.connections == 2)?;
-    // The frontend's answer to the retry, which the test server plays: code 17, then the stored reply.
+    // Compute's answer to the retry, which the test server plays: code 17, then the stored reply.
     h.server.refuse_next_commit(ErrorCode::Unavailable, 0);
     h.until(|h| commits(h).len() == 2)?;
     let at = h.now;

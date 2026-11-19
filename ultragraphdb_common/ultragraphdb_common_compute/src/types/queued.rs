@@ -6,7 +6,7 @@
 use crate::types::counted_frame::CountedFrame;
 use crate::types::destination::Destination;
 
-/// A request of a transaction the frontend has not sent yet.
+/// A request of a transaction compute has not sent yet.
 #[derive(Debug)]
 pub(crate) enum Queued {
     /// A Write or Operation, its frame whole, counted on its way unless a read holds it back.

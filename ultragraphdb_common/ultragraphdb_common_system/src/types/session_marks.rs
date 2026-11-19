@@ -5,12 +5,11 @@
 
 use std::collections::BTreeMap;
 
-/// A session's request in flight (`PROTOCOL.md` §11.5): the role connection whose Check began it, `None` for a check the
-/// frontend's endpoint asked in process, and whether the request may record the session in a partition's table, which keeps
-/// a full registry from evicting it.
+/// A session's request in flight (`PROTOCOL.md` §11.5): the role connection whose Check began it, and whether the
+/// request may record the session in a partition's table, which keeps a full registry from evicting it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Mark {
-    connection: Option<u64>,
+    connection: u64,
     writes: bool,
 }
 
@@ -67,7 +66,7 @@ impl SessionMarks {
         if self
             .marks
             .values()
-            .any(|mark| mark.connection == Some(connection))
+            .any(|mark| mark.connection == connection)
         {
             let _first = self.closed.entry(connection).or_insert(now_us);
         }
@@ -85,8 +84,7 @@ impl SessionMarks {
             .collect();
         for connection in gone {
             let _closed = self.closed.remove(&connection);
-            self.marks
-                .retain(|_, mark| mark.connection != Some(connection));
+            self.marks.retain(|_, mark| mark.connection != connection);
         }
     }
 
@@ -101,7 +99,7 @@ impl SessionMarks {
     }
 
     /// Marks `session` in flight, against `connection`.
-    pub(crate) fn mark(&mut self, session: u128, connection: Option<u64>, writes: bool) {
+    pub(crate) fn mark(&mut self, session: u128, connection: u64, writes: bool) {
         let _before = self.marks.insert(session, Mark { connection, writes });
     }
 
@@ -109,19 +107,10 @@ impl SessionMarks {
     /// closed, and is passed over otherwise.
     pub(crate) fn end(&mut self, session: u128, connection: u64) {
         let ends = self.marks.get(&session).is_some_and(|mark| {
-            mark.connection == Some(connection)
-                || mark
-                    .connection
-                    .is_some_and(|began| self.closed.contains_key(&began))
+            mark.connection == connection || self.closed.contains_key(&mark.connection)
         });
         if ends {
             let _ended = self.marks.remove(&session);
         }
-    }
-
-    /// The request in flight through `session` that the frontend's endpoint checked in process ended: its mark ends,
-    /// whichever connection began it.
-    pub(crate) fn end_in_process(&mut self, session: u128) {
-        let _ended = self.marks.remove(&session);
     }
 }

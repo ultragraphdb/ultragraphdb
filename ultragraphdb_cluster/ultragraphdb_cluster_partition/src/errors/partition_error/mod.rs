@@ -23,7 +23,8 @@ use ultragraphdb_transactions_txn::TxnError;
 ///   partition that has not closed its epoch.
 /// - **Refused by the home:** [`Refused`](PartitionErrorEnum::Refused): a registration's home answered it with an error
 ///   code.
-/// - **A broken frontend:** [`TransactionHeld`](PartitionErrorEnum::TransactionHeld): a Bind repeating a transaction's identity.
+/// - **A broken compute node:** [`TransactionHeld`](PartitionErrorEnum::TransactionHeld): a Bind repeating a
+///   transaction's identity.
 /// - **Below:** [`Txn`](PartitionErrorEnum::Txn), [`Changeset`](PartitionErrorEnum::Changeset),
 ///   [`Quad`](PartitionErrorEnum::Quad), [`Pipeline`](PartitionErrorEnum::Pipeline),
 ///   [`Commit`](PartitionErrorEnum::Commit): the transaction's, the applier's, the store's, the commit pipeline's or

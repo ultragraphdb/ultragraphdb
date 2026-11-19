@@ -206,7 +206,7 @@ fn test_a_describe_past_the_catalogs_bound_is_refused() -> TestResult {
     Ok(())
 }
 
-/// An Error after the answer's first frame is the Describe's answer, as the frontend's code 6 for an answer past
+/// An Error after the answer's first frame is the Describe's answer, as compute's code 6 for an answer past
 /// `catalog_bytes_max` is (§8.3): the frames taken count for nothing, and the connection goes on.
 #[test]
 fn test_a_refusal_after_a_describes_first_frame_is_its_answer() -> TestResult {

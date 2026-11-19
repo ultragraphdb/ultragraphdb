@@ -29,7 +29,7 @@ use crate::types::client_shape::{CLIENT_TENANT, ClientShape};
 use crate::types::summary::Summary;
 use crate::types::wall_clock::WallClock;
 
-/// The administrator the frontend's first start creates from its bootstrap secret.
+/// The administrator the system group's first start creates from its bootstrap secret.
 const ADMIN: &str = "admin";
 /// The name this client says hello with.
 const CLIENT_NAME: &str = "client_bench";
@@ -415,7 +415,7 @@ impl Connection {
     }
 
     /// A stall run's connection: Begin, then `args.writes()` Writes sent one after another without waiting for their
-    /// answers, each timed until its bytes have left, which stops once the frontend stops reading the connection; then held
+    /// answers, each timed until its bytes have left, which stops once compute stops reading the connection; then held
     /// to `end` and aborted. A Write whose bytes have not left by `end` is given up, and the connection with it.
     ///
     /// Cancellation: a Write given up at `end` may leave part of its frame unsent, so the connection is closed after it

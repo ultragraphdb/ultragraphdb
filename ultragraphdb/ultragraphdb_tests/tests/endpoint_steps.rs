@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! What the client endpoint answers a real client: TLS, SCRAM, the tenant gate, and what the frontend answers itself. The
-//! compute and storage behind it are real and take no part where the frontend answers alone.
+//! What the client endpoint answers a real client: TLS, SCRAM, the tenant gate, and what compute answers itself. The
+//! storage behind it is real and takes no part where compute answers alone.
 
 use cucumber::{then, when};
 use ultragraphdb_client_compio::{ClientError, ClientErrorEnum};
@@ -222,7 +222,7 @@ fn gate_passed(w: &mut Steps) {
     assert_eq!(w.seen.facts, [TENANT.to_string()], "{}", w.over());
 }
 
-/// A Prepare of `tenant` that the frontend answers by the pattern's own rules.
+/// A Prepare of `tenant` that compute answers by the pattern's own rules.
 fn preparing(tenant: u64) -> Prepare {
     let pattern = QuadPattern::new(
         PatternSlot::DefaultGraph,

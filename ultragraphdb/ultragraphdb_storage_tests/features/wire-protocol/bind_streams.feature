@@ -3,7 +3,7 @@
 
 Feature: Wire protocol: what a Bind stream takes
   openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md, through a real storage process beside a real
-  frontend.
+  compute process.
 
   Rule: Roles exchange role commands
 

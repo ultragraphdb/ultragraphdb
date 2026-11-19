@@ -7,7 +7,7 @@
 //! storage by a clock the test moves, and role clients dialling it as the roles their SCRAM usernames name.
 
 #[cfg(test)]
-mod system_session_frontend_tests;
+mod system_session_compute_tests;
 #[cfg(test)]
 mod system_session_session_tests;
 #[cfg(test)]
@@ -137,8 +137,7 @@ where
     // Bound at port 0 and read back, so no other process takes the port between a choice and the bind.
     let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
     let address = listener.local_address()?;
-    let server =
-        Server::new(CLUSTER, "frontend", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
+    let server = Server::new(CLUSTER, "system", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
     let credentials = cluster.secret().credentials()?;
     let ended = Rc::new(Cell::new(0));
     let counted = ended.clone();

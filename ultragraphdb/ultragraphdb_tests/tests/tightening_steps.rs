@@ -3,7 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A tightening through the real frontend and storage: a partition reads its own data, and the client hears what it found.
+//! A tightening through the real compute and storage: a partition reads its own data, and the client hears what it
+//! found.
 
 use std::time::Duration;
 
@@ -26,7 +27,7 @@ use crate::cluster::{
 };
 use crate::shells::{TestClient, pause, run};
 
-/// What the frontend logs of each report.
+/// What the system group logs of each report.
 const REPORTED: &str = "a partition reported on a catalog version";
 
 /// How long a step polls for what a role does on its own.
@@ -44,7 +45,7 @@ pub(crate) struct Seen {
     versions: (u64, u64),
     /// What Describe said of the predicate: declared single-valued, after the scene.
     single: bool,
-    /// Each report the frontend logged by the Commit's answer.
+    /// Each report the system group logged by the Commit's answer.
     reports: Vec<String>,
     /// A write's refusal by the catalog, and what the subject holds after it.
     objects: usize,
@@ -309,8 +310,8 @@ fn after_restart(w: &mut Steps) -> TestResult {
     // the version effect: the start alone can.
     cluster.stop("storage")?;
     cluster.restart("storage")?;
-    // The storage process hosts the system group, which the frontend dials again: a client connecting before both are ready
-    // is refused, the frontend's connection to the group closed.
+    // The storage process hosts the system group, which compute dials again: a client connecting before both are ready
+    // is refused, compute's connection to the group closed.
     until_answering(&cluster.observability("storage")?, "/ready")?;
     until_answering(&cluster.compute_ready_address()?, "/ready")?;
     w.tightening = run(async {

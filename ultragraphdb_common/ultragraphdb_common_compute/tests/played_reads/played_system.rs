@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A frontend played by the test: what compute asks of it, the placement map and where each partition listens.
+//! A system group played by the test: what compute asks of it, the placement map and where each partition listens.
 
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_role::{Answer, Session};
@@ -15,9 +15,9 @@ use ultragraphdb_protocol_wire::{
 
 use super::played_partition::frame_of;
 
-/// One connection at the played frontend.
+/// One connection at the played system group.
 #[derive(Debug)]
-pub struct FrontendConnection {
+pub struct SystemConnection {
     /// The cluster.
     pub cluster: u64,
     /// The partitions, from 1.
@@ -26,7 +26,7 @@ pub struct FrontendConnection {
     pub listed: Vec<(u32, String)>,
 }
 
-/// The even placement over `partitions`, as a real frontend's first start forms it.
+/// The even placement over `partitions`, as the system group's first start forms it.
 fn placement(partitions: u32) -> Result<Placement, ErrorReply> {
     let map = PlacementMap::even(partitions, NodeId::new(1))
         .map_err(|error| ErrorReply::new(ErrorCode::Unavailable, error.to_string()))?;
@@ -44,7 +44,7 @@ fn placement(partitions: u32) -> Result<Placement, ErrorReply> {
     Ok(reply)
 }
 
-impl Session for FrontendConnection {
+impl Session for SystemConnection {
     async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
         let view = match frame.view() {
             Ok(view) => view,

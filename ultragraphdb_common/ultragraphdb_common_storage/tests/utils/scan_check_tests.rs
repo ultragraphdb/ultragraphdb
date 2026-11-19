@@ -25,8 +25,8 @@ use crate::types::partition_core::core_harness::{
 /// A range: its partition, its first key and its past key.
 type Range = (u32, Vec<u8>, Vec<u8>);
 
-/// The frontend's address, which a core of one partition never dials.
-pub(crate) fn no_frontend() -> TestResult<Address> {
+/// The system group's address, which a core of one partition never dials.
+pub(crate) fn no_system() -> TestResult<Address> {
     Ok(Address::parse("tcp://127.0.0.1:1")?)
 }
 
@@ -105,7 +105,7 @@ fn test_a_range_of_each_keyspace_a_scan_reads_answers() -> TestResult {
     on_core_in_time(
         "scan-keyspaces",
         Setup::default(),
-        no_frontend()?,
+        no_system()?,
         async |core| {
             let mut client = core.dial().await?;
             let first = tenant_first(Keyspace::Forward, TENANT);
@@ -134,7 +134,7 @@ fn test_a_range_of_a_keyspace_no_scan_reads_is_refused() -> TestResult {
     on_core(
         "scan-no-keyspace",
         Setup::default(),
-        no_frontend()?,
+        no_system()?,
         async |core| {
             let mut client = core.dial().await?;
             for keyspace in [Keyspace::Statistics, Keyspace::Catalog, Keyspace::Marks] {
@@ -155,7 +155,7 @@ fn test_a_range_of_another_partition_is_refused() -> TestResult {
     on_core(
         "scan-partition",
         Setup::default(),
-        no_frontend()?,
+        no_system()?,
         async |core| {
             let mut client = core.dial().await?;
             let (_, first, past) = whole(Keyspace::Forward);
@@ -175,7 +175,7 @@ fn test_ranges_of_two_tenants_are_refused() -> TestResult {
     on_core(
         "scan-tenants",
         Setup::default(),
-        no_frontend()?,
+        no_system()?,
         async |core| {
             let mut client = core.dial().await?;
             let other = (PARTITION, tenant_first(Keyspace::Forward, 3), Vec::new());
@@ -192,83 +192,67 @@ fn test_ranges_of_two_tenants_are_refused() -> TestResult {
 /// A range of the dictionary holds one key: a wider one is refused, as is a past key above the first key past its tenant.
 #[test]
 fn test_a_range_wider_than_it_may_read_is_refused() -> TestResult {
-    on_core(
-        "scan-wide",
-        Setup::default(),
-        no_frontend()?,
-        async |core| {
-            let mut client = core.dial().await?;
-            let key = term_key(TENANT, &ex("a"));
-            let wide = [key.as_slice(), &[1]].concat();
-            let wider = refusal(&mut client, &latest(&[(PARTITION, key, wide)])).await?;
-            protocol_naming(&wider, "range 0 of the dictionary holds more than one key");
-            let beyond = [tenant_first(Keyspace::Forward, TENANT + 1).as_slice(), &[0]].concat();
-            let ranges = [(PARTITION, tenant_first(Keyspace::Forward, TENANT), beyond)];
-            let past_tenant = refusal(&mut client, &latest(&ranges)).await?;
-            protocol_naming(&past_tenant, "range 0: its past key lies beyond its tenant");
-            Ok(())
-        },
-    )
+    on_core("scan-wide", Setup::default(), no_system()?, async |core| {
+        let mut client = core.dial().await?;
+        let key = term_key(TENANT, &ex("a"));
+        let wide = [key.as_slice(), &[1]].concat();
+        let wider = refusal(&mut client, &latest(&[(PARTITION, key, wide)])).await?;
+        protocol_naming(&wider, "range 0 of the dictionary holds more than one key");
+        let beyond = [tenant_first(Keyspace::Forward, TENANT + 1).as_slice(), &[0]].concat();
+        let ranges = [(PARTITION, tenant_first(Keyspace::Forward, TENANT), beyond)];
+        let past_tenant = refusal(&mut client, &latest(&ranges)).await?;
+        protocol_naming(&past_tenant, "range 0: its past key lies beyond its tenant");
+        Ok(())
+    })
 }
 
 /// A range reads up to its past key and no further: a list range stops below it, and a range of the dictionary holds its one key.
 #[test]
 fn test_a_past_key_bounds_what_a_range_reads() -> TestResult {
-    on_core(
-        "scan-past",
-        Setup::default(),
-        no_frontend()?,
-        async |core| {
-            let mut client = core.dial().await?;
-            let _version = commit(&mut client, &edges_write(&[("a", "b"), ("c", "d")])).await?;
-            let mut keys = [
-                forward_key(&mut client, "a").await?,
-                forward_key(&mut client, "c").await?,
-            ];
-            keys.sort();
-            let [low, high] = keys;
-            let ranges = [(PARTITION, tenant_first(Keyspace::Forward, TENANT), high)];
-            assert_eq!(keys_read(&mut client, &latest(&ranges)).await?, [low]);
-            let term = term_key(TENANT, &ex("a"));
-            let one = latest(&[alone(term.clone())]);
-            assert_eq!(keys_read(&mut client, &one).await?, [term]);
-            Ok(())
-        },
-    )
+    on_core("scan-past", Setup::default(), no_system()?, async |core| {
+        let mut client = core.dial().await?;
+        let _version = commit(&mut client, &edges_write(&[("a", "b"), ("c", "d")])).await?;
+        let mut keys = [
+            forward_key(&mut client, "a").await?,
+            forward_key(&mut client, "c").await?,
+        ];
+        keys.sort();
+        let [low, high] = keys;
+        let ranges = [(PARTITION, tenant_first(Keyspace::Forward, TENANT), high)];
+        assert_eq!(keys_read(&mut client, &latest(&ranges)).await?, [low]);
+        let term = term_key(TENANT, &ex("a"));
+        let one = latest(&[alone(term.clone())]);
+        assert_eq!(keys_read(&mut client, &one).await?, [term]);
+        Ok(())
+    })
 }
 
 /// A list range with an `after` reads its list from that object on, the object included; an `after` in a keyspace of no lists is
 /// refused, naming the range.
 #[test]
 fn test_an_after_resumes_a_list_at_its_object() -> TestResult {
-    on_core(
-        "scan-after",
-        Setup::default(),
-        no_frontend()?,
-        async |core| {
-            let mut client = core.dial().await?;
-            let _version = commit(&mut client, &edges_write(&[("a", "b"), ("a", "c")])).await?;
-            let key = forward_key(&mut client, "a").await?;
-            let objects =
-                objects_of(&first_value(&mut client, &latest(&[alone(key.clone())])).await?)?;
-            assert_eq!(objects.len(), 2, "the list holds both objects");
-            let last = objects.last().context("its last object")?;
-            let past_key = [key.as_slice(), &[0]].concat();
-            let mut resumed = latest(&[]);
-            resumed.push_range(ScanRange::new(PARTITION, &key, &past_key).with_after(last));
-            let resumed_objects = objects_of(&first_value(&mut client, &resumed).await?)?;
-            assert_eq!(resumed_objects.as_slice(), std::slice::from_ref(last));
-            let (_, first, past) = whole(Keyspace::Statements);
-            let mut statements = latest(&[]);
-            statements.push_range(ScanRange::new(PARTITION, &first, &past).with_after(last));
-            let refused = refusal(&mut client, &statements).await?;
-            protocol_naming(
-                &refused,
-                "range 0 holds an `after`, which only a keyspace of lists has",
-            );
-            Ok(())
-        },
-    )
+    on_core("scan-after", Setup::default(), no_system()?, async |core| {
+        let mut client = core.dial().await?;
+        let _version = commit(&mut client, &edges_write(&[("a", "b"), ("a", "c")])).await?;
+        let key = forward_key(&mut client, "a").await?;
+        let objects = objects_of(&first_value(&mut client, &latest(&[alone(key.clone())])).await?)?;
+        assert_eq!(objects.len(), 2, "the list holds both objects");
+        let last = objects.last().context("its last object")?;
+        let past_key = [key.as_slice(), &[0]].concat();
+        let mut resumed = latest(&[]);
+        resumed.push_range(ScanRange::new(PARTITION, &key, &past_key).with_after(last));
+        let resumed_objects = objects_of(&first_value(&mut client, &resumed).await?)?;
+        assert_eq!(resumed_objects.as_slice(), std::slice::from_ref(last));
+        let (_, first, past) = whole(Keyspace::Statements);
+        let mut statements = latest(&[]);
+        statements.push_range(ScanRange::new(PARTITION, &first, &past).with_after(last));
+        let refused = refusal(&mut client, &statements).await?;
+        protocol_naming(
+            &refused,
+            "range 0 holds an `after`, which only a keyspace of lists has",
+        );
+        Ok(())
+    })
 }
 
 /// A Scan of the transaction `identity` at `read_version` as `principal`, naming the IRIs `terms`, of `ranges`.
@@ -303,24 +287,19 @@ fn of_transaction(
 /// key's ID.
 #[test]
 fn test_a_scan_of_its_transaction_answers() -> TestResult {
-    on_core(
-        "scan-bound",
-        Setup::default(),
-        no_frontend()?,
-        async |core| {
-            let mut client = core.dial().await?;
-            let (_, read_version) = bind(&mut client, 9).await?;
-            let iri = ex("a");
-            let key = term_key(TENANT, &iri);
-            let scan = of_transaction(9, read_version, PRINCIPAL, &[&iri], &[alone(key.clone())]);
-            assert_eq!(
-                keys_read(&mut client, &scan).await?,
-                [key],
-                "the term's ID, got or created"
-            );
-            Ok(())
-        },
-    )
+    on_core("scan-bound", Setup::default(), no_system()?, async |core| {
+        let mut client = core.dial().await?;
+        let (_, read_version) = bind(&mut client, 9).await?;
+        let iri = ex("a");
+        let key = term_key(TENANT, &iri);
+        let scan = of_transaction(9, read_version, PRINCIPAL, &[&iri], &[alone(key.clone())]);
+        assert_eq!(
+            keys_read(&mut client, &scan).await?,
+            [key],
+            "the term's ID, got or created"
+        );
+        Ok(())
+    })
 }
 
 /// A Scan of a transaction at another version, as another principal, of a referrer set, or whose first range does not hold its
@@ -330,7 +309,7 @@ fn test_a_scan_not_of_its_transaction_is_refused() -> TestResult {
     on_core(
         "scan-not-bound",
         Setup::default(),
-        no_frontend()?,
+        no_system()?,
         async |core| {
             let mut client = core.dial().await?;
             let (_, read_version) = bind(&mut client, 9).await?;
@@ -384,7 +363,7 @@ fn test_a_range_naming_no_tenant_or_keyspace_or_a_wrong_after_is_refused() -> Te
     on_core(
         "scan-malformed",
         Setup::default(),
-        no_frontend()?,
+        no_system()?,
         async |core| {
             let mut client = core.dial().await?;
             let short = vec![Keyspace::Forward.byte(), 1, 2];
@@ -448,7 +427,7 @@ fn test_a_scan_of_its_transaction_reads_its_tenant_alone() -> TestResult {
     on_core(
         "scan-bound-tenant",
         Setup::default(),
-        no_frontend()?,
+        no_system()?,
         async |core| {
             let mut client = core.dial().await?;
             let (_, read_version) = bind(&mut client, 9).await?;

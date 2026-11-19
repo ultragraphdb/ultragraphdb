@@ -424,3 +424,185 @@ Removed:
 - The compute group passes 21 of 21 targets, 67 scenarios.
 - The cluster group passes 40 of 40 targets; `bdd_quad_reads_spread` passes 8 of 8 scenarios.
 - No run failed, so no rerun was needed and no intermittent is recorded.
+
+## Checkpoint C: tasks 6.5 and 6.8 (2026-11-19, base `740b6cbd`)
+
+### Task 6.5: the removals
+
+Each was approved by the user. They landed in three places:
+
+- Task 6.1 removed `ultragraphdb_frontend_tests`.
+- The switch (checkpoint B) removed the `dev` and `dev-net` profiles' `frontend.toml`, the chart's
+  `templates/frontend.yaml` and `profile/kube/frontend.toml`, the development image's frontend layer, the chart's
+  frontend image value and every `copy_frontend` target.
+- Commit `960582ff` removed `ultragraphdb/ultragraphdb_frontend` (`main.rs`, `service.rs`, its manifest and its
+  `BUILD.bazel` with the image targets), the emptied `ultragraphdb_common_frontend`, their workspace member and
+  dependency entries, and `common_service`'s `RoleKind::Frontend`, which the user confirmed as part of task 6.5. The
+  same commit renamed `Endpoint::Frontend`, the system group's role address, to `Endpoint::System`, and
+  `CloseRequest::frontend` to `CloseRequest::compute`, and brought `AGENTS.md` to two roles.
+
+`FrontendTable` was removed by stage 5.8 (commit `cb78363a`, its task 7.2), so task 6.5 found nothing of it.
+
+### Task 6.8: the renames
+
+Four workers renamed each `frontend` in their crates by its meaning, each in a worktree from `960582ff`, under one set
+of rules: the client endpoint or the sender of a client's requests became compute, the system group's host or address
+became the system group. The table counts lines naming `frontend`, case-insensitive: before at `960582ff`, after the
+worker's patch.
+
+| Worker | Crate | Before | After |
+|---|---|---|---|
+| a | `ultragraphdb_common_compute` | 170 | 7 |
+| b | `ultragraphdb_tests` | 103 | 0 |
+| b | `ultragraphdb_compute_tests` | 1 | 0 |
+| b | `ultragraphdb_client_core`, `_compio`, `_tokio` | 11, 2, 2 | 0, 0, 0 |
+| b | `ultragraphdb_protocol_scram` | 8 | 0 |
+| b | `ultragraphdb_tool_bench` | 10 | 0 |
+| c | `ultragraphdb_storage_tests` | 89 | 1 |
+| c | `ultragraphdb_storage` | 7 | 0 |
+| c | `ultragraphdb_common_storage` | 64 | 0 |
+| c | `ultragraphdb_cluster_metadata`, `_partition`, `_sequencer` | 14, 2, 4 | 1, 0, 0 |
+| c | `ultragraphdb_core_catalog`, `ultragraphdb_store_apply` | 2, 1 | 0, 0 |
+| c | `ultragraphdb_transactions_commit` | 5 | 0 |
+| d | `ultragraphdb_common_system` | 38 | 7 |
+| d | `ultragraphdb_common_config_check` | 41 | 34 |
+| d | `ultragraphdb_common_role` | 13 | 10 |
+| d | `ultragraphdb_protocol_wire` | 61 | 19 |
+| d | `ultragraphdb_protocol_transport` | 15 | 0 |
+| d | `ultragraphdb_common_config` | 1 | 0 |
+
+`ultragraphdb_common_service_config` (16 lines, every one a refusal) was in no worker's set. After the merge, the
+edits below took `common_compute` to 5, `storage_tests` and `cluster_metadata` to 0, and `common_system` to 2. Across
+the workspace's members, 680 lines named `frontend` at `960582ff`; 86 do now.
+
+Renamed by `git mv`:
+
+| Before | After |
+|---|---|
+| `ultragraphdb_common_compute/features/transactions/sessions_frontend.feature` | `…/sessions_compute.feature` |
+| `ultragraphdb_common_compute/tests/played/played_frontend.rs` | `…/played/played_system.rs` |
+| `ultragraphdb_common_compute/tests/played_reads/played_frontend.rs` | `…/played_reads/played_system.rs` |
+| `ultragraphdb_tests/features/transactions/failure_frontend.feature` | `…/failure_compute.feature` |
+| `ultragraphdb_storage_tests/tests/played_frontend.rs` | `…/played_system.rs` |
+| `ultragraphdb_common_system/src/types/system_session/system_session_frontend.rs` | `…/system_session_compute.rs` |
+| `ultragraphdb_common_system/tests/types/system_session/system_session_frontend_tests.rs` | `…/system_session_compute_tests.rs` |
+
+The target `ultragraphdb_tests:bdd_failure_frontend` became `bdd_failure_compute`, with its feature file.
+
+### The user's decisions
+
+- The `frontend` names that stay for good are the refusals of retired names: the settings table `[frontend]`,
+  `compute.role_address`, `cluster.frontend_address`, instance names beginning `frontend`, and the role name `frontend`
+  refused in credentials and the system group, with their tests and laws L6.2 and L6.5.
+- The names that stay until task 1.2 are the wire's `RoleKind::Frontend` (role kind 1) with what decodes or matches it,
+  and command 523 (ComputeRead) with its docs and `Endpoint::Compute`.
+- The delta scenario "Nothing is named frontend" leaves out the refusals of retired names. Task 1.2's wire items are its
+  known leftovers, and at task 1.2's gate it passes with none (`tasks.md`, task 1.2).
+- What lies outside the search's scope stays as it is: `scripts/cluster_local.sh`'s guard refusing an old three-role
+  cluster and `AGENTS.md`'s description of it, `ROADMAP.md`'s stage titles, `ATTRIBUTION.md`'s StarRocks rows
+  (StarRocks' own frontend nodes), the comment in `.cargo/mutants.toml`, and `openspec/` and `specification/`, which are
+  history.
+- Comments: a history sentence dropped from `storage_tests`' `features/system/role_commands.feature` and a history
+  clause from `common_compute`'s `tests/played/played_system.rs`; `metadata_group_access.rs`'s doc of `register_session`
+  and `common_compute`'s `tests/tightening_steps.rs` name both compute and the system group; `SystemStart::CORE` keeps
+  its value of 1, its doc restated.
+
+### The in-process check path removed
+
+With the user's approval, `common_system` lost the path by which the frontend's endpoint checked a session in its own
+process: `SystemHandle::begin_commit`, `begin_recall` and `commit_ended`, `SystemAsked::BeginCommit` and
+`CommitEnded`, `SessionMarks::end_in_process`, and the `None` mark (`Mark.connection` is a `u64`). Since the switch no
+production code called it. `test_a_session_evicted_in_the_same_turn_is_refused_its_commit` now runs on the real path, a
+Session and a role connection's Check taken in one turn, and expects outcome 12. `tool_bench`'s `owner_run` times a role
+connection's Check and Ended.
+
+### Comment widths
+
+Every comment and description line the staged diff changed that ran past its file's width, 120 characters or 128 in
+`common_compute`, is rewrapped, in 42 files; where the carried words did not fit the next line of the same paragraph,
+the rewrap went on into the lines after it. Two kinds of line are left as they are:
+
+- `ultragraphdb_tests`' feature descriptions, which hold each paragraph on one line throughout;
+- the table row of `latest` in `protocol_wire`'s `subscribe/mod.rs` (131 characters), since a Markdown table row
+  cannot wrap.
+
+### The search
+
+`git grep -i frontend` over the workspace's members, `bazel/` (the images) and `deploy/` (the chart and its profile)
+finds 86 lines in 25 files, and no file or target name. Each line is in one of the two classes the user kept:
+
+| Class | Lines | Where |
+|---|---|---|
+| Refusals of retired names, with their tests | 63 | `common_service_config` (16: its `lib.rs` and `settings_reader` docs, the cluster table's and service config's tests and property test), `common_config_check` (34: `validation.feature` and the tests of the retired names), `common_role` (10: credentials, role secret, joining and serve tests, L6.5), `common_compute`'s `joining_tests.rs` (3) |
+| Task 1.2's wire items | 23 | `protocol_wire` (19: `role_kind.rs`, `member.rs`, `join_view_body_view.rs`, `members_view_body_view.rs`, command 523's docs in `command/mod.rs` and `compute_read/mod.rs`, the `role_kind` and `subscribe_view` tests), `common_compute`'s `role_links.rs` (2) and `common_system`'s `system_session/mod.rs` (2), each matching `RoleKind::Frontend` |
+
+The shipped profiles (`ultragraphdb_config/profiles/`) and the chart's `kube` profile hold none.
+
+### "Nothing is named frontend"
+
+The delta's scenario is restated:
+
+```gherkin
+Scenario: Nothing is named frontend
+  When the workspace's members, the images, the chart and the profiles are searched for `frontend`
+  Then none is found but the refusals of the retired names, with their tests: the settings table `[frontend]`,
+    `cluster.frontend_address`, instance names beginning `frontend` and the role name `frontend`, each refused by name
+```
+
+It is not bound. A hermetic test reads only its declared `data`, and a glob cannot reach into another package, so the
+search needs every member's files declared as data, by a target in each of the 74 member packages. That is a convention
+for every crate, which waits for the user's decision.
+
+### The development image booted
+
+Machine: this Mac, Docker 29.8.2 in OrbStack (`linux/arm64` daemon, amd64 by Rosetta). Each platform of
+`//ultragraphdb/ultragraphdb_supervisor:development_multiarch` was loaded with `development_test_load -- --platform
+linux/<arch>` and started with `docker run --platform linux/<arch>` on its default `dev` profile, under the shipped
+seccomp profile, the client endpoint published. `/data` was listed through `docker cp`, and `docker stop` sent SIGTERM.
+
+| | arm64 (native) | amd64 (Rosetta) |
+|---|---|---|
+| Image | `sha256:271af809…` | `sha256:5dd30456…` |
+| Order in the supervisor's log | config `/ready`, storage started, storage `/ready`, compute started, compute `/ready`, every role is ready | the same |
+| Supervisor's first line to "every role is ready" | 485 ms | 1,290 ms |
+| Driver of every runtime | io_uring | polling, the emulation's refusal as in stage 5.8 |
+| SIGTERM | compute, storage, config stopped, each 0; exit 0 | the same |
+| `/data` | `config/`, `storage/p1/r1/`, `system/meta/`, `system/seq/`; no directory of compute's | the same |
+
+### The gate
+
+- `make build` passes.
+- The Clippy aspect over the 23 packages with a change is clean.
+- `rustfmt --edition 2024 --check` over the 172 changed Rust files is clean.
+- `make test`, cached, passes every phase. The first run stopped at the compute group, so `make test` ran a second time,
+  cached, and finished:
+
+| Phase | Targets passed | Run, first / second |
+|---|---|---|
+| Doc tests | 20 of 20 | 0 / 0, all cached |
+| Unit tests | 91 of 91 | 57 / 0 |
+| Property tests | 10 of 10 | 5 / 0 |
+| Concurrency tests | 5 of 5 | 5 / 0 |
+| BDD tests | 52 of 52 | 51 / 0 |
+| Integration, config | 1 of 1 | 1 / 0 |
+| Integration, storage | 15 of 15 | 15 / 0 |
+| Integration, compute | 21 of 21 | 21, 1 failed / 0 |
+| Integration, supervisor | 2 of 2 | — / 2 |
+| Integration, cluster | 40 of 40 | — / 40 |
+
+`supervisor_tests:image_bdd` ran in Docker on arm64, not skipped: 7 of 7 scenarios.
+
+One intermittent failure: in the first run, `ultragraphdb_compute_tests:bdd_quad_reads_compute_reads` failed its first
+two scenarios, "A term absent where its list lies answers no row" and "A term and its list take two Scans". Each client
+was refused with `Unavailable: the connection to the system group is closed`; the target's other two scenarios passed.
+Run alone once, the target passed 4 of 4, and in the second `make test` the compute group passed cached. The failure
+struck the first two reads of a shared cluster, which starts on its first use, while 21 targets ran side by side. It is
+recorded and not root-caused: it did not repeat.
+
+### Found, not changed
+
+- `SystemHandle`'s other in-process asks, `check_session`, `register_session` and `session_held`, have no production
+  caller: only tests, `common_system`'s `tests/bdd.rs` and `tool_bench`'s `owner_run`.
+- `Mark.writes` is now always `true`, so `SessionMarks::protects` answers as `is_marked` does.
+- `ultragraphdb_tests`' feature descriptions cite `openspec/changes/stage-5-5-…` and `stage-5-8-…` paths, which may now
+  be archived.

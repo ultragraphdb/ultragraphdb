@@ -15,7 +15,8 @@ use ultragraphdb_protocol_scram::{MIN_ITERATIONS, ScramVerifier};
 use ultragraphdb_tool_bdd::{TestError, TestResult};
 use ultragraphdb_transactions_log::{SimStorage, Wal, WalConfig};
 
-/// The group's log directory in the simulated storage, under its root as the frontend's `/data/meta` is under `/data`.
+/// The group's log directory in the simulated storage, under its root as the system group's `meta` log is under its
+/// data directory.
 pub const DIR: &str = "/meta";
 
 /// The log every test runs the group over.

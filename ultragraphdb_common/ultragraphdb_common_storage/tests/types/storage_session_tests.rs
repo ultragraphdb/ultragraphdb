@@ -471,11 +471,11 @@ fn test_an_aborts_stream_ends_with_no_frame() -> TestResult {
     })
 }
 
-/// Commits a frontend sends over one role connection while a log sync is in flight share the next round: one log append and one
-/// sync for them all, each acknowledged once that round is applied (commit-rounds, "Commits are grouped into rounds"). A commit
-/// first warms the log, whose first round also syncs its segment.
+/// Commits compute sends over one role connection while a log sync is in flight share the next round: one log append
+/// and one sync for them all, each acknowledged once that round is applied (commit-rounds, "Commits are grouped into
+/// rounds"). A commit first warms the log, whose first round also syncs its segment.
 #[test]
-fn test_commits_a_frontend_sends_during_a_sync_share_the_next_round() -> TestResult {
+fn test_commits_compute_sends_during_a_sync_share_the_next_round() -> TestResult {
     with_core("session-one-round", RigSetup::default(), async |core| {
         let mut client = core.dial().await?;
         client.send_only(&direct_writes(1).remove(0)).await?;
@@ -644,8 +644,9 @@ fn test_a_connection_closing_with_a_write_waiting_for_the_core_aborts_its_transa
 const BURST: usize = 1_000;
 
 /// A burst of answers on one role connection (design D10): `BURST` DirectWrites sent while a log sync is held, answered in one
-/// round once it is let go, and read back one frame at a time as the frontend's role link reads them. The figures, from the sync's
-/// release to the first answer read and from the first to the last, are printed for the change's notes; no bound is asserted.
+/// round once it is let go, and read back one frame at a time as compute's role link reads them. The figures, from the
+/// sync's release to the first answer read and from the first to the last, are printed for the change's notes; no bound
+/// is asserted.
 #[test]
 fn test_a_burst_of_answers_leaves_one_role_connection() -> TestResult {
     with_core("session-burst", RigSetup::default(), async |core| {

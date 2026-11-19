@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The client endpoint's scenarios, bound to `features/`: a frontend's listeners on the test's thread, the system group on
+//! The client endpoint's scenarios, bound to `features/`: compute's listeners on the test's thread, the system group on
 //! its own and the other roles played by doubles.
 
 // The played cluster of the unit tests, which the executor's scenarios read through, included by path.

@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A played cluster: a frontend and partitions the test plays on its own runtime over real connections, and beside them the
+//! A played cluster: a system group and partitions the test plays on its own runtime over real connections, and beside them the
 //! crate's compute core, whose reads run by the executor a client's session hands them to.
 
 pub mod apart_cluster;

@@ -66,7 +66,8 @@ const CACHE_BYTES: u64 = 1 << 20;
 /// The sequences of each block a partition holds, of either type.
 const BLOCK: u64 = 1 << 16;
 
-/// What a test plays its connections through: the tested partition's core, the frontend's side of what it asks, and the gate of the homes.
+/// What a test plays its connections through: the tested partition's core, the system group's side of what it asks, and
+/// the gate of the homes.
 #[derive(Debug)]
 pub(crate) struct Driver {
     core: UnboundedSender<CoreMessage>,
@@ -180,7 +181,7 @@ impl Driver {
         Ok(self.core.unbounded_send(message)?)
     }
 
-    /// The next thing the core asks of the frontend, or a failure naming `what` it waited for.
+    /// The next thing the core asks of the system group, or a failure naming `what` it waited for.
     pub(crate) async fn asked(&mut self, what: &str) -> TestResult<SystemAsk> {
         compio::time::timeout(DUE, self.asks.next())
             .await
@@ -490,7 +491,7 @@ fn open_partition(
 }
 
 /// The core of `partition`, its log in `dir`, reaching the others through `mailbox`: it, the sender to its inbox, and what it
-/// asks of the frontend.
+/// asks of the system group.
 async fn core_of<'a>(
     partition: &'a StoragePartition,
     mailbox: PartitionMailbox,
@@ -520,8 +521,8 @@ async fn core_of<'a>(
     let (_closes_to, closes) = std::sync::mpsc::channel();
     let (discards, _raised) = std::sync::mpsc::channel();
     let (answers, _answered) = unbounded();
-    let frontend = Address::parse("tcp://127.0.0.1:1")?;
-    let peers = Peers::new(cluster.clone(), frontend, "storage".to_string(), answers);
+    let system = Address::parse("tcp://127.0.0.1:1")?;
+    let peers = Peers::new(cluster.clone(), system, "storage".to_string(), answers);
     let channels = CoreChannels::new(inbox, remote, own, closes, asks_to, discards);
     let parts = CoreParts::new(host, id, CLUSTER, clock, channels, peers, Retention::new(0))
         .with_tenants([TENANT])

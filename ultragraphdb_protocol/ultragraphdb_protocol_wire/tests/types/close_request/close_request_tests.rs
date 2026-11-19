@@ -30,9 +30,9 @@ fn test_the_fields_sit_at_their_offsets() {
     assert!(CloseRequest::new(1, 1).body().is_empty());
 }
 
-/// C1.99 at the builder: the frontend's request names `partition` 0, the frame laid out by hand.
+/// C1.99 at the builder: compute's request names `partition` 0, the frame laid out by hand.
 #[test]
-fn test_the_frontends_request_names_partition_zero() -> TestResult {
+fn test_computes_request_names_partition_zero() -> TestResult {
     let request = CloseRequest::compute(5);
     assert_eq!((request.partition(), request.epoch()), (0, 5));
     let built = request.frame(Header::new(CLUSTER, Command::CloseRequest).with_stream(3))?;

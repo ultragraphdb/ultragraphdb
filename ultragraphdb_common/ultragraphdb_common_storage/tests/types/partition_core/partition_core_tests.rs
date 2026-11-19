@@ -31,7 +31,7 @@ use crate::types::partition_core::core_harness::{
 /// How often a test looks again for what the core does in its own time.
 const POLL: Duration = Duration::from_millis(2);
 
-/// A frontend's address nothing listens at: whatever the core asks of it fails.
+/// A system group's address nothing listens at: whatever the core asks of it fails.
 fn unreachable() -> TestResult<Address> {
     Ok(Address::parse("tcp://127.0.0.1:1")?)
 }
@@ -278,10 +278,10 @@ fn test_a_transaction_past_its_limit_is_told_so() -> TestResult {
     )
 }
 
-/// A partition whose open epoch is full asks the frontend to close it once a commit needs a version past it (commit-rounds,
-/// "A full epoch asks for a close and waits").
+/// A partition whose open epoch is full asks the system group to close it once a commit needs a version past it
+/// (commit-rounds, "A full epoch asks for a close and waits").
 #[test]
-fn test_a_full_epoch_asks_the_frontend_for_its_close() -> TestResult {
+fn test_a_full_epoch_asks_the_system_group_for_its_close() -> TestResult {
     use crate::types::partition_core::core_rig::{RigSetup, TENANT as RIG_TENANT, with_core};
     use crate::types::partition_core::core_writes::edges;
     use futures::StreamExt;

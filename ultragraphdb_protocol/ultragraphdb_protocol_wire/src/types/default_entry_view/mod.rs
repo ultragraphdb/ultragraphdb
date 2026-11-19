@@ -39,7 +39,7 @@ impl<'a> DefaultEntryView<'a> {
         self.predicate
     }
 
-    /// The body as the request the frontend receives.
+    /// The body as the request the system group receives.
     ///
     /// # Errors
     ///

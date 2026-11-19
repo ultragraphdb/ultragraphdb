@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod system_session_compute;
 mod system_session_drop;
-mod system_session_frontend;
 mod system_session_session;
 
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
@@ -370,7 +370,7 @@ fn built<B: BodyBuilder>(body: &B, header: Header) -> Result<Answer, ErrorReply>
 }
 
 fn stopped() -> ErrorReply {
-    ErrorReply::new(ErrorCode::Unavailable, "the frontend's owner stopped")
+    ErrorReply::new(ErrorCode::Unavailable, "the system group's owner stopped")
 }
 
 /// A request before the connection authenticated, which its machine never hands on.

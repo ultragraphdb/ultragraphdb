@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A cluster on the test's one runtime: a played frontend, played partitions, and one [`ComputeCore`] whose reads a client's
-//! session hands to its executor.
+//! A cluster on the test's one runtime: a played system group, played partitions, and one [`ComputeCore`] whose reads a
+//! client's session hands to its executor.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -20,8 +20,8 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::apart::apart_session::ReadSession;
 
-use super::played_frontend::{PlayedFrontend, even_ranges};
 use super::played_partition::PlayedPartition;
+use super::played_system::{PlayedSystem, even_ranges};
 
 /// The played cluster's identity.
 pub const CLUSTER: u64 = 7;
@@ -75,7 +75,7 @@ pub fn run<T>(work: impl Future<Output = TestResult<T>>) -> TestResult<T> {
 /// A played cluster.
 #[derive(Debug)]
 pub struct PlayedCluster {
-    frontend: PlayedFrontend,
+    system: PlayedSystem,
     partitions: Vec<PlayedPartition>,
     core: Rc<ComputeCore>,
 }
@@ -86,36 +86,31 @@ impl PlayedCluster {
         Self::start_placed(even_ranges(partitions)?, partitions, times).await
     }
 
-    /// A cluster of `partitions` partitions whose frontend answers the placement `ranges`, compute reading by `times`.
+    /// A cluster of `partitions` partitions whose system group answers the placement `ranges`, compute reading by `times`.
     pub async fn start_placed(
         ranges: Vec<(u32, u32, u32)>,
         partitions: u32,
         times: ReadTimes,
     ) -> TestResult<Self> {
         let cluster = role_cluster(SECRET, Duration::from_secs(5))?;
-        let frontend = PlayedFrontend::start(&cluster, ranges).await?;
+        let system = PlayedSystem::start(&cluster, ranges).await?;
         let mut played = Vec::new();
         for partition in 1..=partitions {
             let started = PlayedPartition::start(&cluster, partition).await?;
-            frontend.list(partition, started.address());
+            system.list(partition, started.address());
             played.push(started);
         }
-        let core = ComputeCore::new(
-            cluster,
-            Address::parse(frontend.address())?,
-            times,
-            "compute",
-        );
+        let core = ComputeCore::new(cluster, Address::parse(system.address())?, times, "compute");
         Ok(Self {
-            frontend,
+            system,
             partitions: played,
             core,
         })
     }
 
-    /// The played frontend.
-    pub fn frontend(&self) -> &PlayedFrontend {
-        &self.frontend
+    /// The played system group.
+    pub fn system(&self) -> &PlayedSystem {
+        &self.system
     }
 
     /// Played partition `partition`.

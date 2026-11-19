@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: A role process lost under a client
-  openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: Code 17 on a commit is in doubt
     When a client's Commit through a session is answered code 17

@@ -7,9 +7,9 @@ Feature: The metadata group
   closing the epochs is the real one (`ultragraphdb_cluster_sequencer`), whose closes the group learns. Bound on the
   group's side only: the partitions validating rounds against a version are models reading the group's
   `CatalogSource` (group 7 runs them against the partition's own code); the prepared statements staled by a version are
-  the frontend's (groups 9 and 10), so here no catalog version is created; the client authenticating with the bootstrap
-  credential runs the SCRAM exchange against the group's `Credentials`, not the frontend's endpoint (group 9); a commit
-  through an evicted session is refused by the frontend's owner check, which reads the registry here.
+  compute's (groups 9 and 10), so here no catalog version is created; the client authenticating with the bootstrap
+  credential runs the SCRAM exchange against the group's `Credentials`, not compute's endpoint (group 9); a commit
+  through an evicted session is refused by the system group's owner check, which reads the registry here.
 
   Rule: The metadata group is a log-backed state machine with one replica
 

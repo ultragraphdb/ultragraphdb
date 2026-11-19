@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The commands the frontend alone sends the system group (`PROTOCOL.md` §11.12): the two halves of a client's proof, the
+//! The commands compute alone sends the system group (`PROTOCOL.md` §11.12): the two halves of a client's proof, the
 //! registry's Session, Check and Ended, and the catalog's Declare and Defaults.
 
 use std::future::Future;
@@ -130,8 +130,8 @@ impl SystemSession {
         let owner = &self.shared.owner;
         let tenant = asked.tenant();
         // Asked of the owner here, before the stream is held open: the ask stands whatever becomes of the connection, and the
-        // wait for its answer holds no handle, so a frontend that stops changes nothing about a check (`PROTOCOL.md` §11.13, *A
-        // host or a frontend that stops*).
+        // wait for its answer holds no handle, so a compute node that stops changes nothing about a check
+        // (`PROTOCOL.md` §11.13, *A host or a compute node that stops*).
         let answer = match asked.drop_kind() {
             None => {
                 let declared = (0..asked.len())

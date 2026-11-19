@@ -19,7 +19,7 @@ pub enum ClientOp {
     /// each partition: a read reaching every partition for one row from each.
     Span,
     /// A read-write transaction that pipelines `--writes` Writes without waiting and holds them to the run's end: what a
-    /// stalled partition leaves the frontend holding.
+    /// stalled partition leaves compute holding.
     Stall,
     /// A read-write transaction reading the hot subject's every statement, `<hot> ?p ?o`, at most `--limit` rows, then
     /// writing a new node of its own and committing: a reader whose commit a write of the hot subject may abort.

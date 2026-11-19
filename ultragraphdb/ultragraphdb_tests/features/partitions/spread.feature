@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: A read-write transaction stays within one partition
-  openspec/changes/stage-5-5-three-role-refactor/specs/partitions/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/partitions/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: A transaction reaching a second partition aborts
     When a transaction writes a statement whose subject partition 1 owns and then writes one whose subject partition 2 owns

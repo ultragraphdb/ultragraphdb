@@ -32,7 +32,7 @@ use crate::utils::partitions_run::{TENANT, open_parts};
 const CLUSTER: u64 = 1;
 /// The principal each bound transaction acts for.
 const PRINCIPAL: u64 = 1;
-/// The connection every bound transaction's key names: a frontend's one role connection carries them all.
+/// The connection every bound transaction's key names: a compute node's one role connection carries them all.
 const CONNECTION: u64 = 1;
 /// The posting cache of the partition's store, in MiB.
 const CACHE_MB: u64 = 64;

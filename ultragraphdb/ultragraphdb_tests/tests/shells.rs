@@ -34,10 +34,10 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 /// fails its step naming what it waited for.
 const STEP_WAIT: Duration = Duration::from_secs(60);
 
-/// The administrator the frontend's first start creates, whom every client of these scenarios logs in as.
+/// The administrator the system group's first start creates, whom every client of these scenarios logs in as.
 pub(crate) const ADMIN: &str = "admin";
 
-/// The administrator's password, which the frontend's bootstrap secret holds.
+/// The administrator's password, which the system group's bootstrap secret holds.
 pub(crate) const PASSWORD: &str = "the administrator's password";
 
 /// The name this crate's clients say hello with.

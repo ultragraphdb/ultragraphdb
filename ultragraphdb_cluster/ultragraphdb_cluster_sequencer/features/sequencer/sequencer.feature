@@ -5,8 +5,8 @@ Feature: The sequencer
   The sequencer's state machine over its ordered log (openspec/changes/stage-5-5-three-role-refactor/specs/sequencer/spec.md):
   every scenario of every requirement, verbatim. The scenarios of "Partitions learn each closed epoch and stamp the open
   one" run here from the sequencer's side, against a model of a partition the sequencer's deliveries drive; groups 4
-  and 7 run them against the partition's own code. The exit code a refused setting stops the frontend with is group
-  11's (role-binaries); here the setting's refusal is checked.
+  and 7 run them against the partition's own code. The exit code a refused setting stops the storage process hosting the
+  system group with is group 11's (role-binaries); here the setting's refusal is checked.
 
   Rule: The sequencer closes epochs at its own wall-clock time
 

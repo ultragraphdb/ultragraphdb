@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: A commit in flight through a network that loses frames
-  openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request. A link between the client and the frontend takes the frame the scenario names.
+  openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md, through the real compute and storage, the client crates' own client sending every request. A link between the client and compute takes the frame the scenario names.
 
   @both_shells
   Scenario: An unsent commit is lost, a sent one in doubt

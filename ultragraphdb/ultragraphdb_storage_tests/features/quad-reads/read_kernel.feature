@@ -3,7 +3,7 @@
 
 Feature: Quad reads: storage's read kernel
   openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md, through a real storage process beside a real
-  frontend, decoded as compute will.
+  compute process, decoded as compute will.
 
   Rule: Storage's read kernel answers what compute scans
 

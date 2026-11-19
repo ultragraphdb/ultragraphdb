@@ -242,7 +242,7 @@ pub(crate) async fn challenge(client: &Address, name: &str) -> TestResult<String
     Ok(salted.to_string())
 }
 
-/// The default entry of `predicate`, recorded through the frontend's role address.
+/// The default entry of `predicate`, recorded through the system group's role address.
 pub(crate) async fn record_default(stage: &Stage, predicate: &str) -> TestResult {
     let mut storage = RoleClient::dial(
         &stage.role,
@@ -291,7 +291,7 @@ pub(crate) async fn described_after(
     Err(TestError::new("the version never took effect"))
 }
 
-/// A partition's answer to a frontend's claim: the predicate's system ID, `id`.
+/// A partition's answer to compute's claim: the predicate's system ID, `id`.
 pub(crate) fn answer_claims(frame: &DoubleFrame, id: SystemId) -> Answer {
     if frame.command() != Command::Reference {
         return partition_answer(frame, CLUSTER, BIND_VERSION);
@@ -2065,7 +2065,7 @@ fn a_direct_write_is_relayed_with_its_principal(w: &mut Steps) -> TestResult {
     run(w, options, |stage| async move {
         let _whole = &stage;
         let partition = stage.partition(1).await?;
-        // The principal the frontend holds for `ann`, in place of the scenario's 9.
+        // The principal the system group holds for `ann`, in place of the scenario's 9.
         let (principal, _) = stage
             .owner
             .verifier("ann".to_string())
@@ -2371,7 +2371,7 @@ fn a_catalog_version_past_its_cap_is_refused_at_its_commit_held(w: &mut Steps) {
 #[when(
     "a Drop of `p` through a session commits at its partition, compute stops before the catalog version removing `p`'s declaration is asked for, and the client resends the Drop after compute restarts"
 )]
-fn a_resent_drop_builds_the_version_a_stopped_frontend_left(w: &mut Steps) -> TestResult {
+fn a_resent_drop_builds_the_version_a_stopped_compute_left(w: &mut Steps) -> TestResult {
     let options = Options {
         directory: Some(fresh()?),
         ..Options::default()
@@ -2442,7 +2442,7 @@ fn a_resent_drop_builds_the_version_a_stopped_frontend_left(w: &mut Steps) -> Te
 #[then(
     "the partition's table answers the stored reply, the system group commits that version as pending, asked by compute before it relays the reply, and `p` is dropped once"
 )]
-fn a_resent_drop_builds_the_version_a_stopped_frontend_left_held(w: &mut Steps) {
+fn a_resent_drop_builds_the_version_a_stopped_compute_left_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 

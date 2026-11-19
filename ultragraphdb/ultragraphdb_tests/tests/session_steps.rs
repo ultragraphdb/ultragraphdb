@@ -3,9 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Exactly-once through sessions, with a real network's losses: a [`LossyLink`] between a real client and a real frontend takes
+//! Exactly-once through sessions, with a real network's losses: a [`LossyLink`] between a real client and compute takes
 //! a request or a reply, and the client resends what it holds in doubt. The reply a link lost is kept, so a resend's answer is
-//! compared with the bytes the frontend first sent.
+//! compared with the bytes compute first sent.
 
 use cucumber::{then, when};
 use ultragraphdb_client_compio::{ClientError, ClientErrorEnum, Committed};
@@ -33,7 +33,7 @@ async fn linked(link: &LossyLink) -> TestResult<TestClient> {
     Ok(client)
 }
 
-/// The commit version and request of the Commit reply `frame`, as the frontend sent it.
+/// The commit version and request of the Commit reply `frame`, as compute sent it.
 fn sent_commit(frame: &[u8]) -> TestResult<(u64, u64)> {
     let view = FrameView::validate(frame, CLUSTER, MAX_FRAME_SIZE)?;
     let reply = CommitView::from_frame(&view)?.to_body()?;

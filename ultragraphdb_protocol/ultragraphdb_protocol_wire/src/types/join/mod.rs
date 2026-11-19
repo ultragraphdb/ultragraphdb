@@ -7,8 +7,8 @@ mod join_body_builder;
 
 use crate::types::role_kind::RoleKind;
 
-/// A storage or compute process registers with the frontend (`PROTOCOL.md` §13.1): its kind, its role address and, for
-/// storage, the partitions it hosts. The frontend answers with the same fields.
+/// A storage or compute process registers with the system group (`PROTOCOL.md` §13.1): its kind, its role address
+/// and, for storage, the partitions it hosts. The system group answers with the same fields.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|

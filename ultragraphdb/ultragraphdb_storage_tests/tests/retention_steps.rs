@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! What a partition retains, through real frames and a short `read_retain_ms`: epochs close as the frontend closes them, so a test
-//! waits in milliseconds what the specification's scenarios wait in seconds.
+//! What a partition retains, through real frames and a short `read_retain_ms`: epochs close as the system group closes
+//! them, so a test waits in milliseconds what the specification's scenarios wait in seconds.
 
 use std::time::Duration;
 

@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: Data requests, drops and one-frame writes through the three binaries
-  openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: Describe answers from the metadata group
     When `name` is declared a property with a `term` index, `score` holds a default entry, and a client sends Describe for the tenant

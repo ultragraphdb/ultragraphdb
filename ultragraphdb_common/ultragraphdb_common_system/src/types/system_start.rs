@@ -22,7 +22,8 @@ impl SystemStart {
     /// `transaction_ms` unless set otherwise, 10,000 ms: the protocol's default (`PROTOCOL.md` §11.9).
     pub const TRANSACTION_MS: u64 = 10_000;
 
-    /// The core the group's runtime takes unless set otherwise, 1: the frontend's, whose endpoint cores are numbered from 0.
+    /// The core the group's runtime takes unless set otherwise, 1; a process hosting the group sets its core with
+    /// `with_core`, so the default serves tests.
     pub const CORE: usize = 1;
 
     /// The owner of a cluster of `partition_count` partitions.

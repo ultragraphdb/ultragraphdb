@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: Resume keys as a client holds them
-  openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: A read resumes where it stopped
     When a read with limit 2 matches 5 rows and is resumed twice

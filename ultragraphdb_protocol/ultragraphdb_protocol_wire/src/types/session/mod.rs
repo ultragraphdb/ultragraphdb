@@ -5,7 +5,7 @@
 
 mod session_body_builder;
 
-/// The frontend registers a session for a principal in the metadata state machine's registry (`PROTOCOL.md` §13.23):
+/// Compute registers a session for a principal in the metadata state machine's registry (`PROTOCOL.md` §13.23):
 /// the identity it drew and the principal the session belongs to. The system group answers with the same bytes once
 /// the registration is durable.
 ///

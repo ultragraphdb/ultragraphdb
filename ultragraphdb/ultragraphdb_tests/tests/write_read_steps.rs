@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A client's writes and reads through the real frontend, compute and storage: where a write lands, and a read of it at the
+//! A client's writes and reads through the real compute and storage: where a write lands, and a read of it at the
 //! default level.
 
 use std::time::Duration;
@@ -26,7 +26,7 @@ use crate::shells::{pause, with_client};
 const B: &str = "http://ex.org/b";
 const KNOWS: &str = "http://ex.org/knows";
 
-/// What the frontend logs when a partition refused a first request as another's.
+/// What compute logs when a partition refused a first request as another's.
 const RESENT: &str = "a first request refused as another partition's is resent to its owner";
 
 /// How many read-only transactions a read of a fresh write takes at most, each at a newer snapshot.
@@ -54,7 +54,7 @@ async fn bounded<T>(what: &str, probe: impl Future<Output = TestResult<T>>) -> T
         .map_err(|_| TestError::new(format!("{what} did not answer within {PROBE:?}")))?
 }
 
-/// Whether partition `partition` at `address` holds `iri` in its dictionary, read as the frontend reads it.
+/// Whether partition `partition` at `address` holds `iri` in its dictionary, read as compute reads it.
 async fn holds_term(address: &str, partition: u32, iri: &str) -> TestResult<bool> {
     let what = format!("partition {partition}'s Scan of its dictionary");
     bounded(&what, scanned_term(address, partition, iri)).await
@@ -90,7 +90,7 @@ fn writes_one_per_partition(w: &mut Steps) -> TestResult {
                 .write(&transaction, &write_of(&subject, KNOWS, &iri(B))?)
                 .await?;
             let committed = client.commit(transaction, None).await?;
-            // The frontend logs a first request a partition refused as another's, which storage's correction would hide.
+            // Compute logs a first request a partition refused as another's, which storage's correction would hide.
             let log = cluster.compute_log()?;
             if log.contains(RESENT) {
                 return Err(TestError::new(format!(

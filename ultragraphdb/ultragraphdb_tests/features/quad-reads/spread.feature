@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: Reads over a spread tenant
-  openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: A bound subject asks one partition
     When a read binds its subject to `http://ex.org/a` over two partitions

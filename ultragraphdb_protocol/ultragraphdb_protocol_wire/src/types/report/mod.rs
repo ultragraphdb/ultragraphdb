@@ -14,7 +14,7 @@ use crate::types::term_table::TermTable;
 
 /// A partition reports to the metadata group what it found at a catalog version's effective epoch
 /// (`PROTOCOL.md` §13.19): a type change's check, passed or refused by the data, or an index build that failed. The
-/// frontend answers with every field as sent.
+/// system group answers with every field as sent.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|

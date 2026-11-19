@@ -4,7 +4,7 @@
 #
 
 Feature: Wire protocol: what a role connection announces
-  A role connection carries what the frontend already bounded on its clients' connections, streams and frames, so a role
+  A role connection carries what compute already bounded on its clients' connections, streams and frames, so a role
   endpoint announces the protocol's largest frame and its most streams, and a role takes the largest frame in its Hello.
 
   Scenario: A role endpoint announces its limits

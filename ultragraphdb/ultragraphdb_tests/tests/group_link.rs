@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A network between the real frontend and the real system group that fails as a scenario says: the frontend dials the group
+//! A network between the real compute and the real system group that fails as a scenario says: compute dials the group
 //! at `[::1]` and the link carries each connection to the group's `127.0.0.1` at the same port, which the config service's System
 //! address check takes, since a host may differ. Frames pass whole and in order, since a frame's `sequence` must be one above
 //! the last its sender sent (`PROTOCOL.md` §2.5, step 13). The link closes every connection it carries and refuses new ones
@@ -44,7 +44,7 @@ pub(crate) struct GroupLink {
 
 impl GroupLink {
     /// A link to the system group at `system`, a `tcp://127.0.0.1:port` address, listening at `[::1]` and that port. The group
-    /// need not listen yet: a connection the link cannot carry on closes, and the frontend dials again.
+    /// need not listen yet: a connection the link cannot carry on closes, and compute dials again.
     #[expect(
         clippy::disallowed_methods,
         reason = "the link carries bytes beside the scenarios, on threads of the test's own"
@@ -65,11 +65,11 @@ impl GroupLink {
                     break;
                 }
                 if locked(&held).severed {
-                    // Refused: the frontend's dial finds its connection closed.
+                    // Refused: compute's dial finds its connection closed.
                     drop(accepted.shutdown(Shutdown::Both));
                     continue;
                 }
-                // A connection the group refuses is what the frontend then sees: its socket closes.
+                // A connection the group refuses is what compute then sees: its socket closes.
                 drop(carry(accepted, target, &held));
             }
         }));
@@ -80,7 +80,7 @@ impl GroupLink {
         })
     }
 
-    /// Where the frontend dials the group: `cluster.system_address`.
+    /// Where compute dials the group: `cluster.system_address`.
     pub(crate) fn address(&self) -> String {
         format!("tcp://{}", self.address)
     }
@@ -138,26 +138,26 @@ fn locked(state: &Mutex<LinkState>) -> std::sync::MutexGuard<'_, LinkState> {
     state.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Starts carrying the frontend's connection `frontend` to the group at `target`, on a thread each way.
+/// Starts carrying compute's connection `compute` to the group at `target`, on a thread each way.
 #[expect(
     clippy::disallowed_methods,
     reason = "the link carries bytes beside the scenarios, on threads of the test's own"
 )]
 fn carry(
-    frontend: TcpStream,
+    compute: TcpStream,
     target: SocketAddr,
     state: &Arc<Mutex<LinkState>>,
 ) -> std::io::Result<()> {
     let group = TcpStream::connect(target)?;
-    frontend.set_nodelay(true)?;
+    compute.set_nodelay(true)?;
     group.set_nodelay(true)?;
     {
         let mut held = locked(state);
         held.connections += 1;
-        held.open.push(frontend.try_clone()?);
+        held.open.push(compute.try_clone()?);
         held.open.push(group.try_clone()?);
     }
-    let (up_from, up_to) = (frontend.try_clone()?, group.try_clone()?);
+    let (up_from, up_to) = (compute.try_clone()?, group.try_clone()?);
     drop(std::thread::spawn(move || {
         let (mut from, mut to) = (up_from, up_to);
         drop(std::io::copy(&mut from, &mut to));
@@ -166,7 +166,7 @@ fn carry(
     }));
     let down_state = Arc::clone(state);
     drop(std::thread::spawn(move || {
-        down(group, frontend, &down_state);
+        down(group, compute, &down_state);
     }));
     Ok(())
 }
@@ -191,8 +191,8 @@ fn is_close(frame: &[u8]) -> bool {
         == Some(Command::EpochClose.number())
 }
 
-/// Carries the group's frames to the frontend until either closes, each waiting in `held` while the link is stalled.
-fn down(mut group: TcpStream, mut frontend: TcpStream, state: &Mutex<LinkState>) {
+/// Carries the group's frames to compute until either closes, each waiting in `held` while the link is stalled.
+fn down(mut group: TcpStream, mut compute: TcpStream, state: &Mutex<LinkState>) {
     let mut held: Vec<Vec<u8>> = Vec::new();
     while let Some(frame) = next_frame(&mut group) {
         let stalled = {
@@ -208,11 +208,11 @@ fn down(mut group: TcpStream, mut frontend: TcpStream, state: &Mutex<LinkState>)
         }
         let sent = held
             .drain(..)
-            .try_for_each(|frame| frontend.write_all(&frame));
+            .try_for_each(|frame| compute.write_all(&frame));
         if sent.is_err() {
             break;
         }
     }
     drop(group.shutdown(Shutdown::Both));
-    drop(frontend.shutdown(Shutdown::Both));
+    drop(compute.shutdown(Shutdown::Both));
 }

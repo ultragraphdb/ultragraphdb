@@ -3,7 +3,7 @@
 
 @core
 Feature: A client's reads and writes in order
-  openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: A read sees its transaction's new term and its emptied list
     When a transaction writes `<new> <p> "x"`, creating `<new>`, removes every object of `<a> <p> ?o`, and reads both

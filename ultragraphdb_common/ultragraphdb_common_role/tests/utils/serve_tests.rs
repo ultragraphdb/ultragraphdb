@@ -1161,7 +1161,8 @@ fn test_a_server_never_prints_its_secret() -> TestResult {
     Ok(())
 }
 
-/// A session refusing every step of an exchange before the machine takes it, as the frontend whose system group is lost does.
+/// A session refusing every step of an exchange before the machine takes it, as a compute process whose system group is
+/// lost does.
 #[derive(Debug, Clone, Copy)]
 struct Unreachable;
 

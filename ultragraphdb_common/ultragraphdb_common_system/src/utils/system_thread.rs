@@ -135,7 +135,7 @@ pub async fn start_system(
         reason = "the owner is a real core, which no simulation replays: its state machines are simulated beneath it"
     )]
     let spawned = std::thread::Builder::new()
-        .name("frontend-owner".to_string())
+        .name("system-owner".to_string())
         .spawn(move || {
             let outcome = core_runtime(&config, core).and_then(|(runtime, cpu)| {
                 tracing::info!(core = "owner", "{cpu}");

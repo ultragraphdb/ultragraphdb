@@ -124,7 +124,7 @@ pub(crate) async fn served(handle: &SystemHandle) -> Option<(Address, String, Jo
         .await
         .ok()?;
     let address = listener.local_address().ok()?;
-    let server = Server::new(CLUSTER, "frontend", Endpoint::System)
+    let server = Server::new(CLUSTER, "system", Endpoint::System)
         .ok()?
         .with_iterations(ROLE_ITERATIONS);
     let credentials = cluster.secret().credentials().ok()?;

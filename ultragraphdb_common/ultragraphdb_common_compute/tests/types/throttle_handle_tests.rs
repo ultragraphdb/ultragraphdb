@@ -43,7 +43,7 @@ fn test_a_served_throttle_counts_what_it_is_told() -> TestResult {
     })
 }
 
-/// A throttle that stopped admits no connection and delays no attempt, as the frontend is stopping.
+/// A throttle that stopped admits no connection and delays no attempt, as compute is stopping.
 #[test]
 fn test_a_stopped_throttle_admits_no_one() -> TestResult {
     Runtime::new()?.block_on(async {

@@ -78,8 +78,6 @@ fn answered_while_held(held: Held) -> TestResult {
         assert_eq!(facts.last_closed(), durable, "{held:?}");
         heard(within(handle.check_session(1, ann)).await?)?;
         assert!(within(handle.session_held(1)).await?, "{held:?}");
-        heard(within(handle.begin_commit(1, ann)).await?)?;
-        handle.commit_ended(1);
         // A registration writes the metadata group's log: it waits for the sync's end.
         let registered = Rc::new(Cell::new(false));
         let waiting = {

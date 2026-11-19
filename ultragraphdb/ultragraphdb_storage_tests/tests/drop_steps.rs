@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Drops sent by a client through the frontend to a storage process hosting the system group, the partition's keys read back
+//! Drops sent by a client through compute to a storage process hosting the system group, the partition's keys read back
 //! over its role address: a Scan of each keyspace's range of the tenant, at the latest version, the keys decoded with
 //! `QuadKey::parse` and a predicates' list with `ObjectRecords`, as compute reads one.
 
@@ -57,7 +57,7 @@ impl DropSteps {
     }
 }
 
-/// The frontend and one partition's storage process hosting the system group, which bootstraps the administrator; ready.
+/// Compute and one partition's storage process hosting the system group, which bootstraps the administrator; ready.
 fn started(w: &mut Steps) -> TestResult {
     let util = crate::services()?;
     let file = scratch("drops-bootstrap-secret");
@@ -68,7 +68,7 @@ fn started(w: &mut Steps) -> TestResult {
         &file.display().to_string(),
     );
     let _storage = crate::start_storage(&util, &hosting, &scratch("storage-drops"))?;
-    let _frontend: u32 = util.start_service_from_config(role(
+    let _compute: u32 = util.start_service_from_config(role(
         COMPUTE_BINARY,
         &compute_holding()?,
         &scratch(COMPUTE_BINARY),
@@ -78,7 +78,7 @@ fn started(w: &mut Steps) -> TestResult {
     until_answering(&compute_observability()?, "/ready")
 }
 
-/// The administrator's connection to the frontend's client endpoint.
+/// The administrator's connection to compute's client endpoint.
 async fn admin() -> TestResult<RoleClient> {
     let target = Address::parse(&format!("tcp://{}", client_address()?))?;
     Ok(RoleClient::dial(&target, CLUSTER, ADMIN, PASSWORD).await?)
@@ -118,7 +118,7 @@ async fn wrote(client: &mut RoleClient, terms: TermTable, changes: Vec<WriteChan
     Err(TestError::new(format!("the write answered {command:?}")))
 }
 
-/// Sends `command` through the frontend, through no session, and waits for its reply, a Drop.
+/// Sends `command` through compute, through no session, and waits for its reply, a Drop.
 async fn dropped(client: &mut RoleClient, command: &DropCommand) -> TestResult {
     let answered = client.request(command).await?;
     let replied = answered.view()?.command();

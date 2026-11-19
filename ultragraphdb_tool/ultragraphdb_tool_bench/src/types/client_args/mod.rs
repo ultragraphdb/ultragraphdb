@@ -192,7 +192,7 @@ impl ClientArgs {
         self.relations
     }
 
-    /// Whether each connection registers a session and commits through it, so the frontend's owner check runs per commit.
+    /// Whether each connection registers a session and commits through it, so compute's owner check runs per commit.
     #[must_use]
     pub fn session(&self) -> bool {
         self.session

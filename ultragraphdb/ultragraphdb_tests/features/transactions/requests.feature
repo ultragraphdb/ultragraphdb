@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: Transactions and one-frame writes through the three binaries
-  openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: A read above the watermark is refused
     When a client's Begin names a read version above the visibility watermark of the partition answering it

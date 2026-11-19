@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: Whole clusters under a client, a role of them misbehaving
-  openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request. A role that misbehaves is the real process under a signal; a wait of 35 s runs as one epoch of a cluster whose epochs close at most every second.
+  openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md, through the real compute and storage, the client crates' own client sending every request. A role that misbehaves is the real process under a signal; a wait of 35 s runs as one epoch of a cluster whose epochs close at most every second.
 
   Scenario: Connections past the bound are refused
     When compute allows 2 connections and a third client connects

@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: A tightening through the three binaries
-  openspec/changes/stage-5-5-three-role-refactor/specs/schema-changes/spec.md, through the real frontend and storage: a partition reads its own data, and the client hears what it found.
+  openspec/changes/stage-5-5-three-role-refactor/specs/schema-changes/spec.md, through the real compute and storage: a partition reads its own data, and the client hears what it found.
 
   Scenario: A tightening the data contradicts is refused and restored
     When `a` holds two objects of `nick` and a client commits a declaration of `nick` single-valued

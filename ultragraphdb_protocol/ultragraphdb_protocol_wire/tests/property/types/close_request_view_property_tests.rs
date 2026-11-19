@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! CloseRequest's stage 5.8 field (`PROTOCOL.md` §13.16): `partition` u32 at 0, 0 from the frontend, `epoch` at 8.
+//! CloseRequest's stage 5.8 field (`PROTOCOL.md` §13.16): `partition` u32 at 0, 0 from compute, `epoch` at 8.
 //! Order: unused bytes 4–7 and 16–127 zero; `partition`; `epoch`; sections.
 
 use hegel::TestCase;
@@ -25,7 +25,7 @@ fn laid_out(partition: u32, epoch: u64, unused: Option<(usize, u8)>) -> Option<V
 }
 
 /// L1.12: a CloseRequest of any drawn `partition`, 0 included, and an epoch of at least 1 is the bytes laid out by
-/// hand, reads back to its fields and builds again to the same bytes; the frontend's constructor builds `partition`
+/// hand, reads back to its fields and builds again to the same bytes; compute's constructor builds `partition`
 /// 0.
 #[hegel::test]
 fn test_a_close_request_round_trips(tc: TestCase) {

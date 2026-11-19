@@ -879,7 +879,7 @@ fn first_claim(w: &mut Steps) -> TestResult {
     let predicate = id_at(&cluster, 2, "epi.id")?;
     let value = value_in(&cluster, 2, predicate)?;
     let claim = Bucket::of_value(Tenant::new(TENANT), predicate, simple(&value)?.as_bytes());
-    // The frontend binds the transaction to the partition owning the claim's bucket: partition 1 refuses it, naming 2.
+    // Compute binds the transaction to the partition owning the claim's bucket: partition 1 refuses it, naming 2.
     let refused = cluster.part(1)?.route(claim, cluster.closed());
     w.errors
         .push(refused.err().context("partition 1 refuses the claim")?);

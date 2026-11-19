@@ -2,7 +2,8 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: A write commits in one frame
-  openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md, through a real storage process beside a real frontend.
+  openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md, through a real storage process beside a
+  real compute process.
 
   Scenario: An insert commits in one request
     When a client sends a DirectWrite inserting `<a> <knows> <b>` through its session

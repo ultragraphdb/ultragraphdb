@@ -15,7 +15,7 @@ use crate::utils::owner_run::run_owner;
 use crate::utils::partitions_run::run_partitions;
 use crate::utils::pipeline_run::run_pipeline;
 
-/// The run `wal_bench`'s `args` name, the program's name left out: the frontend's owner check timed given
+/// The run `wal_bench`'s `args` name, the program's name left out: compute's owner check timed given
 /// `--owner-checks`, a partition's walks of its bound transactions given `--bound-walks`, the probe of an inbound point read given `--inbound`, over partitions given `--partitions`, otherwise of one log beside fjall's journal. Its report, or why it
 /// stopped.
 ///

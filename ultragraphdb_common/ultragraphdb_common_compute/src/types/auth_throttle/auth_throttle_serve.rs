@@ -26,7 +26,7 @@ impl AuthThrottle {
     }
 
     async fn run(mut self, mut inbox: mpsc::UnboundedReceiver<LoginAsked>) {
-        // An event loop: it ends once every handle is gone, as the frontend stops (Ultra rule 2).
+        // An event loop: it ends once every handle is gone, as compute stops (Ultra rule 2).
         while let Some(asked) = inbox.next().await {
             self.take(asked);
         }

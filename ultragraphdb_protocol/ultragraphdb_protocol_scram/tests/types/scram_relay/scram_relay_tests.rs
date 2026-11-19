@@ -439,7 +439,7 @@ fn forms(key: &[u8; 32]) -> Vec<String> {
     ]
 }
 
-/// The relay holds no key (client-endpoint, "The frontend never holds a stored key"): neither the messages it built
+/// The relay holds no key (client-endpoint, "Compute never holds a stored key"): neither the messages it built
 /// in RFC 7677's exchange nor its `Debug` hold the stored key or the server key, in any of their forms, while the
 /// keys' own `Debug` does, which shows the check finds a key where one is.
 #[test]

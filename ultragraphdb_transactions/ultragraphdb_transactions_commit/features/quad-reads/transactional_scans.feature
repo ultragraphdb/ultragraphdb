@@ -1,6 +1,7 @@
 # The scenarios of "A read through compute is a read of its transaction" at the transaction's level, from
 # openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md: a transaction scanning as a Scan naming it does,
-# decided by the commit step. Reaching it through compute and the frontend's ordering of a read and a write are 9.5.3 to 9.5.5.
+# decided by the commit step. Reaching it through compute and compute's ordering of a read and a write are 9.5.3 to
+# 9.5.5.
 
 Feature: A read through compute is a read of its transaction
 

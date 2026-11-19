@@ -3,9 +3,10 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A frontend played by the test: a real storage process joins it as it would a real one, and it delivers a close out of its
-//! order, breaks a subscription's connection or a catalog version's frames, or holds a Join's reply, which no real frontend can be
-//! made to do. It records the leases and Joins it is asked, and the subscriptions' and catalog reads' connections that ended.
+//! A system group played by the test: a real storage process joins it as it would a real one, and it delivers a close
+//! out of its order, breaks a subscription's connection or a catalog version's frames, or holds a Join's reply, which
+//! no real system group can be made to do. It records the leases and Joins it is asked, and the subscriptions' and
+//! catalog reads' connections that ended.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::process::ExitStatus;
@@ -31,16 +32,16 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_tests::{CLUSTER, SECRET, START_SECONDS};
 use ultragraphdb_tool_bdd::{TestError, TestResult, loopback};
 
-/// The offset above the target's port base (`ultragraphdb_tool_bdd::port`) the played frontend listens at.
-const PLAYED_FRONTEND_OFFSET: u16 = 15;
+/// The offset above the target's port base (`ultragraphdb_tool_bdd::port`) the played system group listens at.
+const PLAYED_SYSTEM_OFFSET: u16 = 15;
 
-/// Where the played frontend listens: a port of its own, so no other scenario's frontend meets it.
+/// Where the played system group listens: a port of its own, so no other scenario's system group meets it.
 ///
 /// # Errors
 ///
 /// When the target sets no port base.
-pub fn played_frontend_address() -> TestResult<String> {
-    loopback(PLAYED_FRONTEND_OFFSET)
+pub fn played_system_address() -> TestResult<String> {
+    loopback(PLAYED_SYSTEM_OFFSET)
 }
 
 /// The close it delivers first: a subscriber holding none expects close 1.
@@ -87,7 +88,7 @@ const PENDING_VERSIONS: u64 = 2;
 /// The blocks asked for, by type prefix and partition.
 pub type Leases = BTreeMap<(u16, u32), usize>;
 
-/// What the played frontend's connections were asked, and whether a Join's reply is held.
+/// What the played system group's connections were asked, and whether a Join's reply is held.
 #[derive(Debug, Default)]
 pub struct Played {
     leases: Mutex<Leases>,
@@ -191,9 +192,9 @@ impl Played {
     }
 }
 
-/// One connection at the played frontend.
+/// One connection at the played system group.
 #[derive(Debug)]
-struct PlayedFrontend {
+struct PlayedConnection {
     subscribed: Option<u64>,
     /// Whether a subscription was opened on this connection, and whether it was the first of all.
     subscriber: bool,
@@ -206,7 +207,7 @@ struct PlayedFrontend {
     played: Arc<Played>,
 }
 
-impl Drop for PlayedFrontend {
+impl Drop for PlayedConnection {
     fn drop(&mut self) {
         if self.subscriber {
             let _ended: usize = self
@@ -223,7 +224,7 @@ impl Drop for PlayedFrontend {
     }
 }
 
-impl PlayedFrontend {
+impl PlayedConnection {
     /// The answer to the Catalog request `view` on `stream`: a version the tenant never held refused with code 7, as the group
     /// refuses one; under [`Push::LateInCatalog`] and [`Push::StrayInCatalog`], versions 1 and 2 pending, each in one frame
     /// but the one broken on the first connection a catalog is read on, whose frames are queued for [`Session::next_push`].
@@ -252,10 +253,11 @@ impl PlayedFrontend {
                 (connection == 0 && version == 1).then_some((stray, false))
             }
             _ => {
-                // The played frontend holds no catalog version, so it refuses each as the group refuses one a tenant never held.
+                // The played system group holds no catalog version, so it refuses each as the group refuses one a
+                // tenant never held.
                 return Answer::Refuse(ErrorReply::new(
                     ErrorCode::Refused,
-                    "the played frontend holds no catalog version",
+                    "the played system group holds no catalog version",
                 ));
             }
         };
@@ -300,7 +302,7 @@ fn built<B: BodyBuilder>(body: &B, stream: u64, command: Command) -> Answer {
     }
 }
 
-/// The even placement over one partition, as a real frontend's first start forms it.
+/// The even placement over one partition, as a real system group's first start forms it.
 fn placement() -> TestResult<Placement> {
     let map = PlacementMap::even(1, NodeId::new(1))?;
     let mut reply = Placement::reply(0, 0, 1, 0);
@@ -318,7 +320,7 @@ fn placement() -> TestResult<Placement> {
     Ok(reply)
 }
 
-impl Session for PlayedFrontend {
+impl Session for PlayedConnection {
     fn authentication_refused(&mut self) {
         let _refused: usize = self.played.refusals.fetch_add(1, Ordering::AcqRel);
     }
@@ -418,21 +420,20 @@ impl Session for PlayedFrontend {
     }
 }
 
-/// Plays a frontend on this runtime, its subscriptions sent `push`: what its connections are asked is recorded in the
-/// [`Played`] it returns.
-pub async fn play_frontend(push: Push) -> TestResult<Arc<Played>> {
-    let file = std::env::temp_dir().join(format!("played-frontend-{}", std::process::id()));
+/// Plays a system group on this runtime, its subscriptions sent `push`: what its connections are asked is recorded in
+/// the [`Played`] it returns.
+pub async fn play_system(push: Push) -> TestResult<Arc<Played>> {
+    let file = std::env::temp_dir().join(format!("played-system-{}", std::process::id()));
     std::fs::write(&file, SECRET)?;
     let held: RoleCredentials = RoleSecret::read(&file.display().to_string())?.credentials()?;
-    let listener = listen(&format!("tcp://{}", played_frontend_address()?)).await?;
-    let server =
-        Server::new(CLUSTER, "frontend", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
+    let listener = listen(&format!("tcp://{}", played_system_address()?)).await?;
+    let server = Server::new(CLUSTER, "system", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
     let played = Arc::new(Played::default());
     let recorded = Arc::clone(&played);
     spawn(async move {
         while let Ok(carrier) = listener.accept().await {
             let (server, held) = (server.clone(), held.clone());
-            let session = PlayedFrontend {
+            let session = PlayedConnection {
                 subscribed: None,
                 subscriber: false,
                 first: false,

@@ -6,7 +6,7 @@
 Feature: Client endpoint: connections authenticate against the metadata group's principals
   openspec/changes/stage-5-8-system-group/specs/client-endpoint/spec.md, "Connections authenticate against the
   metadata group's principals": the parts the two halves of the exchange decide without a connection. A client's
-  exchange runs through `ScramRelay`, the frontend's half, and the system group's half on `ScramVerifier`, across
+  exchange runs through `ScramRelay`, compute's half, and the system group's half on `ScramVerifier`, across
   Challenge and Verify. A data request before authentication and the throttle need a connection, and are group 5's.
 
   Scenario: A wrong password is refused without detail

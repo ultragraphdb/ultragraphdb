@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The two halves of a server's exchange driven as the frontend and the system group drive them across Challenge and
+//! The two halves of a server's exchange driven as compute and the system group drive them across Challenge and
 //! Verify (design D8): [`ScramRelay`] reads and builds the messages; the group finds the name's verifier, or derives
 //! an unknown name's from its secret, and signs a proof that holds; a Verify answered `verified` 0 is refused. Its
 //! answers take [`ultragraphdb_protocol_scram::ScramServer`]'s shape, so a test compares the two exchanges message for

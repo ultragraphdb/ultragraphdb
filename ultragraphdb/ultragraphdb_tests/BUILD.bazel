@@ -41,7 +41,7 @@ rust_test(
 # within Bazel's time. A target's runfiles hold its feature files alone, and cucumber runs what `features/` holds.
 BDD_GROUPS = {
     "bdd_catalog": ["metadata-group/catalog.feature"],
-    "bdd_failure_frontend": ["transactions/failure_frontend.feature"],
+    "bdd_failure_compute": ["transactions/failure_compute.feature"],
     "bdd_failure_host": ["transactions/failure_host.feature"],
     "bdd_failure_link": ["transactions/failure_link.feature"],
     "bdd_failure_order": ["transactions/failure_order.feature"],

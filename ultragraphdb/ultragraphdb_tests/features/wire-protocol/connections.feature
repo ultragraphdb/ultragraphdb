@@ -3,7 +3,7 @@
 
 @core
 Feature: Connections authenticate through the three binaries
-  openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: A client authenticates with SCRAM-SHA-256
     When a server requiring authentication lists `SCRAM-SHA-256` and a client completes the exchange with the principal's password

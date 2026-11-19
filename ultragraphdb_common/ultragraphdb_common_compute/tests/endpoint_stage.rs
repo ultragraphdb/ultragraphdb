@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A frontend's two listeners on one test thread, its owner on its own, the other roles played by doubles and the client over raw
+//! Compute's two listeners on one test thread, its owner on its own, the other roles played by doubles and the client over raw
 //! frames: what a scenario decides, it decides, and what it asserts, it reads from the frames each side saw.
 
 use std::cell::{Cell, RefCell};
@@ -98,7 +98,7 @@ impl Default for Options {
 /// What each client connection has on its way to a role, in the order they connected.
 type Counts = Rc<RefCell<Vec<Option<ParkedBytes>>>>;
 
-/// The frontend under a scenario.
+/// Compute under a scenario.
 pub(crate) struct Stage {
     pub owner: SystemHandle,
     /// The core's link to the group.
@@ -122,7 +122,7 @@ fn cluster_of(directory: &std::path::Path) -> TestResult<RoleCluster> {
 }
 
 impl Stage {
-    /// A frontend of `options`, every request passing `authorizer`, holding the principals `ann` and `bob`.
+    /// Compute of `options`, every request passing `authorizer`, holding the principals `ann` and `bob`.
     pub(crate) async fn start_gated<A>(options: Options, authorizer: A) -> TestResult<Self>
     where
         A: Authorizer + Clone + 'static,
@@ -219,12 +219,12 @@ impl Stage {
         })
     }
 
-    /// A frontend of `options`, the authorizer of this stage.
+    /// Compute of `options`, the authorizer of this stage.
     pub(crate) async fn start(options: Options) -> TestResult<Self> {
         Self::start_gated(options, EveryAuthenticated).await
     }
 
-    /// Stops the frontend's listeners and its owner, for a scenario restarting it over the same directory.
+    /// Stops compute's listeners and its owner, for a scenario restarting it over the same directory.
     pub(crate) async fn stop(mut self) -> TestResult {
         self.tasks.clear();
         self.system.stop();
@@ -261,7 +261,7 @@ impl Stage {
         ))
     }
 
-    /// Members read over the stage's link, as a frontend reads it at its start until every partition is listed (design D9): the
+    /// Members read over the stage's link, as compute reads it at its start until every partition is listed (design D9): the
     /// doubles join after the stage starts, so each join is followed by this read.
     pub(crate) async fn read_members(&self) -> TestResult {
         self.system

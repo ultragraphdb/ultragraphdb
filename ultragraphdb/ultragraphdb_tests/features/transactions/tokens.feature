@@ -3,7 +3,7 @@
 
 @core
 Feature: Commits answer a session token through the three binaries
-  openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: A token names its commit
     When a transaction commits in partition 1 at position 40 with a version of epoch 12

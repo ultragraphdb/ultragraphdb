@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: Compute times a read-write transaction
-  openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request. The scenarios of `transaction_ms` share one wait of it, which a thread of the first run runs.
+  openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md, through the real compute and storage, the client crates' own client sending every request. The scenarios of `transaction_ms` share one wait of it, which a thread of the first run runs.
 
   Scenario: An unbound transaction passes its limit
     When a read-write transaction begins and sends nothing for `transaction_ms`

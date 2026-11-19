@@ -7,7 +7,7 @@ mod bind_body_builder;
 
 use crate::types::bind_kind::BindKind;
 
-/// The frontend binds a read-write transaction, or a Drop, to a partition (`PROTOCOL.md` §13.10): the frame's stream,
+/// Compute binds a read-write transaction, or a Drop, to a partition (`PROTOCOL.md` §13.10): the frame's stream,
 /// on the connection to the storage process hosting the partition, becomes the transaction's there and stays open.
 /// Sent with `read_version` 0; answered with every field as sent and, for a transaction, `read_version` the
 /// partition's visibility watermark when it binds.

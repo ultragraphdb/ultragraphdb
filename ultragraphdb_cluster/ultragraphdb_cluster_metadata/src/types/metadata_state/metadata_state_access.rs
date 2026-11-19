@@ -28,7 +28,7 @@ impl MetadataState {
         self.principals.len()
     }
 
-    /// The principal the session `session` acts for: the frontend's owner check.
+    /// The principal the session `session` acts for: the system group's owner check.
     ///
     /// # Errors
     ///

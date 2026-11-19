@@ -4,7 +4,7 @@
  */
 
 //! The client's conformance suite against the binaries: the conversation its crates play against `ultragraphdb_protocol_wire`'s
-//! golden frames, sent to a real frontend, compute and storage. What a request says comes from its golden frame, read by the
+//! golden frames, sent to a real compute and storage. What a request says comes from its golden frame, read by the
 //! wire's own view; what the answer must be comes from the protocol's rule for that request and from the frame itself, so
 //! nothing restates a golden value, and where a golden frame's values are an example a real server need not repeat, the rule
 //! decides.

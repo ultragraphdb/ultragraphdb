@@ -126,7 +126,7 @@ fn start_storage(
         ),
         ("storage.partition_count", info.partitions.to_string()),
     ];
-    // The played frontend plays the system group, so the storage process hosts none.
+    // The played system group stands in for the real one, so the storage process hosts none.
     let mut held = not_hosting(storage_holding()?);
     for (name, value) in &settings {
         held = with(held, name, value);

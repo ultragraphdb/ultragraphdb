@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: Sessions under a whole cluster of their own
-  openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: A Commit reply past the floor of `max_frame` is refused
     When a transaction's commit-time operations leave a Commit reply whose frame would pass 524,288 bytes

@@ -1,1 +1,1 @@
-tcp://frontend.ultragraph.svc:7070
+tcp://compute.ultragraph.svc:7070

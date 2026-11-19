@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: Access paths through the three binaries
-  openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: A resume key holds terms, not keys
     When a read with limit 1 over `<a> <knows> ?o` returns `<b>` and its resume key is decoded by the server

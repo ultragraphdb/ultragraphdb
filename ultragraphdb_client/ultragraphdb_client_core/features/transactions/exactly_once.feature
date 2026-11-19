@@ -5,7 +5,7 @@
 
 Feature: Exactly-once commits through sessions
   The client's side: one counter per session, a request kept in doubt until its resend resolves it. The test server plays
-  the frontend's answers; the frontend's and the partitions' sides are theirs.
+  compute's answers; compute's and the partitions' sides are theirs.
 
   Scenario: A retried commit commits once
     When a client commits request 7 of its session, loses the reply, and sends request 7 again

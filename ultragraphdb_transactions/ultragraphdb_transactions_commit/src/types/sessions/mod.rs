@@ -140,7 +140,7 @@ impl Sessions {
         }
     }
 
-    /// A retry of `request` of `session` with no transaction open for it, as the frontend asks every partition after a
+    /// A retry of `request` of `session` with no transaction open for it, as compute asks every partition after a
     /// reconnect: the stored reply when it is the session's last committed request here.
     ///
     /// # Errors

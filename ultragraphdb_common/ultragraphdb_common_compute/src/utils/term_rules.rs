@@ -129,7 +129,7 @@ fn valid_lexical(known: KnownDatatype, lexical: &str) -> bool {
     }
 }
 
-/// Whether a read of `pattern` binds an IRI nobody can hold: the frontend then answers it itself, with no row.
+/// Whether a read of `pattern` binds an IRI nobody can hold: compute then answers it itself, with no row.
 #[must_use]
 pub fn binds_nobody(table: &TermTableView<'_>, pattern: &QuadPattern, tenant: u64) -> bool {
     pattern.slots().into_iter().any(|slot| match slot {

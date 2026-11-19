@@ -59,7 +59,7 @@ impl ThrottleHandle {
     /// Tells the throttle an authentication from `source` ended now, `succeeded` or failed; nothing is answered.
     pub fn outcome(&self, source: IpAddr, succeeded: bool) {
         let at = crate::types::client_session::now();
-        // A throttle that stopped counts nothing more, and the frontend is stopping.
+        // A throttle that stopped counts nothing more, and compute is stopping.
         let _sent = self.inbox.unbounded_send(LoginAsked::Outcome {
             source,
             at,

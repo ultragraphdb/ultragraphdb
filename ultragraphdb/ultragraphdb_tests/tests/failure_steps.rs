@@ -108,7 +108,7 @@ pub(crate) struct Seen {
     held: Vec<String>,
     /// What else a scene saw, for its `then` step to judge, by name.
     facts: Vec<(&'static str, String)>,
-    /// The link between the frontend and the system group, kept to the scenario's end.
+    /// The link between compute and the system group, kept to the scenario's end.
     link: Option<GroupLink>,
 }
 
@@ -520,7 +520,7 @@ async fn until_single(client: &mut TestClient, predicate: &str) -> TestResult<bo
 #[when(
     "`nick` is being checked single-valued against partition 2, three sessions each have a Commit at partition 2, and compute is killed and started again"
 )]
-fn frontend_killed(w: &mut Steps) -> TestResult {
+fn compute_killed(w: &mut Steps) -> TestResult {
     let mut cluster = start_own_as(w.carrier, &Spec::one_partition().second_storage())?;
     let ranges = placement_ranges(&cluster.system)?;
     let names = names_in(w, &ranges, 2, WRITERS)?;
@@ -561,7 +561,8 @@ fn frontend_killed(w: &mut Steps) -> TestResult {
     })?;
     let mut faulted = faulted;
     let (next, held, single, after) = run(async {
-        // The marks of the killed frontend's connection outlive it by twice `transaction_ms`: a resend meanwhile is told 14.
+        // The marks of the killed compute's connection outlive it by twice `transaction_ms`: a resend meanwhile is told
+        // 14.
         resolve_all(&mut writers, &mut faulted).await?;
         let next = commit_each(&mut writers, &names.subject, &names.next).await?;
         let mut reader = client(&at).await?;
@@ -588,9 +589,9 @@ fn frontend_killed(w: &mut Steps) -> TestResult {
 #[then(
     "every Commit in doubt is resolved by its session's resend through the new compute node, every Commit acknowledged or resolved committed is held exactly once and no other, each session's next Commit commits, and the tightening takes effect once"
 )]
-fn frontend_killed_once(w: &mut Steps) -> TestResult {
+fn compute_killed_once(w: &mut Steps) -> TestResult {
     each_once(w)?;
-    // Each Commit at the stopped partition was sent when its connection went with the frontend.
+    // Each Commit at the stopped partition was sent when its connection went with compute.
     assert_eq!(resent(w), WRITERS, "{:#?}", w.failures);
     let seen = &w.failures;
     assert_eq!(seen.fact("single")?, "true", "{seen:#?}");
@@ -611,7 +612,7 @@ fn frontend_killed_once(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-/// The system group's role address of a scenario's own cluster over TCP, which a [`GroupLink`] carries the frontend to.
+/// The system group's role address of a scenario's own cluster over TCP, which a [`GroupLink`] carries compute to.
 fn own_system() -> TestResult<String> {
     Ok(format!("tcp://{}", system_role_address()?))
 }
@@ -715,10 +716,7 @@ fn link_closed_once(w: &mut Steps) -> TestResult {
     let [before, after] = dialled.as_slice() else {
         return Err(TestError::new(format!("{dialled:?}")));
     };
-    assert!(
-        after > before,
-        "the frontend dialled the group again: {seen:#?}"
-    );
+    assert!(after > before, "compute dialled the group again: {seen:#?}");
     w.cluster = None;
     w.failures.link = None;
     Ok(())
@@ -772,7 +770,7 @@ async fn begun_and_committed(
 #[when(
     "compute starts before any storage process, the storage process hosting the system group starts, and sessions commit at partitions 1 and 2 as the second storage process starts"
 )]
-fn frontend_first(w: &mut Steps) -> TestResult {
+fn compute_first(w: &mut Steps) -> TestResult {
     let spec = Spec::one_partition().second_storage().compute_first();
     let mut cluster = start_own_as(w.carrier, &spec)?;
     let unready = http_status(&cluster.compute_ready_address()?, "/ready")?;
@@ -854,21 +852,21 @@ fn frontend_first(w: &mut Steps) -> TestResult {
 #[then(
     "compute answers not ready until storage has started, every Commit in doubt is resolved by its session's resend, every Commit acknowledged or resolved committed is held exactly once and no other, and each session's next Commit commits"
 )]
-fn frontend_first_once(w: &mut Steps) -> TestResult {
+fn compute_first_once(w: &mut Steps) -> TestResult {
     each_once(w)?;
     assert_eq!(
         w.failures.fact("unready")?,
         "503",
-        "the frontend was not ready before storage: {:#?}",
+        "compute was not ready before storage: {:#?}",
         w.failures
     );
     w.cluster = None;
     Ok(())
 }
 
-/// The catalog version `predicate`'s declaration builds on `built_on`, declared at the system group at `system` as a frontend
-/// asks for it, so no endpoint core's view holds it from a Declare's reply: the version and the first version of the epoch it
-/// takes effect at.
+/// The catalog version `predicate`'s declaration builds on `built_on`, declared at the system group at `system` as
+/// compute asks for it, so no endpoint core's view holds it from a Declare's reply: the version and the first version
+/// of the epoch it takes effect at.
 async fn declared_at_group(system: &str, built_on: u64, predicate: &str) -> TestResult<(u64, u64)> {
     let address = Address::parse(system)?;
     let mut role = RoleClient::dial(&address, CLUSTER, "compute", SECRET).await?;
@@ -955,7 +953,7 @@ fn drop_behind(w: &mut Steps) -> TestResult {
         let held = held_by(&mut admin, &[&s]).await?;
         Ok((first, described, held))
     })?;
-    // From here the frontend's cores hear nothing from the group: no close, and no answer, until the link resumes.
+    // From here compute's cores hear nothing from the group: no close, and no answer, until the link resumes.
     link.stall();
     let (version, effective, stamped, held_closes, refused, held_refused) = run(async {
         let current = catalog_version(&system).await?;
@@ -1047,7 +1045,7 @@ fn drop_refused_then_once(w: &mut Steps) -> TestResult {
         refused.contains(&format!("code: {:?}, detail: {kind}", ErrorCode::Conflict)),
         "{seen:#?}"
     );
-    // The frontend's early refusal names both versions; the partition's is its own.
+    // Compute's early refusal names both versions; the partition's is its own.
     assert!(
         !refused.contains("the Drop names catalog version"),
         "{seen:#?}"

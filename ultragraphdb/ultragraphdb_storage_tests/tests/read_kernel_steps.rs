@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The read kernel through real frames: a real storage process beside a real frontend, a Scan's answer decoded with
-//! `EntriesSequence`, `EntriesView` and `ObjectRecords`, so a test reads as compute will.
+//! The read kernel through real frames: a real storage process beside a real compute process, a Scan's answer decoded
+//! with `EntriesSequence`, `EntriesView` and `ObjectRecords`, so a test reads as compute will.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -83,7 +83,7 @@ pub(crate) fn address() -> TestResult<String> {
     Ok(format!("tcp://{}", storage_role_address()?))
 }
 
-/// A frontend and one partition's storage; a Scan keeping `stall` milliseconds with no frame able to leave, when given.
+/// Compute and one partition's storage; a Scan keeping `stall` milliseconds with no frame able to leave, when given.
 pub(crate) fn one_partition(w: &mut Steps, stall: Option<&str>) -> TestResult {
     let settings: Vec<(&str, &str)> = stall
         .map(|ms| ("storage.scan_stall_ms", ms))
@@ -92,14 +92,14 @@ pub(crate) fn one_partition(w: &mut Steps, stall: Option<&str>) -> TestResult {
     partition_holding(w, &settings)
 }
 
-/// A frontend and one partition's storage, holding `settings` beside its own.
+/// Compute and one partition's storage, holding `settings` beside its own.
 pub(crate) fn partition_holding(w: &mut Steps, settings: &[(&str, &str)]) -> TestResult {
     use ultragraphdb_tests::{
         COMPUTE_BINARY, answering, compute_holding, compute_observability, role, storage_holding,
     };
     let util = crate::services()?;
     let wait = answering(&compute_observability()?, "/health");
-    let _frontend: u32 = util.start_service_from_config(role(
+    let _compute: u32 = util.start_service_from_config(role(
         COMPUTE_BINARY,
         &compute_holding()?,
         &scratch(COMPUTE_BINARY),
@@ -1824,7 +1824,7 @@ fn scan_during_write(w: &mut Steps) -> TestResult {
             .send_on(bind_stream, &edge_write(&subject, &object))
             .await?;
         script.asked().await?;
-        // The frontend holds the Bind stream's connection and compute dials its own, as this Scan does.
+        // Compute's endpoint holds the Bind stream's connection and its executor dials its own, as this Scan does.
         let mut compute = dial_at(&crate::first_process()?).await?;
         let scan = term_scan(23, read, &subject);
         w.kernel

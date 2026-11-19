@@ -15,7 +15,7 @@ use crate::types::sequencer_record::SequencerRecord;
 
 impl<L: OrderedLog> Sequencer<L> {
     /// Asks for the close of `epoch` as soon as `epoch_ms_min` allows: a partition whose sequence would run out, or
-    /// the frontend for a snapshot read waiting on the open epoch. A request for an epoch already closed, durable or
+    /// compute for a snapshot read waiting on the open epoch. A request for an epoch already closed, durable or
     /// not, is answered by that close and changes nothing.
     ///
     /// # Errors

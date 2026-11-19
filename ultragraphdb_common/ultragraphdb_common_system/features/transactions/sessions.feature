@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: The registry's side of a session
-  The frontend's owner check, which refuses a request before any partition sees it.
+  Compute's owner check, which refuses a request before any partition sees it.
 
   Scenario: A session belongs to its principal
     When principal `alice` registers a session, and a connection authenticated as `bob` commits through it

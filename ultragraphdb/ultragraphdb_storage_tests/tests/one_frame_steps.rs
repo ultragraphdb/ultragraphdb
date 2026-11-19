@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A partition's hosting of DirectWrite, ConditionalWrite and a Drop, over a real storage process and a real frontend, the frontend's
-//! side of each played by this test on the partition's role address.
+//! A partition's hosting of DirectWrite, ConditionalWrite and a Drop, over a real storage process and a real compute
+//! process, compute's side of each played by this test on the partition's role address.
 
 use cucumber::{then, when};
 use ultragraphdb_common_role::RoleClient;
@@ -66,12 +66,12 @@ async fn committed(
     Ok(Ok((reply.commit_version(), reply.token().cloned(), node)))
 }
 
-/// A frontend, and one partition's storage hosting the system group, which holds the bootstrap administrator.
+/// Compute, and one partition's storage hosting the system group, which holds the bootstrap administrator.
 fn with_an_administrator(w: &mut Steps) -> TestResult {
     let util = crate::services()?;
     let file = scratch("admin-secret");
     std::fs::write(&file, "pw")?;
-    let _frontend: u32 = util.start_service_from_config(role(
+    let _compute: u32 = util.start_service_from_config(role(
         COMPUTE_BINARY,
         &compute_holding()?,
         &scratch(COMPUTE_BINARY),

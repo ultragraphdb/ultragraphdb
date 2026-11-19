@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A tightening's check at the frontend, the partitions played: what each reports, and when, a scenario decides.
+//! A tightening's check at compute, the partitions played: what each reports, and when, a scenario decides.
 
 use std::time::Duration;
 
@@ -30,7 +30,7 @@ const SUBJECT: &str = "http://ex.org/a";
 /// How long a Commit is watched for an answer it must not give, in milliseconds.
 const UNANSWERED_MS: u64 = 80;
 
-/// How long a test waits for what its frontend does on its own, polling.
+/// How long a test waits for what compute and the system group do on their own, polling.
 const WAIT: Duration = Duration::from_secs(5);
 
 /// A stage of `partitions` partitions waiting `check_ms` for each one's report.

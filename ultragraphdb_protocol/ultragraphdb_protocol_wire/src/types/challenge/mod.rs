@@ -6,7 +6,7 @@
 mod challenge_body_builder;
 mod challenge_debug;
 
-/// The first half of verifying a principal's SCRAM-SHA-256 proof (`PROTOCOL.md` §13.8): a frontend asks the metadata
+/// The first half of verifying a principal's SCRAM-SHA-256 proof (`PROTOCOL.md` §13.8): compute asks the metadata
 /// group's host for the principal's salt and iteration count. Sent with `iterations` 0 and no salt, answered with both.
 /// Its `Debug` holds the name, the iteration count and the salt's length, never the salt, which the
 /// server-first-message carries.

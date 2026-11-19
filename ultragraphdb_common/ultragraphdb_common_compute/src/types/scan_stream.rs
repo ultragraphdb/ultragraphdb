@@ -29,7 +29,7 @@ pub(crate) struct ScanStream {
     stream: u64,
     /// How long a frame may take once asked for: the Scan's wait for its epoch and the link's answer bound.
     wait: Duration,
-    /// How long the frontend waits on a read before it gives it up: the Scan's wait for its epoch and one `scan_stall_ms`.
+    /// How long compute waits on a read before it gives it up: the Scan's wait for its epoch and one `scan_stall_ms`.
     given_up: Duration,
     /// When the frame awaited now was asked for; `None` while none is awaited.
     asked: Option<Instant>,
@@ -173,7 +173,7 @@ impl Drop for ScanStream {
             drop(self.link.send(self.stream, &Cancel));
         }
         self.link.forget(self.stream);
-        // A read given up while its partition stays silent, as the frontend gives up a hung read first, leaves its wait to the
+        // A read given up while its partition stays silent, as compute gives up a hung read first, leaves its wait to the
         // link, so a silent connection still closes for the reads after it.
         if !self.ended
             && let Some(asked) = self.asked

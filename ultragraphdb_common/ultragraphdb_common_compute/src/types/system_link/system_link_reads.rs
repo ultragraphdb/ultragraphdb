@@ -48,7 +48,7 @@ impl SystemLink {
             .ok_or_else(|| unavailable("the catalog version's schema id is not held"))
     }
 
-    /// Reads `tenant`'s current version once, as a tenant first used is (`PROTOCOL.md` §11.13, *The frontend's reads*).
+    /// Reads `tenant`'s current version once, as a tenant first used is (`PROTOCOL.md` §11.13, *Compute's reads*).
     ///
     /// # Errors
     ///
@@ -158,8 +158,8 @@ impl SystemLink {
     }
 
     /// Placement, then the current version of each tenant to read again and of each tenant the placement lists that was never
-    /// read: a tenant is first used by the core when its placement names it, so no Begin asks for it (`PROTOCOL.md` §11.13, *The
-    /// frontend's reads*; client-endpoint, "A Begin asks no other process").
+    /// read: a tenant is first used by the core when its placement names it, so no Begin asks for it (`PROTOCOL.md` §11.13,
+    /// *Compute's reads*; client-endpoint, "A Begin asks no other process").
     async fn read_wanted(&self) -> Result<(), ErrorReply> {
         if self.view().wants_placement() {
             self.read_placement().await?;

@@ -26,7 +26,7 @@ use crate::utils_test::double_frame::DoubleFrame;
 use crate::utils_test::double_session::DoubleSession;
 
 /// A role a test plays: it accepts what a role's endpoint takes, keeps every frame, and answers as `script` says. Reads against
-/// compute and writes against storage run over these, so a scenario decides what the frontend hears, when. Its clones
+/// compute and writes against storage run over these, so a scenario decides what compute hears, when. Its clones
 /// share what it took and its tasks by `Rc`s of `RefCell`s on the test's one thread, a borrow lasting one call (Ultra
 /// rule 9).
 #[derive(Debug, Clone)]
@@ -101,24 +101,23 @@ impl RoleDouble {
         Ok(double)
     }
 
-    /// Joins the frontend at `frontend` as what `join` says, on a connection that stays open as long as the double.
+    /// Joins the system group at `system` as what `join` says, on a connection that stays open as long as the double.
     ///
-    /// A dropped future drops its connection, and a Join the frontend took stands.
+    /// A dropped future drops its connection, and a Join the system group took stands.
     ///
     /// # Errors
     ///
-    /// What dialling or the frontend refuses.
+    /// What dialling or the system group refuses.
     pub async fn join(
         &self,
-        frontend: &Address,
+        system: &Address,
         cluster: &RoleCluster,
         name: &str,
         join: &Join,
     ) -> Result<(), String> {
-        let mut client =
-            RoleClient::dial(frontend, cluster.id(), name, cluster.secret().password())
-                .await
-                .map_err(|error| error.to_string())?;
+        let mut client = RoleClient::dial(system, cluster.id(), name, cluster.secret().password())
+            .await
+            .map_err(|error| error.to_string())?;
         let reply = client
             .request(join)
             .await

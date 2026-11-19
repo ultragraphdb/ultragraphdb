@@ -297,7 +297,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return;
         }
         let owner = (refusal.detail() >> 32) as u32; // a `u64`'s high half, lossless
-        // A frontend's map behind its partitions' is what an operator watches a move by.
+        // Compute's map behind its partitions' is what an operator watches a move by.
         tracing::info!(
             transaction,
             owner,

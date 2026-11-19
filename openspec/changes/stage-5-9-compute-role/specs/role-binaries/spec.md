@@ -22,7 +22,8 @@ SHALL be the supervisor of the development image, which holds the two role binar
 
 #### Scenario: Nothing is named frontend
 - **WHEN** the workspace's members, the images, the chart and the profiles are searched for `frontend`
-- **THEN** none is found
+- **THEN** none is found but the refusals of the retired names, with their tests: the settings table `[frontend]`,
+  `cluster.frontend_address`, instance names beginning `frontend` and the role name `frontend`, each refused by name
 
 ### Requirement: Roles meet through the transport at their addresses
 Roles SHALL exchange the binary protocol's frames through the transport, at addresses from configuration: `tcp://`

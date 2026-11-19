@@ -35,7 +35,7 @@ use crate::utils::setup::{BenchApplier, open_applier};
 
 /// The cluster the frames and the log's rounds name.
 const CLUSTER: u64 = 1;
-/// The stream each frame names, as the frontend fills it.
+/// The stream each frame names, as compute fills it.
 const STREAM: u64 = 1;
 /// The store's posting cache, as the other runs give it.
 const CACHE_MB: u64 = 128;

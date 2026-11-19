@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: Commit-time operations through the three binaries
-  openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: Concurrent insert-if-absent yields one node
     When eight transactions concurrently insert-if-absent a node with `epi.id` `"x"`, declared unique, all in the partition owning the bucket of `"x"`

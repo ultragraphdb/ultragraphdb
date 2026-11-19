@@ -9,7 +9,7 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 /// Every kind reads back as it was written, the files untouched.
 #[test]
 fn test_a_record_round_trips() -> TestResult {
-    let files: &[u8] = b"frontend 1\nx\n";
+    let files: &[u8] = b"compute 1\nx\n";
     for record in [
         ConfigRecord::Revision {
             target: "ci",

@@ -6,7 +6,8 @@
 //! A partition's core in the test's process for the reads', the versions' and the one-frame writes' tests: partition 1 of a
 //! one-partition map over fjall and its write-ahead log in a directory of its own, listening on a loopback address where each
 //! connection is a [`StorageSession`], served by [`PartitionCore::run`] beside the test until the test ends. The channels the
-//! role's shell holds, the closes it delivers, what the core asks of the frontend and the inbox itself, are the test's.
+//! role's shell holds, the closes it delivers, what the core asks of the system group and the inbox itself, are the
+//! test's.
 
 use std::sync::mpsc::Sender;
 use std::time::Duration;
@@ -93,7 +94,7 @@ pub(crate) struct Rig {
     address: Address,
     /// The closes the role's shell delivers to the core.
     pub(crate) closes: Sender<PartitionMessage>,
-    /// What the core asks of the frontend.
+    /// What the core asks of the system group.
     pub(crate) asks: UnboundedReceiver<SystemAsk>,
     /// The core's inbox, which its connections hand their requests to.
     pub(crate) inbox: UnboundedSender<CoreMessage>,
@@ -115,7 +116,7 @@ impl Rig {
         Ok(RoleClient::dial(&self.address, CLUSTER, "compute", PASSWORD).await?)
     }
 
-    /// The next report the core sends the frontend, within [`DUE`], past what else it asks.
+    /// The next report the core sends the system group, within [`DUE`], past what else it asks.
     pub(crate) async fn report(&mut self) -> TestResult<ultragraphdb_protocol_wire::Report> {
         let asks = &mut self.asks;
         compio::time::timeout(DUE, async {
@@ -186,8 +187,8 @@ pub(crate) fn with_core_then(
         let (closes_tx, closes) = std::sync::mpsc::channel();
         let (discards, _discarded) = std::sync::mpsc::channel();
         let (answers, _answered) = unbounded();
-        let frontend = Address::parse("tcp://127.0.0.1:1")?;
-        let peers = Peers::new(cluster, frontend, "storage".to_string(), answers);
+        let system = Address::parse("tcp://127.0.0.1:1")?;
+        let peers = Peers::new(cluster, system, "storage".to_string(), answers);
         let channels = CoreChannels::new(inbox, remote, own, closes, asks_tx, discards);
         // The core's clock stands still but for the test's advances, so no timer of the core races the test.
         let clock = TestClock::stopped();

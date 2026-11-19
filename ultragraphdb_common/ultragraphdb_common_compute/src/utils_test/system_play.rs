@@ -46,7 +46,7 @@ struct Played {
 const GARBLED: [u8; 8] = [0xFF; 8];
 
 /// The system group a test plays at a [`crate::RoleDouble`]'s address (task 5.2): [`SystemPlay::answer`] is the double's
-/// script. It answers each command an endpoint core asks as `PROTOCOL.md` §11.12's table has the group serve the frontend,
+/// script. It answers each command an endpoint core asks as `PROTOCOL.md` §11.12's table has the group serve compute,
 /// from what the test set: Subscribe with the latest close and every close [`SystemPlay::close`] pushes, Placement of an even
 /// map over its partitions and its tenants' runs, Members, Session, each Check passed or as [`SystemPlay::outcome`] says,
 /// Ended with nothing, Challenge and Verify against the principals it holds, Declare building the next version on the

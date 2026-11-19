@@ -4,10 +4,10 @@
  */
 
 //! The storage binary hosting the system group, as processes, bound to the features tagged `@system`: an instance whose
-//! settings hold `[system]` hosts the group, every partition dials `cluster.system_address`, and no frontend runs. The
-//! settings are served by the config double, which serves them as they stand, so these scenarios do not wait for the
-//! config service's checks of group 7. One scenario runs at a time: the binaries listen at their declared ports, each a fixed
-//! offset above the port base the target sets.
+//! settings hold `[system]` hosts the group, every partition dials `cluster.system_address`, and no compute process
+//! runs. The settings are served by the config double, which serves them as they stand, so these scenarios do not wait
+//! for the config service's checks of group 7. One scenario runs at a time: the binaries listen at their declared
+//! ports, each a fixed offset above the port base the target sets.
 
 mod system_books_steps;
 

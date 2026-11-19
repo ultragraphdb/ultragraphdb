@@ -10,8 +10,8 @@ mod drop_steps;
 mod lost_group_steps;
 mod one_frame_steps;
 mod parked_steps;
-mod played_frontend;
 mod played_home;
+mod played_system;
 mod read_kernel_steps;
 mod retention_steps;
 mod scan_ranges_steps;
@@ -19,8 +19,8 @@ mod scan_ranges_steps;
 use compio::runtime::Runtime;
 use cucumber::{World, then, when};
 use futures::FutureExt;
-use played_frontend::{
-    OUT_OF_ORDER_EPOCH, Played, Push, TRIMMED, exit_of, play_frontend, played_frontend_address,
+use played_system::{
+    OUT_OF_ORDER_EPOCH, Played, Push, TRIMMED, exit_of, play_system, played_system_address,
     until_seen,
 };
 use service_utils::{ServiceUtil, WaitStrategy};
@@ -91,7 +91,7 @@ const SHORT_DEADLINE_MS: &str = "800";
 
 /// The offset above the target's port base (`ultragraphdb_tool_bdd::port`) of the role endpoint of the storage process
 /// hosting partitions 1 and 2, the first of two; partition 2 listens at the next port. The harness's addresses take the
-/// offsets below 15, and the played frontend 15.
+/// offsets below 15, and the played system group 15.
 pub(crate) const FIRST_PROCESS_OFFSET: u16 = 20;
 
 /// As [`FIRST_PROCESS_OFFSET`], of the storage process hosting partitions 3 and 4.
@@ -170,14 +170,14 @@ fn run_to_exit(w: &mut Steps, variables: Vec<(String, String)>) -> TestResult {
     Ok(())
 }
 
-/// A frontend logs a refused dial below the level a role logs at, so the system group it dials is the test's: the played group
-/// holding the cluster's secret, which counts the authentications it refuses and the role commands it is asked.
+/// Compute logs a refused dial below the level a role logs at, so the system group it dials is the test's: the played
+/// group holding the cluster's secret, which counts the authentications it refuses and the role commands it is asked.
 #[when("a compute node started with a different role secret connects to the system group")]
 fn wrong_secret(w: &mut Steps) -> TestResult {
     let refused = [
         (
             "cluster.system_address",
-            format!("tcp://{}", played_frontend_address()?),
+            format!("tcp://{}", played_system_address()?),
         ),
         ("cluster.join_deadline_ms", SHORT_DEADLINE_MS.to_string()),
     ]
@@ -186,10 +186,10 @@ fn wrong_secret(w: &mut Steps) -> TestResult {
         holding(compute_on_one_host()?, "another secret")?,
         |settings, (name, value)| with(settings, name, value),
     );
-    let log = scratch("frontend-refused.log");
+    let log = scratch("compute-refused.log");
     let util = services()?;
     let played = Runtime::new()?.block_on(async {
-        let played = play_frontend(Push::Nothing).await?;
+        let played = play_system(Push::Nothing).await?;
         let pid = util.start_service_from_config(role(
             COMPUTE_BINARY,
             &refused,
@@ -216,11 +216,11 @@ fn refused_and_retried(w: &mut Steps) -> TestResult {
         w.log
     );
     assert_eq!(played.commands(), 0, "{}", w.log);
-    // The deadline passed with the group never reached: the frontend stops, naming the address and the deadline.
+    // The deadline passed with the group never reached: compute stops, naming the address and the deadline.
     exit_is(w.exited, &w.log, 69)?;
     let gone = format!(
         "the system group at tcp://{} has been gone for join_deadline_ms, {SHORT_DEADLINE_MS} ms",
-        played_frontend_address()?
+        played_system_address()?
     );
     assert!(w.log.contains(&gone), "{}", w.log);
     Ok(())
@@ -347,7 +347,7 @@ fn storage_of(first: u32, count: u32, port: u16) -> TestResult<Vec<(String, Stri
     ))
 }
 
-/// A frontend over 4 partitions and two storage processes hosting 1 and 2, and 3 and 4, all held by the config service.
+/// Compute over 4 partitions and two storage processes hosting 1 and 2, and 3 and 4, all held by the config service.
 fn two_processes(w: &mut Steps) -> TestResult {
     start_processes(w, &[1, 3])
 }
@@ -357,8 +357,8 @@ fn one_process_of_two(w: &mut Steps) -> TestResult {
     start_processes(w, &[1])
 }
 
-/// The config service holding a frontend over 4 partitions and two storage processes hosting 1 and 2, and 3 and 4; then the
-/// frontend and the storage processes whose first partitions are `firsts`.
+/// The config service holding compute over 4 partitions and two storage processes hosting 1 and 2, and 3 and 4; then
+/// compute and the storage processes whose first partitions are `firsts`.
 fn start_processes(w: &mut Steps, firsts: &[u32]) -> TestResult {
     processes_holding(w, firsts, &[])
 }
@@ -518,7 +518,7 @@ fn start_storage(util: &ServiceUtil, settings: &[(String, String)], log: &Path) 
 /// What runs a storage process with commits acknowledged, its settings and its pid.
 type Committed = (ServiceUtil, Vec<(String, String)>, u32);
 
-/// A frontend and one partition's storage, with commits acknowledged: what restarts it, its log and its pid.
+/// Compute and one partition's storage, with commits acknowledged: what restarts it, its log and its pid.
 fn committed_storage(w: &mut Steps) -> TestResult<Committed> {
     let util = services()?;
     let wait = answering(&compute_observability()?, "/health");
@@ -711,7 +711,7 @@ fn logs_unpinned(w: &mut Steps) {
 
 #[when("a storage partition detects an invariant violation in a release build")]
 fn close_out_of_order(w: &mut Steps) -> TestResult {
-    on_played_frontend(w, Push::OutOfOrder).map(drop)
+    on_played_system(w, Push::OutOfOrder).map(drop)
 }
 
 /// The storage process hosts no system group: it dials the played one, which ends its subscription.
@@ -719,7 +719,7 @@ fn close_out_of_order(w: &mut Steps) -> TestResult {
     "the system group ends the subscription of a storage process that does not host it, the close it asks for being no longer held"
 )]
 fn subscription_ended(w: &mut Steps) -> TestResult {
-    on_played_frontend(w, Push::Ending).map(drop)
+    on_played_system(w, Push::Ending).map(drop)
 }
 
 #[then(
@@ -733,17 +733,17 @@ fn exits_on_the_end(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-/// A storage process over the played frontend, until it exits; `push` as [`play_frontend`] takes it.
-fn on_played_frontend(w: &mut Steps, push: Push) -> TestResult<Arc<Played>> {
+/// A storage process over the played system group, until it exits; `push` as [`play_system`] takes it.
+fn on_played_system(w: &mut Steps, push: Push) -> TestResult<Arc<Played>> {
     let log = scratch("storage-invariant.log");
     let settings = with(
         not_hosting(storage_holding()?),
         "cluster.system_address",
-        &format!("tcp://{}", played_frontend_address()?),
+        &format!("tcp://{}", played_system_address()?),
     );
     let util = services()?;
     let played = Runtime::new()?.block_on(async {
-        let played = play_frontend(push).await?;
+        let played = play_system(push).await?;
         let pid = util.start_service_from_config(role(
             STORAGE_BINARY,
             &settings,
@@ -767,13 +767,13 @@ const STOP_SEEN: Duration = Duration::from_millis(200);
 
 #[when("a storage partition joins the system group")]
 fn joins_played(w: &mut Steps) -> TestResult {
-    w.played = Some(on_played_frontend(w, Push::Ending)?);
+    w.played = Some(on_played_system(w, Push::Ending)?);
     Ok(())
 }
 
 #[then("it leased the current block and the block ahead of each type before it joined")]
 fn leased_ahead(w: &mut Steps) -> TestResult {
-    let played = w.played.as_ref().context("a played frontend")?;
+    let played = w.played.as_ref().context("a played system group")?;
     let joined = played.joined()?;
     assert!(!joined.is_empty(), "no Join:\n{}", w.log);
     let held: BTreeMap<(u16, u32), usize> = joined
@@ -798,11 +798,11 @@ fn stopped_joining(w: &mut Steps) -> TestResult {
     let settings = with(
         not_hosting(storage_holding()?),
         "cluster.system_address",
-        &format!("tcp://{}", played_frontend_address()?),
+        &format!("tcp://{}", played_system_address()?),
     );
     let util = services()?;
     let played = Runtime::new()?.block_on(async {
-        let played = play_frontend(Push::Nothing).await?;
+        let played = play_system(Push::Nothing).await?;
         played.hold_joins(true);
         let pid = util.start_service_from_config(role(
             STORAGE_BINARY,
@@ -829,7 +829,7 @@ fn stopped_joining(w: &mut Steps) -> TestResult {
 
 #[then("it completes its Join, exits with code 0, and never reports itself ready")]
 fn never_ready(w: &mut Steps) -> TestResult {
-    let played = w.played.as_ref().context("a played frontend")?;
+    let played = w.played.as_ref().context("a played system group")?;
     exit_is(w.exited, &w.log, 0)?;
     assert!(
         played.subscribes() > 0,
@@ -1118,8 +1118,8 @@ fn with_admin(settings: Vec<(String, String)>) -> TestResult<Vec<(String, String
     Ok(with(addressed, "admin.key_sha256", &digest))
 }
 
-/// Starts a frontend and one partition's storage with an admin listener, through the service holding revision 1, acknowledges
-/// commits, and adds revision 2 unactivated. What it leaves running stays in `w`, with storage's pid.
+/// Starts compute and one partition's storage with an admin listener, through the service holding revision 1,
+/// acknowledges commits, and adds revision 2 unactivated. What it leaves running stays in `w`, with storage's pid.
 fn loadable(w: &mut Steps) -> TestResult {
     let util = services()?;
     let compute_settings = compute_holding()?;

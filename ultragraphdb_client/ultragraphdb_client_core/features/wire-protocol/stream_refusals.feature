@@ -5,7 +5,7 @@
 
 Feature: A request on a stream that cannot take it is refused
   The dialling side of `PROTOCOL.md` §2.5: a frame on a stream it has ended is late, and one on a stream it has not
-  opened answers no request. The serving side is the frontend's.
+  opened answers no request. The serving side is compute's.
 
   Scenario: A late frame reaches the client
     When a Result frame arrives for a read the client has cancelled

@@ -84,7 +84,7 @@ impl CatalogContents {
                 field.copy_from_slice(&len.to_be_bytes());
             }
         }
-        // Paired with the load: every partition and the frontend decode the version with this decoder, and one that does not
+        // Paired with the load: every partition and compute decode the version with this decoder, and one that does not
         // decode stops its tenant's load, so every debug build reads back what it encodes before the group is given it. The
         // decode reads each declaration with the entry decoder, so the entries are written without the entry encoder's own
         // read-back, which would read each IRI a second time.

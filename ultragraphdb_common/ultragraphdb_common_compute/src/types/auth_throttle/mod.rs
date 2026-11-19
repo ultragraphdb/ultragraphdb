@@ -31,10 +31,10 @@ struct Failures {
     banned_until: Option<Instant>,
 }
 
-/// The frontend's failed authentications by source, held by its first endpoint core for every endpoint core (design D15). A source is an IPv4
-/// address or an IPv6 /64, as one attacker holds a whole /64. Its first failures wait nothing, the next each wait a delay doubling
-/// from 100 ms to at most 30 s, and then it is banned until its ban ends on its own; a success forgets its failures. Its run
-/// ([`AuthThrottle::serve`]) takes one ask at a time on one thread, so the table is plain.
+/// Compute's failed authentications by source, held by its first endpoint core for every endpoint core (design D15). A source
+/// is an IPv4 address or an IPv6 /64, as one attacker holds a whole /64. Its first failures wait nothing, the next each wait a
+/// delay doubling from 100 ms to at most 30 s, and then it is banned until its ban ends on its own; a success forgets its
+/// failures. Its run ([`AuthThrottle::serve`]) takes one ask at a time on one thread, so the table is plain.
 #[derive(Debug, Clone)]
 pub struct AuthThrottle {
     sources: HashMap<IpAddr, Failures>,

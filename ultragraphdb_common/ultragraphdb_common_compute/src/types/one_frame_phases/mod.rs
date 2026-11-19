@@ -11,7 +11,7 @@ use ultragraphdb_common_service::PhaseWindow;
 
 use crate::types::client_session::now;
 
-/// The phases of a one-frame write on the frontend, in its window's order: from its frame taken to its relay to its partition,
+/// The phases of a one-frame write on compute, in its window's order: from its frame taken to its relay to its partition,
 /// the checks (the gate, the token, the session's owner check, the terms and the route); from its relay to its partition's
 /// answer; and from its frame taken to that answer, which then leaves for the client.
 pub const ONE_FRAME_PHASES: [&str; 3] = ["checks", "partition", "total"];

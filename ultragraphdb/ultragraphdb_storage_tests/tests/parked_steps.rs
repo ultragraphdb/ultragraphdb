@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A role connection past a parked request (`PROTOCOL.md` §11.12): a real storage process, the frontend's side played on the
+//! A role connection past a parked request (`PROTOCOL.md` §11.12): a real storage process, compute's side played on the
 //! partition's role address, a home played where its answer must wait.
 
 use std::time::Duration;

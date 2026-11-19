@@ -1925,9 +1925,9 @@ fn test_an_install_opens_a_stream_and_a_held_closes_the_connection() -> TestResu
         }
     );
     let mut role = Peer::default();
-    let mut frontend = serving(&mut role, now)?.with_endpoint(Endpoint::System);
+    let mut system = serving(&mut role, now)?.with_endpoint(Endpoint::System);
     assert_eq!(
-        frontend.receive(&role.send(1, &Held)?, now)?,
+        system.receive(&role.send(1, &Held)?, now)?,
         Inbound::Closing {
             code: Some(ErrorCode::Protocol)
         }
@@ -2077,7 +2077,7 @@ fn test_a_partitions_entries_frames_wait_for_computes_credit() -> TestResult {
     Ok(())
 }
 
-/// The frontend's role address and a compute process's serve neither write: each closes the connection.
+/// The system group's role address and a compute process's serve neither write: each closes the connection.
 #[test]
 fn test_no_other_role_endpoint_takes_a_write_in_one_frame() -> TestResult {
     for endpoint in [Endpoint::System, Endpoint::Compute] {
@@ -2128,7 +2128,7 @@ fn test_a_bind_opens_the_stream_a_partition_takes_a_transaction_on() -> TestResu
     Ok(())
 }
 
-/// Stage 6.6: Purge (24) and Migrate (25) each open a stream of their own (`PROTOCOL.md` §3, §11.2), where the frontend
+/// Stage 6.6: Purge (24) and Migrate (25) each open a stream of their own (`PROTOCOL.md` §3, §11.2), where compute
 /// refuses them by stage, and the connection goes on.
 #[test]
 fn test_a_purge_and_a_migrate_open_streams_and_a_refusal_keeps_the_connection() -> TestResult {

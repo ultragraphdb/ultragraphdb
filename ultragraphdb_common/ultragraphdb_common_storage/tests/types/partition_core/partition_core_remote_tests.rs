@@ -4,8 +4,8 @@
  */
 
 //! What a partition's core exchanges beyond its process (`PROTOCOL.md` §13.15): a Reference reaching it as a home, answered once
-//! each registration is durable, and a write's registrations at a home in another process, whose address it asks of the frontend.
-//! The frontend and the other home are played by the test.
+//! each registration is durable, and a write's registrations at a home in another process, whose address it asks of the
+//! system group. The system group and the other home are played by the test.
 
 use std::collections::BTreeMap;
 
@@ -37,8 +37,8 @@ const REFUSED: u16 = 7;
 /// What the core refuses a registration of another partition with (`PROTOCOL.md` §13.15).
 const WRONG_PARTITION: u16 = 26;
 
-/// The frontend's address, which a core of one partition never dials.
-fn no_frontend() -> TestResult<Address> {
+/// The system group's address, which a core of one partition never dials.
+fn no_system() -> TestResult<Address> {
     Ok(Address::parse("tcp://127.0.0.1:1")?)
 }
 
@@ -69,7 +69,7 @@ fn test_a_reference_registers_each_entity_of_its_partition() -> TestResult {
     on_core(
         "remote-home",
         Setup::default(),
-        no_frontend()?,
+        no_system()?,
         async |core| {
             let mut client = core.dial().await?;
             let (a, b, c) = (ex("a"), ex("b"), ex("c"));
@@ -96,7 +96,7 @@ fn test_a_reference_of_no_entity_here_is_answered_at_once() -> TestResult {
     on_core(
         "remote-none",
         Setup::default(),
-        no_frontend()?,
+        no_system()?,
         async |core| {
             let mut client = core.dial().await?;
             let asked = reference(&[(PARTITION + 1, &ex("c"))]);
@@ -115,7 +115,7 @@ fn test_references_asked_together_are_each_answered() -> TestResult {
     on_core(
         "remote-together",
         Setup::default(),
-        no_frontend()?,
+        no_system()?,
         async |core| {
             let mut client = core.dial().await?;
             let names = ["a", "b", "c", "d"].map(ex);
@@ -154,9 +154,9 @@ fn played_id(iri: &str) -> TestResult<SystemId> {
     ))
 }
 
-/// A frontend and a home in another process, played: the frontend names a compute process's address and, when `listed`, the
-/// home's for partition 2, and the home answers each registration with `outcome`, an accepted one with the IRI's played ID or
-/// the ID it was asked by.
+/// A system group and a home in another process, played: the system group names a compute process's address and, when
+/// `listed`, the home's for partition 2, and the home answers each registration with `outcome`, an accepted one with
+/// the IRI's played ID or the ID it was asked by.
 #[derive(Debug, Clone)]
 struct PlayedPeer {
     home: String,
@@ -211,11 +211,11 @@ impl Session for PlayedPeer {
     }
 }
 
-/// Plays `peer` at the frontend's address and the home's, with the credentials of `dir`'s role secret.
-async fn play(peer: &PlayedPeer, frontend: &str, dir: &TestDir) -> TestResult {
+/// Plays `peer` at the system group's address and the home's, with the credentials of `dir`'s role secret.
+async fn play(peer: &PlayedPeer, system: &str, dir: &TestDir) -> TestResult {
     let credentials = role_cluster(dir.path())?.secret().credentials()?;
     for (address, endpoint) in [
-        (frontend, Endpoint::System),
+        (system, Endpoint::System),
         (peer.home.as_str(), Endpoint::Partition),
     ] {
         let listener = listen(address).await?;
@@ -234,7 +234,8 @@ async fn play(peer: &PlayedPeer, frontend: &str, dir: &TestDir) -> TestResult {
     Ok(())
 }
 
-/// Runs `test` beside a core of partition 1 of 2, whose frontend and partition 2's home are played as `outcome` says.
+/// Runs `test` beside a core of partition 1 of 2, whose system group and partition 2's home are played as `outcome`
+/// says.
 fn with_played_home(
     name: &str,
     outcome: u16,
@@ -243,14 +244,14 @@ fn with_played_home(
     with_played(name, (outcome, true), test)
 }
 
-/// Runs `test` beside a core of partition 1 of 2, whose frontend and partition 2's home are played: the home answering with
-/// `outcome`, the frontend naming it when `listed`.
+/// Runs `test` beside a core of partition 1 of 2, whose system group and partition 2's home are played: the home
+/// answering with `outcome`, the system group naming it when `listed`.
 fn with_played(
     name: &str,
     (outcome, listed): (u16, bool),
     test: impl AsyncFnOnce(RoleClient) -> TestResult,
 ) -> TestResult {
-    let frontend = free_address()?;
+    let system = free_address()?;
     let peer = PlayedPeer {
         home: free_address()?,
         outcome,
@@ -261,14 +262,14 @@ fn with_played(
         partitions: 2,
         ..Setup::default()
     };
-    on_core(name, setup, Address::parse(&frontend)?, async |core| {
-        play(&peer, &frontend, &dir).await?;
+    on_core(name, setup, Address::parse(&system)?, async |core| {
+        play(&peer, &system, &dir).await?;
         test(core.dial().await?).await
     })
 }
 
 /// A Write naming an entity a home in another process owns is held once that home accepts its registration: the core asks the
-/// frontend where the home listens, registers there, and the transaction commits.
+/// system group where the home listens, registers there, and the transaction commits.
 #[test]
 fn test_a_write_is_held_once_a_home_in_another_process_accepts() -> TestResult {
     with_played_home("remote-accepted", ACCEPTED, async |mut client| {
@@ -313,7 +314,7 @@ fn test_a_reference_reply_as_a_request_is_refused() -> TestResult {
     on_core(
         "remote-reply",
         Setup::default(),
-        no_frontend()?,
+        no_system()?,
         async |core| {
             let mut client = core.dial().await?;
             let mut asked = reference(&[(PARTITION, &ex("a"))]).into_reply();
@@ -337,7 +338,7 @@ fn test_a_registration_here_of_another_partitions_entity_is_refused() -> TestRes
         partitions: 2,
         ..Setup::default()
     };
-    on_core("remote-not-owned", setup, no_frontend()?, async |core| {
+    on_core("remote-not-owned", setup, no_system()?, async |core| {
         let mut client = core.dial().await?;
         let elsewhere = ex(&owned_by(2, 2, "e")?);
         let reply =
@@ -398,7 +399,7 @@ fn test_a_held_entity_registers_by_its_id_over_the_connection_kept() -> TestResu
     })
 }
 
-/// A home the frontend names no address for is not reached: the write waits on it, told nothing.
+/// A home the system group names no address for is not reached: the write waits on it, told nothing.
 #[test]
 fn test_a_home_with_no_address_leaves_the_write_waiting() -> TestResult {
     with_played(

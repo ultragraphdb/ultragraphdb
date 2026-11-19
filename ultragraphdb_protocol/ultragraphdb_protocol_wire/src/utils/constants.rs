@@ -106,7 +106,7 @@ pub const OPERATION_RESULT_SIZE: usize = 16;
 pub const SCAN_RANGE_SIZE: usize = 24;
 
 /// The streams a role endpoint's Welcome announces (`PROTOCOL.md` §11.12): what a role connection carries is already
-/// bounded by the frontend's bounds on its clients' connections and streams.
+/// bounded by compute's bounds on its clients' connections and streams.
 pub const ROLE_MAX_STREAMS: u32 = u32::MAX;
 
 /// The most result columns a quad pattern's batch holds: its four slots unbound and the reifier column.
@@ -122,7 +122,7 @@ pub const QUERY_TEXT_RESERVE: u32 = 512;
 pub const SOURCE_NAME_MAX: usize = 255;
 
 /// The `detail` of an Error 1 answering a Scan that names a transaction the partition does not hold (`PROTOCOL.md`
-/// §9.4), which compute relays and the frontend holds until the Bind stream ends.
+/// §9.4), which compute relays and holds until the Bind stream ends.
 pub const DETAIL_TRANSACTION_NOT_HELD: u64 = 1;
 
 /// Bit 0 of the `detail` of an Error 8 (OperationFailed): the value found, in its sections 1 and 2, is cut to fit the frame

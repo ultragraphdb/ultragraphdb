@@ -3,7 +3,7 @@
 
 Feature: Drops, the catalog step
   openspec/changes/stage-5-5-three-role-refactor/specs/schema-changes/spec.md
-  openspec/changes/stage-5-8-system-group/specs/schema-changes/spec.md, the frontend's early refusal of a Drop's catalog version
+  openspec/changes/stage-5-8-system-group/specs/schema-changes/spec.md, compute's early refusal of a Drop's catalog version
 
   Scenario: A resent Drop builds the version a stopped compute node left
     When a Drop of `p` through a session commits at its partition, compute stops before the catalog version removing `p`'s declaration is asked for, and the client resends the Drop after compute restarts

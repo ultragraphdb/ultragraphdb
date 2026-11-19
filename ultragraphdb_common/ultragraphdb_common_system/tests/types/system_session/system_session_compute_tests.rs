@@ -79,11 +79,11 @@ pub(crate) async fn checked(
 }
 
 /// L3.32, L3.33, and the scenarios "A proof that holds is answered with its signature", "An unknown name and a wrong proof answer
-/// alike" and "No frame carries a stored key", over the frontend's connection: a Challenge answers `ann`'s salt and count, a
+/// alike" and "No frame carries a stored key", over compute's connection: a Challenge answers `ann`'s salt and count, a
 /// Verify of her proof `verified` 1, her principal and a signature of 32 bytes the client accepts; a wrong proof and an unknown
 /// name answer `verified` 0, `principal` 0 and no signature; no reply holds her stored key or server key.
 #[test]
-fn test_a_clients_proof_is_checked_over_the_frontends_connection() -> TestResult {
+fn test_a_clients_proof_is_checked_over_computes_connection() -> TestResult {
     Runtime::new()?.block_on(async {
         let group = served("proof", 601).await?;
         let ann = principal(&group.handle, "ann").await?;
@@ -164,7 +164,7 @@ fn test_a_clients_proof_is_checked_over_the_frontends_connection() -> TestResult
     })
 }
 
-/// C3.1, C3.10, and the scenario "A held identity is refused whoever holds it", over the frontend's connection: a Session is
+/// C3.1, C3.10, and the scenario "A held identity is refused whoever holds it", over compute's connection: a Session is
 /// answered with its own bytes once durable, and sent again refused with Error 1 naming the session.
 #[test]
 fn test_a_session_is_answered_with_its_bytes() -> TestResult {
@@ -198,11 +198,11 @@ fn test_a_session_is_answered_with_its_bytes() -> TestResult {
     })
 }
 
-/// C3.23 to C3.25, and the scenario "A frame of checks is answered whole and in order", over the frontend's connection: one reply
-/// holds the outcomes 1, 12 and 21 in order with every other field as sent; a Check whose check holds an outcome is refused with
-/// `FieldValue` naming `check` and its index, marking nothing.
+/// C3.23 to C3.25, and the scenario "A frame of checks is answered whole and in order", over compute's connection: one
+/// reply holds the outcomes 1, 12 and 21 in order with every other field as sent; a Check whose check holds an outcome
+/// is refused with `FieldValue` naming `check` and its index, marking nothing.
 #[test]
-fn test_a_check_is_answered_whole_over_the_frontends_connection() -> TestResult {
+fn test_a_check_is_answered_whole_over_computes_connection() -> TestResult {
     Runtime::new()?.block_on(async {
         let group = served("check", 603).await?;
         let (alice, bob) = (
@@ -263,9 +263,9 @@ impl BodyBuilder for UnorderedEnded {
     }
 }
 
-/// C3.26, C3.29, C3.32, and the scenario "An Ended sent again changes nothing", over the frontend's connection: an Ended takes
-/// away its own connection's mark and is answered by no frame, sent again it is passed over, and one its body's rules refuse is
-/// dropped unanswered, ending no mark.
+/// C3.26, C3.29, C3.32, and the scenario "An Ended sent again changes nothing", over compute's connection: an Ended
+/// takes away its own connection's mark and is answered by no frame, sent again it is passed over, and one its body's
+/// rules refuse is dropped unanswered, ending no mark.
 #[test]
 fn test_an_ended_is_answered_by_nothing() -> TestResult {
     Runtime::new()?.block_on(async {
@@ -322,7 +322,7 @@ fn test_an_ended_is_answered_by_nothing() -> TestResult {
 }
 
 /// The scenarios "A declaring transaction's version is built on the version it names" and "A Drop that changes nothing builds no
-/// version", over the frontend's connection: a Declare of `kind` 1 is answered once a close assigns its version's epoch with
+/// version", over compute's connection: a Declare of `kind` 1 is answered once a close assigns its version's epoch with
 /// every field as sent and `version` and `commit_version` filled; one of `kind` 2 for a Drop of a predicate never declared is
 /// answered at once with the bytes of its request.
 #[test]
@@ -386,9 +386,9 @@ fn test_a_declare_is_answered_on_its_stream() -> TestResult {
     })
 }
 
-/// C3.70, L3.30: a Defaults over the frontend's connection at the floor of `max_frame` answers every recorded predicate in the
-/// order of their texts' bytes, across as many frames as they take, the last alone flagged `LAST`; a tenant holding none answers
-/// one frame flagged `LAST`.
+/// C3.70, L3.30: a Defaults over compute's connection at the floor of `max_frame` answers every recorded predicate in
+/// the order of their texts' bytes, across as many frames as they take, the last alone flagged `LAST`; a tenant holding
+/// none answers one frame flagged `LAST`.
 #[test]
 fn test_defaults_continue_across_frames() -> TestResult {
     Runtime::new()?.block_on(async {

@@ -3,7 +3,7 @@
 
 Feature: Wire protocol: a parked request holds no role connection
   openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md, through a real storage process beside a real
-  frontend, a home played where it must hold its answer.
+  compute process, a home played where it must hold its answer.
 
   Rule: A parked request holds no role connection
 

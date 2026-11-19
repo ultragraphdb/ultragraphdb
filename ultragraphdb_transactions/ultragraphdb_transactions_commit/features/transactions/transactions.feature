@@ -2,8 +2,8 @@
 # openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md: transactions executed on a changeset
 # applier over the simulated store and decided by the commit step, which closes reach as inputs; a second partition is
 # a second commit step with a store of its own. The sessions requirement's "An evicted session is told so" and "A session
-# belongs to its principal" are the frontend's owner check against the metadata group's registry, which no partition
-# runs: they are bound with the frontend (group 9). "A snapshot read waits for its epoch" is bound on the condition the
+# belongs to its principal" are the system group's owner check against the metadata group's registry, which no partition
+# runs: they are bound with compute (group 9). "A snapshot read waits for its epoch" is bound on the condition the
 # read waits for, the epoch the partition reports closed; the read itself is compute's.
 
 Feature: Transactions decided by the commit step

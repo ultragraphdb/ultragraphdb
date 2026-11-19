@@ -152,7 +152,7 @@ fn test_a_new_conditional_write_goes_through_no_session_and_holds_no_token() {
     assert_eq!(write.token(), None);
 }
 
-/// A write the frontend relays carries its principal in the frame, which reads back as the same write.
+/// A write compute relays carries its principal in the frame, which reads back as the same write.
 #[test]
 fn test_a_relayed_conditional_write_carries_its_principal() -> TestResult {
     let principal = 9;

@@ -170,7 +170,7 @@ fn test_one_frame_writes_of_two_connections_park_apart() -> TestResult {
 }
 
 /// A one-frame write of operations alone whose first subject another partition owns is refused as a stale route, code 26, which
-/// the frontend resends (`PROTOCOL.md` §6.6).
+/// compute resends (`PROTOCOL.md` §6.6).
 #[test]
 fn test_operations_alone_route_by_their_first_subject() -> TestResult {
     served(2, async |driver| {
@@ -530,7 +530,7 @@ async fn run_again(driver: &mut Driver, unique: Option<&str>) -> TestResult<Erro
         let declared = PredicateDeclaration::new(NamedNode::new(unique)?).with_unique(true);
         let contents = CatalogContents::new(TENANT, 1, vec![Declaration::Predicate(declared)]);
         driver.tell(CoreMessage::Catalog(contents))?;
-        // What the frontend is asked before the report: the default entries of the predicates the writes created.
+        // What the system group is asked before the report: the default entries of the predicates the writes created.
         while !matches!(
             driver.asked("the catalog version's report").await?,
             SystemAsk::Report(_)

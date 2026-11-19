@@ -5,7 +5,7 @@
 
 Feature: A read's transaction names its level
   The client's side: a Begin through a session carries the session's token, so its read sees the session's commit. The
-  levels' own rules are compute's and the frontend's.
+  levels' own rules are compute's.
 
   Scenario: A read after a commit sees it through its token
     When a client commits a write, receives a session token, and begins a transaction with that token whose read asks for the write

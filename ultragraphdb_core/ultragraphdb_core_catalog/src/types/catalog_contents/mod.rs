@@ -9,7 +9,7 @@ use ultragraphdb_core_mapping::Declaration;
 
 /// The contents of one catalog version of a tenant, as the metadata group holds it: the tenant, the version's
 /// number and every declaration the version makes, each naming its predicate, type or relation by IRI, since a
-/// version is read by every partition and the frontend, which share no dictionary. Encoded, it is the opaque bytes the
+/// version is read by every partition and compute, which share no dictionary. Encoded, it is the opaque bytes the
 /// group stores ([`CatalogContents::encode`]); a version that does not decode refuses its tenant's load.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CatalogContents {

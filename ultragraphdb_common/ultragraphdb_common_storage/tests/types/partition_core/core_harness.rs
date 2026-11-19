@@ -6,8 +6,8 @@
 //! A partition's core in the test's process, as the storage role runs one: partition 1 of a placement map over fjall and its
 //! write-ahead log in a directory of its own, listening on a loopback address where each connection is a [`StorageSession`],
 //! and served by [`PartitionCore::run`] beside the test until the test ends. A test dials it as compute does and reads its
-//! frames; the channels the role's shell holds (the closes it delivers, what the core asks of the frontend, the discard
-//! versions it raises, the inbox itself) are the test's.
+//! frames; the channels the role's shell holds (the closes it delivers, what the core asks of the system group, the
+//! discard versions it raises, the inbox itself) are the test's.
 
 use std::convert::Infallible;
 use std::sync::mpsc::{Receiver, RecvError, RecvTimeoutError, Sender};
@@ -149,12 +149,12 @@ pub(crate) fn free_address() -> TestResult<String> {
     Ok(format!("tcp://127.0.0.1:{port}"))
 }
 
-/// Runs `test` beside a core set up as `setup`, the frontend at `frontend`, until `test` ends; then the core stops, as a role
-/// stopping stops it: `test`'s outcome, or the core's failure.
+/// Runs `test` beside a core set up as `setup`, the system group at `system`, until `test` ends; then the core stops,
+/// as a role stopping stops it: `test`'s outcome, or the core's failure.
 pub(crate) fn on_core(
     name: &str,
     setup: Setup,
-    frontend: Address,
+    system: Address,
     test: impl AsyncFnOnce(CoreUnderTest) -> TestResult,
 ) -> TestResult {
     let dir = TestDir::new(name);
@@ -174,7 +174,7 @@ pub(crate) fn on_core(
         let (discards_tx, discards) = std::sync::mpsc::channel();
         let (answers, answered) = unbounded();
         spawn(forward_answers(answered, own.clone())).detach();
-        let peers = Peers::new(cluster, frontend, "storage".to_string(), answers);
+        let peers = Peers::new(cluster, system, "storage".to_string(), answers);
         let channels = CoreChannels::new(inbox, remote, own, closes, asks, discards_tx);
         // The core's clock is the runtime's, its timer's first tick now, moved on only by the test.
         let clock = TestClock::running(compio::time::interval(Duration::from_secs(1)).tick().await);
@@ -210,7 +210,7 @@ pub(crate) fn on_core(
 pub(crate) fn on_core_in_time(
     name: &'static str,
     setup: Setup,
-    frontend: Address,
+    system: Address,
     test: impl AsyncFnOnce(CoreUnderTest) -> TestResult + Send + 'static,
 ) -> TestResult {
     // Nothing is sent on `begun`: its drop ends the setup, whether the core is set up and `test` begins or the setup fails.
@@ -224,7 +224,7 @@ pub(crate) fn on_core_in_time(
             drop(ended.send(test(core).await));
             Ok(())
         };
-        drop(done.send(on_core(name, setup, frontend, timed)));
+        drop(done.send(on_core(name, setup, system, timed)));
     });
     let Err(RecvError) = began.recv();
     let tested = match tested.recv_timeout(TEST_DUE) {
@@ -456,7 +456,7 @@ pub(crate) fn edges_write(edges: &[(&str, &str)]) -> Write {
     Write::new(table, changes)
 }
 
-/// Binds a read-write transaction of `identity` on `client`, as the frontend binds one: its stream and its read version.
+/// Binds a read-write transaction of `identity` on `client`, as compute binds one: its stream and its read version.
 ///
 /// # Errors
 ///

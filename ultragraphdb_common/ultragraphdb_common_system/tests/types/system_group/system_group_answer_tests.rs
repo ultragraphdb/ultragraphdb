@@ -68,24 +68,31 @@ fn test_an_ask_naming_no_value_of_its_kind_is_refused() -> TestResult {
     })
 }
 
-/// A registration evicting a session and that session's commit check, taken in one turn, refuse the commit with code 12: the
+/// A Session evicting a session and a Commit's Check of that session, taken in one turn, answer the check 12: the
 /// eviction is appended though not yet durable, and the close carrying it could reach a partition before the commit.
 #[test]
 fn test_a_session_evicted_in_the_same_turn_is_refused_its_commit() -> TestResult {
+    use super::system_group_sessions_tests::{HOLD_US, MARKS, T_MS, connected, outcome};
     let clock = TestClock::new();
     let storage = SimStorage::new(2);
     Runtime::new()?.block_on(async {
-        let start = starting(MetadataConfig::new().with_sessions_max(1)?)?;
+        let start =
+            starting(MetadataConfig::new().with_sessions_max(1)?)?.with_transaction_ms(T_MS);
         let mut owner = recovered(&storage, &start, &clock).await?;
         with_principal(&mut owner, "ann").await?;
         let (handle, run) = running(owner, &clock);
         let ann = principal(&handle, "ann").await?;
-        heard(handle.register_session(1, ann).await)?;
+        // Past the quiet time, in which a full registry registers nothing.
+        clock.advance(HOLD_US);
+        heard(handle.session(1, ann).await)?;
+        let connection = connected(&handle).await?;
         // Both asks are sent before the owner's run is polled again, so one turn takes them in this order.
-        let (second, commit) =
-            futures::join!(handle.register_session(2, ann), handle.begin_commit(1, ann));
+        let (second, commit) = futures::join!(
+            handle.session(2, ann),
+            outcome(&handle, connection, 1, ann, MARKS)
+        );
         heard(second)?;
-        assert_eq!(refused(commit)?.code(), ErrorCode::SessionEvicted);
+        assert_eq!(commit?, 12);
         drop(handle);
         ended(run).await??;
         Ok(())

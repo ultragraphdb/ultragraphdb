@@ -116,23 +116,6 @@ pub enum SystemAsked {
         /// Its answer.
         reply: Sender<Result<(), ErrorReply>>,
     },
-    /// The owner check of a commit, which holds the session in flight until [`SystemAsked::CommitEnded`].
-    BeginCommit {
-        /// The session.
-        session: u128,
-        /// The connection's principal.
-        principal: u64,
-        /// Whether what it starts may record the session in a partition's table, as a Commit, a Drop and a one-frame write
-        /// do and a Recall does not: a full registry evicts no such session.
-        writes: bool,
-        /// Its answer.
-        reply: Sender<Result<(), ErrorReply>>,
-    },
-    /// The commit in flight through `session` was answered, or given up.
-    CommitEnded {
-        /// The session.
-        session: u128,
-    },
     /// Whether the registry holds `session`.
     SessionHeld {
         /// The session.

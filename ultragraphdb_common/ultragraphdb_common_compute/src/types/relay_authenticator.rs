@@ -16,7 +16,7 @@ use crate::types::relay_state::RelayState;
 /// A client connection's authentication relayed to the system group (design D8; `PROTOCOL.md` §11.1): the connection's
 /// session reads each client message with [`ScramRelay`], asks the system group by Challenge and Verify, and prepares the
 /// server's message here before the connection's machine, which runs without waiting, takes it as the step's answer. It
-/// holds no key: a verifier never reaches the frontend. Shared by an `Rc` of a `RefCell` between the session and the
+/// holds no key: a verifier never reaches compute. Shared by an `Rc` of a `RefCell` between the session and the
 /// machine on the connection's one task, a borrow lasting one call, never across a wait (Ultra rule 9). Its `Debug` holds
 /// whether an answer waits and the relay's own redacted form, never a message's text.
 ///

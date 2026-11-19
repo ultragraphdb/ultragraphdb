@@ -921,7 +921,7 @@ fn eviction_appended_held(w: &mut Steps) {
     assert!(w.ran);
 }
 
-/// An exchange as `name` of `password` over the frontend's connection: the client, the relay, the AuthMessage and the proof.
+/// An exchange as `name` of `password` over compute's connection: the client, the relay, the AuthMessage and the proof.
 async fn exchanged(
     compute: &mut RoleClient,
     name: &str,
@@ -944,7 +944,7 @@ async fn exchanged(
 /// A Verify's reply: `verified`, `principal`, the signature and the frame's bytes.
 type Verified = (bool, u64, Option<[u8; 32]>, Vec<u8>);
 
-/// What a Verify of `name`, `auth_message` and `proof` is answered over `frontend`.
+/// What a Verify of `name`, `auth_message` and `proof` is answered over `compute`.
 async fn verified(
     compute: &mut RoleClient,
     name: &str,

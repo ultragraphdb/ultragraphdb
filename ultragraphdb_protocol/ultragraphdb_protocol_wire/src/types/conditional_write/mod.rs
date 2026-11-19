@@ -63,14 +63,14 @@ impl ConditionalWrite {
         self
     }
 
-    /// The write relayed for `principal`, the connection's the frontend fills.
+    /// The write relayed for `principal`, the connection's compute fills.
     #[must_use]
     pub fn with_principal(mut self, principal: u64) -> Self {
         self.header.principal = principal;
         self
     }
 
-    /// The principal the frontend filled; 0 from a client.
+    /// The principal compute filled; 0 from a client.
     #[must_use]
     pub fn principal(&self) -> u64 {
         self.header.principal

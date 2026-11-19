@@ -77,8 +77,8 @@ pub trait Session {
 
     /// What this session holds past [`Session::answer`], at whose bound the connection stops reading and goes on sending
     /// (`PROTOCOL.md` §11.12): asked once, as the connection starts. A partition's holds its parked frames, a client connection's what
-    /// it has on its way to a role. `None` for a session that holds nothing so: a compute process's and the frontend's role address,
-    /// each of whose waits is that of its own request.
+    /// it has on its way to a role. `None` for a session that holds nothing so: a compute process's role address and
+    /// the system group's, each of whose waits is that of its own request.
     fn parked(&self) -> Option<ParkedBytes> {
         None
     }

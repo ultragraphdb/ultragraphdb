@@ -169,7 +169,7 @@ fn test_a_purge_removes_the_evicted_sessions_held_and_skips_the_others() -> Test
     Ok(())
 }
 
-/// A retry sent with no transaction open for it (the frontend's Recall, `PROTOCOL.md` §11.5): the last committed
+/// A retry sent with no transaction open for it (compute's Recall, `PROTOCOL.md` §11.5): the last committed
 /// request's stored reply, busy while one is in flight, out of order below the last, not committed otherwise.
 #[test]
 fn test_a_retry_is_answered_from_the_table() -> TestResult {

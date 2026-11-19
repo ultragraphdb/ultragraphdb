@@ -163,7 +163,7 @@ impl EndpointView {
     }
 
     /// Whether `tenant`'s current version was never read: a tenant first used is read with Catalog once (`PROTOCOL.md`
-    /// §11.13, *The frontend's reads*).
+    /// §11.13, *Compute's reads*).
     #[must_use]
     pub fn unread(&self, tenant: u64) -> bool {
         !self.read.contains(&tenant)

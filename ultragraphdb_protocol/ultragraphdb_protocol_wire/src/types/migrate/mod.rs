@@ -9,7 +9,7 @@ use crate::types::migrate_action::MigrateAction;
 use crate::types::migrate_state::MigrateState;
 
 /// One action of a migration's run, named by the `staged` identifier its Install answered (`PROTOCOL.md` §8.6): the
-/// frontend answers once the metadata group has committed the transition asked for, a state read at once. Refused with
+/// compute answers once the metadata group has committed the transition asked for, a state read at once. Refused with
 /// code 7 before stage 9.5.
 ///
 /// | Command header | Field | Type |

@@ -5,7 +5,7 @@
 
 //! The scenarios of group 1b that the two halves of the exchange decide without a connection: system-group, "A
 //! client's proof is checked in the system group", and client-endpoint, "Connections authenticate against the metadata
-//! group's principals". A client's exchange runs through [`ScramRelay`], as the frontend runs it, and the system
+//! group's principals". A client's exchange runs through [`ScramRelay`], as compute runs it, and the system
 //! group answers Challenge and Verify (`PROTOCOL.md` §13.8, §13.9) from the principal's verifier, or an unknown name's,
 //! and [`ScramVerifier::sign`].
 
@@ -27,7 +27,7 @@ const ANN_PRINCIPAL: u64 = 9;
 const SECRET: [u8; 32] = [7; 32];
 const CLIENT_NONCE: &str = "client-nonce";
 
-/// One exchange as the frontend relays it: the system group's two replies, the messages the relay built, and how it
+/// One exchange as compute relays it: the system group's two replies, the messages the relay built, and how it
 /// ended.
 #[derive(Debug)]
 struct Relayed {
@@ -61,7 +61,7 @@ fn held(name: &str) -> TestResult<(u64, ScramVerifier)> {
     }
 }
 
-/// The exchange of a client of `name` and `password` through a frontend whose relay draws `server_nonce`: the relay
+/// The exchange of a client of `name` and `password` through a compute node whose relay draws `server_nonce`: the relay
 /// asks the group with a Challenge and a Verify, and passes on what they answer.
 fn authenticate(name: &str, password: &str, server_nonce: &str) -> TestResult<Relayed> {
     let mut client = ScramClient::new(name, password, CLIENT_NONCE)?;
@@ -206,7 +206,7 @@ fn refused_alike(w: &mut Steps) -> TestResult {
     };
     assert_eq!(wrong.outcome, Err(ScramError::proof()));
     assert_eq!(unknown.outcome, wrong.outcome);
-    // The two Verify replies differ in no field the frontend reads.
+    // The two Verify replies differ in no field compute reads.
     assert_eq!(
         (
             unknown.verify.verified(),
@@ -249,7 +249,7 @@ fn frames_hold_the_verifiers_public_part(w: &mut Steps) -> TestResult {
 
 #[when("a client asks to authenticate as an unknown name, twice, across a restart of compute")]
 fn unknown_twice(w: &mut Steps) -> TestResult {
-    // Each start of the frontend is a relay of its own, drawing its own server nonce; the group keeps its secret.
+    // Each start of compute is a relay of its own, drawing its own server nonce; the group keeps its secret.
     w.exchanges
         .push(authenticate("nobody", ANN_PASSWORD, "first-start")?);
     w.exchanges

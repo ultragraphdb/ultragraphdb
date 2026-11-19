@@ -46,7 +46,7 @@ pub struct MetadataState {
     pub(crate) unknown_secret: Option<[u8; 32]>,
     pub(crate) catalogs: BTreeMap<Tenant, TenantCatalog>,
     /// The versions being checked, each a [`CatalogCheck::Checking`](crate::CatalogCheck) record of `catalogs`: what the
-    /// frontend's every turn walks.
+    /// system group's every turn walks.
     pub(crate) checking: BTreeSet<(Tenant, u64)>,
     pub(crate) defaults: BTreeMap<(Tenant, String), Vec<u8>>,
     pub(crate) high_water: BTreeMap<u16, u64>,

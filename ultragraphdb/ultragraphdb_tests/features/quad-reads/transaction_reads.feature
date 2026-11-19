@@ -4,7 +4,7 @@
 @both_carriers
 @core
 Feature: Quad reads of a transaction through the three binaries
-  openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request; run over TCP and again over Unix sockets.
+  openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md, through the real compute and storage, the client crates' own client sending every request; run over TCP and again over Unix sockets.
 
   Rule: A read through compute is a read of its transaction
 

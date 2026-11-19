@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A cluster played in the test's own process for compute's reads: a frontend answering Placement and Members, partitions
+//! A cluster played in the test's own process for compute's reads: a system group answering Placement and Members, partitions
 //! answering each Scan from a table of keys and recording what they were asked, and a compute core whose reads a client's
 //! session hands to its executor, all on the test's runtime over loopback TCP. What compute sends and answers crosses real role
 //! connections, built by the wire crate.
@@ -476,15 +476,15 @@ impl Session for PartitionConnection {
     }
 }
 
-/// One connection at the played frontend: the even placement over `partitions`, and where each listens.
+/// One connection at the played system group: the even placement over `partitions`, and where each listens.
 #[derive(Debug, Clone)]
-struct FrontendConnection {
+struct SystemConnection {
     partitions: u32,
     listed: Rc<RefCell<Vec<(u32, String)>>>,
 }
 
-impl FrontendConnection {
-    /// The even placement over the partitions, as a frontend's first start forms it.
+impl SystemConnection {
+    /// The even placement over the partitions, as the system group's first start forms it.
     fn placement(&self) -> TestResult<Placement> {
         let map = PlacementMap::even(self.partitions, NodeId::new(1))?;
         let mut reply = Placement::reply(0, 0, 1, 0);
@@ -502,7 +502,7 @@ impl FrontendConnection {
     }
 }
 
-impl Session for FrontendConnection {
+impl Session for SystemConnection {
     async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
         let command = frame.view().map_or(Command::Error, |view| view.command());
         let built = if command == Command::Members {
@@ -592,12 +592,12 @@ impl Played {
             listed.borrow_mut().push((number, address.to_string()));
             played.push(partition);
         }
-        let frontend_server =
+        let system_server =
             Server::new(CLUSTER, "compute", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
-        let connection = FrontendConnection { partitions, listed };
-        let frontend = serve(frontend_server, credentials, move || connection.clone()).await?;
+        let connection = SystemConnection { partitions, listed };
+        let system = serve(system_server, credentials, move || connection.clone()).await?;
         let cluster = RoleCluster::new(CLUSTER, secret, Duration::from_secs(5));
-        let core = ComputeCore::new(cluster, frontend, times, "compute");
+        let core = ComputeCore::new(cluster, system, times, "compute");
         Ok(Self {
             partitions: played,
             core,
@@ -627,7 +627,7 @@ impl Played {
             .context("an IRI the partition owns")
     }
 
-    /// The placement the cluster's frontend answers.
+    /// The placement the cluster's system group answers.
     pub fn map(&self) -> &PlacementMap {
         &self.map
     }

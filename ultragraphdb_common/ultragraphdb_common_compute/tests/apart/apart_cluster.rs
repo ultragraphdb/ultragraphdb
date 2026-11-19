@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A played frontend and played partitions on the test's runtime, and compute's core beside them.
+//! A played system group and played partitions on the test's runtime, and compute's core beside them.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -77,14 +77,14 @@ fn reply_of<B: BodyBuilder>(body: &B, stream: u64) -> Answer {
     }
 }
 
-/// One connection at the played frontend: the placement and where each partition listens.
+/// One connection at the played system group: the placement and where each partition listens.
 #[derive(Debug)]
-struct FrontendConnection {
+struct SystemConnection {
     placement: Rc<Placement>,
     members: Rc<Members>,
 }
 
-impl Session for FrontendConnection {
+impl Session for SystemConnection {
     async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
         let command = frame.view().map(|view| view.command());
         match command {
@@ -99,7 +99,7 @@ impl Session for FrontendConnection {
     }
 }
 
-/// The even placement over `partitions`, as a frontend's first start forms it.
+/// The even placement over `partitions`, as the system group's first start forms it.
 pub fn even_map(partitions: u32) -> TestResult<PlacementMap> {
     Ok(PlacementMap::even(partitions, NodeId::new(1))?)
 }
@@ -132,12 +132,12 @@ pub async fn links_holding_streams(core: &ComputeCore) -> (usize, usize) {
 #[derive(Debug)]
 pub struct ApartCluster {
     cluster: RoleCluster,
-    frontend: Address,
+    system: Address,
     partitions: Vec<Rc<PlayedPartition>>,
 }
 
 impl ApartCluster {
-    /// A frontend and `partitions` partitions, placed evenly, served on this runtime.
+    /// A system group and `partitions` partitions, placed evenly, served on this runtime.
     pub async fn start(partitions: u32) -> TestResult<Self> {
         let cluster = RoleCluster::new(
             CLUSTER,
@@ -167,14 +167,14 @@ impl ApartCluster {
             .for_each(|partition| placement.push_leader(PreferredLeader::new(partition, 1)));
         let (placement, members) = (Rc::new(placement), Rc::new(members));
         let server = Server::new(CLUSTER, "compute", Endpoint::System)?;
-        let frontend = serve(&cluster, server, move || FrontendConnection {
+        let system = serve(&cluster, server, move || SystemConnection {
             placement: Rc::clone(&placement),
             members: Rc::clone(&members),
         })
         .await?;
         Ok(Self {
             cluster,
-            frontend,
+            system,
             partitions: played,
         })
     }
@@ -188,12 +188,7 @@ impl ApartCluster {
 
     /// A compute core on this runtime, reading by `times`.
     pub fn core(&self, times: ReadTimes) -> Rc<ComputeCore> {
-        ComputeCore::new(
-            self.cluster.clone(),
-            self.frontend.clone(),
-            times,
-            "compute",
-        )
+        ComputeCore::new(self.cluster.clone(), self.system.clone(), times, "compute")
     }
 
     /// A client connection's reads on a compute core of this runtime reading by `times`, each counted among `open` until it

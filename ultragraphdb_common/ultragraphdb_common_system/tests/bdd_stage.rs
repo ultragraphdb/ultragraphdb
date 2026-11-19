@@ -143,7 +143,7 @@ impl Stage {
         let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
         let address = listener.local_address()?;
         let server =
-            Server::new(CLUSTER, "frontend", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
+            Server::new(CLUSTER, "system", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
         let credentials = cluster.secret().credentials()?;
         let accepting = spawn(async move {
             while let Ok(carrier) = listener.accept().await {

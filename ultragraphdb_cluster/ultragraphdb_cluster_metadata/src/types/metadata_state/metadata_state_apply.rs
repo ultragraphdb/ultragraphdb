@@ -462,7 +462,7 @@ impl MetadataState {
     }
 
     /// Registers `session` for `principal`, evicting `evicts`: held sessions, oldest first, the oldest with no commit in
-    /// flight when the command was decided, which only the frontend knew.
+    /// flight when the command was decided, which only the system group knew.
     fn register_session(
         &mut self,
         session: u128,

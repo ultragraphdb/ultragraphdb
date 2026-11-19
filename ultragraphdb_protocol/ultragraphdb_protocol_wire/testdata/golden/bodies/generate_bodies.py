@@ -459,7 +459,7 @@ change(2, 0, [ABSENT, A, KNOWS, iri(f"{EX}c"), iri(f"{EX}since"), lit("2020", f"
 change(3, 0, [iri(f"{EX}g"), blank("b1"), iri(f"{EX}nick"), lang("x", "en")])
 golden("direct_write", 20, command_header([(0, SESSION), (16, le(9, 8)), (24, le(3, 8)), (32, token(2, 41, 30))]),
        sections([records, u32s(args)] + terms.sections() + strings.sections()), stream=21)
-# The same frame as the frontend relays it: `principal` 9 filled, every other command-header byte and the body unchanged.
+# The same frame as compute relays it: `principal` 9 filled, every other command-header byte and the body unchanged.
 golden("direct_write_relayed", 20, command_header([(0, SESSION), (16, le(9, 8)), (24, le(3, 8)), (32, token(2, 41, 30)),
                                                    (56, le(9, 8))]),
        sections([records, u32s(args)] + terms.sections() + strings.sections()), stream=21)

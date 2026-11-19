@@ -496,7 +496,7 @@ fn tenant_three_dropped(w: &mut Steps) -> TestResult {
         )))
         .context("tenant 3 declares")?;
     let _dropped_at: u64 = a.drop_tenant(3).context("the tenant drops")?;
-    // The group's half: the frontend commits tenant 3's initial catalog as its next version.
+    // The group's half: the system group commits tenant 3's initial catalog as its next version.
     initial_version(w, 3, 2)?;
     let b = crate::schema_storage_steps::restarted(&w.source, &a, &[TENANT, 3])?;
     w.changesets = Some(Arc::new(b));

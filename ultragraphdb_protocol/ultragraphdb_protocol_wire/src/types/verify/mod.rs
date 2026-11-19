@@ -6,7 +6,7 @@
 mod verify_body_builder;
 mod verify_debug;
 
-/// The second half of verifying a principal's SCRAM-SHA-256 proof (`PROTOCOL.md` §13.9): the frontend sends the
+/// The second half of verifying a principal's SCRAM-SHA-256 proof (`PROTOCOL.md` §13.9): compute sends the
 /// principal's name, the AuthMessage and the ClientProof; the metadata group's host answers whether the proof holds,
 /// the principal and, when it holds, the ServerSignature. Its `Debug` holds the name, the AuthMessage's length and the
 /// principal, never the AuthMessage, the ClientProof or the ServerSignature.
@@ -46,7 +46,7 @@ impl Verify {
         }
     }
 
-    /// The reply of a proof that holds: the `principal` and the `signature` the frontend sends in its
+    /// The reply of a proof that holds: the `principal` and the `signature` compute sends in its
     /// server-final-message.
     #[must_use]
     pub fn with_verified(mut self, principal: u64, signature: [u8; 32]) -> Self {

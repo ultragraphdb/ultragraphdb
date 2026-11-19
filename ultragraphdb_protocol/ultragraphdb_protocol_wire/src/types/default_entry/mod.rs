@@ -6,7 +6,7 @@
 mod default_entry_body_builder;
 
 /// A partition whose commit first wrote a predicate the catalog version in effect does not declare asks the metadata
-/// group to record the predicate's default entry (`PROTOCOL.md` §13.18); the frontend answers once the record is
+/// group to record the predicate's default entry (`PROTOCOL.md` §13.18); the system group answers once the record is
 /// durable, with every field as sent and `found` 1 when the record already existed.
 ///
 /// | Command header | Field | Type |

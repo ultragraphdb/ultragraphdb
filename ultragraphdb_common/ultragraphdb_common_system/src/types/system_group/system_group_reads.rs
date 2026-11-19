@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! What the frontend reads of the books besides the registry: the default-entry records a Describe names, the catalog
+//! What compute reads of the books besides the registry: the default-entry records a Describe names, the catalog
 //! version a client may read at a closed epoch, and the two halves of a client's proof (`PROTOCOL.md` §13.7 to §13.9,
 //! §13.28). The stored key and the server key are read here and leave in no answer.
 

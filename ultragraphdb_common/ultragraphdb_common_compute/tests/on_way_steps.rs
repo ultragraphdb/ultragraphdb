@@ -30,7 +30,7 @@ const STREAMS: usize = 4;
 const SILENCE_MS: u64 = 200;
 /// A scenario's `transaction_ms`: long enough to send what it sends.
 const LIMIT_MS: u32 = 800;
-/// Past what a socket's buffers on both sides hold on any host here, so the last one-frame writes stay in the frontend's queue.
+/// Past what a socket's buffers on both sides hold on any host here, so the last one-frame writes stay in compute's queue.
 const LARGE_WRITES: usize = 120;
 const LARGE_BYTES: usize = 200_000;
 

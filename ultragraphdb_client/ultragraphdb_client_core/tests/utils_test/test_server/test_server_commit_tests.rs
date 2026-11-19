@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The test server's session table, deciding a request as `PROTOCOL.md` §6.6 has a frontend decide it: a request below
+//! The test server's session table, deciding a request as `PROTOCOL.md` §6.6 has compute decide it: a request below
 //! the session's last, or a transaction's Commit at its last, is refused with code 13 naming the last, applying nothing.
 
 use ultragraphdb_client_core::{ClientError, ClientErrorEnum, Reply, Session, Transaction};

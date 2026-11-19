@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A read-write transaction's reads through the real frontend, compute and storage: its own writes, and what its commit
+//! A read-write transaction's reads through the real compute and storage: its own writes, and what its commit
 //! validates. Every scenario names IRIs of its own in the cluster its run shares.
 
 use cucumber::{then, when};

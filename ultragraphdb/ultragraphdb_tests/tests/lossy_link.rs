@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A network between a real client and a real frontend that loses what a scenario says: frames pass whole, and a frame of the
+//! A network between a real client and compute that loses what a scenario says: frames pass whole, and a frame of the
 //! command armed is lost with its connection, damaged on its way, or held until the scenario lets it go. Every process either
 //! side of it is real and does as it would. It runs on threads of the test's own, in clear text over TCP, since it reads each
 //! frame's header.
@@ -21,7 +21,7 @@ use crate::shells::ClientAt;
 /// What the link does to the next frame of a command it was armed for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Fault {
-    /// The next request of this command never reaches the frontend, and the connection closes.
+    /// The next request of this command never reaches compute, and the connection closes.
     LoseRequest(Command),
     /// The next reply of this command never reaches the client, and the connection closes.
     LoseReply(Command),
@@ -77,7 +77,7 @@ impl LossyLink {
         let held = Arc::clone(&state);
         drop(std::thread::spawn(move || {
             for accepted in listener.incoming().flatten() {
-                // A connection the frontend refuses is what the client then sees: its socket closes.
+                // A connection compute refuses is what the client then sees: its socket closes.
                 drop(carry(accepted, target, &held));
             }
         }));

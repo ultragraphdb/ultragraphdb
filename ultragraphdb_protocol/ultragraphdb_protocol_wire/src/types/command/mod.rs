@@ -66,7 +66,8 @@ pub enum Command {
     Purge,
     /// 25: one action of a migration's run (`PROTOCOL.md` §8.6).
     Migrate,
-    /// Role command 512: a storage or compute process registers with the frontend: its kind, role address and partitions.
+    /// Role command 512: a storage or compute process registers with the system group: its kind, role address and
+    /// partitions.
     Join,
     /// Role command 513: the roles that joined: each storage partition's process address and each compute process's.
     Members,
@@ -84,9 +85,9 @@ pub enum Command {
     Challenge,
     /// Role command 520: the second half: the proof checked against the principal's stored key.
     Verify,
-    /// Role command 521: the frontend binds a read-write transaction, or a Drop, to a partition on a stream of its own.
+    /// Role command 521: compute binds a read-write transaction, or a Drop, to a partition on a stream of its own.
     Bind,
-    /// Role command 522: the frontend asks a partition for a session's stored reply.
+    /// Role command 522: compute asks a partition for a session's stored reply.
     Recall,
     /// Role command 523: the frontend sends a client's read to compute, with what compute needs of its transaction.
     ComputeRead,
@@ -106,13 +107,13 @@ pub enum Command {
     Report,
     /// Role command 531: a partition holds a Write or an Operation sent on a Bind stream.
     Held,
-    /// Role command 534: the frontend registers a session for a principal, answered with the same bytes.
+    /// Role command 534: compute registers a session for a principal, answered with the same bytes.
     Session,
     /// Role command 535: the owner checks of one turn of an endpoint core, answered whole with every outcome filled.
     Check,
     /// Role command 536: the sessions whose requests in flight have ended; answered by nothing.
     Ended,
-    /// Role command 538: the frontend asks for the catalog version a transaction's declarations or a Drop call for.
+    /// Role command 538: compute asks for the catalog version a transaction's declarations or a Drop call for.
     Declare,
     /// Role command 539: a tenant's default-entry predicates, continued across frames as a Catalog is.
     Defaults,

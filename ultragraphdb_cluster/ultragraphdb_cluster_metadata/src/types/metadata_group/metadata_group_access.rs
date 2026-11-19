@@ -111,9 +111,9 @@ impl<L: OrderedLog> MetadataGroup<L> {
 
     /// Registers `session` for the principal `principal`, evicting the least recently registered sessions for which
     /// `in_flight` is false when the registry holds `sessions_max`, at most 4,096 at once, so a session whose commit the
-    /// frontend has checked and not seen answered stays registered; returns the sessions evicted, oldest first, which the
-    /// sequencer's next close carries, and the position it was appended at. The registration is answered once a sync makes
-    /// that position durable.
+    /// system group has checked and compute has not seen answered stays registered; returns the sessions evicted,
+    /// oldest first, which the sequencer's next close carries, and the position it was appended at. The registration is
+    /// answered once a sync makes that position durable.
     ///
     /// # Errors
     ///
@@ -161,7 +161,7 @@ impl<L: OrderedLog> MetadataGroup<L> {
 
     /// Whether every command appended, durable or not, leaves `session` registered: a registration appended and not yet
     /// durable may have evicted it, which [`state`](Self::state) does not show until the sync, and a commit through it
-    /// passing the frontend's owner check then would reach its partition after the eviction.
+    /// passing the system group's owner check then would reach its partition after the eviction.
     #[must_use]
     pub fn holds_session(&self, session: u128) -> bool {
         self.head.session_principal(session).is_ok()

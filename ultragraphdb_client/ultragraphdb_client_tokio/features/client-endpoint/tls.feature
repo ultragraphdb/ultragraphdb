@@ -5,8 +5,8 @@
 
 Feature: The client endpoint speaks TLS 1.3 when configured
   The client's side: the shell connects with TLS when it names a trust source, verifying the server's certificate before
-  the wire protocol's handshake begins. The test server, behind an acceptor over a TCP loopback, plays the frontend's
-  endpoint; the frontend's own start is its crate's.
+  the wire protocol's handshake begins. The test server, behind an acceptor over a TCP loopback, plays compute's
+  endpoint; compute's own start is its crate's.
 
   Scenario: A TLS client reaches the endpoint
     When compute holds the test CA's certificate for `localhost` and a client trusting the CA connects and authenticates

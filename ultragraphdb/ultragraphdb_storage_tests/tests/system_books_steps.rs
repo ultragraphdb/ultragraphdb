@@ -159,8 +159,8 @@ async fn books() -> TestResult<Books> {
             .collect(),
     );
     drop(placed_reply);
-    let mut frontend = group_as("compute").await?;
-    let challenge_reply = frontend.request(&Challenge::request(ADMIN)).await?;
+    let mut compute = group_as("compute").await?;
+    let challenge_reply = compute.request(&Challenge::request(ADMIN)).await?;
     let challenge_view = challenge_reply.view()?;
     let challenged = ChallengeView::from_frame(&challenge_view)?;
     Ok(Books {

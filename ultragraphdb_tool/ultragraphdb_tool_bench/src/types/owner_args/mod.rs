@@ -13,7 +13,7 @@ const FLAGS: [&str; 3] = ["--owner-checks", "--dir", "--epoch-ms"];
 /// The `dev` profile's epoch bounds.
 const EPOCH_MS: (u64, u64) = (2, 10);
 
-/// A run of `wal_bench` timing the frontend's owner check: how many checks, the owner's data directory, and the
+/// A run of `wal_bench` timing compute's owner check: how many checks, the owner's data directory, and the
 /// sequencer's epoch bounds in milliseconds, at least and at most.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnerArgs {

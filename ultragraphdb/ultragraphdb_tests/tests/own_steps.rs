@@ -53,7 +53,7 @@ fn clock() -> Instant {
 /// after the one before it.
 const SLOW_EPOCH_MS: u64 = 1_000;
 
-/// A cluster whose epochs close every `SLOW_EPOCH_MS`, the frontend's sequencer and its close bound at it.
+/// A cluster whose epochs close every `SLOW_EPOCH_MS`, the system group's sequencer and its close bound at it.
 fn slow_epochs() -> Spec {
     Spec::one_partition()
         .host("sequencer.epoch_ms_min", SLOW_EPOCH_MS)
@@ -204,7 +204,7 @@ fn refused_as_evicted(w: &mut Steps) -> TestResult {
 /// The clients of the many-cores scenario, each over a connection of its own.
 const CORE_CLIENTS: usize = 32;
 
-/// How long the frontend has to log the phases of the writes once they end: a window is due a second after its last write.
+/// How long compute has to log the phases of the writes once they end: a window is due a second after its last write.
 const PHASES_DUE: Duration = Duration::from_secs(10);
 
 /// The values of `key=` on each line of `log` holding `marker`, as numbers.
@@ -1191,7 +1191,7 @@ async fn challenged(
 #[when("a client asks to authenticate as an unknown name, twice, across a restart of compute")]
 fn unknown_across_restart(w: &mut Steps) -> TestResult {
     own(w, &Spec::one_partition())?;
-    // Storage and compute go with a frontend killed, so this cluster serves no scenario after this one.
+    // This cluster's compute is killed, so it serves no scenario after this one.
     w.named = None;
     let at = cluster(w)?.client.address.clone();
     let challenges = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
@@ -1222,7 +1222,7 @@ fn unknown_across_restart(w: &mut Steps) -> TestResult {
             compio::time::sleep(Duration::from_millis(50)).await;
         }
         Err(TestError::new(
-            "the restarted frontend answered no exchange within 5 s",
+            "the restarted compute node answered no exchange within 5 s",
         ))
     })?;
     let told = challenges.borrow().clone();

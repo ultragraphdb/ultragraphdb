@@ -34,9 +34,9 @@
 //!           [--commits 0] [--cross-percent 0] [--seed 1] [--cache-mb 128] [--verify off|on]
 //! ```
 //!
-//! Given `--owner-checks`, `wal_bench` times the frontend's owner check as an endpoint core meets it: the production
+//! Given `--owner-checks`, `wal_bench` times compute's owner check as the system group's owner meets it: the production
 //! owner on its own thread over its logs in the run's directory, closing and syncing epochs within `--epoch-ms`, one
-//! session's `begin_commit` asked again and again, each from its ask to its answer.
+//! session's Commit Check asked again and again on one role connection, each from its ask to its answer.
 //!
 //! ```text
 //! wal_bench --owner-checks <n> --dir <path> [--epoch-ms 2,10]

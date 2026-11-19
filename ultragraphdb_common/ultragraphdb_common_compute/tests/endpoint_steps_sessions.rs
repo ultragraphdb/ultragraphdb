@@ -26,7 +26,7 @@ use crate::endpoint_stage::{
 };
 use crate::endpoint_steps_requests::run;
 
-/// The number of tries a step makes for what the frontend does after an answer no client sees, a few milliseconds apart.
+/// The number of tries a step makes for what compute does after an answer no client sees, a few milliseconds apart.
 const TRIES: u32 = 500;
 
 /// A partition holding every Commit and DirectWrite unanswered until the scenario answers it, or until `answering` is set.
@@ -62,7 +62,7 @@ async fn register_once_free(client: &mut Client) -> TestResult<[u8; 16]> {
     ))
 }
 
-/// A connection once the frontend holds none, within [`TRIES`]: a dial refused past the bound of one is made again.
+/// A connection once compute holds none, within [`TRIES`]: a dial refused past the bound of one is made again.
 async fn dial_once_free(stage: &Stage) -> TestResult<Client> {
     for _ in 0..TRIES {
         match stage.ann().await {
@@ -70,9 +70,7 @@ async fn dial_once_free(stage: &Stage) -> TestResult<Client> {
             Err(_) => pause(2).await,
         }
     }
-    Err(TestError::new(
-        "the frontend did not end the closed connection",
-    ))
+    Err(TestError::new("compute did not end the closed connection"))
 }
 
 /// Commits through `session` once its commit in flight has ended, within [`TRIES`]: a Commit refused with code 14 is sent again.

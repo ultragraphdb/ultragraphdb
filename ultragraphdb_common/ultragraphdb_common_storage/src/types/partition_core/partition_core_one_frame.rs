@@ -159,7 +159,7 @@ impl<S: DurableStorage, K: CoreClock> PartitionCore<'_, S, K> {
         let now = self.now_us();
         let mut next = 0;
         // A frame of operations alone leaves its first subject to its first operation, which the partition checks as a first
-        // request's: code 26 for a stale route, so the frontend resends it (`PROTOCOL.md` §6.6).
+        // request's: code 26 for a stale route, so compute resends it (`PROTOCOL.md` §6.6).
         if matches!(at, OneFrameAt::Changes | OneFrameAt::ChangesHeard) && one.change_count() > 0 {
             let changes = FrameChanges::of_records(
                 one.tenant(),

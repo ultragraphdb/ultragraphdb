@@ -81,17 +81,6 @@ fn answer_now(
             principal,
             reply,
         } => drop(reply.send(check(reads, session, principal))),
-        SystemAsked::BeginCommit {
-            session,
-            principal,
-            writes,
-            reply,
-        } => drop(reply.send(begin_commit(
-            reads,
-            answering.marks,
-            (session, principal, writes),
-        ))),
-        SystemAsked::CommitEnded { session } => answering.marks.end_in_process(session),
         SystemAsked::Check {
             connection,
             checks,
@@ -176,23 +165,4 @@ pub(super) fn check(
         "the session is another principal's",
     )
     .with_detail(ACTION_WRITE))
-}
-
-/// The owner check of a commit, one in flight per session (`PROTOCOL.md` §11.5): `asked` is the session, the principal,
-/// and whether the commit writes.
-pub(super) fn begin_commit(
-    reads: MetadataReads<'_>,
-    marks: &mut SessionMarks,
-    asked: (u128, u64, bool),
-) -> Result<(), ErrorReply> {
-    let (session, principal, writes) = asked;
-    check(reads, session, principal)?;
-    if marks.is_marked(session) {
-        return Err(ErrorReply::new(
-            ErrorCode::SessionBusy,
-            "the session has a commit in flight",
-        ));
-    }
-    marks.mark(session, None, writes);
-    Ok(())
 }

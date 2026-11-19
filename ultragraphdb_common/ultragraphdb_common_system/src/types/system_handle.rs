@@ -46,7 +46,7 @@ impl SystemHandle {
 
     /// As [`SystemHandle::ask_or_refuse`], the ask sent at the call, and its answer awaited by a future that holds no handle:
     /// an ask whose requester goes stands with the owner, and its wait keeps no owner running (`PROTOCOL.md` §11.13, *A host
-    /// or a frontend that stops*).
+    /// or a compute node that stops*).
     fn sent_or_refuse<T, B>(
         &self,
         build: B,
@@ -175,46 +175,6 @@ impl SystemHandle {
             reply,
         })
         .await
-    }
-
-    /// The owner check of a commit through `session` by `principal`, which holds the session in flight until
-    /// [`SystemHandle::commit_ended`].
-    ///
-    /// # Errors
-    ///
-    /// As [`SystemHandle::check_session`], and code 14 when a commit of the session is in flight.
-    pub async fn begin_commit(&self, session: u128, principal: u64) -> Result<(), ErrorReply> {
-        self.ask_or_refuse(|reply| SystemAsked::BeginCommit {
-            session,
-            principal,
-            writes: true,
-            reply,
-        })
-        .await
-    }
-
-    /// The owner check of a retried Commit's Recall, held in flight as [`SystemHandle::begin_commit`] holds a commit. A Recall
-    /// records nothing in a partition's table, so a full registry may evict its session meanwhile (`PROTOCOL.md` §11.5).
-    ///
-    /// # Errors
-    ///
-    /// As [`SystemHandle::begin_commit`].
-    pub async fn begin_recall(&self, session: u128, principal: u64) -> Result<(), ErrorReply> {
-        self.ask_or_refuse(|reply| SystemAsked::BeginCommit {
-            session,
-            principal,
-            writes: false,
-            reply,
-        })
-        .await
-    }
-
-    /// The commit in flight through `session` was answered, or given up. An owner stopped holds none in flight.
-    pub fn commit_ended(&self, session: u128) {
-        drop(
-            self.inbox
-                .unbounded_send(SystemAsked::CommitEnded { session }),
-        );
     }
 
     /// Whether the registry holds `session`; an owner stopped holds nothing.
@@ -511,5 +471,5 @@ impl SystemHandle {
 }
 
 fn stopped() -> ErrorReply {
-    ErrorReply::new(ErrorCode::Unavailable, "the frontend's owner stopped")
+    ErrorReply::new(ErrorCode::Unavailable, "the system group's owner stopped")
 }

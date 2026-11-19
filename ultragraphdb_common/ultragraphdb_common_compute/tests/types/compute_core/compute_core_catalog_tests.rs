@@ -15,15 +15,15 @@ use ultragraphdb_protocol_wire::{CatalogFrames, ErrorCode, ErrorReply, MAX_FRAME
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::played::played_cluster::{SECRET, quiet_times, role_cluster, run};
-use crate::played::played_frontend::{PlayedFrontend, even_ranges};
+use crate::played::played_system::{PlayedSystem, even_ranges};
 
 /// The tenant the versions belong to.
 const TENANT: u64 = 4;
 
 /// A played group and a core reading from it by `times`.
-async fn group_and_core(times: ReadTimes) -> TestResult<(PlayedFrontend, Rc<ComputeCore>)> {
+async fn group_and_core(times: ReadTimes) -> TestResult<(PlayedSystem, Rc<ComputeCore>)> {
     let cluster = role_cluster(SECRET, Duration::from_secs(5))?;
-    let group = PlayedFrontend::start(&cluster, even_ranges(1)?).await?;
+    let group = PlayedSystem::start(&cluster, even_ranges(1)?).await?;
     let core = ComputeCore::new(cluster, Address::parse(group.address())?, times, "compute");
     Ok((group, core))
 }

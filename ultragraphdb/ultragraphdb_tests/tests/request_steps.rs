@@ -1871,7 +1871,7 @@ fn malformed_refused(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-/// A Write holding a triple term, which the frontend refuses on its transaction's stream.
+/// A Write holding a triple term, which compute refuses on its transaction's stream.
 fn refused_write(a: &str, p: &str, b: &str) -> TestResult<Write> {
     let mut terms = TermTable::new();
     let (subject, predicate, object) = (terms.iri(a), terms.iri(p), terms.iri(b));
@@ -2068,7 +2068,7 @@ fn stale_statement(w: &mut Steps) -> TestResult {
     let (stale, again) = in_shared(w, async |client| {
         let statement = client.prepare(&statement_of(&p)).await?;
         declare(client, DeclaredPredicate::new(&q)).await?;
-        // A version takes effect at an epoch boundary, and the frontend's schema id moves with it.
+        // A version takes effect at an epoch boundary, and compute's schema id moves with it.
         let mut refused = None;
         for _ in 0..200 {
             let reader = client.begin(TENANT, true).await?;

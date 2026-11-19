@@ -1366,18 +1366,18 @@ async fn system_requests(
             if let std::task::Poll::Ready(want) = wants.poll_next_unpin(cx) {
                 return std::task::Poll::Ready(want.map(Asked::Lease));
             }
-            asks.poll_next_unpin(cx).map(|ask| ask.map(Asked::Frontend))
+            asks.poll_next_unpin(cx).map(|ask| ask.map(Asked::System))
         })
         .await;
         let Some(asked) = next else {
             return;
         };
         let asked = match asked {
-            Asked::Frontend(SystemAsk::Report(report)) => {
+            Asked::System(SystemAsk::Report(report)) => {
                 spawn(send_report(peers.clone(), report)).detach();
                 continue;
             }
-            Asked::Lease(_) | Asked::Frontend(SystemAsk::Close(_) | SystemAsk::DefaultEntry(_)) => {
+            Asked::Lease(_) | Asked::System(SystemAsk::Close(_) | SystemAsk::DefaultEntry(_)) => {
                 asked
             }
         };
@@ -1397,17 +1397,17 @@ async fn system_requests(
             Ok(mut open) => {
                 let result = match asked {
                     Asked::Lease(prefix) => lease_ahead(&mut open, &leased, own, prefix).await,
-                    Asked::Frontend(SystemAsk::Close(epoch)) => {
+                    Asked::System(SystemAsk::Close(epoch)) => {
                         open.send_only(&CloseRequestBody::new(own.get(), epoch.get()))
                             .await
                     }
-                    Asked::Frontend(SystemAsk::DefaultEntry(entry)) => {
+                    Asked::System(SystemAsk::DefaultEntry(entry)) => {
                         let record =
                             DefaultEntry::request(entry.tenant(), entry.predicate().to_string());
                         open.request(&record).await.map(drop)
                     }
                     // Taken above, each on a connection of its own.
-                    Asked::Frontend(SystemAsk::Report(_)) => Ok(()),
+                    Asked::System(SystemAsk::Report(_)) => Ok(()),
                 };
                 client = result.is_ok().then_some(open);
                 result
@@ -1455,5 +1455,5 @@ async fn send_report(peers: Peers, report: Report) {
 /// What the core's connection to the system group takes next.
 enum Asked {
     Lease(TypePrefix),
-    Frontend(SystemAsk),
+    System(SystemAsk),
 }

@@ -3,7 +3,7 @@
 
 @core
 Feature: The client endpoint through the three binaries
-  openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request. The client offers no Install, so the unknown tenant runs through the six requests it sends.
+  openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md, through the real compute and storage, the client crates' own client sending every request. The client offers no Install, so the unknown tenant runs through the six requests it sends.
 
   @over_tls
   Scenario: A TLS client reaches the endpoint

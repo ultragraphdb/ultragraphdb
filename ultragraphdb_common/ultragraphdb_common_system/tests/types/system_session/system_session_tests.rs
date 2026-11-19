@@ -76,7 +76,7 @@ fn test_a_subscription_past_the_closes_held_ends_with_an_error() -> TestResult {
         let cluster = RoleCluster::new(CLUSTER, secret.clone(), Duration::from_secs(1));
         let shared = shared_of(cluster, handle);
         let server =
-            Server::new(CLUSTER, "frontend", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
+            Server::new(CLUSTER, "system", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
         let credentials = secret.credentials()?;
         // Bound at port 0 and read back, so no other process takes the port between a choice and the bind.
         let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
@@ -128,7 +128,7 @@ fn serve_roles(
     shared: SystemShared,
     cluster: &RoleCluster,
 ) -> TestResult {
-    let server = Server::new(CLUSTER, "frontend", endpoint)?.with_iterations(ROLE_ITERATIONS);
+    let server = Server::new(CLUSTER, "system", endpoint)?.with_iterations(ROLE_ITERATIONS);
     let credentials = cluster.secret().credentials()?;
     spawn(async move {
         while let Ok(carrier) = listener.accept().await {

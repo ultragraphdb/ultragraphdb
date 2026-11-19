@@ -276,8 +276,8 @@ fn test_a_resent_commit_is_decided_by_its_code() -> TestResult {
     Ok(())
 }
 
-/// A resent one-frame write refused before its session table decides, code 21 or 23 from the frontend, says nothing of it and
-/// stays in doubt, its number kept; a refusal the partition gives says it did not commit.
+/// A resent one-frame write refused before its session table decides, code 21 or 23 from compute, says nothing of it
+/// and stays in doubt, its number kept; a refusal the partition gives says it did not commit.
 #[test]
 fn test_a_resent_one_frame_write_refused_before_its_table_stays_in_doubt() -> TestResult {
     for before_the_table in [ErrorCode::PermissionDenied, ErrorCode::CrossPartition] {
@@ -434,7 +434,7 @@ fn test_a_one_frame_write_through_no_session_names_none() -> TestResult {
     Ok(())
 }
 
-/// A client sends a one-frame write's `principal` as 0: the frontend alone fills it.
+/// A client sends a one-frame write's `principal` as 0: compute alone fills it.
 #[test]
 fn test_a_one_frame_write_naming_a_principal_is_refused_before_it_is_sent() -> TestResult {
     let mut h = Harness::ready(server())?;
@@ -581,7 +581,7 @@ fn test_a_token_of_an_equal_or_lower_epoch_replaces_nothing() -> TestResult {
     Ok(())
 }
 
-/// A DirectWrite holding a value the frontend refuses is refused like a Commit: code 7 answers itself, its value kept.
+/// A DirectWrite holding a value compute refuses is refused like a Commit: code 7 answers itself, its value kept.
 #[test]
 fn test_a_refused_one_frame_write_keeps_its_number_and_its_value() -> TestResult {
     let mut h = Harness::ready(server())?;

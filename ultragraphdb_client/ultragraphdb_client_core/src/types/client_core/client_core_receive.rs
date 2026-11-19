@@ -623,7 +623,7 @@ fn dropped(
 }
 
 /// Whether a resend's refusal `code` says nothing of the first send: any but code 18 for a Commit, and codes 21 and 23 for any
-/// resend, which the frontend's own checks give before a partition's table decides (`PROTOCOL.md` §11.5).
+/// resend, which compute's own checks give before a partition's table decides (`PROTOCOL.md` §11.5).
 fn leaves_in_doubt(expect: &Expect, code: ErrorCode) -> bool {
     matches!(
         code,

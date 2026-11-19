@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: Exactly-once through a compute node ahead of storage and a core behind the closes
-  openspec/changes/stage-5-8-system-group/specs/transactions/spec.md, "Exactly-once commits through sessions", under a failure of design D12, through the real frontend, compute and storage, the system group hosted by the first storage process, the client crates' own client sending every request. Each Commit writes a statement of a new blank node, so a Commit applied twice holds two. A Commit the fault leaves in doubt is resolved by its session's resend, sent again after a delay while it stays in doubt (`PROTOCOL.md` §11.5), and the data read back holds every Commit acknowledged or resolved committed exactly once and no other.
+  openspec/changes/stage-5-8-system-group/specs/transactions/spec.md, "Exactly-once commits through sessions", under a failure of design D12, through the real compute and storage, the system group hosted by the first storage process, the client crates' own client sending every request. Each Commit writes a statement of a new blank node, so a Commit applied twice holds two. A Commit the fault leaves in doubt is resolved by its session's resend, sent again after a delay while it stays in doubt (`PROTOCOL.md` §11.5), and the data read back holds every Commit acknowledged or resolved committed exactly once and no other.
 
   Scenario: A compute node started before storage commits each once
     When compute starts before any storage process, the storage process hosting the system group starts, and sessions commit at partitions 1 and 2 as the second storage process starts

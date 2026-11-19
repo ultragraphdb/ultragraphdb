@@ -158,7 +158,7 @@ fn credentials() -> TestResult<RoleCredentials> {
 /// Plays the home of partitions 3 and 4 on this runtime, as `script` says: listening at their addresses, and joined.
 pub async fn play_home(script: &HomeScript) -> TestResult {
     let held = credentials()?;
-    let mut frontend = RoleClient::dial(
+    let mut system = RoleClient::dial(
         &Address::parse(&format!("tcp://{}", system_role_address()?))?,
         CLUSTER,
         "storage",
@@ -185,7 +185,7 @@ pub async fn play_home(script: &HomeScript) -> TestResult {
         })
         .detach();
         drop(
-            frontend
+            system
                 .request(&Join::storage(address, vec![partition]))
                 .await?,
         );

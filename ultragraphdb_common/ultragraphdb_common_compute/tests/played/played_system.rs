@@ -3,9 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The system group the test plays at an address of its own on the test's runtime, where the frontend answered it until
-//! the settings switch: it answers compute's Placement with the bucket ranges it is given, its Members with the played
-//! partitions' addresses and the compute processes that joined, its Join by listing the compute process, and its Catalog
+//! The system group the test plays at an address of its own on the test's runtime: it answers compute's Placement with
+//! the bucket ranges it is given, its Members with the played partitions' addresses and the compute processes that
+//! joined, its Join by listing the compute process, and its Catalog
 //! with the versions it holds, across frames within compute's `max_frame`, each after a delay the test may set. It may
 //! stop answering, turning every connection away before its Welcome, as a group gone does, and restart, closing every
 //! connection it holds.
@@ -30,8 +30,8 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_tool_bdd::TestResult;
 
-/// The bucket ranges of the even placement over `partitions`, as a real frontend's first start forms it: each range's start, end
-/// and partition.
+/// The bucket ranges of the even placement over `partitions`, as the system group's first start forms it: each range's start,
+/// end and partition.
 pub fn even_ranges(partitions: u32) -> TestResult<Vec<(u32, u32, u32)>> {
     let map = PlacementMap::even(partitions, NodeId::new(1))?;
     Ok(map
@@ -53,7 +53,7 @@ struct Counts {
 
 /// What a played group answers, and what it was asked.
 #[derive(Debug, Clone)]
-pub struct PlayedFrontend {
+pub struct PlayedSystem {
     address: String,
     ranges: Rc<[(u32, u32, u32)]>,
     storage: Rc<RefCell<Vec<(u32, String)>>>,
@@ -75,7 +75,7 @@ pub struct PlayedFrontend {
     connections: Rc<RefCell<Vec<JoinHandle<()>>>>,
 }
 
-impl PlayedFrontend {
+impl PlayedSystem {
     /// A group of `cluster` answering the placement of `ranges`, listening at a port of its own on this runtime.
     pub async fn start(cluster: &RoleCluster, ranges: Vec<(u32, u32, u32)>) -> TestResult<Self> {
         let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
@@ -111,7 +111,7 @@ impl PlayedFrontend {
                     drop(carrier);
                     continue;
                 }
-                let session = FrontendSession {
+                let session = SystemConnection {
                     played: serving.clone(),
                     max_frame: MAX_FRAME_FLOOR,
                     queued: VecDeque::new(),
@@ -297,14 +297,14 @@ fn reply<B: BodyBuilder>(body: &B, cluster: u64, stream: u64) -> Answer {
 
 /// One connection at a played group.
 #[derive(Debug)]
-struct FrontendSession {
-    played: PlayedFrontend,
+struct SystemConnection {
+    played: PlayedSystem,
     max_frame: usize,
     /// The frames of a Catalog answer after its first, pushed in order.
     queued: VecDeque<(u64, Vec<u8>)>,
 }
 
-impl FrontendSession {
+impl SystemConnection {
     /// A Catalog request's answer: the version's frames within the connection's `max_frame`, the first the reply and the
     /// rest queued; code 7 naming the version for one it does not hold.
     fn catalog(&mut self, view: &FrameView<'_>, stream: u64) -> Answer {
@@ -367,7 +367,7 @@ fn counted(count: &Cell<u32>) {
     count.set(count.get() + 1);
 }
 
-impl Session for FrontendSession {
+impl Session for SystemConnection {
     async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
         let view = match frame.view() {
             Ok(view) => view,

@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A client's exchange relayed through the frontend, its proof checked by the half that holds the verifier
+//! A client's exchange relayed through compute, its proof checked by the half that holds the verifier
 //! (`PROTOCOL.md` §11.1, §13.8, §13.9; design D8).
 
 use ultragraphdb_common_compute::RelayAuthenticator;

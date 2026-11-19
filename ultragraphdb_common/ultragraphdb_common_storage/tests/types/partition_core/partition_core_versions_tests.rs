@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The catalog versions a partition's core installs, one at a time and in order, and reports to the frontend
+//! The catalog versions a partition's core installs, one at a time and in order, and reports to the system group
 //! (`PROTOCOL.md` §§11.12, 13.19), against a core of `core_rig`.
 
 use oxrdf::NamedNode;
@@ -28,7 +28,8 @@ fn version(version: u64, declarations: Vec<Declaration>) -> CoreMessage {
     CoreMessage::Catalog(CatalogContents::new(TENANT, version, declarations))
 }
 
-/// A version a close announced is installed, and its outcome reported to the frontend: passed, the data refusing nothing.
+/// A version a close announced is installed, and its outcome reported to the system group: passed, the data refusing
+/// nothing.
 #[test]
 fn test_a_version_is_installed_and_reported_passed() -> TestResult {
     with_core("versions-passed", RigSetup::default(), async |mut core| {

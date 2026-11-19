@@ -18,7 +18,7 @@ use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 use crate::shells::TestClient;
 
-/// The tenant the frontend's first start creates, the one every scenario writes in.
+/// The tenant the system group's first start creates, the one every scenario writes in.
 pub(crate) const TENANT: u64 = 0;
 
 /// What a transaction writes besides what it read, so its commit is checked.

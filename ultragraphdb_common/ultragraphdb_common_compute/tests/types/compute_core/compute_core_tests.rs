@@ -3,16 +3,16 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! One core's connections to the frontend and the partitions (`PROTOCOL.md` §11.12): the placement map it holds once fetched,
-//! which this stage fixes as the even map, where each partition listens, and its one connection to each.
+//! One core's connections to the system group and the partitions (`PROTOCOL.md` §11.12): the placement map it holds once
+//! fetched, which this stage fixes as the even map, where each partition listens, and its one connection to each.
 
 use ultragraphdb_protocol_wire::ErrorCode;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::played::played_cluster::{CLUSTER, PlayedCluster, quiet_times, run};
 use crate::played::played_data::OneList;
-use crate::played::played_frontend::even_ranges;
 use crate::played::played_read::{Bound, read, snapshot_of};
+use crate::played::played_system::even_ranges;
 
 /// The pattern binding `list`'s subject and predicate.
 fn bound_list(list: &OneList) -> Bound {
@@ -23,8 +23,8 @@ fn bound_list(list: &OneList) -> Bound {
     }
 }
 
-/// A frontend answering a placement other than the even map this stage holds, its ranges the even map's but each held by another
-/// partition, refuses every read with code 17.
+/// A system group answering a placement other than the even map this stage holds, its ranges the even map's but each held by
+/// another partition, refuses every read with code 17.
 #[test]
 fn test_a_placement_other_than_the_even_map_refuses_the_read() -> TestResult {
     run(async {
@@ -64,7 +64,7 @@ fn test_every_batch_names_the_cluster() -> TestResult {
     })
 }
 
-/// The reads of one core share its one connection to a partition, and the frontend is asked where it listens once.
+/// The reads of one core share its one connection to a partition, and the system group is asked where it listens once.
 #[test]
 fn test_the_reads_of_a_core_share_its_connection_to_a_partition() -> TestResult {
     run(async {
@@ -80,7 +80,7 @@ fn test_the_reads_of_a_core_share_its_connection_to_a_partition() -> TestResult 
             assert_eq!(answer.column(0), list.object_iris());
         }
         assert_eq!(partition.connections(), 1);
-        assert_eq!(played.frontend().members_asked(), 1);
+        assert_eq!(played.system().members_asked(), 1);
         Ok(())
     })
 }
@@ -93,7 +93,7 @@ fn short_times() -> ultragraphdb_common_compute::ReadTimes {
     )
 }
 
-/// How long a slow frontend takes to answer: well past [`short_times`]'s bound.
+/// How long a slow system group takes to answer: well past [`short_times`]'s bound.
 const SLOW: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// The refusal of a read of `list` on `played`: its code and message.
@@ -103,19 +103,19 @@ async fn refusal_of(played: &PlayedCluster, list: &OneList) -> TestResult<(Error
     answer.refusal.context("the read's refusal")
 }
 
-/// A frontend that answers compute's Placement or Members past the answer bound is hung: the read is refused with code 17,
+/// A system group that answers compute's Placement or Members past the answer bound is hung: the read is refused with code 17,
 /// naming what did not come.
 #[test]
-fn test_a_frontend_silent_past_the_bound_refuses_the_read() -> TestResult {
+fn test_a_system_group_silent_past_the_bound_refuses_the_read() -> TestResult {
     run(async {
         for placement in [true, false] {
             let played = PlayedCluster::start(1, short_times()).await?;
             let list = OneList::new("subject", "predicate", 2)?;
             list.hold_in(played.partition(1)?);
             if placement {
-                played.frontend().delay_placement(SLOW);
+                played.system().delay_placement(SLOW);
             } else {
-                played.frontend().delay_members(SLOW);
+                played.system().delay_members(SLOW);
             }
             let (code, message) = refusal_of(&played, &list).await?;
             assert_eq!(code, ErrorCode::Unavailable);
@@ -133,8 +133,8 @@ fn test_a_frontend_silent_past_the_bound_refuses_the_read() -> TestResult {
     })
 }
 
-/// A partition the frontend's Members does not list, lists at an address that does not parse, or lists where nothing listens,
-/// refuses a read reaching it with code 17, naming why; where nothing listens, the next read asks the Members again.
+/// A partition the system group's Members does not list, lists at an address that does not parse, or lists where nothing
+/// listens, refuses a read reaching it with code 17, naming why; where nothing listens, the next read asks the Members again.
 #[test]
 fn test_a_partition_not_reached_refuses_the_read() -> TestResult {
     use ultragraphdb_protocol_transport::Address;
@@ -156,7 +156,7 @@ fn test_a_partition_not_reached_refuses_the_read() -> TestResult {
         for (address, why) in listed {
             let played = PlayedCluster::start_placed(even_ranges(2)?, 1, quiet_times()).await?;
             if let Some(address) = &address {
-                played.frontend().list(2, address);
+                played.system().list(2, address);
             }
             let homed = iri_homed("subject-", 2, 2)?;
             let stem = homed
@@ -166,10 +166,10 @@ fn test_a_partition_not_reached_refuses_the_read() -> TestResult {
             let (code, message) = refusal_of(&played, &list).await?;
             assert_eq!(code, ErrorCode::Unavailable);
             assert!(message.contains(why), "{message}");
-            let asked = played.frontend().members_asked();
+            let asked = played.system().members_asked();
             let _again = refusal_of(&played, &list).await?;
             assert_eq!(
-                played.frontend().members_asked(),
+                played.system().members_asked(),
                 asked + 1,
                 "the next read asks where partition 2 listens again"
             );
@@ -179,7 +179,7 @@ fn test_a_partition_not_reached_refuses_the_read() -> TestResult {
 }
 
 /// Reads arriving while their core dials a partition wait on that one dial: both are answered over the one connection, and the
-/// frontend is asked where the partition listens once.
+/// system group is asked where the partition listens once.
 #[test]
 fn test_reads_arriving_during_a_dial_share_it() -> TestResult {
     run(async {
@@ -188,7 +188,7 @@ fn test_reads_arriving_during_a_dial_share_it() -> TestResult {
         let list = OneList::new("subject", "predicate", 2)?;
         list.hold_in(partition);
         played
-            .frontend()
+            .system()
             .delay_members(std::time::Duration::from_millis(200));
         let (mut first, mut second) = (played.client(), played.client());
         let read_one = snapshot_of(&bound_list(&list))?;
@@ -198,7 +198,7 @@ fn test_reads_arriving_during_a_dial_share_it() -> TestResult {
             assert_eq!(answer.column(0), list.object_iris());
         }
         assert_eq!(partition.connections(), 1);
-        assert_eq!(played.frontend().members_asked(), 1);
+        assert_eq!(played.system().members_asked(), 1);
         Ok(())
     })
 }
@@ -209,7 +209,7 @@ fn test_reads_arriving_during_a_dial_share_it() -> TestResult {
 fn test_members_listing_compute_processes_reach_the_partition() -> TestResult {
     run(async {
         let played = PlayedCluster::start(1, quiet_times()).await?;
-        played.frontend().list_compute("127.0.0.1:1");
+        played.system().list_compute("127.0.0.1:1");
         let list = OneList::new("subject", "predicate", 2)?;
         list.hold_in(played.partition(1)?);
         let mut client = played.client();
@@ -236,8 +236,8 @@ fn test_the_placement_and_the_members_are_read_at_the_group() -> TestResult {
                 .answered()?;
             assert_eq!(answer.column(0), list.object_iris());
         }
-        assert_eq!(played.frontend().placement_asked(), 1);
-        assert_eq!(played.frontend().members_asked(), 1);
+        assert_eq!(played.system().placement_asked(), 1);
+        assert_eq!(played.system().members_asked(), 1);
         Ok(())
     })
 }

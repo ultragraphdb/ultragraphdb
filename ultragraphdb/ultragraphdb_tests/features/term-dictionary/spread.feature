@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: The dictionary over a spread tenant
-  openspec/changes/stage-5-5-three-role-refactor/specs/term-dictionary/spec.md, through the real frontend, compute and storage, the client crates' own client sending every request.
+  openspec/changes/stage-5-5-three-role-refactor/specs/term-dictionary/spec.md, through the real compute and storage, the client crates' own client sending every request.
 
   Scenario: Transactions naming only new blank nodes bind in turn
     When three transactions whose first writes name only new blank nodes arrive over three partitions

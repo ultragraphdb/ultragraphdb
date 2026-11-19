@@ -3,12 +3,13 @@
 
 @drops
 Feature: Drops through compute, read back at the partition
-  openspec/changes/stage-5-8-system-group/specs/schema-changes/spec.md, "Drops": the frontend and a storage process hosting
-  the system group as processes, each Drop sent by a client through the frontend, and the partition's keys read back over its
+  openspec/changes/stage-5-8-system-group/specs/schema-changes/spec.md, "Drops": compute and a storage process hosting
+  the system group as processes, each Drop sent by a client through compute, and the partition's keys read back over its
   role address with a Scan of the tenant's key ranges. "Dropping a vector predicate drops its vector index" is not bound
-  here: the frontend refuses a vector index until stage 8 (client-endpoint, "A vector index is refused"). "Dropping a tenant's
-  everything survives a restart" and "A tenant's drop leaves a tenant sharing its run" are not bound here: tenants 3, 7 and 8
-  cannot exist in this stage, which holds tenant 0 alone (metadata-group, "The metadata group holds the tenants").
+  here: compute refuses a vector index until stage 8 (client-endpoint, "A vector index is refused"). "Dropping a
+  tenant's everything survives a restart" and "A tenant's drop leaves a tenant sharing its run" are not bound here:
+  tenants 3, 7 and 8 cannot exist in this stage, which holds tenant 0 alone (metadata-group, "The metadata group holds
+  the tenants").
 
   Scenario: Dropping a predicate removes it from the predicate lists
     When `knows` is held for `a` and `b` and is dropped
