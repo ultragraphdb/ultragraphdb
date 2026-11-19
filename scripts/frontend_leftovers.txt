@@ -1,0 +1,38 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+# The files of the workspace's members, `bazel/` and `deploy/` allowed to name `frontend`, each with the number of lines
+# that name it, checked by `scripts/test.sh` (role-binaries, "Nothing is named frontend"). A file not listed, a count
+# that differs, or a file or directory named `frontend` fails the check.
+#
+# refusal:   a retired name refused by name, with its tests and laws L6.2 and L6.5; stays.
+# task 1.2:  the wire's role kind 1 (`RoleKind::Frontend`) and what decodes or matches it, and command 523; task 1.2
+#            retires them, and its gate passes the check with no entry of this kind left.
+
+ultragraphdb_common/ultragraphdb_common_compute/src/types/role_links.rs:2  task 1.2
+ultragraphdb_common/ultragraphdb_common_compute/tests/utils/joining_tests.rs:3  refusal
+ultragraphdb_common/ultragraphdb_common_config_check/features/config-service/validation.feature:1  refusal
+ultragraphdb_common/ultragraphdb_common_config_check/tests/bdd.rs:5  refusal
+ultragraphdb_common/ultragraphdb_common_config_check/tests/property/utils/cross_checks_property_tests.rs:9  refusal
+ultragraphdb_common/ultragraphdb_common_config_check/tests/utils/cross_checks_tests.rs:16  refusal
+ultragraphdb_common/ultragraphdb_common_config_check/tests/utils/merge_tests.rs:3  refusal
+ultragraphdb_common/ultragraphdb_common_role/tests/property/types/role_credentials_property_tests.rs:2  refusal
+ultragraphdb_common/ultragraphdb_common_role/tests/types/role_secret_tests.rs:2  refusal
+ultragraphdb_common/ultragraphdb_common_role/tests/utils/joining_role_tests.rs:4  refusal
+ultragraphdb_common/ultragraphdb_common_role/tests/utils/serve_tests.rs:2  refusal
+ultragraphdb_common/ultragraphdb_common_service_config/src/lib.rs:2  refusal
+ultragraphdb_common/ultragraphdb_common_service_config/src/types/settings_reader/mod.rs:1  refusal
+ultragraphdb_common/ultragraphdb_common_service_config/tests/property/types/service_config/service_config_property_tests.rs:1  refusal
+ultragraphdb_common/ultragraphdb_common_service_config/tests/types/cluster_table_tests.rs:4  refusal
+ultragraphdb_common/ultragraphdb_common_service_config/tests/types/service_config/service_config_tests.rs:8  refusal
+ultragraphdb_common/ultragraphdb_common_system/src/types/system_session/mod.rs:2  task 1.2
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/command/mod.rs:1  task 1.2
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/compute_read/mod.rs:2  task 1.2
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/join_view/join_view_body_view.rs:2  task 1.2
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/member.rs:1  task 1.2
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/members_view/members_view_body_view.rs:4  task 1.2
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/role_kind.rs:6  task 1.2
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/role_kind/role_kind_tests.rs:1  task 1.2
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/subscribe_view/subscribe_view_tests.rs:2  task 1.2

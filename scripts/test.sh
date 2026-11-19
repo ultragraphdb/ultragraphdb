@@ -10,6 +10,30 @@ set -o pipefail
 
 
 echo "=============="
+echo "Check retired names"
+echo "=============="
+
+# role-binaries, "Nothing is named frontend": the workspace's members, the images (`bazel/`), the chart (`deploy/`) and
+# the profiles name `frontend` only where `scripts/frontend_leftovers.txt` lists the file and its count of lines.
+ROOT=$(git rev-parse --show-toplevel)
+SCOPE=('ultragraphdb*' bazel deploy)
+FOUND=$(git -C "$ROOT" grep --untracked -ic frontend -- "${SCOPE[@]}" | sort || true)
+ALLOWED=$(grep -v -e '^#' -e '^$' "$ROOT/scripts/frontend_leftovers.txt" | awk '{print $1}' | sort)
+NAMED=$( (git -C "$ROOT" ls-files -- "${SCOPE[@]}"; git -C "$ROOT" ls-files --others --exclude-standard -- "${SCOPE[@]}") | grep -i frontend || true)
+if [ "$FOUND" != "$ALLOWED" ] || [ -n "$NAMED" ]; then
+  if [ "$FOUND" != "$ALLOWED" ]; then
+    echo "Lines naming frontend differ from scripts/frontend_leftovers.txt (< found, > listed):"
+    diff <(echo "$FOUND") <(echo "$ALLOWED") || true
+  fi
+  if [ -n "$NAMED" ]; then
+    echo "Files named frontend:"
+    echo "$NAMED"
+  fi
+  exit 1
+fi
+
+echo ""
+echo "=============="
 echo "Build targets "
 echo "=============="
 
@@ -79,6 +103,7 @@ echo "====================="
 echo "All Tests Passed"
 echo "====================="
 echo ""
+echo "* ✅ Passed: Retired Names"
 echo "* ✅ Passed: Doc Tests"
 echo "* ✅ Passed: Unit Tests"
 echo "* ✅ Passed: Property Tests"

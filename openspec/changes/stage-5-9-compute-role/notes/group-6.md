@@ -549,9 +549,12 @@ Scenario: Nothing is named frontend
     `cluster.frontend_address`, instance names beginning `frontend` and the role name `frontend`, each refused by name
 ```
 
-It is not bound. A hermetic test reads only its declared `data`, and a glob cannot reach into another package, so the
-search needs every member's files declared as data, by a target in each of the 74 member packages. That is a convention
-for every crate, which waits for the user's decision.
+`scripts/test.sh` checks it, in the step "Check retired names" ahead of the build, as the user decided: a hermetic test
+reads only its declared `data`, and binding it as one would need a target exporting the files of each of the 74 member
+packages. The step searches the tracked and untracked files of `ultragraphdb*/`, `bazel/` and `deploy/`, and fails on any
+file naming `frontend` that `scripts/frontend_leftovers.txt` does not list with its count of lines, on a count that
+differs, and on a file or directory named `frontend`. The list holds 25 files: 15 refusals and 10 of task 1.2. Shown to
+fail by a temporary edit (a line added to `serve_tests.rs`, a file `bazel/frontend_probe.txt`), both undone.
 
 ### The development image booted
 
