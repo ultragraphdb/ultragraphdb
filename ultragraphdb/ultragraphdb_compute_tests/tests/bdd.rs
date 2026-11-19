@@ -9,8 +9,8 @@
 //! time: the binaries listen at their declared ports.
 
 mod access_steps;
-mod batch_steps;
 mod books_steps;
+mod client;
 mod cluster;
 mod endpoint_read_steps;
 mod endpoint_steps;
@@ -21,6 +21,7 @@ mod played_system;
 mod processes;
 mod read_steps;
 mod resume_steps;
+mod reverse_version_steps;
 mod robust_steps;
 mod scene;
 mod system_steps;
@@ -46,7 +47,7 @@ use ultragraphdb_tests::{
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-use crate::cluster::{ClusterInfo, cluster_base, served_compute, start_cluster};
+use crate::cluster::{ClusterInfo, cluster_base, start_cluster};
 use crate::played_partition::{PlayedTables, play_partition};
 use crate::played_system::{EpochClock, Played, play};
 use crate::scene::{ReadAnswer, Scene};
@@ -131,10 +132,7 @@ fn brief() -> TestResult<&'static ClusterInfo> {
 
 /// The cluster of played partitions.
 fn played() -> TestResult<&'static ClusterInfo> {
-    shared(&PLAYED, |_util| {
-        let info = start_played_cluster(cluster_base(3)?)?;
-        Ok((info, Vec::new()))
-    })
+    shared(&PLAYED, |util| start_played_cluster(util, cluster_base(3)?))
 }
 
 /// The tables of played partition `partition`.
@@ -170,15 +168,11 @@ struct Steps {
     scene: Option<Scene>,
     answers: Vec<ReadAnswer>,
     scans: Vec<ScanSeen>,
-    connections: Vec<Vec<usize>>,
     iris: Vec<String>,
     texts: Vec<String>,
     keys: Vec<Vec<u8>>,
-    graph_keys: Vec<Vec<u8>>,
     numbers: Vec<u64>,
-    hash: u64,
     kind: Option<u64>,
-    outcome: Option<bool>,
     refused: Option<String>,
     answered: endpoint_read_steps::Answered,
     ids: Vec<Vec<u8>>,
@@ -320,11 +314,8 @@ fn lost_storage(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-/// A compute session over `PARTITIONS_PLAYED` partitions the test plays, served in process beside their played group.
-/// Where this process logs, the in-process compute role sessions among it.
-pub(crate) const IN_PROCESS_LOG: &str = "compute-in-process.log";
-
-fn start_played_cluster(base: u32) -> TestResult<ClusterInfo> {
+/// A compute process over `PARTITIONS_PLAYED` partitions the test plays, dialling their played group: its pid.
+fn start_played_cluster(util: &ServiceUtil, base: u32) -> TestResult<(ClusterInfo, Vec<u32>)> {
     let clock = EpochClock::new();
     let mut tables = Vec::new();
     let mut listed = Vec::new();
@@ -334,22 +325,26 @@ fn start_played_cluster(base: u32) -> TestResult<ClusterInfo> {
         listed.push((partition, format!("tcp://127.0.0.1:{port}")));
     }
     drop(TABLES.set(tables));
-    let compute = served_compute(base, &[("storage.scan_stall_ms", PLAYED_SCAN_STALL_MS)])?;
     play(
         base + 1,
         Played {
             partitions: PARTITIONS_PLAYED,
             clock: Arc::clone(&clock),
             listed,
-            compute: Some(compute),
         },
     )?;
-    Ok(ClusterInfo {
+    let compute = cluster::start_compute(
+        util,
+        base,
+        &[("storage.scan_stall_ms", PLAYED_SCAN_STALL_MS)],
+    )?;
+    let info = ClusterInfo {
         partitions: PARTITIONS_PLAYED,
         base,
         clock,
         log: Arc::new(TapLog::default()),
-    })
+    };
+    Ok((info, vec![compute]))
 }
 
 /// A client's refusal as it reads it, logging in as `name` with `password`.
@@ -613,14 +608,6 @@ fn at_once(w: &mut Steps) -> TestResult {
 }
 
 fn main() -> TestResult {
-    // Compute's role sessions run in this process, one beside each shared cluster's played group, until task 6.4 binds their
-    // reads to the client endpoint: what they log is written to `IN_PROCESS_LOG`.
-    let log = std::fs::File::create(scratch(IN_PROCESS_LOG))?;
-    tracing_subscriber::fmt()
-        .with_writer(Mutex::new(log))
-        .with_ansi(false)
-        .try_init()
-        .map_err(|error| TestError::new(format!("the process's log: {error}")))?;
     start_double()?;
     SHARED
         .set(services()?)

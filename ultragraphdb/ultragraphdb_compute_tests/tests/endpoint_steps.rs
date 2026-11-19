@@ -116,12 +116,17 @@ pub(crate) struct Authenticated<S> {
 
 impl<S: AsyncRead + AsyncWrite> Authenticated<S> {
     pub(crate) async fn over(stream: S) -> TestResult<Self> {
+        Self::framed(stream, MAX_FRAME_SIZE_U32).await
+    }
+
+    /// The connection over `stream`, its Hello naming `max_frame`.
+    pub(crate) async fn framed(stream: S, max_frame: u32) -> TestResult<Self> {
         let mut held = Self {
             connection: Connection::new(stream, Framer::new(CLUSTER, MAX_FRAME_SIZE)),
             pool: BufferPool::new(1, MAX_FRAME_SIZE),
             sent: 1,
         };
-        let hello = Hello::new(1, 1, 1, MAX_FRAME_SIZE_U32, "client");
+        let hello = Hello::new(1, 1, 1, max_frame, "client");
         let _welcome = held.connection.hello(&held.pool, &hello).await?;
         let nonce = system_nonce()?;
         let mut exchange = ClientAuthentication::new(ScramClient::new(ADMIN, PASSWORD, &nonce)?);

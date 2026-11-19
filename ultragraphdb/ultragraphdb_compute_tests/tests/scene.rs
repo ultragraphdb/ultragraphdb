@@ -12,27 +12,29 @@ use std::time::Duration;
 use compio::runtime::Runtime;
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_role::RoleClient;
-use ultragraphdb_core_ids::{Epoch, SystemId, Version};
-use ultragraphdb_core_terms::{EncodedTerm, TermView, Text};
+use ultragraphdb_core_ids::{Epoch, Version};
+use ultragraphdb_core_keys::Keyspace;
+use ultragraphdb_core_terms::{TermView, Text};
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     Bind, BindKind, BindView, BodyView, Closed, ClosedView, Command, Commit, CommitView,
     ComputeRead, Credit, ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_FLOOR_U32,
     MAX_FRAME_SIZE_U32, PatternSlot, QuadPattern, ReadLevel, RequestTerm, ResultTermView,
-    ResultView, Scan, ScanAt, ScanRange, TermTable, Write, WriteChange,
+    ResultView, TermTable, Write, WriteChange,
 };
-use ultragraphdb_store_quads::{iri_bucket, term_key};
+use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{CLUSTER, SECRET};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::cluster::{ClusterInfo, fresh_tenant};
+use crate::tap::ScanSeen;
 
 pub const PRINCIPAL: u64 = 1;
 pub const KNOWS: &str = "http://ex.org/knows";
 pub const NAME: &str = "http://ex.org/name";
 
 /// How long a read's transaction has, in milliseconds, in a scenario with no deadline of its own.
-const DEADLINE_MS: u32 = 2_000;
+pub(crate) const DEADLINE_MS: u32 = 2_000;
 
 /// How long the test waits on one answer of a role: past every deadline and stall a role is given, so a role's own refusal
 /// arrives first and an answer that never comes fails its step naming what it waited for.
@@ -75,10 +77,7 @@ pub struct Batch {
     pub rows: Vec<Vec<Option<Cell>>>,
     pub resume: Vec<u8>,
     pub last: bool,
-    pub size: usize,
     pub epoch: u64,
-    pub partition: u32,
-    pub columns: u32,
 }
 
 /// What a read answered.
@@ -159,7 +158,7 @@ fn cell_of(term: ResultTermView<'_>) -> Cell {
 }
 
 /// `frame`, a Result, as a test reads it.
-fn batch_of(frame: &ReceivedFrame) -> TestResult<Batch> {
+pub(crate) fn batch_of(frame: &ReceivedFrame) -> TestResult<Batch> {
     let view = frame.view()?;
     let result = ResultView::from_frame(&view)?;
     result.check_pattern()?;
@@ -176,10 +175,7 @@ fn batch_of(frame: &ReceivedFrame) -> TestResult<Batch> {
         rows,
         resume: result.resume().to_vec(),
         last: view.header().flags() & FLAG_LAST != 0,
-        size: frame.bytes().len(),
         epoch: result.epoch(),
-        partition: result.partition(),
-        columns: result.columns(),
     })
 }
 
@@ -257,7 +253,6 @@ pub struct Pattern {
 #[derive(Debug, Clone)]
 pub enum GraphTerm {
     Default,
-    Iri(String),
 }
 
 /// An IRI as a pattern's object.
@@ -284,13 +279,6 @@ impl Pattern {
         }
     }
 
-    /// The pattern of the graph `iri`.
-    #[must_use]
-    pub fn in_graph(mut self, iri: &str) -> Self {
-        self.graph = Some(GraphTerm::Iri(iri.to_string()));
-        self
-    }
-
     /// The pattern with its graph unbound.
     #[must_use]
     pub fn any_graph(mut self) -> Self {
@@ -299,12 +287,11 @@ impl Pattern {
     }
 
     /// The pattern's slots over a new term table.
-    fn table(&self) -> TestResult<(TermTable, QuadPattern)> {
+    pub(crate) fn table(&self) -> TestResult<(TermTable, QuadPattern)> {
         let mut terms = TermTable::new();
         let graph = match &self.graph {
             None => PatternSlot::Unbound,
             Some(GraphTerm::Default) => PatternSlot::DefaultGraph,
-            Some(GraphTerm::Iri(text)) => PatternSlot::Bound(terms.iri(text)),
         };
         let mut bound = |text: &Option<String>| {
             text.as_ref().map_or(PatternSlot::Unbound, |text| {
@@ -476,37 +463,6 @@ impl Scene {
         let mut client = compute_client(self.info).await?;
         answer_on(&mut client, read).await
     }
-
-    /// The ID the dictionary of `partition` holds for `iri`.
-    pub async fn id_in(&self, partition: u32, iri: &str) -> TestResult<SystemId> {
-        let mut client = self.partition_client(partition).await?;
-        let key = term_key(self.tenant, iri);
-        let past = [key.as_slice(), &[0]].concat();
-        let mut scan = Scan::new(ScanAt::Latest, 0, 0, PRINCIPAL, [0; 16], 0, 0);
-        scan.push_range(ScanRange::new(partition, &key, &past));
-        client.send_only(&scan).await?;
-        let frame = client.next_frame().await?;
-        let view = frame.view()?;
-        let entries = ultragraphdb_protocol_wire::EntriesView::from_frame(&view)?;
-        let value = entries
-            .entries()
-            .iter()
-            .next()
-            .and_then(|entry| entry.value().map(<[u8]>::to_vec))
-            .context("the term's entry")?;
-        Ok(SystemId::decode(&value)?)
-    }
-
-    /// `iris` in the store's order of their IDs, each homed at the partition holding it.
-    pub async fn in_key_order(&self, iris: &[String]) -> TestResult<Vec<String>> {
-        let mut keyed = Vec::with_capacity(iris.len());
-        for iri in iris {
-            let id = self.id_in(self.owner(iri)?, iri).await?;
-            keyed.push((EncodedTerm::id(id).as_bytes().to_vec(), iri.clone()));
-        }
-        keyed.sort();
-        Ok(keyed.into_iter().map(|(_, iri)| iri).collect())
-    }
 }
 
 /// A partition's latest closed epoch.
@@ -603,3 +559,83 @@ impl Transaction {
 
 /// The largest client frame the floor allows.
 pub const FLOOR: u32 = MAX_FRAME_FLOOR_U32;
+
+/// A Write inserting an edge with its properties.
+pub fn edge_with(
+    subject: &str,
+    predicate: &str,
+    object: &str,
+    properties: &[(&str, &str)],
+) -> TestResult<Write> {
+    let mut table = TermTable::new();
+    let subject = table.iri(subject);
+    let predicate = table.iri(predicate);
+    let object = table.iri(object);
+    let properties = properties
+        .iter()
+        .map(|(key, value)| {
+            let key = table.iri(key);
+            let value = table.intern(string(value))?;
+            Ok((key, value))
+        })
+        .collect::<TestResult<Vec<_>>>()?;
+    Ok(Write::new(
+        table,
+        vec![WriteChange::InsertEdge {
+            graph: None,
+            subject,
+            predicate,
+            object,
+            properties,
+        }],
+    ))
+}
+
+/// Whether `scan` holds a range of `keyspace`.
+pub fn reads(scan: &ScanSeen, keyspace: Keyspace) -> bool {
+    scan.ranges
+        .iter()
+        .any(|range| range.first.first() == Some(&keyspace.byte()))
+}
+
+/// Waits, within a time no scenario takes, for `holds`, failing with `what` it waited for.
+pub async fn until(what: &str, holds: impl Fn() -> bool) -> TestResult {
+    for _ in 0..3_000 {
+        if holds() {
+            return Ok(());
+        }
+        compio::time::sleep(std::time::Duration::from_millis(1)).await;
+    }
+    Err(TestError::new(format!("{what} did not come to hold")))
+}
+
+/// `rows` objects of `<a> <name>` in partition 1, each a literal of `bytes` bytes held by hash: `a`.
+pub async fn large_list(scene: &Scene, rows: u32, bytes: usize) -> TestResult<String> {
+    let a = scene.iri_in(1, "a")?;
+    // Within what a write set holds.
+    let per_commit = (300_000 / (bytes + 100)).max(1);
+    for chunk in (0..rows).collect::<Vec<u32>>().chunks(per_commit) {
+        let mut table = TermTable::new();
+        let subject = table.iri(&a);
+        let predicate = table.iri(NAME);
+        let mut changes = Vec::with_capacity(chunk.len());
+        for at in chunk {
+            let object = table.intern(string(&padded(*at, bytes)))?;
+            changes.push(WriteChange::Insert {
+                graph: None,
+                subject,
+                predicate,
+                object,
+            });
+        }
+        scene.commit(1, &Write::new(table, changes)).await?;
+    }
+    scene.info.log.clear();
+    Ok(a)
+}
+
+/// `at`, in `bytes` bytes of digits.
+pub fn padded(at: u32, bytes: usize) -> String {
+    let digits = at.to_string();
+    "0".repeat(bytes.saturating_sub(digits.len())) + &digits
+}

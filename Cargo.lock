@@ -3401,7 +3401,6 @@ dependencies = [
  "cucumber",
  "futures",
  "service_utils",
- "tracing-subscriber",
  "ultragraphdb_client_compio",
  "ultragraphdb_cluster_placement",
  "ultragraphdb_common_compute",

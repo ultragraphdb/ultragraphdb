@@ -3,31 +3,35 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A system group played by the test: real storage processes join it, and compute's reads ask it. It closes each partition's epochs
-//! as a scenario says, which no real system group can be made to do per partition, and it tells compute that partitions listen where
-//! the test's tap does, so a scenario sees every Scan compute sends.
+//! A system group played by the test: real storage processes join it, and the compute process asks it. It closes each partition's
+//! epochs as a scenario says, which no real system group can be made to do per partition, and it tells compute that partitions
+//! listen where the test's tap does, so a scenario sees every Scan compute sends. It answers compute's endpoint as the group serves
+//! compute (`PROTOCOL.md` §11.12a): the administrator's SCRAM exchange, each Session, each Check passed, each Ended.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use std::rc::Rc;
-
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
-use ultragraphdb_common_compute::{ComputeCore, ComputeSession, ReadTimes};
 use ultragraphdb_common_role::{
-    Answer, COMPUTE_WELCOME_CREDIT, Push, ROLE_ITERATIONS, RoleCluster, RoleCredentials,
-    RoleSecret, Server, Session, listen, serve_connection,
+    Answer, Push, ROLE_ITERATIONS, RoleCredentials, RoleSecret, Server, Session, listen,
+    serve_connection,
 };
 use ultragraphdb_core_ids::Epoch;
-use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame};
+use ultragraphdb_protocol_scram::ScramVerifier;
+use ultragraphdb_protocol_transport::{Endpoint, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, BucketRange, Command, EpochClose, ErrorCode, ErrorReply, FLAG_LAST,
-    Header, Join, JoinView, Lease, LeaseView, Members, Placement, PreferredLeader, TenantRun,
+    BodyBuilder, BodyView, BucketRange, Challenge, ChallengeView, Check, CheckOutcome, CheckView,
+    Command, EpochClose, ErrorCode, ErrorReply, FLAG_LAST, FrameView, Header, Join, JoinView,
+    Lease, LeaseView, Members, Placement, PreferredLeader, Session as SessionReply, SessionView,
+    TenantRun, Verify, VerifyView,
 };
 use ultragraphdb_tests::{CLUSTER, SECRET, scratch};
 use ultragraphdb_tool_bdd::TestResult;
+
+use crate::endpoint_steps::{ADMIN, PASSWORD};
+use crate::scene::PRINCIPAL;
 
 /// How long between two epochs a partition is not held at.
 const EPOCH_MS: u128 = 4;
@@ -37,6 +41,12 @@ const LOOK: Duration = Duration::from_millis(1);
 
 /// The tenants the played placement lists a run for; every scenario's lies among them.
 const TENANTS_LISTED: u64 = 1_024;
+
+/// The SCRAM iterations of the administrator's verifier and of an unknown name's.
+const SCRAM_ITERATIONS: u32 = 4_096;
+
+/// The secret an unknown name's verifier derives from, so the exchange refuses it as it refuses a wrong password.
+const UNKNOWN_SECRET: [u8; 32] = [3; 32];
 
 /// Which epochs each partition has been closed through: time's epoch, unless a scenario holds it at an earlier one.
 #[derive(Debug)]
@@ -129,62 +139,93 @@ fn placement(partitions: u32) -> TestResult<Placement> {
     Ok(reply)
 }
 
-/// What one played system group answers: where each partition listens, as what joins it reads it; and the compute session
-/// its thread serves beside it, when it serves one.
+/// What one played system group answers: where each partition listens, as what joins it reads it.
 #[derive(Debug, Clone)]
 pub struct Played {
     pub partitions: u32,
     pub clock: Arc<EpochClock>,
     pub listed: Vec<(u32, String)>,
-    pub compute: Option<ServedCompute>,
-}
-
-/// A compute session served in process, as the compute binary served its role address until the switch to two roles: the
-/// read features send it ComputeReads until stage 5.9's task 6.4 binds them to the client endpoint. It reads the placement
-/// and the partitions' addresses from the played group it is served beside.
-#[derive(Debug, Clone, Copy)]
-pub struct ServedCompute {
-    /// Where it listens on the loopback.
-    pub port: u32,
-    /// What its reads stall and retain by.
-    pub times: ReadTimes,
-}
-
-/// How long a compute session waits for a peer before it counts it gone: compute's default `join_deadline_ms`.
-const COMPUTE_DEADLINE: Duration = Duration::from_secs(60);
-
-/// Serves `served` on this runtime, its reads asking the group at `group`, every role connection authenticated by `held`, its
-/// role secret read from `secret`. A dropped future accepts no more.
-async fn serve_compute(
-    served: ServedCompute,
-    group: Address,
-    held: RoleCredentials,
-    secret: String,
-) -> TestResult {
-    let listener = listen(&format!("tcp://127.0.0.1:{}", served.port)).await?;
-    let cluster = RoleCluster::new(CLUSTER, RoleSecret::read(&secret)?, COMPUTE_DEADLINE);
-    let core = ComputeCore::new(cluster, group, served.times, "compute");
-    let server = Server::new(CLUSTER, "role", Endpoint::Compute)?
-        .with_welcome(|welcome| welcome.with_initial_credit(COMPUTE_WELCOME_CREDIT))
-        .with_iterations(ROLE_ITERATIONS);
-    while let Ok(carrier) = listener.accept().await {
-        let (server, held, session) = (
-            server.clone(),
-            held.clone(),
-            ComputeSession::new(Rc::clone(&core)),
-        );
-        spawn(async move { serve_connection(carrier, &server, held, session).await }).detach();
-    }
-    Ok(())
 }
 
 /// One connection at a played system group.
 #[derive(Debug)]
 struct PlayedConnection {
     played: Played,
+    admin: ScramVerifier,
     partition: u32,
     subscribed: Option<u64>,
     delivered: u64,
+}
+
+impl PlayedConnection {
+    /// The principal and verifier of `name`: the administrator's, or an unknown name's, principal 0.
+    fn verifier_of(&self, name: &str) -> (u64, ScramVerifier) {
+        if name == ADMIN {
+            (PRINCIPAL, self.admin.clone())
+        } else {
+            (
+                0,
+                ScramVerifier::unknown(&UNKNOWN_SECRET, name, SCRAM_ITERATIONS),
+            )
+        }
+    }
+
+    /// The answer to an endpoint's command: `None` for a command the group answers otherwise.
+    fn endpoint_answer(&self, view: &FrameView<'_>, stream: u64) -> Option<Answer> {
+        let command = view.command();
+        let answer = if command == Command::Challenge {
+            match ChallengeView::from_frame(view) {
+                Ok(challenge) => {
+                    let (_, verifier) = self.verifier_of(challenge.name());
+                    let reply = Challenge::request(challenge.name())
+                        .with_salt(verifier.iterations(), verifier.salt().to_vec());
+                    built(&reply, stream, command)
+                }
+                Err(rule) => Answer::Refuse(ErrorReply::protocol(&rule)),
+            }
+        } else if command == Command::Verify {
+            match VerifyView::from_frame(view) {
+                Ok(verify) => {
+                    let (principal, verifier) = self.verifier_of(verify.name());
+                    let request =
+                        Verify::request(verify.name(), verify.auth_message(), *verify.proof());
+                    let reply = match verifier.sign(verify.auth_message(), verify.proof()) {
+                        Some(signature) if principal != 0 => {
+                            request.with_verified(principal, signature)
+                        }
+                        Some(_) | None => request,
+                    };
+                    built(&reply, stream, command)
+                }
+                Err(rule) => Answer::Refuse(ErrorReply::protocol(&rule)),
+            }
+        } else if command == Command::Session {
+            match SessionView::from_frame(view) {
+                Ok(session) => built(
+                    &SessionReply::new(session.session(), session.principal()),
+                    stream,
+                    command,
+                ),
+                Err(rule) => Answer::Refuse(ErrorReply::protocol(&rule)),
+            }
+        } else if command == Command::Check {
+            match CheckView::from_frame(view) {
+                Ok(checks) => {
+                    let passed = (0..checks.len())
+                        .filter_map(|at| checks.get(at))
+                        .map(|check| check.with_outcome(CheckOutcome::Passed))
+                        .collect();
+                    built(&Check::new(passed), stream, command)
+                }
+                Err(rule) => Answer::Refuse(ErrorReply::protocol(&rule)),
+            }
+        } else if command == Command::Ended {
+            Answer::Done
+        } else {
+            return None;
+        };
+        Some(answer)
+    }
 }
 
 impl Session for PlayedConnection {
@@ -193,6 +234,9 @@ impl Session for PlayedConnection {
             Ok(view) => view,
             Err(rule) => return Answer::Refuse(ErrorReply::protocol(&rule)),
         };
+        if let Some(answer) = self.endpoint_answer(&view, stream) {
+            return answer;
+        }
         let command = view.command();
         if command == Command::Join {
             let Ok(join) = JoinView::from_frame(&view) else {
@@ -285,19 +329,17 @@ pub fn play(port: u32, played: Played) -> TestResult {
     let held: RoleCredentials = RoleSecret::read(&file.display().to_string())?.credentials()?;
     let server =
         Server::new(CLUSTER, "system", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
-    let secret = file.display().to_string();
+    let admin = ScramVerifier::derive(PASSWORD, b"the played administrator", SCRAM_ITERATIONS)?;
     drop(std::thread::spawn(move || -> TestResult {
         Runtime::new()?.block_on(async move {
             let listener = listen(&format!("tcp://127.0.0.1:{port}")).await?;
-            if let Some(served) = played.compute {
-                let group = Address::parse(&format!("tcp://127.0.0.1:{port}"))?;
-                spawn(serve_compute(served, group, held.clone(), secret)).detach();
-            }
             while let Ok(carrier) = listener.accept().await {
-                let (server, held, played) = (server.clone(), held.clone(), played.clone());
+                let (server, held, played, admin) =
+                    (server.clone(), held.clone(), played.clone(), admin.clone());
                 spawn(async move {
                     let connection = PlayedConnection {
                         played,
+                        admin,
                         partition: 0,
                         subscribed: None,
                         delivered: 0,

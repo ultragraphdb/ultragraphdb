@@ -12,7 +12,7 @@ use cucumber::{then, when};
 use ultragraphdb_common_compute::{ComputeCore, LookupAt, read_times_of};
 use ultragraphdb_common_role::RoleCluster;
 use ultragraphdb_common_service::{RoleIdentity, RoleStart};
-use ultragraphdb_core_ids::{SystemId, Tenant, Version};
+use ultragraphdb_core_ids::{SystemId, Tenant};
 use ultragraphdb_core_keys::{CountDirection, Graph, QuadKey};
 use ultragraphdb_core_terms::{EncodedTerm, Hash128};
 use ultragraphdb_protocol_transport::Address;
@@ -241,39 +241,6 @@ fn names_list(w: &mut Steps) -> TestResult {
         next.refused.is_some(),
         "the same read refused again, on the open connection"
     );
-    Ok(())
-}
-
-#[when("a transaction's reads leave no room for a span")]
-fn no_room(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played()?);
-    let subject = scene.iri_in(1, "a")?;
-    played_tables(1)?.script(
-        term_key(scene.tenant, &subject),
-        Script::Refuse(ErrorCode::TooLarge, 524_288),
-    );
-    run(async {
-        let pattern = Pattern::of(Some(&subject), Some(KNOWS), None);
-        let read = scene
-            .read_of(&pattern, false, ReadLevel::Snapshot)?
-            .with_partition(1)
-            .with_transaction([9; 16])
-            .with_read_version(Version::bound_of(ultragraphdb_core_ids::Epoch::new(9)?));
-        w.answers = vec![scene.answer(&read).await?];
-        Ok(())
-    })
-}
-
-#[then(
-    "the read is refused with `TooLarge`, no entry of that span reaches the client, and the transaction's next request is refused"
-)]
-fn past_room(w: &mut Steps) -> TestResult {
-    let answer = w.answer()?;
-    let refused = answer.refusal()?;
-    assert_eq!(refused.code, ErrorCode::TooLarge, "{refused:?}");
-    assert_eq!(refused.detail, 524_288, "{refused:?}");
-    assert!(answer.batches.is_empty());
-    // The Bind stream's own refusal of the next request is the partition's: `ultragraphdb_storage_tests`' read kernel scenario.
     Ok(())
 }
 

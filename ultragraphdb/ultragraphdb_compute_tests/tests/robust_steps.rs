@@ -18,19 +18,15 @@ use ultragraphdb_core_keys::{CountDirection, Graph, Keyspace, QuadKey, key_prefi
 use ultragraphdb_core_terms::{EncodedTerm, Hash128};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_wire::{
-    Credit, ErrorCode, ErrorReply, ObjectRecordsBuilder, ReadLevel, StatementTarget, TermTable,
-    Write, WriteChange,
-};
+use ultragraphdb_protocol_wire::{Credit, ErrorCode, ErrorReply, ObjectRecordsBuilder, ReadLevel};
 use ultragraphdb_store_quads::{id_key, term_key};
-use ultragraphdb_tests::{CLUSTER, SECRET, holding, render_settings, scratch};
+use ultragraphdb_tests::{CLUSTER, SECRET, holding, render_settings};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::played_partition::{PlayedTables, Script};
-use crate::read_steps::{edge_with, reads, until};
-use crate::resume_steps::{large_list, resumed};
 use crate::scene::{
-    FLOOR, KNOWS, NAME, Pattern, Scene, answer_on, compute_client, iri, next_batch, run, string,
+    FLOOR, NAME, Pattern, Scene, answer_on, compute_client, large_list, next_batch, reads, run,
+    until,
 };
 use crate::{Steps, four, played, played_tables};
 
@@ -235,162 +231,6 @@ fn own_read_alone(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when(
-    "a read at latest level bound to one partition reverses over an object another partition homes and nobody holds"
-)]
-fn later_reverse(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four()?);
-    run(async {
-        let object = scene.iri_in(2, "nobody")?;
-        let read = scene
-            .read_of(
-                &Pattern::of(None, Some(KNOWS), Some(iri(&object))),
-                true,
-                ReadLevel::Latest,
-            )?
-            .with_partition(1);
-        w.answers = vec![scene.answer(&read).await?];
-        Ok(())
-    })
-}
-
-#[then("the read is refused with code 25")]
-fn level_refused(w: &mut Steps) -> TestResult {
-    let refused = w.answer()?.refusal()?;
-    assert_eq!(refused.code, ErrorCode::LevelRefused, "{refused:?}");
-    Ok(())
-}
-
-#[when(
-    "an edge's commit version in its partition lies below its member's version in the home's own order, and a reverse read names the edge's version"
-)]
-fn named_reverse(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four()?);
-    let clock = &scene.info.clock;
-    run(async {
-        let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(2, "b")?);
-        let filler = scene.iri_in(2, "filler")?;
-        // The predicates are registered at their homes first: a commit relying on a home's newer close carries that epoch as
-        // its floor, and waits at a held partition for a close the hold withholds.
-        scene.insert(&filler, NAME, &string("first")).await?;
-        scene.insert(&a, KNOWS, &iri(&filler)).await?;
-        let held = clock.latest();
-        clock.hold(1, held);
-        clock.hold(2, held);
-        scene.closed_through(held, &[1, 2]).await?;
-        let mut home_version = 0;
-        for at in 0..16 {
-            home_version = scene
-                .insert_version(&filler, NAME, &string(&at.to_string()))
-                .await?;
-        }
-        let edge_version = scene.insert_version(&a, KNOWS, &iri(&b)).await?;
-        let read = scene
-            .read_of(
-                &Pattern::of(None, Some(KNOWS), Some(iri(&b))),
-                true,
-                ReadLevel::Snapshot,
-            )?
-            .with_named_version(edge_version);
-        let answer = scene.answer(&read).await;
-        clock.release(1);
-        clock.release(2);
-        assert!(
-            edge_version < home_version,
-            "the edge {edge_version} lies below what the home stamped first, {home_version}"
-        );
-        w.answers = vec![answer?];
-        w.iris = vec![a];
-        Ok(())
-    })
-}
-
-#[then("the read returns the edge")]
-fn returns_edge(w: &mut Steps) -> TestResult {
-    let answer = w.answer()?;
-    answer.whole()?;
-    assert_eq!(answer.column(0), w.iris);
-    Ok(())
-}
-
-/// A Write deleting `predicate` `value` of the statement of `reifier`.
-fn property_removal(reifier: &str, predicate: &str, value: &str) -> TestResult<Write> {
-    let mut table = TermTable::new();
-    let statement = StatementTarget::Reifier {
-        graph: None,
-        reifier: table.iri(reifier),
-    };
-    let predicate = table.iri(predicate);
-    let value = table.intern(string(value))?;
-    Ok(Write::new(
-        table,
-        vec![WriteChange::DeleteProperty {
-            statement,
-            predicate,
-            value: Some(value),
-        }],
-    ))
-}
-
-#[when(
-    "a read of a reifier at latest level with limit 2 is resumed, the last property it returned having been removed"
-)]
-fn removed_property(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four()?);
-    run(async {
-        let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(1, "b")?);
-        let properties = [
-            ("http://ex.org/p1", "1"),
-            ("http://ex.org/p2", "2"),
-            ("http://ex.org/p3", "3"),
-        ];
-        scene
-            .commit(1, &edge_with(&a, KNOWS, &b, &properties)?)
-            .await?;
-        let of_edge = scene.snapshot(&Pattern::of(Some(&a), Some(KNOWS), None))?;
-        let reifier = scene
-            .answer(&of_edge)
-            .await?
-            .column(1)
-            .first()
-            .cloned()
-            .context("its reifier")?;
-        let read = scene
-            .read_of(
-                &Pattern::of(Some(&reifier), None, None),
-                true,
-                ReadLevel::Latest,
-            )?
-            .with_limit(2);
-        let first = scene.answer(&read).await?;
-        let predicate = first.column(0).get(1).cloned().context("a predicate")?;
-        let value = first.column(1).get(1).cloned().context("a value")?;
-        scene
-            .commit(1, &property_removal(&reifier, &predicate, &value)?)
-            .await?;
-        let second = scene.answer(&resumed(&read, first.resume())).await?;
-        w.answers = vec![first, second];
-        Ok(())
-    })
-}
-
-#[then("the resumed read returns the third property alone")]
-fn third_alone(w: &mut Steps) -> TestResult {
-    let [first, second] = w.answers.as_slice() else {
-        return Err(TestError::new("two answers"));
-    };
-    first.whole()?;
-    second.whole()?;
-    let returned = first.column(0);
-    assert_eq!(second.rows().len(), 1, "{:?}", second.column(0));
-    let third = second.column(0);
-    assert!(
-        third.iter().all(|predicate| !returned.contains(predicate)),
-        "{third:?} after {returned:?}"
-    );
-    Ok(())
-}
-
 #[when("a read with limit 2 reads a list of many objects held by hash")]
 fn limit_names(w: &mut Steps) -> TestResult {
     let scene = Scene::new(four()?);
@@ -571,7 +411,7 @@ fn past_credit_closes(w: &mut Steps) -> TestResult {
     after.whole()?;
     let stream = *w.numbers.first().context("the list's stream")?;
     let said = ProtocolError::past_credit(stream).to_string();
-    let log = std::fs::read_to_string(scratch(crate::IN_PROCESS_LOG))?;
+    let log = std::fs::read_to_string(w.scene()?.info.compute_log())?;
     assert!(log.contains(&said), "`{said}` in compute's log: {log}");
     Ok(())
 }
