@@ -1,0 +1,39 @@
+ultragraphdb/ultragraphdb_tests/tests/utils/harness_tests.rs
+  s_21eff977e05256::t_12b336503602c4 83-93
+  s_21eff977e05256::t_63f4be67021c03 11
+  s_21eff977e05256::t_c610ceeacd042d 226,229-230,233,236
+  s_21eff977e05256::t_bf99abc4f7a352 225,227-228,231-232,234-235,237-239
+  s_87d2cdffe29d36::t_4f522504a84b38 15
+ultragraphdb/ultragraphdb_tests/src/utils/harness.rs
+  s_21eff977e05256::t_5ddabb998a4ae0 345
+  s_21eff977e05256::t_7c00e15105a6cb 83,87,91-100
+  s_21eff977e05256::t_7120c8a6c9a88a 101-102
+openspec/changes/stage-5-9-compute-role/notes/group-5.md
+  s_21eff977e05256::t_97cb1096f2eb74 315-355
+openspec/changes/stage-5-9-compute-role/tasks.md
+  s_21eff977e05256::t_06d6312a0a8248 46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cb885cff8d4f35222ec7d69826a7f33ee6074a5f",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_87d2cdffe29d36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-aca5c998cbbdae05c",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
