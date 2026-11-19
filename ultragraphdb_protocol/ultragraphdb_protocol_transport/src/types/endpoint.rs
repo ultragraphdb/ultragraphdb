@@ -9,11 +9,11 @@ use ultragraphdb_protocol_wire::{Command, ROLE_COMMANDS};
 /// Cancel, like the handshake, belong to every endpoint and are not listed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Endpoint {
-    /// The frontend's client endpoint: every client command and no role command.
+    /// Compute's client endpoint: every client command and no role command.
     Client,
-    /// The frontend's role address, where the system group listens in this stage: the system group's role address of
-    /// `PROTOCOL.md` §11.12, whose table names which role may send each command it serves.
-    Frontend,
+    /// The system group's role address of `PROTOCOL.md` §11.12, where the storage process hosting the group listens, whose
+    /// table names which role may send each command it serves.
+    System,
     /// A partition's role address.
     Partition,
     /// A compute process's role address.
@@ -26,7 +26,7 @@ impl Endpoint {
     pub fn serves(self, command: Command) -> bool {
         match self {
             Self::Client => !ROLE_COMMANDS.contains(&command.number()),
-            Self::Frontend => matches!(
+            Self::System => matches!(
                 command,
                 Command::Join
                     | Command::Members

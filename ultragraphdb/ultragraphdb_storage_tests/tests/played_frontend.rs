@@ -426,7 +426,7 @@ pub async fn play_frontend(push: Push) -> TestResult<Arc<Played>> {
     let held: RoleCredentials = RoleSecret::read(&file.display().to_string())?.credentials()?;
     let listener = listen(&format!("tcp://{}", played_frontend_address()?)).await?;
     let server =
-        Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+        Server::new(CLUSTER, "frontend", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
     let played = Arc::new(Played::default());
     let recorded = Arc::clone(&played);
     spawn(async move {

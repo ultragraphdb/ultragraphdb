@@ -327,8 +327,7 @@ pub fn play(port: u32, played: Played) -> TestResult {
     let file = scratch(&format!("played-system-secret-{port}"));
     std::fs::write(&file, SECRET)?;
     let held: RoleCredentials = RoleSecret::read(&file.display().to_string())?.credentials()?;
-    let server =
-        Server::new(CLUSTER, "system", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+    let server = Server::new(CLUSTER, "system", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
     let admin = ScramVerifier::derive(PASSWORD, b"the played administrator", SCRAM_ITERATIONS)?;
     drop(std::thread::spawn(move || -> TestResult {
         Runtime::new()?.block_on(async move {

@@ -80,7 +80,7 @@ async fn played(name: &str, play: SystemPlay) -> TestResult<Played> {
 async fn played_with(name: &str, play: SystemPlay, readiness: Readiness) -> TestResult<Played> {
     let cluster = cluster(name)?;
     let script = play.clone();
-    let double = RoleDouble::start(&cluster, Endpoint::Frontend, move |frame| {
+    let double = RoleDouble::start(&cluster, Endpoint::System, move |frame| {
         script.answer(frame)
     })
     .await?;
@@ -691,7 +691,7 @@ fn test_a_frame_the_link_refuses_closes_its_connection() -> TestResult {
         let cluster = cluster("refused-frame")?;
         let play = SystemPlay::new(CLUSTER, 1);
         let script = play.clone();
-        let double = RoleDouble::start(&cluster, Endpoint::Frontend, move |frame| {
+        let double = RoleDouble::start(&cluster, Endpoint::System, move |frame| {
             script.answer(frame)
         })
         .await?;
@@ -734,7 +734,7 @@ async fn spliced(name: &str) -> TestResult<(SystemPlay, RoleDouble, Splice, Syst
     let cluster = cluster(name)?;
     let play = SystemPlay::new(CLUSTER, 1);
     let script = play.clone();
-    let double = RoleDouble::start(&cluster, Endpoint::Frontend, move |frame| {
+    let double = RoleDouble::start(&cluster, Endpoint::System, move |frame| {
         script.answer(frame)
     })
     .await?;

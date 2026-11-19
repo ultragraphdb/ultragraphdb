@@ -449,7 +449,7 @@ async fn holding_stray(stray: Stray) -> TestResult<(Rc<Cell<u32>>, Stopping)> {
     let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
     let group = listener.local_address()?;
     let server =
-        Server::new(CLUSTER, "compute", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+        Server::new(CLUSTER, "compute", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
     let credentials = cluster.secret().credentials()?;
     let members = Rc::new(Cell::new(0));
     let counted = Rc::clone(&members);

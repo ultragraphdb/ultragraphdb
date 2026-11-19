@@ -210,7 +210,7 @@ async fn read(case: &Case) -> TestResult<(Vec<usize>, Option<ProtocolError>)> {
         .port();
     let listener = listen(&format!("tcp://127.0.0.1:{port}")).await?;
     let address = listener.local_address()?;
-    let server = Server::new(CLUSTER, "test", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+    let server = Server::new(CLUSTER, "test", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
     let file = std::env::temp_dir().join(format!("answer-law-secret-{}", std::process::id()));
     std::fs::write(&file, PASSWORD)?;
     let held = RoleSecret::read(&file.display().to_string())?.credentials()?;

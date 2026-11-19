@@ -177,7 +177,7 @@ where
     }
     // Compute binds its client address from its start, so its `/health` waits for it.
     let readiness = match kind {
-        RoleKind::Compute | RoleKind::Frontend => Readiness::binding(),
+        RoleKind::Compute => Readiness::binding(),
         RoleKind::Storage => Readiness::default(),
     };
     let address = start.observability();

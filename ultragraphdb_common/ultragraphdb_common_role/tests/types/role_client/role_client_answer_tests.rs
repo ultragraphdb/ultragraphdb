@@ -121,7 +121,7 @@ fn frames(frames: impl IntoIterator<Item = Vec<u8>>) -> VecDeque<Push> {
 async fn scripted(script: VecDeque<Push>) -> TestResult<(RoleClient, oneshot::Receiver<()>)> {
     let listener = listen(&free_tcp()?).await?;
     let address = listener.local_address()?;
-    let server = Server::new(CLUSTER, "test", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+    let server = Server::new(CLUSTER, "test", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
     let held = credentials()?;
     let (told, ended) = oneshot::channel();
     let session = Scripted {

@@ -138,7 +138,7 @@ where
     let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
     let address = listener.local_address()?;
     let server =
-        Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+        Server::new(CLUSTER, "frontend", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
     let credentials = cluster.secret().credentials()?;
     let ended = Rc::new(Cell::new(0));
     let counted = ended.clone();

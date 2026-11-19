@@ -66,8 +66,7 @@ async fn linked(
     name: &str,
 ) -> TestResult<(SystemLink, Address)> {
     let cluster = cluster_named(name)?;
-    let roles =
-        Server::new(CLUSTER, "compute", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+    let roles = Server::new(CLUSTER, "compute", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
     let credentials = cluster.secret().credentials()?;
     let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
     let address = listener.local_address()?;

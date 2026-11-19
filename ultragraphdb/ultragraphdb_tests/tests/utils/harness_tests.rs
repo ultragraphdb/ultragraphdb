@@ -575,7 +575,7 @@ fn test_members_at_lists_what_the_frontend_answers() -> TestResult {
     compio::runtime::Runtime::new()?.block_on(async {
         let listener = listen(&address).await?;
         let server =
-            Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+            Server::new(CLUSTER, "frontend", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
         let session = Listing(members);
         spawn(async move {
             if let Ok(carrier) = listener.accept().await {

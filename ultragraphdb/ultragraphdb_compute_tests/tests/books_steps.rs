@@ -241,7 +241,7 @@ fn session_evicted(w: &mut Steps) -> TestResult {
         let mut role = RoleClient::dial(&address, CLUSTER, "compute", SECRET).await?;
         let latest = closed_epoch(&role.request(&Subscribe::at_latest()).await?)?;
         // A close now: the next on the sequencer's own time is then 10 s away.
-        role.send_only(&CloseRequest::frontend(latest + 1)).await?;
+        role.send_only(&CloseRequest::compute(latest + 1)).await?;
         let renewed = closed_epoch(&role.next_frame().await?)?;
         let _evicting = client.register().await?;
         let kept = recalled(first.0, first.1).await?;
@@ -249,7 +249,7 @@ fn session_evicted(w: &mut Steps) -> TestResult {
         let between = compio::time::timeout(Duration::from_millis(1), role.next_frame())
             .await
             .is_ok();
-        role.send_only(&CloseRequest::frontend(renewed + 1)).await?;
+        role.send_only(&CloseRequest::compute(renewed + 1)).await?;
         let carrying = closed_epoch(&role.next_frame().await?)?;
         let begun = Instant::now();
         let mut purged = recalled(first.0, first.1).await?;

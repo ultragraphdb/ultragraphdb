@@ -422,7 +422,7 @@ fn compute_closes(w: &mut Steps) -> TestResult {
         let mut storage = stage.dial("storage").await?;
         compute.send_only(&Subscribe::new(12)).await?;
         storage.send_only(&Subscribe::new(12)).await?;
-        compute.send_only(&CloseRequest::frontend(13)).await?;
+        compute.send_only(&CloseRequest::compute(13)).await?;
         // `epoch_ms_min`, 1 ms, past the last close: the request closes the epoch then, not at `epoch_ms_max`.
         compio::time::sleep(Duration::from_millis(20)).await;
         stage.clock.advance(1_000);
@@ -448,7 +448,7 @@ fn closed_closes_nothing(w: &mut Steps) -> TestResult {
         closed_through(&stage, 13).await?;
         let mut compute = stage.dial("compute").await?;
         compute.send_only(&Subscribe::new(13)).await?;
-        compute.send_only(&CloseRequest::frontend(13)).await?;
+        compute.send_only(&CloseRequest::compute(13)).await?;
         stage.clock.advance(LONG_US - 1);
         let early = compio::time::timeout(Duration::from_millis(100), compute.next_frame()).await;
         assert!(

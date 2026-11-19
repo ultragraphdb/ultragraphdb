@@ -593,7 +593,7 @@ impl Played {
             played.push(partition);
         }
         let frontend_server =
-            Server::new(CLUSTER, "compute", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+            Server::new(CLUSTER, "compute", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
         let connection = FrontendConnection { partitions, listed };
         let frontend = serve(frontend_server, credentials, move || connection.clone()).await?;
         let cluster = RoleCluster::new(CLUSTER, secret, Duration::from_secs(5));

@@ -82,7 +82,7 @@ async fn listener() -> TestResult<(Listener, Address)> {
 fn welcome_of(endpoint: Endpoint) -> fn(Welcome) -> Welcome {
     match endpoint {
         Endpoint::Partition => |welcome| welcome.with_initial_credit(PARTITION_INITIAL_CREDIT),
-        Endpoint::Compute | Endpoint::Client | Endpoint::Frontend => |welcome| welcome,
+        Endpoint::Compute | Endpoint::Client | Endpoint::System => |welcome| welcome,
     }
 }
 
@@ -140,7 +140,7 @@ impl PlayedCluster {
         let (frontend_listener, frontend) = listener().await?;
         serve(
             frontend_listener,
-            Endpoint::Frontend,
+            Endpoint::System,
             credentials,
             move || FrontendConnection {
                 cluster: CLUSTER,

@@ -89,7 +89,7 @@ async fn serving() -> TestResult<Serving> {
     let address = listener.local_address()?;
     let stopping = Stopping::default();
     let open = OpenRequests::new(stopping.clone());
-    let server = Server::new(CLUSTER, "test", Endpoint::Frontend)?
+    let server = Server::new(CLUSTER, "test", Endpoint::System)?
         .with_iterations(ROLE_ITERATIONS)
         .with_open(open.clone());
     let held = credentials()?;

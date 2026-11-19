@@ -33,12 +33,12 @@ fn test_a_close_request_round_trips(tc: TestCase) {
     let epoch = tc.draw(gs::integers::<u64>().min_value(1).max_value(EPOCH_MAX));
     let expected = laid_out(partition, epoch, None);
     let body = if partition == 0 {
-        CloseRequest::frontend(epoch)
+        CloseRequest::compute(epoch)
     } else {
         CloseRequest::new(partition, epoch)
     };
     assert_eq!((body.partition(), body.epoch()), (partition, epoch));
-    assert_eq!(CloseRequest::new(0, epoch), CloseRequest::frontend(epoch));
+    assert_eq!(CloseRequest::new(0, epoch), CloseRequest::compute(epoch));
     assert!(expected.is_some());
     assert_eq!(built(&body).ok(), expected);
     let bytes = expected.unwrap_or_default();

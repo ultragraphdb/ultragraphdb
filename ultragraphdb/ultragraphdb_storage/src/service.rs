@@ -323,7 +323,7 @@ impl Hosted {
         let data_dir = PathBuf::from(table.data_dir());
         let group = start_system(config.clone(), cluster.id(), data_dir, begun, Vec::new()).await?;
         let (handle, stopped) = group.into_parts();
-        let server = Server::new(cluster.id(), "storage", Endpoint::Frontend)?
+        let server = Server::new(cluster.id(), "storage", Endpoint::System)?
             .with_iterations(ROLE_ITERATIONS);
         let shared = SystemShared::new(cluster.clone(), handle);
         let listener = listen(address).await?;

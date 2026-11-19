@@ -46,7 +46,6 @@ ultragraphdb_cluster_sequencer = { path = "ultragraphdb_cluster/ultragraphdb_clu
 ultragraphdb_common_compute = { path = "ultragraphdb_common/ultragraphdb_common_compute" }
 ultragraphdb_common_config = { path = "ultragraphdb_common/ultragraphdb_common_config" }
 ultragraphdb_common_config_check = { path = "ultragraphdb_common/ultragraphdb_common_config_check" }
-ultragraphdb_common_frontend = { path = "ultragraphdb_common/ultragraphdb_common_frontend" }
 ultragraphdb_common_role = { path = "ultragraphdb_common/ultragraphdb_common_role" }
 ultragraphdb_common_system = { path = "ultragraphdb_common/ultragraphdb_common_system" }
 ultragraphdb_common_service = { path = "ultragraphdb_common/ultragraphdb_common_service" }

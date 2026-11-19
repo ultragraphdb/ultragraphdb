@@ -65,7 +65,7 @@ fn test_health_answers_at_once_and_ready_only_when_ready() -> TestResult {
 fn test_health_answers_503_until_the_role_listens() -> TestResult {
     Runtime::new()?.block_on(async {
         let readiness = Readiness::binding();
-        let identity = RoleIdentity::new("ci", "frontend", 7);
+        let identity = RoleIdentity::new("ci", "compute", 7);
         let service = HealthService::new(readiness.clone(), &identity);
         let status = |text: &str| text.split(' ').nth(1).map(str::to_string);
         let binding = asked(&service, "GET /health HTTP/1.1\r\n\r\n").await?;
@@ -74,7 +74,7 @@ fn test_health_answers_503_until_the_role_listens() -> TestResult {
         let health = asked(&service, "GET /health HTTP/1.1\r\n\r\n").await?;
         assert_eq!(status(&health).as_deref(), Some("200"), "{health}");
         assert!(
-            health.ends_with("target ci, instance frontend, revision 7\n"),
+            health.ends_with("target ci, instance compute, revision 7\n"),
             "{health}"
         );
         Ok(())

@@ -211,7 +211,7 @@ fn test_a_subscriber_holding_no_close_before_any_begins_at_epoch_one() -> TestRe
         assert_eq!(heard(group.handle.latest_close().await)?, 0, "no close yet");
         let mut compute = group.dial("compute").await?;
         compute.send_only(&Subscribe::at_latest()).await?;
-        compute.send_only(&CloseRequest::frontend(1)).await?;
+        compute.send_only(&CloseRequest::compute(1)).await?;
         epoch_min_passed(&group).await?;
         let first = {
             let frame = next_frame(&mut compute).await?;
@@ -236,9 +236,9 @@ fn test_a_close_request_is_taken_by_its_senders_role() -> TestResult {
         let mut storage = group.dial("storage").await?;
         compute.send_only(&Subscribe::new(0)).await?;
         let subscribed = compute.last_stream();
-        storage.send_only(&CloseRequest::frontend(1)).await?;
+        storage.send_only(&CloseRequest::compute(1)).await?;
         compute.send_only(&CloseRequest::new(3, 1)).await?;
-        compute.send_only(&CloseRequest::frontend(2)).await?;
+        compute.send_only(&CloseRequest::compute(2)).await?;
         assert_eq!(
             watched(&mut compute).await?,
             None,
@@ -249,7 +249,7 @@ fn test_a_close_request_is_taken_by_its_senders_role() -> TestResult {
             None,
             "the storage connection's request dropped unanswered"
         );
-        compute.send_only(&CloseRequest::frontend(1)).await?;
+        compute.send_only(&CloseRequest::compute(1)).await?;
         epoch_min_passed(&group).await?;
         let closed = next_frame(&mut compute).await?;
         let view = closed.view()?;
@@ -261,7 +261,7 @@ fn test_a_close_request_is_taken_by_its_senders_role() -> TestResult {
             (subscribed, 1)
         );
         drop(closed);
-        compute.send_only(&CloseRequest::frontend(1)).await?;
+        compute.send_only(&CloseRequest::compute(1)).await?;
         assert_eq!(
             watched(&mut compute).await?,
             None,

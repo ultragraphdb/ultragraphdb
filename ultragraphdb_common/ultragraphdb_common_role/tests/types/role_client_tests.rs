@@ -151,7 +151,7 @@ const CLOSE_WAIT: Duration = Duration::from_secs(5);
 async fn misdirected(how: Misdirect) -> TestResult<(RoleClient, Rc<Cell<bool>>)> {
     let listener = listen(&free_tcp()?).await?;
     let address = listener.local_address()?;
-    let server = Server::new(CLUSTER, "test", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+    let server = Server::new(CLUSTER, "test", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
     let held = credentials()?;
     let ended = Rc::new(Cell::new(false));
     let told = Rc::clone(&ended);

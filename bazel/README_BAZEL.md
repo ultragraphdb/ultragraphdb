@@ -18,7 +18,7 @@ around it. Everything here is built by Bazel, from sources and pinned inputs, wi
 | Binary                                   | Linked against            | Image                   | Base                 |
 |------------------------------------------|---------------------------|-------------------------|----------------------|
 | The server's roles                       | glibc, with mimalloc      | `glibc_multiarch_img`   | `glibc_base` (Wolfi) |
-| The development image: the supervisor, the config service and the three roles | glibc | `development_multiarch` in `//ultragraphdb/ultragraphdb_supervisor` | `glibc_base` (Wolfi) |
+| The development image: the supervisor, the config service and the two roles | glibc | `development_multiarch` in `//ultragraphdb/ultragraphdb_supervisor` | `glibc_base` (Wolfi) |
 | Tools, benchmarks, anything else         | musl, statically          | `scratch_multiarch_img` | `scrach_base`        |
 
 The server ships on glibc because musl with mimalloc measured about 18% slower per core (D7,
@@ -262,10 +262,10 @@ oras pull <repo>@<artifact digest>
 
 ## The role images and the development image
 
-Each role's package, `//ultragraphdb/ultragraphdb_frontend`, `_compute` and `_storage`, declares `<role>_multiarch`, its
+Each role's package, `//ultragraphdb/ultragraphdb_compute` and `_storage`, declares `<role>_multiarch`, its
 `<role>_tag`, `push` and `load`; `//ultragraphdb/ultragraphdb_config` declares the config service's scratch image the same
 way. `//ultragraphdb/ultragraphdb_supervisor` declares the development image, `development_multiarch`, with
-`development_tag`, `push` and `development_load`: the supervisor, the config service and the three roles at `/`, where the
+`development_tag`, `push` and `development_load`: the supervisor, the config service and the two roles at `/`, where the
 supervisor finds the binaries beside it, the shipped profiles under `/etc/ultragraphdb/profiles/`, and `/data` and
 `/run/ultragraph` owned by 65532 at mode 0700. It runs `ultragraphdb_supervisor --config /etc/ultragraphdb/profiles/dev.toml`
 as 65532, the client endpoint at 7080. The supervisor draws the config service's keys, the role secret and the bootstrap

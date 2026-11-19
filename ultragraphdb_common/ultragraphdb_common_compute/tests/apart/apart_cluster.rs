@@ -166,7 +166,7 @@ impl ApartCluster {
         (1..=partitions)
             .for_each(|partition| placement.push_leader(PreferredLeader::new(partition, 1)));
         let (placement, members) = (Rc::new(placement), Rc::new(members));
-        let server = Server::new(CLUSTER, "compute", Endpoint::Frontend)?;
+        let server = Server::new(CLUSTER, "compute", Endpoint::System)?;
         let frontend = serve(&cluster, server, move || FrontendConnection {
             placement: Rc::clone(&placement),
             members: Rc::clone(&members),

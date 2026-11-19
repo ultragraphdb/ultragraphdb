@@ -14,7 +14,7 @@ use crate::utils::serve_tests::{CLUSTER, PASSWORD, bounded, free_tcp, serving};
 #[test]
 fn test_a_reader_reads_into_the_callers_pool() -> TestResult {
     bounded(async {
-        let address = serving(&free_tcp()?, Endpoint::Frontend).await?;
+        let address = serving(&free_tcp()?, Endpoint::System).await?;
         let client = RoleClient::dial(&address, CLUSTER, "storage", PASSWORD).await?;
         let (mut reader, mut writer, _welcome) = client.split();
         let pool = BufferPool::new(2, MAX_FRAME_SIZE);

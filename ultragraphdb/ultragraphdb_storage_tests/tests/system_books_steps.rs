@@ -258,13 +258,11 @@ async fn declared_through_closes() -> TestResult {
         .send_only(&Declare::declarations(TENANT, 0, 0, declared))
         .await?;
     // The open epoch is 1 when the group holds no close; a request for an epoch closed already changes nothing.
-    asking.send_only(&CloseRequest::frontend(1)).await?;
+    asking.send_only(&CloseRequest::compute(1)).await?;
     let mut latest = close_epoch(&closes.next_frame().await?)?;
     // Each pass asks for the open epoch's close and reads it: ends at the twelfth (Ultra rule 2).
     while latest < CLOSES {
-        asking
-            .send_only(&CloseRequest::frontend(latest + 1))
-            .await?;
+        asking.send_only(&CloseRequest::compute(latest + 1)).await?;
         latest = close_epoch(&closes.next_frame().await?)?;
     }
     let reply = asking.next_frame().await?;

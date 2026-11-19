@@ -341,7 +341,7 @@ fn test_a_role_with_the_secret_exchanges_role_commands_on_either_carrier() -> Te
     let unix = socket("exchange");
     bounded(async {
         for text in [free_tcp()?, format!("unix://{}", unix.display())] {
-            let address = serving(&text, Endpoint::Frontend).await?;
+            let address = serving(&text, Endpoint::System).await?;
             let mut client = RoleClient::dial(&address, CLUSTER, "storage", PASSWORD).await?;
             let reply = client.request(&Members::new()).await?;
             assert_eq!(reply.command(), Command::Members.number(), "{text}");
@@ -378,7 +378,7 @@ fn test_a_reply_its_request_does_not_list_is_refused() -> TestResult {
         let listener = listen(&free_tcp()?).await?;
         let address = listener.local_address()?;
         let server =
-            Server::new(CLUSTER, "test", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+            Server::new(CLUSTER, "test", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
         let held = credentials()?;
         spawn(async move {
             if let Ok(carrier) = listener.accept().await {
@@ -452,7 +452,7 @@ fn test_a_refused_close_request_is_answered_by_nothing() -> TestResult {
     let _second = tracing::Dispatch::new(Warnings::default());
     tracing::subscriber::with_default(warnings.clone(), || {
         bounded(async {
-            let address = serving(&free_tcp()?, Endpoint::Frontend).await?;
+            let address = serving(&free_tcp()?, Endpoint::System).await?;
             let mut client = RoleClient::dial(&address, CLUSTER, "storage", PASSWORD).await?;
             client.send_only(&CloseRequest::new(1, 1)).await?;
             let reply = client.request(&Members::new()).await?;
@@ -498,7 +498,7 @@ fn test_a_refused_ended_is_answered_by_nothing() -> TestResult {
             if stops {
                 stopping.set();
             }
-            let server = Server::new(CLUSTER, "test", Endpoint::Frontend)?
+            let server = Server::new(CLUSTER, "test", Endpoint::System)?
                 .with_iterations(ROLE_ITERATIONS)
                 .with_open(OpenRequests::new(stopping));
             let held = credentials()?;
@@ -658,7 +658,7 @@ fn test_a_wrong_secret_or_name_is_refused_with_code_19() -> TestResult {
 #[test]
 fn test_another_clusters_role_is_refused() -> TestResult {
     bounded(async {
-        let address = serving(&free_tcp()?, Endpoint::Frontend).await?;
+        let address = serving(&free_tcp()?, Endpoint::System).await?;
         assert!(
             RoleClient::dial(&address, CLUSTER + 1, "storage", PASSWORD)
                 .await
@@ -703,7 +703,7 @@ fn test_a_malformed_address_is_a_configuration_error() -> TestResult {
 /// A server holds a bound only once given one, and names the one it holds.
 #[test]
 fn test_a_server_names_the_bound_it_holds() -> TestResult {
-    let plain = Server::new(CLUSTER, "test", Endpoint::Frontend)?;
+    let plain = Server::new(CLUSTER, "test", Endpoint::System)?;
     assert!(plain.bound().is_none());
     let bounded = plain.with_bound(ConnectionBound::new(3));
     assert_eq!(bounded.bound().map(ConnectionBound::held), Some(0));
@@ -717,7 +717,7 @@ fn test_a_connection_past_the_bound_is_refused_with_code_15() -> TestResult {
     bounded(async {
         let listener = listen(&free_tcp()?).await?;
         let address = listener.local_address()?;
-        let server = Server::new(CLUSTER, "test", Endpoint::Frontend)?
+        let server = Server::new(CLUSTER, "test", Endpoint::System)?
             .with_iterations(ROLE_ITERATIONS)
             .with_bound(ConnectionBound::new(1));
         let held = credentials()?;
@@ -753,7 +753,7 @@ fn test_a_connection_past_the_bound_is_refused_with_code_15() -> TestResult {
 #[test]
 fn test_each_request_takes_the_next_stream() -> TestResult {
     bounded(async {
-        let address = serving(&free_tcp()?, Endpoint::Frontend).await?;
+        let address = serving(&free_tcp()?, Endpoint::System).await?;
         let mut client = RoleClient::dial(&address, CLUSTER, "storage", PASSWORD).await?;
         for stream in 1..=2 {
             drop(client.request(&Members::new()).await?);
@@ -836,7 +836,7 @@ fn test_a_session_hears_of_the_first_message_and_each_credit() -> TestResult {
 #[test]
 fn test_a_split_client_writes_requests_and_shuts_down() -> TestResult {
     bounded(async {
-        let address = serving(&free_tcp()?, Endpoint::Frontend).await?;
+        let address = serving(&free_tcp()?, Endpoint::System).await?;
         let client = RoleClient::dial(&address, CLUSTER, "storage", PASSWORD).await?;
         let (mut reader, mut writer, _welcome) = client.split();
         for stream in 1..=2 {
@@ -888,7 +888,7 @@ fn test_an_unknown_name_is_refused_under_the_groups_secret() -> TestResult {
     bounded(async {
         let listener = listen(&free_tcp()?).await?;
         let address = listener.local_address()?;
-        let server = Server::new(CLUSTER, "test", Endpoint::Frontend)?
+        let server = Server::new(CLUSTER, "test", Endpoint::System)?
             .with_iterations(ROLE_ITERATIONS)
             .with_unknown_secret([7; 32]);
         let held = credentials()?;
@@ -1188,7 +1188,7 @@ fn test_a_connection_authenticates_by_the_authenticator_it_is_served_with() -> T
             let listener = listen(&free_tcp()?).await?;
             let address = listener.local_address()?;
             // The system group's role address, which serves Members.
-            let server = Server::new(CLUSTER, "test", Endpoint::Frontend)?;
+            let server = Server::new(CLUSTER, "test", Endpoint::System)?;
             let authenticator =
                 ScramAuthenticator::new(credentials()?, || "servernonce".to_string(), [5; 32])
                     .with_iterations(ROLE_ITERATIONS);

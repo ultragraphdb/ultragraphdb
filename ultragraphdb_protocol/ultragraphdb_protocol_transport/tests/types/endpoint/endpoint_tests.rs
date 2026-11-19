@@ -30,7 +30,7 @@ fn test_the_client_endpoint_serves_no_role_command() {
 #[test]
 fn test_each_role_endpoint_serves_its_row_of_the_table() {
     assert_eq!(
-        served(Endpoint::Frontend),
+        served(Endpoint::System),
         [
             Command::Join,
             Command::Members,
@@ -78,7 +78,7 @@ fn test_a_write_in_one_frame_is_served_by_the_client_endpoint_and_a_partition() 
     for command in [Command::DirectWrite, Command::ConditionalWrite] {
         assert!(Endpoint::Client.serves(command), "{command:?}");
         assert!(Endpoint::Partition.serves(command), "{command:?}");
-        assert!(!Endpoint::Frontend.serves(command), "{command:?}");
+        assert!(!Endpoint::System.serves(command), "{command:?}");
         assert!(!Endpoint::Compute.serves(command), "{command:?}");
     }
 }
@@ -96,7 +96,7 @@ fn test_the_system_groups_commands_are_served_at_its_role_address_alone() {
         Command::Declare,
         Command::Defaults,
     ] {
-        assert!(Endpoint::Frontend.serves(command), "{command:?}");
+        assert!(Endpoint::System.serves(command), "{command:?}");
         for endpoint in [Endpoint::Client, Endpoint::Partition, Endpoint::Compute] {
             assert!(!endpoint.serves(command), "{endpoint:?} {command:?}");
         }

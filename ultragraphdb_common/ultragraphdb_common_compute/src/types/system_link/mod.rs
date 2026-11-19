@@ -315,7 +315,7 @@ impl SystemLink {
     /// Asks the sequencer for an early close of `epoch` by a CloseRequest with `partition` 0, which nothing answers but the
     /// close (`PROTOCOL.md` §13.16); a closed link asks nothing.
     pub fn close_request(&self, epoch: u64) {
-        let body = ultragraphdb_protocol_wire::CloseRequest::frontend(epoch);
+        let body = ultragraphdb_protocol_wire::CloseRequest::compute(epoch);
         let sender = {
             let mut state = self.state.borrow_mut();
             if !state.open {

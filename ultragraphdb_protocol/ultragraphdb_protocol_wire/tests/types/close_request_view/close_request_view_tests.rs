@@ -55,7 +55,7 @@ fn test_a_request_of_partition_zero_reads() -> TestResult {
     });
     let view = CloseRequestView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!((view.partition(), view.epoch()), (0, 5));
-    assert_eq!(view.to_body()?, CloseRequest::frontend(5));
+    assert_eq!(view.to_body()?, CloseRequest::compute(5));
     assert_eq!(view_any(&bytes)?, Ok(()));
     let most = with_command_header(&golden()?, |h| put(h, 0, u32::MAX.into(), 4));
     assert_eq!(

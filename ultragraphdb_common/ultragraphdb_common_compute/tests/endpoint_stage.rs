@@ -642,8 +642,7 @@ fn accept_roles(
     cluster: &RoleCluster,
     owner: &SystemHandle,
 ) -> TestResult<JoinHandle<()>> {
-    let roles =
-        Server::new(CLUSTER, "compute", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+    let roles = Server::new(CLUSTER, "compute", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
     let credentials = cluster.secret().credentials()?;
     let shared = SystemShared::new(cluster.clone(), owner.clone());
     Ok(spawn(async move {

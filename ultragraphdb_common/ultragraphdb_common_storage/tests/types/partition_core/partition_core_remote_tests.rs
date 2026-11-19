@@ -215,7 +215,7 @@ impl Session for PlayedPeer {
 async fn play(peer: &PlayedPeer, frontend: &str, dir: &TestDir) -> TestResult {
     let credentials = role_cluster(dir.path())?.secret().credentials()?;
     for (address, endpoint) in [
-        (frontend, Endpoint::Frontend),
+        (frontend, Endpoint::System),
         (peer.home.as_str(), Endpoint::Partition),
     ] {
         let listener = listen(address).await?;

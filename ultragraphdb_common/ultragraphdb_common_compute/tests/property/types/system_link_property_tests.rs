@@ -43,7 +43,7 @@ async fn core() -> Option<(SystemPlay, RoleDouble, SystemLink, Address)> {
     let verifier = ScramVerifier::derive("pw", b"ann's salt", 4_096).ok()?;
     let play = SystemPlay::new(CLUSTER, 1).with_principal("ann", 41, verifier);
     let script = play.clone();
-    let group = RoleDouble::start(&cluster, Endpoint::Frontend, move |frame| {
+    let group = RoleDouble::start(&cluster, Endpoint::System, move |frame| {
         script.answer(frame)
     })
     .await

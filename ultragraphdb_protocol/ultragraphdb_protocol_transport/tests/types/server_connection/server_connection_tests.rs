@@ -1810,8 +1810,8 @@ fn taken_at(endpoint: Endpoint, command: Command) -> TestResult<Inbound> {
 #[test]
 fn test_a_role_endpoint_takes_what_it_serves_and_refuses_the_rest() -> TestResult {
     for (endpoint, served, refused) in [
-        (Endpoint::Frontend, Command::Join, Command::Begin),
-        (Endpoint::Frontend, Command::Members, Command::Scan),
+        (Endpoint::System, Command::Join, Command::Begin),
+        (Endpoint::System, Command::Members, Command::Scan),
         (Endpoint::Partition, Command::Scan, Command::Join),
         (Endpoint::Partition, Command::Reference, Command::Begin),
     ] {
@@ -1925,7 +1925,7 @@ fn test_an_install_opens_a_stream_and_a_held_closes_the_connection() -> TestResu
         }
     );
     let mut role = Peer::default();
-    let mut frontend = serving(&mut role, now)?.with_endpoint(Endpoint::Frontend);
+    let mut frontend = serving(&mut role, now)?.with_endpoint(Endpoint::System);
     assert_eq!(
         frontend.receive(&role.send(1, &Held)?, now)?,
         Inbound::Closing {
@@ -1940,7 +1940,7 @@ fn test_an_install_opens_a_stream_and_a_held_closes_the_connection() -> TestResu
 fn test_a_role_command_opens_a_stream_of_its_own() -> TestResult {
     let now = start();
     let mut peer = Peer::default();
-    let mut connection = serving(&mut peer, now)?.with_endpoint(Endpoint::Frontend);
+    let mut connection = serving(&mut peer, now)?.with_endpoint(Endpoint::System);
     let _first: Inbound = connection.receive(&peer.command(1, Command::Join)?, now)?;
     assert_eq!(
         connection.receive(&peer.command(1, Command::Members)?, now)?,
@@ -2080,7 +2080,7 @@ fn test_a_partitions_entries_frames_wait_for_computes_credit() -> TestResult {
 /// The frontend's role address and a compute process's serve neither write: each closes the connection.
 #[test]
 fn test_no_other_role_endpoint_takes_a_write_in_one_frame() -> TestResult {
-    for endpoint in [Endpoint::Frontend, Endpoint::Compute] {
+    for endpoint in [Endpoint::System, Endpoint::Compute] {
         for command in [Command::DirectWrite, Command::ConditionalWrite] {
             assert_eq!(
                 taken_at(endpoint, command)?,
