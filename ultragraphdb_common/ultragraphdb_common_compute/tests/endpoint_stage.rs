@@ -158,7 +158,7 @@ impl Stage {
         .await?;
         let unknown = thread.unknown_secret();
         let owner = thread.handle().clone();
-        let links = RoleLinks::new(cluster.clone(), "frontend".to_string())
+        let links = RoleLinks::new(cluster.clone(), "compute".to_string())
             .with_dial_ms(options.limits.transaction_ms());
         let map = owner.map().await.context("a placement map")?;
         let role = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
@@ -191,7 +191,7 @@ impl Stage {
             cluster.clone(),
             role_address.clone(),
             ReadTimes::new(options.limits.scan_stall(), Duration::from_secs(600)),
-            "frontend",
+            "compute",
         );
         let core = EndpointCore::new(
             system.clone(),
@@ -643,7 +643,7 @@ fn accept_roles(
     owner: &SystemHandle,
 ) -> TestResult<JoinHandle<()>> {
     let roles =
-        Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+        Server::new(CLUSTER, "compute", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
     let credentials = cluster.secret().credentials()?;
     let shared = SystemShared::new(cluster.clone(), owner.clone());
     Ok(spawn(async move {
@@ -669,7 +669,7 @@ fn accept_clients<A>(
 where
     A: Authorizer + Clone + 'static,
 {
-    let clients = Server::new(CLUSTER, "frontend", Endpoint::Client)?
+    let clients = Server::new(CLUSTER, "compute", Endpoint::Client)?
         .with_unknown_secret(unknown)
         .with_bound(ConnectionBound::new(connections));
     // The Welcome states the credit a read's stream starts with, which the connection meters (`PROTOCOL.md` §11.3): the

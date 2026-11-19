@@ -106,7 +106,7 @@ Feature: The config service and its CLI as processes
 
   Scenario: The profiles ship and pass
     When an administrator checks the `dev`, `dev-net` and `kube` profiles
-    Then each passes, listing its frontend, storage and compute
+    Then each passes, listing its storage and compute
 
   Scenario: An edit made through the API is downloaded and saved
     When an administrator activates a revision through the API and downloads target `ci`

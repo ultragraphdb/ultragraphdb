@@ -6,7 +6,7 @@ Feature: The dictionary over a spread tenant
 
   Scenario: Transactions naming only new blank nodes bind in turn
     When three transactions whose first writes name only new blank nodes arrive over three partitions
-    Then the frontend binds them to partitions 1, 2 and 3 in turn, and each blank node's bucket is one its partition owns
+    Then compute binds them to partitions 1, 2 and 3 in turn, and each blank node's bucket is one its partition owns
 
   Scenario: A forged skolem IRI in a write is refused at its home
     When a transaction in partition 1 writes an edge to a skolem IRI whose bucket partition 2 owns, and partition 2's dictionary does not hold it

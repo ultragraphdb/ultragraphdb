@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use compio::runtime::spawn;
 use compio::time::timeout;
 use ultragraphdb_common_role::{RoleClient, RoleCluster, RoleReader, RoleWriter};
+use ultragraphdb_common_service::RoleKind;
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
@@ -37,12 +38,13 @@ pub(super) fn spawn_connection(
 ) {
     spawn(async move {
         let bound = Duration::from_millis(u64::from(dial_ms));
+        let name = RoleKind::Compute.to_string();
         // An event loop: it dials for as long as the core runs, which ends with the service, or until the link is stopped (Ultra
         // rule 2).
         while !link.state.borrow().stopped {
             let dialled = timeout(
                 bound,
-                RoleClient::dial(&address, cluster.id(), "frontend", cluster.secret().password()),
+                RoleClient::dial(&address, cluster.id(), &name, cluster.secret().password()),
             )
             .await;
             match dialled {

@@ -39,7 +39,7 @@ Feature: The server's rules of a request
 
   Scenario: Describe answers from the metadata group
     When `name` is declared a property with a `term` index, `score` holds a default entry, and a client sends Describe for the tenant
-    Then the frontend answers asking no other role: `read_version` is the version bound of the latest closed epoch, the declarations list `name` with its `term` index, the property keys hold `name` and `score`, and the relationship types hold `score`
+    Then compute answers asking no partition: `read_version` is the version bound of the latest closed epoch, the declarations list `name` with its `term` index, the property keys hold `name` and `score`, and the relationship types hold `score`
 
   Scenario: Describe names the catalog version it is drawn from
     When a client describes a tenant holding no catalog version, then declares `name`, and describes it again once the version declaring `name` is in effect at the latest close
@@ -74,7 +74,7 @@ Feature: The server's rules of a request
     Then the server drops the Commit, and the connection stays open
 
   Scenario: A request behind its transaction's Commit is late
-    When a client sends a Write and a second Commit on its transaction's stream after the Commit the frontend relayed, and the partition then answers that Commit
+    When a client sends a Write and a second Commit on its transaction's stream after the Commit compute relayed, and the partition then answers that Commit
     Then the server drops both, and the client receives the Commit's reply
 
   Scenario: A read crossing its transaction's Error takes that Error

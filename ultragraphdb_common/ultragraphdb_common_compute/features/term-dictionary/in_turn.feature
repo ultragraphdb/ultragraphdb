@@ -6,4 +6,4 @@ Feature: Blank nodes bind in turn
 
   Scenario: Transactions naming only new blank nodes bind in turn
     When three transactions whose first writes name only new blank nodes arrive over three partitions
-    Then the frontend binds them to partitions 1, 2 and 3 in turn, and each blank node's bucket is one its partition owns
+    Then compute binds them to partitions 1, 2 and 3 in turn, and each blank node's bucket is one its partition owns

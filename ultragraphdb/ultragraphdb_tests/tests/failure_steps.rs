@@ -403,7 +403,7 @@ fn host_killed(w: &mut Steps) -> TestResult {
             running.restart("storage_1")?;
             running.host_ready()?;
             running.signal("storage_2", Signal::Continue)?;
-            until_answering(&running.frontend_ready_address()?, "/ready")
+            until_answering(&running.compute_ready_address()?, "/ready")
         };
         let mut faulted = in_flight(flight, transactions, fault).await?;
         faulted.extend(outage);
@@ -518,7 +518,7 @@ async fn until_single(client: &mut TestClient, predicate: &str) -> TestResult<bo
 }
 
 #[when(
-    "`nick` is being checked single-valued against partition 2, three sessions each have a Commit at partition 2, and the frontend is killed and started again"
+    "`nick` is being checked single-valued against partition 2, three sessions each have a Commit at partition 2, and compute is killed and started again"
 )]
 fn frontend_killed(w: &mut Steps) -> TestResult {
     let mut cluster = start_own_as(w.carrier, &Spec::one_partition().second_storage())?;
@@ -548,10 +548,10 @@ fn frontend_killed(w: &mut Steps) -> TestResult {
             // The version is held being checked once the Declare reached the group.
             until_version(&system, before + 1).await?;
             pause(SETTLE).await;
-            running.signal("frontend", Signal::Kill)?;
+            running.signal("compute", Signal::Kill)?;
             running.signal("storage_2", Signal::Continue)?;
-            running.restart("frontend")?;
-            until_answering(&running.frontend_ready_address()?, "/ready")
+            running.restart("compute")?;
+            until_answering(&running.compute_ready_address()?, "/ready")
         };
         let (declared, faulted) = futures::join!(
             declaring.commit(tightening, None),
@@ -586,7 +586,7 @@ fn frontend_killed(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "every Commit in doubt is resolved by its session's resend through the new frontend, every Commit acknowledged or resolved committed is held exactly once and no other, each session's next Commit commits, and the tightening takes effect once"
+    "every Commit in doubt is resolved by its session's resend through the new compute node, every Commit acknowledged or resolved committed is held exactly once and no other, each session's next Commit commits, and the tightening takes effect once"
 )]
 fn frontend_killed_once(w: &mut Steps) -> TestResult {
     each_once(w)?;
@@ -617,13 +617,13 @@ fn own_system() -> TestResult<String> {
 }
 
 #[when(
-    "three sessions each have a Commit at partition 2 as the frontend's connection to the system group closes, a fourth session commits before the frontend has dialled again, and the frontend dials again"
+    "three sessions each have a Commit at partition 2 as compute's connection to the system group closes, a fourth session commits before compute has dialled again, and compute dials again"
 )]
 fn link_closed(w: &mut Steps) -> TestResult {
     let link = GroupLink::to(&own_system()?)?;
     let spec = Spec::one_partition()
         .second_storage()
-        .frontend_dialling(&link.address());
+        .compute_dialling(&link.address());
     let cluster = start_own_as(w.carrier, &spec)?;
     let names = names_in(w, &placement_ranges(&cluster.system)?, 2, WRITERS + 1)?;
     let at = cluster.client.clone();
@@ -649,7 +649,7 @@ fn link_closed(w: &mut Steps) -> TestResult {
             sent.writer = WRITERS;
             outage.push(sent);
             link.restore();
-            until_answering(&cluster.frontend_ready_address()?, "/ready")?;
+            until_answering(&cluster.compute_ready_address()?, "/ready")?;
             cluster.signal("storage_2", Signal::Continue)
         };
         let mut faulted = in_flight(flight, transactions, fault).await?;
@@ -770,12 +770,12 @@ async fn begun_and_committed(
 }
 
 #[when(
-    "the frontend starts before any storage process, the storage process hosting the system group starts, and sessions commit at partitions 1 and 2 as the second storage process starts"
+    "compute starts before any storage process, the storage process hosting the system group starts, and sessions commit at partitions 1 and 2 as the second storage process starts"
 )]
 fn frontend_first(w: &mut Steps) -> TestResult {
-    let spec = Spec::one_partition().second_storage().frontend_first();
+    let spec = Spec::one_partition().second_storage().compute_first();
     let mut cluster = start_own_as(w.carrier, &spec)?;
-    let unready = http_status(&cluster.frontend_ready_address()?, "/ready")?;
+    let unready = http_status(&cluster.compute_ready_address()?, "/ready")?;
     cluster.restart("storage_1")?;
     cluster.host_ready()?;
     let ranges = placement_ranges(&cluster.system)?;
@@ -806,7 +806,7 @@ fn frontend_first(w: &mut Steps) -> TestResult {
             until_answering(&running.observability("storage_2")?, "/ready")?;
             running.restart("compute")?;
             until_answering(&running.observability("compute")?, "/ready")?;
-            until_answering(&running.frontend_ready_address()?, "/ready")
+            until_answering(&running.compute_ready_address()?, "/ready")
         };
         let commits = async {
             let mut sent = Vec::with_capacity(WRITERS);
@@ -852,7 +852,7 @@ fn frontend_first(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend answers not ready until storage has started, every Commit in doubt is resolved by its session's resend, every Commit acknowledged or resolved committed is held exactly once and no other, and each session's next Commit commits"
+    "compute answers not ready until storage has started, every Commit in doubt is resolved by its session's resend, every Commit acknowledged or resolved committed is held exactly once and no other, and each session's next Commit commits"
 )]
 fn frontend_first_once(w: &mut Steps) -> TestResult {
     each_once(w)?;
@@ -871,7 +871,7 @@ fn frontend_first_once(w: &mut Steps) -> TestResult {
 /// takes effect at.
 async fn declared_at_group(system: &str, built_on: u64, predicate: &str) -> TestResult<(u64, u64)> {
     let address = Address::parse(system)?;
-    let mut role = RoleClient::dial(&address, CLUSTER, "frontend", SECRET).await?;
+    let mut role = RoleClient::dial(&address, CLUSTER, "compute", SECRET).await?;
     let declared = vec![Declared::Predicate(DeclaredPredicate::new(predicate))];
     let reply = role
         .request(&Declare::declarations(TENANT, built_on, 0, declared))
@@ -932,11 +932,11 @@ async fn until_described(client: &mut TestClient, version: u64) -> TestResult<u6
 }
 
 #[when(
-    "a catalog version of the tenant takes effect while the frontend's endpoint cores hold none of the closes announcing it, and a client sends a Drop of the tenant's data through its session naming the version Describe gave"
+    "a catalog version of the tenant takes effect while compute's endpoint cores hold none of the closes announcing it, and a client sends a Drop of the tenant's data through its session naming the version Describe gave"
 )]
 fn drop_behind(w: &mut Steps) -> TestResult {
     let link = GroupLink::to(&own_system()?)?;
-    let spec = Spec::one_partition().frontend_dialling(&link.address());
+    let spec = Spec::one_partition().compute_dialling(&link.address());
     let cluster = start_own_as(w.carrier, &spec)?;
     let (at, system) = (cluster.client.clone(), cluster.system.clone());
     let (s, p, probe, declared) = (w.iri("s"), w.iri("p"), w.iri("probe"), w.iri("declared"));

@@ -72,20 +72,21 @@ fn test_a_secret_never_prints() -> TestResult {
     Ok(())
 }
 
-/// The three roles' names verify against the secret, acting for principal 0, each role's salt its own; any other name
-/// is unknown.
+/// The two roles' names verify against the secret, acting for principal 0, each role's salt its own; any other name,
+/// the retired role's `frontend` among them (C6.17), is unknown.
 #[test]
 fn test_credentials_know_the_roles_alone() -> TestResult {
     let file = holding("credentials", b"s3cret")?;
     let secret = read(&file)?;
     let credentials = secret.credentials()?;
-    for name in ["frontend", "compute", "storage"] {
+    for name in ["compute", "storage"] {
         let (principal, verifier) = credentials.lookup(name).context("a role's name")?;
         assert_eq!(principal, 0, "{name}");
         assert_eq!(verifier.salt().len(), 16, "{name}");
         assert_eq!(verifier.iterations(), 4_096, "{name}");
     }
     assert!(credentials.lookup("alice").is_none());
+    assert!(credentials.lookup("frontend").is_none());
     let (_, one) = credentials.lookup("storage").context("storage")?;
     let (_, other) = secret.credentials()?.lookup("storage").context("storage")?;
     assert_ne!(one.salt(), other.salt());

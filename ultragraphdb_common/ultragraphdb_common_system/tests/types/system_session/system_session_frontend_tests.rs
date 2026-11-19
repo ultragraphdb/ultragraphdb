@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The commands the frontend alone sends the system group, over a role connection: Challenge, Verify, Session, Check, Ended,
+//! The commands the compute alone sends the system group, over a role connection: Challenge, Verify, Session, Check, Ended,
 //! Declare and Defaults (`PROTOCOL.md` §13.8, §13.9, §13.23 to §13.25, §13.27, §13.28).
 
 use compio::runtime::Runtime;
@@ -87,13 +87,13 @@ fn test_a_clients_proof_is_checked_over_the_frontends_connection() -> TestResult
     Runtime::new()?.block_on(async {
         let group = served("proof", 601).await?;
         let ann = principal(&group.handle, "ann").await?;
-        let mut frontend = group.dial("frontend").await?;
+        let mut compute = group.dial("compute").await?;
         let mut client = ScramClient::new("ann", "pw", "client-nonce")?;
         let mut relay = ScramRelay::new("group-nonce");
         let name = relay.first(&client.first_message()?)?;
         let mut replies = Vec::new();
         let (iterations, salt) = {
-            let reply = frontend.request(&Challenge::request(name.clone())).await?;
+            let reply = compute.request(&Challenge::request(name.clone())).await?;
             replies.push(reply.bytes().to_vec());
             let view = reply.view()?;
             let challenge = ChallengeView::from_frame(&view)?;
@@ -106,7 +106,7 @@ fn test_a_clients_proof_is_checked_over_the_frontends_connection() -> TestResult
         let server_first = relay.challenge(&salt, iterations)?;
         let (auth_message, proof) = relay.last(&client.final_message(&server_first)?)?;
         let verified = {
-            let reply = frontend
+            let reply = compute
                 .request(&Verify::request(name.clone(), auth_message.clone(), proof))
                 .await?;
             replies.push(reply.bytes().to_vec());
@@ -126,7 +126,7 @@ fn test_a_clients_proof_is_checked_over_the_frontends_connection() -> TestResult
             *byte ^= 0x80;
         }
         for (asked, sent_proof) in [(name.as_str(), wrong), ("nobody", proof)] {
-            let reply = frontend
+            let reply = compute
                 .request(&Verify::request(asked, auth_message.clone(), sent_proof))
                 .await?;
             replies.push(reply.bytes().to_vec());
@@ -158,7 +158,7 @@ fn test_a_clients_proof_is_checked_over_the_frontends_connection() -> TestResult
                 );
             }
         }
-        drop(frontend);
+        drop(compute);
         group.stop().await?;
         Ok(())
     })
@@ -171,16 +171,16 @@ fn test_a_session_is_answered_with_its_bytes() -> TestResult {
     Runtime::new()?.block_on(async {
         let group = served("session", 602).await?;
         let alice = principal(&group.handle, "alice").await?;
-        let mut frontend = group.dial("frontend").await?;
+        let mut compute = group.dial("compute").await?;
         let session = [0x5a; 16];
         let sent = Session::new(session, alice);
-        let reply = frontend.request(&sent).await?;
+        let reply = compute.request(&sent).await?;
         let view = reply.view()?;
         assert_eq!(view.command(), Command::Session);
         assert_eq!(view.header().command_header(), &sent.command_header());
         assert!(view.header().flags() & FLAG_LAST != 0);
         drop(reply);
-        let refused = frontend.request(&sent).await.err().context("a refusal")?;
+        let refused = compute.request(&sent).await.err().context("a refusal")?;
         assert_eq!(
             refusal_code(&refused),
             Some(ErrorCode::Protocol),
@@ -192,7 +192,7 @@ fn test_a_session_is_answered_with_its_bytes() -> TestResult {
                 .contains(&format!("{:032x}", u128::from_be_bytes(session))),
             "{refused}"
         );
-        drop(frontend);
+        drop(compute);
         group.stop().await?;
         Ok(())
     })
@@ -212,16 +212,16 @@ fn test_a_check_is_answered_whole_over_the_frontends_connection() -> TestResult 
         group.clock.advance(100_000);
         heard(group.handle.session(1, alice).await)?;
         heard(group.handle.session(3, bob).await)?;
-        let mut frontend = group.dial("frontend").await?;
+        let mut compute = group.dial("compute").await?;
         let frame = [
             (1, alice, CheckKind::Marks),
             (2, alice, CheckKind::Marks),
             (3, alice, CheckKind::Asks),
         ];
-        assert_eq!(checked(&mut frontend, &frame).await?, [1, 12, 21]);
+        assert_eq!(checked(&mut compute, &frame).await?, [1, 12, 21]);
         let answered = SessionCheck::new(3u128.to_be_bytes(), bob, CheckKind::Marks)
             .with_outcome(CheckOutcome::Passed);
-        let refused = frontend
+        let refused = compute
             .request(&Check::new(vec![answered]))
             .await
             .err()
@@ -238,11 +238,11 @@ fn test_a_check_is_answered_whole_over_the_frontends_connection() -> TestResult 
         );
         assert!(refused.to_string().contains(&rule.to_string()), "{refused}");
         assert_eq!(
-            checked(&mut frontend, &[(3, bob, CheckKind::Marks)]).await?,
+            checked(&mut compute, &[(3, bob, CheckKind::Marks)]).await?,
             [1],
             "the refused check marked nothing"
         );
-        drop(frontend);
+        drop(compute);
         group.stop().await?;
         Ok(())
     })
@@ -274,10 +274,10 @@ fn test_an_ended_is_answered_by_nothing() -> TestResult {
         group.clock.advance(100_000);
         heard(group.handle.session(1, alice).await)?;
         heard(group.handle.session(2, alice).await)?;
-        let mut frontend = group.dial("frontend").await?;
+        let mut compute = group.dial("compute").await?;
         assert_eq!(
             checked(
-                &mut frontend,
+                &mut compute,
                 &[(1, alice, CheckKind::Marks), (2, alice, CheckKind::Marks)]
             )
             .await?,
@@ -289,33 +289,33 @@ fn test_an_ended_is_answered_by_nothing() -> TestResult {
         let (first, second) = (body[at..at + 16].to_vec(), body[at + 16..].to_vec());
         body[at..at + 16].copy_from_slice(&second);
         body[at + 16..].copy_from_slice(&first);
-        frontend.send_only(&UnorderedEnded(body)).await?;
-        assert_eq!(watched(&mut frontend).await?, None, "dropped unanswered");
+        compute.send_only(&UnorderedEnded(body)).await?;
+        assert_eq!(watched(&mut compute).await?, None, "dropped unanswered");
         assert_eq!(
             checked(
-                &mut frontend,
+                &mut compute,
                 &[(1, alice, CheckKind::Asks), (2, alice, CheckKind::Asks)]
             )
             .await?,
             [14, 14]
         );
-        frontend
+        compute
             .send_only(&Ended::new(vec![1u128.to_be_bytes()]))
             .await?;
-        assert_eq!(watched(&mut frontend).await?, None, "no frame answers it");
-        frontend
+        assert_eq!(watched(&mut compute).await?, None, "no frame answers it");
+        compute
             .send_only(&Ended::new(vec![1u128.to_be_bytes()]))
             .await?;
-        assert_eq!(watched(&mut frontend).await?, None, "nor the same again");
+        assert_eq!(watched(&mut compute).await?, None, "nor the same again");
         assert_eq!(
             checked(
-                &mut frontend,
+                &mut compute,
                 &[(1, alice, CheckKind::Asks), (2, alice, CheckKind::Asks)]
             )
             .await?,
             [1, 14]
         );
-        drop(frontend);
+        drop(compute);
         group.stop().await?;
         Ok(())
     })
@@ -330,12 +330,12 @@ fn test_a_declare_is_answered_on_its_stream() -> TestResult {
     Runtime::new()?.block_on(async {
         let group = served("declare", 605).await?;
         let alice = principal(&group.handle, "alice").await?;
-        let mut frontend = group.dial("frontend").await?;
+        let mut compute = group.dial("compute").await?;
         let declared = vec![Declared::Predicate(DeclaredPredicate::new(
             "http://ex.org/p",
         ))];
         let sent = Declare::declarations(0, 0, alice, declared);
-        let (reply, closed) = futures::join!(frontend.request(&sent), async {
+        let (reply, closed) = futures::join!(compute.request(&sent), async {
             // The Declare reaches the group over the connection: once its version is pending, one close assigns its epoch.
             let before = heard(group.handle.latest_close().await)?;
             version_current(&group, 1).await?;
@@ -371,7 +371,7 @@ fn test_a_declare_is_answered_on_its_stream() -> TestResult {
             DropKind::Predicate,
             Some("http://ex.org/never".to_string()),
         );
-        let reply = frontend.request(&never).await?;
+        let reply = compute.request(&never).await?;
         let view = reply.view()?;
         assert_eq!(
             view.header().command_header(),
@@ -380,7 +380,7 @@ fn test_a_declare_is_answered_on_its_stream() -> TestResult {
         );
         assert_eq!(view.body(), never.body().as_slice());
         drop(reply);
-        drop(frontend);
+        drop(compute);
         group.stop().await?;
         Ok(())
     })
@@ -402,12 +402,12 @@ fn test_defaults_continue_across_frames() -> TestResult {
             )?);
         }
         predicates.sort();
-        let mut frontend = group.dial_taking("frontend", MAX_FRAME_FLOOR_U32).await?;
-        let (read, frames) = defaults_read(&mut frontend, 0).await?;
+        let mut compute = group.dial_taking("compute", MAX_FRAME_FLOOR_U32).await?;
+        let (read, frames) = defaults_read(&mut compute, 0).await?;
         assert!(frames >= 2, "{frames} frames");
         assert_eq!(read.predicates(), predicates.as_slice());
         assert!(read.position().context("a position")? >= 1);
-        drop(frontend);
+        drop(compute);
         group.stop().await?;
         Ok(())
     })

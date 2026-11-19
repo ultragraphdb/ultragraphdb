@@ -17,7 +17,7 @@ Feature: Errors reach the client through the error table
     Then the declaration is refused with an error naming `embedding`, and the catalog is unchanged
 
   Scenario: A transaction's first refusal is the one its client sees
-    When a client sends a Write the frontend refuses and, before reading its answer, a second Write of the same transaction
+    When a client sends a Write compute refuses and, before reading its answer, a second Write of the same transaction
     Then the client receives the first Write's refusal on the transaction's stream, and nothing after it
 
   Scenario: A role connection's dial past its bound closes it

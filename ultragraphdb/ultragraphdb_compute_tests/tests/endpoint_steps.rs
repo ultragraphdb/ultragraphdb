@@ -3,8 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The frontend binary's client endpoint as a process: how it speaks, and who it knows at its first start, the other roles played by
-//! this test.
+//! The compute binary's client endpoint as a process: how it speaks, and who it knows at its first start.
 
 use std::net::TcpStream;
 use std::time::Duration;
@@ -13,21 +12,20 @@ use compio::io::{AsyncRead, AsyncWrite};
 use compio::runtime::Runtime;
 use cucumber::{then, when};
 use service_utils::WaitStrategy;
-use ultragraphdb_common_compute::{RoleDouble, batch_frame, empty_batch};
-use ultragraphdb_common_role::{Answer, RoleClient, RoleCluster, RoleSecret};
+use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_protocol_scram::{ScramClient, system_nonce};
 use ultragraphdb_protocol_transport::{
-    Address, AuthenticationStep, BufferPool, ClientAuthentication, Endpoint, Framer, ReceivedFrame,
+    Address, AuthenticationStep, BufferPool, ClientAuthentication, Framer, ReceivedFrame,
 };
 use ultragraphdb_protocol_transport_compio::{Carrier, CompioTlsStream, Connection};
 use ultragraphdb_protocol_wire::{
-    Begin, BodyBuilder, Command, DirectWrite, Header, Hello, Join, MAX_FRAME_SIZE,
-    MAX_FRAME_SIZE_U32, PatternSlot, QuadPattern, Read, TermTable, WriteChange,
+    Begin, BodyBuilder, Command, DirectWrite, Header, Hello, MAX_FRAME_SIZE, MAX_FRAME_SIZE_U32,
+    PatternSlot, QuadPattern, Read, TermTable, WriteChange,
 };
 use ultragraphdb_tests::{
-    CLUSTER, FRONTEND_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering, exit_is,
-    frontend_holding, frontend_observability, role, scratch, storage_holding,
-    storage_observability, system_role_address, until_answering, with,
+    CLUSTER, COMPUTE_BINARY, START_SECONDS, STORAGE_BINARY, answering, compute_holding,
+    compute_observability, exit_is, role, scratch, storage_holding, storage_observability,
+    until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_tls::TestPki;
@@ -53,7 +51,7 @@ fn over_tls(pki: &TestPki) -> TestResult<Vec<(String, String)>> {
     let (chain, key) = (scratch("server-chain.pem"), scratch("server-key.pem"));
     std::fs::write(&chain, pki.server_chain_pem())?;
     std::fs::write(&key, pki.server_key_pem())?;
-    let mut settings = frontend_holding()?;
+    let mut settings = compute_holding()?;
     settings.retain(|(name, _)| name != "endpoint.plaintext");
     let settings = with(
         settings,
@@ -67,8 +65,8 @@ fn over_tls(pki: &TestPki) -> TestResult<Vec<(String, String)>> {
     ))
 }
 
-/// Starts the storage process hosting the system group, bootstrapping the administrator, then the frontend on `settings`, and
-/// waits until the client endpoint listens.
+/// Starts the storage process hosting the system group, bootstrapping the administrator, then compute on `settings`, and waits
+/// until the client endpoint listens.
 pub(crate) fn started(w: &mut Steps, settings: &[(String, String)]) -> TestResult {
     let util = services()?;
     let _storage: u32 = util.start_service_from_config(role(
@@ -77,17 +75,17 @@ pub(crate) fn started(w: &mut Steps, settings: &[(String, String)]) -> TestResul
         &scratch(STORAGE_BINARY),
         answering(&storage_observability()?, "/ready"),
     )?)?;
-    let wait = answering(&frontend_observability()?, "/health");
+    let wait = answering(&compute_observability()?, "/health");
     let _pid: u32 = util.start_service_from_config(role(
-        FRONTEND_BINARY,
+        COMPUTE_BINARY,
         settings,
-        &scratch(FRONTEND_BINARY),
+        &scratch(COMPUTE_BINARY),
         wait,
     )?)?;
     w.roles = Some(util);
     until_listening()?;
-    // Ready once the frontend's view holds a close and a placement and Members lists the partition (design D10).
-    until_answering(&frontend_observability()?, "/ready")
+    // Ready once compute's view holds a close and a placement and Members lists the partition (design D10).
+    until_answering(&compute_observability()?, "/ready")
 }
 
 /// Waits for the client endpoint's listener, which opens after the first start has derived the administrator's verifier.
@@ -194,41 +192,13 @@ impl<S: AsyncRead + AsyncWrite> Authenticated<S> {
     }
 }
 
-/// The cluster's role secret, as a test playing a role holds it.
-fn played_cluster() -> TestResult<RoleCluster> {
-    let file = scratch("played-secret");
-    std::fs::write(&file, SECRET)?;
-    Ok(RoleCluster::new(
-        CLUSTER,
-        RoleSecret::read(&file.display().to_string())?,
-        Duration::from_secs(5),
-    ))
-}
-
 #[when(
-    "the frontend holds the test CA's certificate for `localhost` and a client trusting the CA connects and authenticates"
+    "compute holds the test CA's certificate for `localhost` and a client trusting the CA connects and authenticates"
 )]
 fn tls_client(w: &mut Steps) -> TestResult {
     let pki = TestPki::new()?;
     started(w, &over_tls(&pki)?)?;
     Runtime::new()?.block_on(async {
-        let cluster = played_cluster()?;
-        // The partition is the storage process hosting the system group, which `started` began; compute is played.
-        let system = Address::parse(&format!("tcp://{}", system_role_address()?))?;
-        let compute = RoleDouble::start(&cluster, Endpoint::Compute, |frame| {
-            batch_frame(CLUSTER, frame.stream(), &empty_batch(4, 1), true)
-                .map_or(Answer::Done, Answer::Reply)
-        })
-        .await?;
-        compute
-            .join(
-                &system,
-                &cluster,
-                "compute",
-                &Join::compute(compute.address()),
-            )
-            .await
-            .map_err(TestError::new)?;
         let carrier = Carrier::connect(&client_address()?).await?;
         let tls = CompioTlsStream::connect(&pki.connector()?, carrier, "localhost").await?;
         let mut client = Authenticated::over(tls).await?;
@@ -289,15 +259,15 @@ fn clear_text_refused(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "the frontend starts with neither a certificate nor `plaintext = true` in its `[endpoint]` table"
+    "compute starts with neither a certificate nor `plaintext = true` in its `[endpoint]` table"
 )]
 fn no_decision(w: &mut Steps) -> TestResult {
-    let mut settings = frontend_holding()?;
+    let mut settings = compute_holding()?;
     settings.retain(|(name, _)| name != "endpoint.plaintext");
-    let log = scratch("frontend-no-decision.log");
+    let log = scratch("compute-no-decision.log");
     let util = services()?;
     let pid = util.start_service_from_config(role(
-        FRONTEND_BINARY,
+        COMPUTE_BINARY,
         &settings,
         &log,
         WaitStrategy::NoWait,
@@ -320,7 +290,7 @@ fn no_decision_named(w: &mut Steps) -> TestResult {
     "a cluster starts for the first time with a bootstrap credential file and a client authenticates with it"
 )]
 fn bootstrapped(w: &mut Steps) -> TestResult {
-    started(w, &frontend_holding()?)?;
+    started(w, &compute_holding()?)?;
     Runtime::new()?.block_on(async {
         let _client = RoleClient::dial(&client_address()?, CLUSTER, ADMIN, PASSWORD).await?;
         Ok(())
@@ -337,7 +307,7 @@ fn bootstrap_held(w: &mut Steps) -> TestResult {
             .context("a wrong password is refused")
     })?;
     assert!(wrong.contains("authentication failed"), "{wrong}");
-    let log = std::fs::read_to_string(scratch(FRONTEND_BINARY))?;
+    let log = std::fs::read_to_string(scratch(COMPUTE_BINARY))?;
     for outcome in ["accepted", "refused"] {
         let audited = log
             .lines()

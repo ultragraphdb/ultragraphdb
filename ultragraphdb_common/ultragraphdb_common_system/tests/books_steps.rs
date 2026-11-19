@@ -280,16 +280,16 @@ fn at_cap_held(w: &mut Steps) {
     assert!(w.ran);
 }
 
-/// The salt a Challenge for `name` over a frontend connection to `stage` answers.
+/// The salt a Challenge for `name` over a compute connection to `stage` answers.
 async fn challenged(stage: &Stage, name: &str) -> TestResult<Vec<u8>> {
-    let mut frontend = stage.dial("frontend").await?;
-    let reply = frontend.request(&Challenge::request(name)).await?;
+    let mut compute = stage.dial("compute").await?;
+    let reply = compute.request(&Challenge::request(name)).await?;
     let view = reply.view()?;
     Ok(ChallengeView::from_frame(&view)?.salt().to_vec())
 }
 
 #[when(
-    "a client authenticates as the unknown name `nobody`, the system group's host and the frontend restart, and a client authenticates as `nobody` on another core"
+    "a client authenticates as the unknown name `nobody`, the system group's host and compute restart, and a client authenticates as `nobody` on another core"
 )]
 fn unknown_one_salt(w: &mut Steps) -> TestResult {
     run(w, || async {
@@ -412,23 +412,23 @@ async fn next_close_on(client: &mut RoleClient) -> TestResult<u64> {
 }
 
 #[when(
-    "epoch 12 is the latest close, and the frontend sends CloseRequest naming epoch 13 with `partition` 0"
+    "epoch 12 is the latest close, and compute sends CloseRequest naming epoch 13 with `partition` 0"
 )]
-fn frontend_closes(w: &mut Steps) -> TestResult {
+fn compute_closes(w: &mut Steps) -> TestResult {
     run(w, || async {
         let stage = slow_stage(48, None).await?;
         closed_through(&stage, 12).await?;
-        let mut frontend = stage.dial("frontend").await?;
+        let mut compute = stage.dial("compute").await?;
         let mut storage = stage.dial("storage").await?;
-        frontend.send_only(&Subscribe::new(12)).await?;
+        compute.send_only(&Subscribe::new(12)).await?;
         storage.send_only(&Subscribe::new(12)).await?;
-        frontend.send_only(&CloseRequest::frontend(13)).await?;
+        compute.send_only(&CloseRequest::frontend(13)).await?;
         // `epoch_ms_min`, 1 ms, past the last close: the request closes the epoch then, not at `epoch_ms_max`.
         compio::time::sleep(Duration::from_millis(20)).await;
         stage.clock.advance(1_000);
-        assert_eq!(next_close_on(&mut frontend).await?, 13);
+        assert_eq!(next_close_on(&mut compute).await?, 13);
         assert_eq!(next_close_on(&mut storage).await?, 13);
-        drop((frontend, storage));
+        drop((compute, storage));
         let _ended = stage.stop().await?;
         Ok(())
     })
@@ -437,7 +437,7 @@ fn frontend_closes(w: &mut Steps) -> TestResult {
 #[then(
     "the sequencer closes epoch 13 before `epoch_ms_max` has passed, once `epoch_ms_min` has, and every subscriber receives the close"
 )]
-fn frontend_closes_held(w: &mut Steps) {
+fn compute_closes_held(w: &mut Steps) {
     assert!(w.ran);
 }
 
@@ -446,11 +446,11 @@ fn closed_closes_nothing(w: &mut Steps) -> TestResult {
     run(w, || async {
         let stage = slow_stage(49, None).await?;
         closed_through(&stage, 13).await?;
-        let mut frontend = stage.dial("frontend").await?;
-        frontend.send_only(&Subscribe::new(13)).await?;
-        frontend.send_only(&CloseRequest::frontend(13)).await?;
+        let mut compute = stage.dial("compute").await?;
+        compute.send_only(&Subscribe::new(13)).await?;
+        compute.send_only(&CloseRequest::frontend(13)).await?;
         stage.clock.advance(LONG_US - 1);
-        let early = compio::time::timeout(Duration::from_millis(100), frontend.next_frame()).await;
+        let early = compio::time::timeout(Duration::from_millis(100), compute.next_frame()).await;
         assert!(
             early.is_err(),
             "no frame answers it, and nothing closes before its time"
@@ -458,8 +458,8 @@ fn closed_closes_nothing(w: &mut Steps) -> TestResult {
         stage.clock.advance(1);
         // The group wakes for the next ask and finds epoch 14 due.
         let _latest = heard(stage.handle.latest_close().await)?;
-        assert_eq!(next_close_on(&mut frontend).await?, 14);
-        drop(frontend);
+        assert_eq!(next_close_on(&mut compute).await?, 14);
+        drop(compute);
         let _ended = stage.stop().await?;
         Ok(())
     })
@@ -475,13 +475,13 @@ fn late_subscriber(w: &mut Steps) -> TestResult {
     run(w, || async {
         let stage = slow_stage(50, Some(10)).await?;
         closed_through(&stage, 40).await?;
-        let mut frontend = stage.dial("frontend").await?;
-        frontend.send_only(&Subscribe::at_latest()).await?;
-        assert_eq!(next_close_on(&mut frontend).await?, 40);
+        let mut compute = stage.dial("compute").await?;
+        compute.send_only(&Subscribe::at_latest()).await?;
+        assert_eq!(next_close_on(&mut compute).await?, 40);
         stage.clock.advance(LONG_US);
         let _latest = heard(stage.handle.latest_close().await)?;
-        assert_eq!(next_close_on(&mut frontend).await?, 41);
-        drop(frontend);
+        assert_eq!(next_close_on(&mut compute).await?, 41);
+        drop(compute);
         let _ended = stage.stop().await?;
         Ok(())
     })

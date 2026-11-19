@@ -13,10 +13,10 @@ Feature: Client endpoint: connections authenticate against the metadata group's 
     When a client authenticates as `ann` with a wrong password, and as an unknown name
     Then both are refused with the same authentication error
 
-  Scenario: The frontend never holds a stored key
-    When a client authenticates as `ann` and the frames the frontend receives from the system group are read
+  Scenario: Compute never holds a stored key
+    When a client authenticates as `ann` and the frames compute receives from the system group are read
     Then they hold `ann`'s salt, iteration count, principal and the exchange's ServerSignature, and neither her stored key nor her server key
 
   Scenario: An unknown name answers as a known one does
-    When a client asks to authenticate as an unknown name, twice, across a restart of the frontend
+    When a client asks to authenticate as an unknown name, twice, across a restart of compute
     Then both challenges carry the same salt and iteration count, and the exchange fails with the same authentication error as a wrong password

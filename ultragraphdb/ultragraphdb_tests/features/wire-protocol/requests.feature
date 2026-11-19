@@ -6,7 +6,7 @@ Feature: Data requests, drops and one-frame writes through the three binaries
 
   Scenario: Describe answers from the metadata group
     When `name` is declared a property with a `term` index, `score` holds a default entry, and a client sends Describe for the tenant
-    Then the frontend answers asking no other role: `read_version` is the version bound of the latest closed epoch, the declarations list `name` with its `term` index, the property keys hold `name` and `score`, and the relationship types hold `score`
+    Then compute answers asking no partition: `read_version` is the version bound of the latest closed epoch, the declarations list `name` with its `term` index, the property keys hold `name` and `score`, and the relationship types hold `score`
 
   Scenario: A commit-time operation's node is named by its IRI
     When a transaction's insert-if-absent finds the node `http://ex.org/x` holding the value, and the transaction commits

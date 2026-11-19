@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Clusters of the three binaries, every address over one carrier, started through the config service, and where a client
+//! Clusters of the two role binaries, every address over one carrier, started through the config service, and where a client
 //! dials them. A role a scenario makes misbehave is a real process: stopped by a signal, killed, or started again.
 
 use std::cell::{Cell, RefCell};
@@ -19,10 +19,9 @@ use ultragraphdb_protocol_transport::{Address, Scheme};
 use ultragraphdb_protocol_wire::{BodyView, DEFAULT_TRANSACTION_MS, Placement, PlacementView};
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
-    CLUSTER, COMPUTE_BINARY, FRONTEND_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering,
-    bootstrap, client_address, compute_observability, compute_on_one_host, compute_role_address,
-    config_address, fresh_data, frontend_holding, frontend_observability, holding, not_hosting,
-    process, scratch, start_config_service_at, storage_holding, storage_observability,
+    CLUSTER, COMPUTE_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering, bootstrap,
+    client_address, compute_holding, compute_observability, config_address, fresh_data,
+    not_hosting, process, scratch, start_config_service_at, storage_holding, storage_observability,
     storage_role_address, system_role_address, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, PORT_BLOCK, TestError, TestResult};
@@ -45,7 +44,7 @@ const SPECS_SHIFT: u16 = 3 * SPEC_PORTS;
 /// The partitions of the shared cluster that spreads its tenant.
 pub(crate) const SPREAD_PARTITIONS: u32 = 3;
 
-/// How far a second compute process's and a second storage process's addresses lie above the first's. A first storage process
+/// How far a second storage process's addresses lie above the first's. A first storage process
 /// of up to 4 partitions leaves them free.
 const SECOND_PROCESS: u16 = 5;
 
@@ -89,13 +88,13 @@ pub(crate) struct Spec {
     pub(crate) partitions: u32,
     /// Whether two storage processes share the partitions, the second holding them from partition 2.
     pub(crate) two_storages: bool,
-    pub(crate) frontend: Vec<(&'static str, String)>,
+    pub(crate) compute: Vec<(&'static str, String)>,
     pub(crate) storage: Vec<(&'static str, String)>,
     /// The settings of the storage process hosting the system group beyond every storage process's: its `[metadata]` and
     /// `[sequencer]` settings.
     pub(crate) host: Vec<(&'static str, String)>,
-    /// Whether the cluster starts the frontend alone, every other process left to [`Cluster::restart`].
-    pub(crate) frontend_alone: bool,
+    /// Whether the cluster starts compute alone, every other process left to [`Cluster::restart`].
+    pub(crate) compute_alone: bool,
 }
 
 impl Spec {
@@ -104,10 +103,10 @@ impl Spec {
         Self {
             partitions: 1,
             two_storages: false,
-            frontend: Vec::new(),
+            compute: Vec::new(),
             storage: Vec::new(),
             host: Vec::new(),
-            frontend_alone: false,
+            compute_alone: false,
         }
     }
 
@@ -119,9 +118,9 @@ impl Spec {
         }
     }
 
-    /// With the frontend's setting `name` holding `value`.
-    pub(crate) fn frontend(mut self, name: &'static str, value: u64) -> Self {
-        self.frontend.push((name, value.to_string()));
+    /// With compute's setting `name` holding `value`.
+    pub(crate) fn compute(mut self, name: &'static str, value: u64) -> Self {
+        self.compute.push((name, value.to_string()));
         self
     }
 
@@ -144,31 +143,31 @@ impl Spec {
         self
     }
 
-    /// With the frontend dialling the system group at `address`, which reaches the host's role address by its port.
-    pub(crate) fn frontend_dialling(mut self, address: &str) -> Self {
-        self.frontend
+    /// With compute dialling the system group at `address`, which reaches the host's role address by its port.
+    pub(crate) fn compute_dialling(mut self, address: &str) -> Self {
+        self.compute
             .push(("cluster.system_address", address.to_string()));
         self
     }
 
-    /// With the frontend started alone, before any storage process.
-    pub(crate) fn frontend_first(mut self) -> Self {
-        self.frontend_alone = true;
+    /// With compute started alone, before any storage process.
+    pub(crate) fn compute_first(mut self) -> Self {
+        self.compute_alone = true;
         self
     }
 }
 
-/// Where one cluster's processes listen: the config service, each role's `/health` and `/ready` (frontend, storage, compute),
-/// the role addresses (the system group's, which the first storage process hosts, storage's and compute's, in that order),
-/// and the client endpoint's.
+/// Where one cluster's processes listen: the config service, each role's `/health` and `/ready` (compute, storage), the role
+/// addresses (the system group's, which the first storage process hosts, and storage's, in that order), and the client
+/// endpoint's, compute's.
 #[derive(Debug, Clone)]
 struct Layout {
     carrier: Carriers,
     shift: u16,
     tag: String,
     config: String,
-    observability: [String; 3],
-    roles: [String; 3],
+    observability: [String; 2],
+    roles: [String; 2],
     client: String,
 }
 
@@ -177,9 +176,8 @@ impl Layout {
     /// `carrier` at sockets named with `tag`.
     fn new(carrier: Carriers, shift: u16, tag: &str) -> TestResult<Self> {
         let observability = [
-            shifted(&frontend_observability()?, shift)?,
-            shifted(&storage_observability()?, shift)?,
             shifted(&compute_observability()?, shift)?,
+            shifted(&storage_observability()?, shift)?,
         ];
         let socket =
             |name: &str| format!("unix:///tmp/ugdb-{tag}{name}-{}.sock", std::process::id());
@@ -188,11 +186,10 @@ impl Layout {
                 [
                     format!("tcp://{}", shifted(&system_role_address()?, shift)?),
                     format!("tcp://{}", shifted(&storage_role_address()?, shift)?),
-                    format!("tcp://{}", shifted(&compute_role_address()?, shift)?),
                 ],
                 format!("tcp://{}", shifted(&client_address()?, shift)?),
             ),
-            Carriers::Unix => (["g", "s", "c"].map(socket), socket("e")),
+            Carriers::Unix => (["g", "s"].map(socket), socket("e")),
         };
         Ok(Self {
             carrier,
@@ -207,7 +204,7 @@ impl Layout {
 
     /// The address of partition `partition` of the storage process, as storage derives it from its role address.
     fn partition(&self, partition: u32, spec: &Spec) -> TestResult<String> {
-        let [_, storage, _] = &self.roles;
+        let [_, storage] = &self.roles;
         if let Some(stem) = storage.strip_suffix(".sock") {
             return Ok(format!("{stem}-p{partition}.sock"));
         }
@@ -232,13 +229,13 @@ impl Layout {
         })
     }
 
-    /// The frontend's settings of `spec`, its endpoint over this layout's carrier.
-    fn frontend_settings(&self, spec: &Spec) -> TestResult<Vec<(String, String)>> {
-        let [f_obs, _, _] = &self.observability;
-        let [system, _, _] = &self.roles;
-        let mut settings = frontend_holding()?;
+    /// Compute's settings of `spec`, its endpoint over this layout's carrier.
+    fn compute_settings(&self, spec: &Spec) -> TestResult<Vec<(String, String)>> {
+        let [c_obs, _] = &self.observability;
+        let [system, _] = &self.roles;
+        let mut settings = compute_holding()?;
         for (name, value) in [
-            ("observability.address", format!("tcp://{f_obs}")),
+            ("observability.address", format!("tcp://{c_obs}")),
             ("cluster.system_address", system.clone()),
             ("endpoint.address", self.client.clone()),
         ] {
@@ -261,7 +258,7 @@ impl Layout {
                 &key.display().to_string(),
             );
         }
-        for (name, value) in &spec.frontend {
+        for (name, value) in &spec.compute {
             settings = with(settings, name, value);
         }
         Ok(settings)
@@ -277,7 +274,7 @@ impl Layout {
         (address, observability): (&str, &str),
         hosting: bool,
     ) -> TestResult<Vec<(String, String)>> {
-        let [system, _, _] = &self.roles;
+        let [system, _] = &self.roles;
         let mut settings = storage_holding()?;
         if !hosting {
             settings = not_hosting(settings);
@@ -312,24 +309,6 @@ impl Layout {
         }
         for (name, value) in &spec.storage {
             settings = with(settings, name, value);
-        }
-        Ok(settings)
-    }
-
-    /// The compute process at `address`, its observability at `observability`.
-    fn compute_settings(
-        &self,
-        address: &str,
-        observability: &str,
-    ) -> TestResult<Vec<(String, String)>> {
-        let [system, _, _] = &self.roles;
-        let mut settings = holding(compute_on_one_host()?, SECRET)?;
-        for (name, value) in [
-            ("observability.address", format!("tcp://{observability}")),
-            ("compute.role_address", address.to_string()),
-            ("cluster.system_address", system.clone()),
-        ] {
-            settings = with(settings, name, &value);
         }
         Ok(settings)
     }
@@ -432,7 +411,7 @@ impl Cluster {
     }
 
     /// Starts `instance` again on the settings the config service holds, after a signal killed it or when its cluster started
-    /// the frontend alone, and waits until it answers its health.
+    /// compute alone, and waits until it answers its health.
     pub(crate) fn restart(&mut self, instance: &str) -> TestResult {
         let config = self.config.clone();
         let member = self
@@ -448,8 +427,8 @@ impl Cluster {
         Ok(())
     }
 
-    /// Starts again every role a scenario killed, waiting until each and the frontend are ready; a killed frontend's cluster is
-    /// not started again this way, since its roles went with it.
+    /// Starts again every role a scenario killed, waiting until each and compute are ready; a cluster whose compute process was
+    /// killed is not started again this way, since its clients went with it.
     fn revive(&mut self) -> TestResult {
         let killed: Vec<(String, String)> = self
             .members
@@ -458,8 +437,8 @@ impl Cluster {
             .map(|member| (member.instance.clone(), member.observability.clone()))
             .collect();
         for (instance, observability) in &killed {
-            if instance == "frontend" {
-                return Err(TestError::new("the frontend was killed"));
+            if instance == "compute" {
+                return Err(TestError::new("compute was killed"));
             }
             self.restart(instance)?;
             until_answering(observability, "/ready")?;
@@ -468,7 +447,7 @@ impl Cluster {
                 quiet_from_now(&self.client.address);
             }
         }
-        until_answering(&self.frontend_ready_address()?, "/ready")
+        until_answering(&self.compute_ready_address()?, "/ready")
     }
 
     /// Waits until the storage process hosting the system group, started again, is ready: its group listens, and its quiet time
@@ -487,9 +466,9 @@ impl Cluster {
         Ok(())
     }
 
-    /// What the frontend has logged so far.
-    pub(crate) fn frontend_log(&self) -> TestResult<String> {
-        Ok(std::fs::read_to_string(&self.member("frontend")?.log)?)
+    /// What compute has logged so far.
+    pub(crate) fn compute_log(&self) -> TestResult<String> {
+        Ok(std::fs::read_to_string(&self.member("compute")?.log)?)
     }
 
     /// The storage process hosting the system group: the first storage process.
@@ -505,9 +484,9 @@ impl Cluster {
         Ok(std::fs::read_to_string(&self.host()?.log)?)
     }
 
-    /// Where `/ready` of the frontend answers.
-    pub(crate) fn frontend_ready_address(&self) -> TestResult<String> {
-        self.observability("frontend")
+    /// Where `/ready` of compute answers.
+    pub(crate) fn compute_ready_address(&self) -> TestResult<String> {
+        self.observability("compute")
     }
 
     /// Where `/health` and `/ready` of `instance` answer.
@@ -535,12 +514,11 @@ struct Planned {
     wait_path: &'static str,
 }
 
-/// The processes of `spec` at `layout`, in design D10's order: storage, compute, the frontend. The frontend executes its
-/// reads itself, so no process waits on the compute process, which the cluster still starts. A role's bare name is the file
-/// its labelled instances share, so the first of two takes a label too.
+/// The processes of `spec` at `layout`, in the supervisor's order: storage, then compute. A role's bare name is the file its
+/// labelled instances share, so the first of two takes a label too.
 fn plan(layout: &Layout, spec: &Spec) -> TestResult<Vec<Planned>> {
-    let [f_obs, s_obs, c_obs] = &layout.observability;
-    let [_, storage_role, compute_role] = &layout.roles;
+    let [c_obs, s_obs] = &layout.observability;
+    let [_, storage_role] = &layout.roles;
     let first_count = if spec.two_storages {
         1
     } else {
@@ -575,22 +553,15 @@ fn plan(layout: &Layout, spec: &Spec) -> TestResult<Vec<Planned>> {
     planned.push(Planned {
         program: COMPUTE_BINARY,
         instance: "compute",
-        settings: layout.compute_settings(compute_role, c_obs)?,
+        settings: layout.compute_settings(spec)?,
         observability: c_obs.clone(),
-        wait_path: "/ready",
-    });
-    planned.push(Planned {
-        program: FRONTEND_BINARY,
-        instance: "frontend",
-        settings: layout.frontend_settings(spec)?,
-        observability: f_obs.clone(),
         wait_path: "/health",
     });
     Ok(planned)
 }
 
-/// Starts the config service holding `layout`'s roles of `spec`, then storage, compute and the frontend in the order
-/// [`plan`] gives, and waits until the frontend is ready and its client endpoint accepts.
+/// Starts the config service holding `layout`'s roles of `spec`, then storage and compute in the order [`plan`] gives, and
+/// waits until compute is ready and its client endpoint accepts.
 fn start(layout: &Layout, spec: &Spec, util: ServiceUtil) -> TestResult<Cluster> {
     let planned = plan(layout, spec)?;
     let instances: Vec<(&str, &[(String, String)])> = planned
@@ -613,7 +584,7 @@ fn start(layout: &Layout, spec: &Spec, util: ServiceUtil) -> TestResult<Cluster>
             wait,
         );
         // A process held back is started by `Cluster::restart`; until then it has no pid.
-        let held_back = spec.frontend_alone && process.program != FRONTEND_BINARY;
+        let held_back = spec.compute_alone && process.program != COMPUTE_BINARY;
         let pid = if held_back {
             0
         } else {
@@ -628,8 +599,8 @@ fn start(layout: &Layout, spec: &Spec, util: ServiceUtil) -> TestResult<Cluster>
             killed: Cell::new(held_back),
         });
     }
-    let [system_role, _, _] = &layout.roles;
-    let [f_obs, _, _] = &layout.observability;
+    let [system_role, _] = &layout.roles;
+    let [c_obs, _] = &layout.observability;
     let cluster = Cluster {
         util: Some(util),
         client: layout.client_at()?,
@@ -640,11 +611,11 @@ fn start(layout: &Layout, spec: &Spec, util: ServiceUtil) -> TestResult<Cluster>
         config: layout.config.clone(),
         members,
     };
-    if spec.frontend_alone {
-        // Nothing the frontend's readiness waits for runs yet.
+    if spec.compute_alone {
+        // Nothing compute's readiness waits for runs yet.
         return Ok(cluster);
     }
-    until_answering(f_obs, "/ready")?;
+    until_answering(c_obs, "/ready")?;
     until_listening(&layout.client)?;
     // The system group listened before its storage process was ready.
     quiet_from_now(&layout.client);

@@ -5,3 +5,6 @@
 
 #[cfg(test)]
 mod role_client;
+
+#[cfg(test)]
+mod role_credentials_property_tests;

@@ -45,13 +45,12 @@ const START_SECONDS: u64 = 20;
 const READ_KEY: &str = "a read key of at least thirty two bytes long";
 const ADMIN_KEY: &str = "an admin key of at least thirty two bytes long";
 
-const FRONTEND: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n";
 const STORAGE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[storage]\npartition_count = 1\ndata_dir = \"/data/storage\"\n";
 /// The instance hosting the system group: its partitions, then the cluster's partition count, the two moved tables and its
 /// `[system]` table.
 const STORAGE_1: &str = "[storage]\npartition_first = 1\nrole_address = \"tcp://10.0.0.2:7000\"\n[cluster]\npartition_count = 2\n[metadata]\n[sequencer]\nepoch_ms_min = 2\nepoch_ms_max = 10\n[system]\nrole_address = \"tcp://10.0.0.2:7100\"\ndata_dir = \"/data/system\"\n";
 const STORAGE_2: &str = "[storage]\npartition_first = 2\nrole_address = \"tcp://10.0.0.4:7000\"\n";
-const COMPUTE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[compute]\nrole_address = \"tcp://10.0.0.3:7082\"\n";
+const COMPUTE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[endpoint]\naddress = \"tcp://10.0.0.3:7080\"\nplaintext = true\n";
 
 static FOLDERS: AtomicU32 = AtomicU32::new(0);
 
@@ -71,7 +70,6 @@ struct Steps {
 /// A valid target's files, as they are named on disk with the key each is declared by.
 fn valid_files() -> Vec<(&'static str, &'static str, String)> {
     vec![
-        ("frontend", "ci_frontend.toml", FRONTEND.to_string()),
         ("storage", "ci_storage.toml", STORAGE.to_string()),
         ("storage_1", "ci_storage_1.toml", STORAGE_1.to_string()),
         ("storage_2", "ci_storage_2.toml", STORAGE_2.to_string()),
@@ -301,7 +299,7 @@ fn broken_start(w: &mut Steps) -> TestResult {
     let settings = w.folder.join("settings");
     std::fs::write(
         settings.join("ci_compute_1.toml"),
-        format!("{COMPUTE}partiton = 1\n"),
+        format!("{COMPUTE}[compute]\npartiton = 1\n"),
     )?;
     std::fs::write(
         settings.join("ci_storage.toml"),
@@ -534,7 +532,7 @@ fn broken_revision(w: &mut Steps) -> TestResult {
     let _pid = start_serving(w)?;
     let body = bundle(
         &STORAGE.replace("data_dir = \"/data/storage\"\n", ""),
-        &format!("{COMPUTE}partiton = 1\n"),
+        &format!("{COMPUTE}[compute]\npartiton = 1\n"),
     );
     w.reply = Some(ask(
         ADMIN_KEY,
@@ -781,7 +779,7 @@ fn cli_fails(w: &mut Steps) -> TestResult {
     prepare(w)?;
     std::fs::write(
         w.folder.join("settings").join("ci_compute_1.toml"),
-        format!("{COMPUTE}partiton = 1\n"),
+        format!("{COMPUTE}[compute]\npartiton = 1\n"),
     )?;
     cli(w)?;
     start_refused(w)
@@ -815,10 +813,7 @@ fn cli_passed(w: &mut Steps) -> TestResult {
     assert_eq!(code, 0, "{text}");
     says(
         &text,
-        &[
-            "target ci: compute_1, frontend, storage_1, storage_2",
-            "not compared",
-        ],
+        &["target ci: compute_1, storage_1, storage_2", "not compared"],
     );
     Ok(())
 }
@@ -873,7 +868,7 @@ fn profiles(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("each passes, listing its frontend, storage and compute")]
+#[then("each passes, listing its storage and compute")]
 fn profiles_pass(w: &mut Steps) {
     says(
         &w.log,
@@ -881,9 +876,9 @@ fn profiles_pass(w: &mut Steps) {
             "dev: ",
             "dev-net: ",
             "kube: ",
-            "target dev: compute, frontend, storage",
-            "target dev-net: compute, frontend, storage",
-            "target kube: compute, frontend, storage",
+            "target dev: compute, storage",
+            "target dev-net: compute, storage",
+            "target kube: compute, storage",
         ],
     );
 }

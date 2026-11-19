@@ -3,17 +3,18 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Compute joining the system group and holding it and the partitions (`PROTOCOL.md` §11.12, *Joining* and *While the system
+//! Compute finding the partitions through the system group and holding it and them (`PROTOCOL.md` §11.12, *While the system
 //! group cannot be reached*; system-group, "A lost system group is waited for until the deadline"; role-binaries, "Exit
-//! codes name the cause"): corner cases C6.1 to C6.5. Time is the test's: [`hold_peers`] reads it from a clock the test
-//! moves, so whether a peer is gone past the deadline is decided by the clock alone.
+//! codes name the cause"): stage 5.8's corner cases C6.1 to C6.5, and stage 5.9's C6.28: compute sends the group no Join
+//! until the node list is built (task 3.7). Time is the test's: [`hold_peers`] reads it from a clock the test moves, so
+//! whether a peer is gone past the deadline is decided by the clock alone.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
 use compio::runtime::spawn;
-use ultragraphdb_common_compute::{hold_peers, join_group};
+use ultragraphdb_common_compute::{find_partitions, hold_peers};
 use ultragraphdb_common_role::{
     Answer, Push, ROLE_ITERATIONS, Server, Session, serve_connection, system_address,
 };
@@ -22,15 +23,12 @@ use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame};
 use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, ErrorCode, ErrorReply, FLAG_LAST, Header, Join, Members,
+    BodyBuilder, Command, ErrorCode, ErrorReply, FLAG_LAST, Header, Members,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::played::played_cluster::{CLUSTER, SECRET, role_cluster, run};
 use crate::played::played_frontend::{PlayedFrontend, even_ranges};
-
-/// Compute's own role address, which its Join names.
-const OWN: &str = "tcp://127.0.0.1:7082";
 
 /// The deadline of the holding tests, which their clock passes: a peer gone that long is lost.
 const DEADLINE: Duration = Duration::from_millis(200);
@@ -40,9 +38,7 @@ const TICK: Duration = Duration::from_micros(1);
 
 /// The settings of a compute process whose `[cluster]` table holds `cluster`.
 fn start(cluster: &str) -> TestResult<RoleStart> {
-    let text = format!(
-        "[observability]\naddress = \"tcp://127.0.0.1:1\"\n[compute]\nrole_address = \"{OWN}\"\n[cluster]\n{cluster}"
-    );
+    let text = format!("[observability]\naddress = \"tcp://127.0.0.1:1\"\n[cluster]\n{cluster}");
     Ok(RoleStart::from_settings(
         text.as_bytes(),
         RoleIdentity::new("ci", "compute", 1),
@@ -97,8 +93,8 @@ async fn until(what: &str, holds: impl Fn() -> bool) -> TestResult {
 /// What a task's future gave, once it ended.
 type Ended<T> = Rc<RefCell<Option<T>>>;
 
-/// C6.1: compute dials a group that does not answer until it answers, joins, and goes on until its Members lists a partition
-/// that answers in turn: where the partitions listen, and the group took its Join at the group's address (C6.4).
+/// C6.1, and stage 5.9's C6.28: compute dials a group that does not answer until it answers, and goes on until its Members
+/// lists a partition that answers in turn: where the partitions listen. It sends the group no Join.
 #[test]
 fn test_compute_dials_until_the_group_answers_and_a_partition_joined() -> TestResult {
     run(async {
@@ -112,7 +108,7 @@ fn test_compute_dials_until_the_group_answers_and_a_partition_joined() -> TestRe
         let task = {
             let cluster = cluster.clone();
             spawn(async move {
-                let outcome = join_group(&address, &Join::compute(OWN), &cluster, &stopping).await;
+                let outcome = find_partitions(&address, &cluster, &stopping).await;
                 *told.borrow_mut() = Some(outcome);
             })
         };
@@ -130,8 +126,7 @@ fn test_compute_dials_until_the_group_answers_and_a_partition_joined() -> TestRe
             .map_err(|error| TestError::new(error.to_string()))?
             .context("partitions")?;
         assert_eq!(partitions, vec![Address::parse(partition.address())?]);
-        assert!(group.joins().iter().all(|join| join == OWN));
-        assert!(!group.joins().is_empty());
+        assert!(group.joins().is_empty(), "compute sends no Join");
         assert!(partition.dials() > 0, "the partition was asked to answer");
         Ok(())
     })
@@ -146,15 +141,10 @@ fn test_a_group_refusing_the_secret_is_asked_until_the_deadline() -> TestResult 
         let group = PlayedFrontend::start(&other, even_ranges(1)?).await?;
         let cluster = role_cluster(SECRET, Duration::from_millis(300))?;
         let address = Address::parse(group.address())?;
-        let refused = join_group(
-            &address,
-            &Join::compute(OWN),
-            &cluster,
-            &Stopping::default(),
-        )
-        .await
-        .err()
-        .context("a refusal")?;
+        let refused = find_partitions(&address, &cluster, &Stopping::default())
+            .await
+            .err()
+            .context("a refusal")?;
         assert_eq!(refused.exit_code(), RoleError::EX_UNAVAILABLE);
         let message = refused.to_string();
         assert!(message.contains(group.address()), "{message}");
@@ -165,9 +155,9 @@ fn test_a_group_refusing_the_secret_is_asked_until_the_deadline() -> TestResult 
     })
 }
 
-/// A service stopping ends a join under way with nothing.
+/// A service stopping ends a search under way with nothing.
 #[test]
-fn test_a_stop_ends_a_join_with_nothing() -> TestResult {
+fn test_a_stop_ends_a_search_with_nothing() -> TestResult {
     run(async {
         let cluster = role_cluster(SECRET, Duration::from_secs(30))?;
         let group = PlayedFrontend::start(&cluster, even_ranges(1)?).await?;
@@ -175,7 +165,7 @@ fn test_a_stop_ends_a_join_with_nothing() -> TestResult {
         let stopping = Stopping::default();
         stopping.set();
         let address = Address::parse(group.address())?;
-        let joined = join_group(&address, &Join::compute(OWN), &cluster, &stopping)
+        let joined = find_partitions(&address, &cluster, &stopping)
             .await
             .map_err(|error| TestError::new(error.to_string()))?;
         assert_eq!(joined, None);
@@ -193,14 +183,13 @@ struct Held {
 }
 
 impl Held {
-    /// Holds a group listing compute already, as one it joined does, and a partition, the clock at 0, the group of a cluster
-    /// whose roles hold `group_secret`, compute's deadline `deadline`.
+    /// Holds a group and a partition, the clock at 0, the group of a cluster whose roles hold `group_secret`, compute's
+    /// deadline `deadline`.
     async fn start(group_secret: &str, deadline: Duration) -> TestResult<Self> {
         let cluster = role_cluster(SECRET, deadline)?;
         let group =
             PlayedFrontend::start(&role_cluster(group_secret, deadline)?, even_ranges(1)?).await?;
         let partition = PlayedFrontend::start(&cluster, even_ranges(1)?).await?;
-        group.list_compute(OWN);
         let held = Self {
             group,
             partition,
@@ -218,15 +207,9 @@ impl Held {
             Rc::clone(&held.ended),
         );
         spawn(async move {
-            let join = Join::compute(OWN);
-            let outcome = hold_peers(
-                &address,
-                &join,
-                partitions,
-                &cluster,
-                &stopping,
-                move || clock.get(),
-            )
+            let outcome = hold_peers(&address, partitions, &cluster, &stopping, move || {
+                clock.get()
+            })
             .await;
             *told.borrow_mut() = Some(outcome);
         })
@@ -246,27 +229,21 @@ impl Held {
     }
 }
 
-/// C6.2, C6.3: a group whose connections close is dialled again; back one tick before compute's deadline, and holding no
-/// compute as a restarted group does, it is sent compute's Join again and compute goes on. A group listing compute is sent
-/// none. A stop ends holding cleanly.
+/// C6.2, C6.3, C6.28: a group whose connections close is dialled again; back one tick before compute's deadline, compute goes
+/// on, and sends it no Join. A stop ends holding cleanly.
 #[test]
-fn test_a_group_back_before_the_deadline_is_joined_again() -> TestResult {
+fn test_a_group_back_before_the_deadline_is_held_again() -> TestResult {
     run(async {
         let held = Held::start(SECRET, DEADLINE).await?;
         let group = &held.group;
-        // The second ask begins once the first has ended, so a Join the first sent has arrived by then.
         until("two Members asked", || group.members_asked() > 1).await?;
-        assert!(
-            group.joins().is_empty(),
-            "a group listing compute takes no Join"
-        );
         group.answer(false);
         until("a dial turned away", || group.turned_away() > 0).await?;
         held.clock.set(DEADLINE - TICK);
-        group.forget_compute();
+        let asked = group.members_asked();
         group.answer(true);
-        until("a Join", || !group.joins().is_empty()).await?;
-        assert_eq!(group.joins(), vec![OWN.to_string()]);
+        until("a Members asked again", || group.members_asked() > asked).await?;
+        assert!(group.joins().is_empty(), "compute sends no Join");
         assert!(!held.has_ended(), "compute goes on");
         held.stopping.set();
         assert!(held.outcome().await?.is_ok());
@@ -274,13 +251,13 @@ fn test_a_group_back_before_the_deadline_is_joined_again() -> TestResult {
     })
 }
 
-/// The user's decision of 2026-11-17 (`notes/group-7.md`, *Found wanting* 1): compute joins a group again as soon as its
-/// connection to it comes back. The group restarts once compute's first ask is answered on the wire, closing compute's
-/// connection and holding no Join from before; compute's deadline of 60 s puts its next ask 30 s away, past the 10 s `until`
-/// waits, and the clock stands at 0, so no deadline passes: the Join comes on the connection compute dials as the old one
-/// closes.
+/// The user's decision of 2026-11-17 (stage 5.8's `notes/group-7.md`, *Found wanting* 1), as it stands without a Join:
+/// compute asks a group again as soon as its connection to it comes back. The group restarts once compute's first ask is
+/// answered on the wire, closing compute's connection; compute's deadline of 60 s puts its next ask 30 s away, past the 10 s
+/// `until` waits, and the clock stands at 0, so no deadline passes: the Members come on the connection compute dials as the
+/// old one closes.
 #[test]
-fn test_a_restarted_group_is_joined_again_at_once() -> TestResult {
+fn test_a_restarted_group_is_asked_again_at_once() -> TestResult {
     run(async {
         let held = Held::start(SECRET, Duration::from_secs(60)).await?;
         let group = &held.group;
@@ -288,15 +265,11 @@ fn test_a_restarted_group_is_joined_again_at_once() -> TestResult {
             group.members_asked() > 0 && group.requests_open() == 0
         })
         .await?;
-        assert!(
-            group.joins().is_empty(),
-            "a group listing compute takes no Join"
-        );
-        let dialled = group.dials();
+        let (dialled, asked) = (group.dials(), group.members_asked());
         group.restart();
-        until("a Join", || !group.joins().is_empty()).await?;
-        assert_eq!(group.joins(), vec![OWN.to_string()]);
-        assert!(group.dials() > dialled, "the Join came on a new connection");
+        until("a Members asked again", || group.members_asked() > asked).await?;
+        assert!(group.dials() > dialled, "asked on a new connection");
+        assert!(group.joins().is_empty(), "compute sends no Join");
         assert!(!held.has_ended(), "compute goes on");
         held.stopping.set();
         assert!(held.outcome().await?.is_ok());
@@ -403,7 +376,7 @@ enum Stray {
     Late { corrupted: bool },
 }
 
-/// A group listing compute in its Members, as one compute joined does, and sending `stray` after each Members it answers.
+/// A group answering Members, and sending `stray` after each Members it answers.
 #[derive(Debug)]
 struct StrayGroup {
     stray: Stray,
@@ -426,12 +399,11 @@ fn stray_error(stream: u64, corrupted: bool) -> TestResult<Vec<u8>> {
 }
 
 impl StrayGroup {
-    /// The Members of `stream`, compute listed, and what follows it: a late frame on its stream, which it leaves open for that
-    /// frame, or an Error on a stream compute has not opened.
+    /// The Members of `stream`, and what follows it: a late frame on its stream, which it leaves open for that frame, or an
+    /// Error on a stream compute has not opened.
     fn members(&mut self, stream: u64) -> TestResult<Vec<u8>> {
         self.members.set(self.members.get() + 1);
-        let mut members = Members::new();
-        members.push_compute(OWN);
+        let members = Members::new();
         let header = Header::new(CLUSTER, Command::Members).with_stream(stream);
         let (header, then) = match self.stray {
             Stray::Ahead => (
@@ -477,7 +449,7 @@ async fn holding_stray(stray: Stray) -> TestResult<(Rc<Cell<u32>>, Stopping)> {
     let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
     let group = listener.local_address()?;
     let server =
-        Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+        Server::new(CLUSTER, "compute", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
     let credentials = cluster.secret().credentials()?;
     let members = Rc::new(Cell::new(0));
     let counted = Rc::clone(&members);
@@ -499,15 +471,7 @@ async fn holding_stray(stray: Stray) -> TestResult<(Rc<Cell<u32>>, Stopping)> {
     let stopping = Stopping::default();
     let stops = stopping.clone();
     spawn(async move {
-        let _held = hold_peers(
-            &group,
-            &Join::compute(OWN),
-            partitions,
-            &cluster,
-            &stops,
-            || Duration::ZERO,
-        )
-        .await;
+        let _held = hold_peers(&group, partitions, &cluster, &stops, || Duration::ZERO).await;
         drop(partition);
     })
     .detach();

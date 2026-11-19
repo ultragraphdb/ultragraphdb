@@ -18,9 +18,9 @@ use ultragraphdb_protocol_wire::{
     WriteChange,
 };
 use ultragraphdb_tests::{
-    CLUSTER, SECRET, START_SECONDS, STORAGE_BINARY, answering, compute_on_one_host, config_address,
-    frontend_holding, holding, http_status, members_at, role_of_service, scratch,
-    start_config_service, storage_holding, storage_observability, until_answering, with,
+    CLUSTER, SECRET, START_SECONDS, STORAGE_BINARY, answering, compute_holding, config_address,
+    http_status, members_at, role_of_service, scratch, start_config_service, storage_holding,
+    storage_observability, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -37,7 +37,7 @@ const ACKNOWLEDGED: u32 = 8;
 /// How long a write sent as its storage pod is deleted is waited for before it is left in doubt.
 const IN_DOUBT: Duration = Duration::from_secs(1);
 
-/// How long a step lets the frontend send the Ended of a commit it answered before a pod is deleted, so the session holds no
+/// How long a step lets compute send the Ended of a commit it answered before a pod is deleted, so the session holds no
 /// mark of a connection that closes with it (`PROTOCOL.md` §11.5): far above a turn.
 const ENDED: Duration = Duration::from_millis(300);
 
@@ -54,14 +54,13 @@ fn running(w: &Steps) -> TestResult<&Cluster> {
     w.cluster.as_ref().context("the scenario's cluster")
 }
 
-/// Kills `instance` as a pod deleted with a grace period of zero, starts it again, and waits until it and the frontend are
-/// ready.
+/// Kills `instance` as a pod deleted with a grace period of zero, starts it again, and waits until it and compute are ready.
 fn deleted_and_started_again(w: &mut Steps, instance: &str) -> TestResult {
     let cluster = w.cluster.as_mut().context("the scenario's cluster")?;
     cluster.signal(instance, Signal::Kill)?;
     cluster.restart(instance)?;
     until_answering(&cluster.observability(instance)?, "/ready")?;
-    until_answering(&cluster.frontend_ready_address()?, "/ready")
+    until_answering(&cluster.compute_ready_address()?, "/ready")
 }
 
 /// Every cell of the rows `subject` `predicate` `?o` reads in a read-only transaction, read again from snapshot to snapshot
@@ -116,7 +115,7 @@ fn empty_namespace(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the config service, every storage instance, compute and the frontend each answer `/ready`, the frontend's pod mounts no volume, and a client reaching the frontend's client endpoint authenticates and commits"
+    "the config service, every storage instance and every compute pod each answer `/ready`, no compute pod mounts a volume, and a client reaching compute's client Service authenticates and commits"
 )]
 fn namespace_up(w: &mut Steps) -> TestResult {
     let cluster = running(w)?;
@@ -126,15 +125,15 @@ fn namespace_up(w: &mut Steps) -> TestResult {
         200,
         "the config service"
     );
-    for instance in ["storage", "compute", "frontend"] {
+    for instance in ["storage", "compute"] {
         assert_eq!(
             http_status(&cluster.observability(instance)?, "/ready")?,
             200,
             "{instance}"
         );
     }
-    // The frontend's settings name no data directory: it holds nothing a volume would keep.
-    let named: Vec<String> = frontend_holding()?
+    // Compute's settings name no data directory: it holds nothing a volume would keep.
+    let named: Vec<String> = compute_holding()?
         .into_iter()
         .map(|(name, _)| name)
         .filter(|name| name.ends_with("data_dir"))
@@ -176,7 +175,7 @@ fn storage_restarted(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "it joins the system group from the same role address, claims the same partitions, and the frontend's next request to it is answered"
+    "it joins the system group from the same role address, claims the same partitions, and compute's next request to it is answered"
 )]
 fn restarted_at_its_address(w: &mut Steps) -> TestResult {
     assert!(w.committed, "{:?} {}", w.seen.facts, w.over());
@@ -192,11 +191,7 @@ fn secret_absent(w: &mut Steps) -> TestResult {
     let storage = with(storage_holding()?, "cluster.role_secret_file", &named);
     let _service: u32 = start_config_service(
         &util,
-        &[
-            ("frontend", &frontend_holding()?),
-            ("storage", &storage),
-            ("compute", &holding(compute_on_one_host()?, SECRET)?),
-        ],
+        &[("storage", &storage), ("compute", &compute_holding()?)],
     )?;
     let log = scratch(&format!("storage-absent-secret-{}.log", w.scenario));
     let pid = util.start_service_from_config(role_of_service(
@@ -241,7 +236,7 @@ fn secret_named(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "a storage pod is deleted with a grace period of zero while a client commits through the frontend, and the pod starts again"
+    "a storage pod is deleted with a grace period of zero while a client commits through compute, and the pod starts again"
 )]
 fn killed_under_writes(w: &mut Steps) -> TestResult {
     own(w, &Spec::one_partition())?;
@@ -277,7 +272,7 @@ fn killed_under_writes(w: &mut Steps) -> TestResult {
     let cluster = w.cluster.as_mut().context("the scenario's cluster")?;
     cluster.restart("storage")?;
     until_answering(&cluster.observability("storage")?, "/ready")?;
-    until_answering(&cluster.frontend_ready_address()?, "/ready")?;
+    until_answering(&cluster.compute_ready_address()?, "/ready")?;
     let read = run(async {
         let mut reader = client(&at).await?;
         read_back(&mut reader, (&s, &p), &acknowledged).await
@@ -341,8 +336,8 @@ fn books_kept(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("the frontend's pod is deleted and its Deployment starts another")]
-fn frontend_deleted(w: &mut Steps) -> TestResult {
+#[when("a compute pod is deleted and its StatefulSet starts another")]
+fn compute_deleted(w: &mut Steps) -> TestResult {
     own(w, &Spec::one_partition())?;
     let (s, p) = (w.iri("s"), w.iri("p"));
     let (first, second) = (format!("{s}/first"), format!("{s}/second"));
@@ -356,7 +351,7 @@ fn frontend_deleted(w: &mut Steps) -> TestResult {
         pause(ENDED).await;
         Ok((session.number(), committed.request()))
     })?;
-    deleted_and_started_again(w, "frontend")?;
+    deleted_and_started_again(w, "compute")?;
     let (next, read) = run(async {
         let mut after = client(&at).await?;
         // The session's next request is one above its last committed one (`PROTOCOL.md` §11.5).

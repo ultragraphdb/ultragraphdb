@@ -9,7 +9,7 @@ Feature: The client endpoint speaks TLS 1.3 when configured
   endpoint; the frontend's own start is its crate's.
 
   Scenario: A TLS client reaches the endpoint
-    When the frontend holds the test CA's certificate for `localhost` and a client trusting the CA connects and authenticates
+    When compute holds the test CA's certificate for `localhost` and a client trusting the CA connects and authenticates
     Then the TLS handshake, the wire handshake and SCRAM complete, and a write and a read succeed
 
   Scenario: A clear-text client is refused by a TLS endpoint

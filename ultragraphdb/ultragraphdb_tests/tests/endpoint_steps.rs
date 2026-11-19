@@ -50,7 +50,7 @@ pub(crate) async fn declare(client: &mut TestClient, declared: DeclaredPredicate
 }
 
 #[when(
-    "the frontend holds the test CA's certificate for `localhost` and a client trusting the CA connects and authenticates"
+    "compute holds the test CA's certificate for `localhost` and a client trusting the CA connects and authenticates"
 )]
 fn tls_client(w: &mut Steps) -> TestResult {
     let [a, b, knows] = ["a", "b", "knows"].map(|name| w.iri(name));
@@ -329,7 +329,7 @@ fn empty_commit(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend answers `commit_version` 0, the token zero and no results, and no partition sees it"
+    "compute answers `commit_version` 0, the token zero and no results, and no partition sees it"
 )]
 fn empty_answered(w: &mut Steps) -> TestResult {
     let committed = w.seen.commits.first().context("the commit's reply")?;

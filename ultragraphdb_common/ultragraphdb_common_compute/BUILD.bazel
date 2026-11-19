@@ -10,7 +10,7 @@ load("@rules_rust//rust:defs.bzl", "rust_doc")
 
 # The library's dependencies, and the aliases of those alone: `aliases()` names the dev-dependencies too, the system group the
 # tests run among them, and every label it names is a dependency of the library in Bazel's graph and so of every binary over
-# it (role-binaries, "The frontend binary carries no book").
+# it (role-binaries, "The compute binary carries no storage engine and no book").
 LIBRARY_DEPS = all_crate_deps(normal = True)
 
 rust_library(

@@ -5,36 +5,36 @@ Feature: The supervisor starts, stops and reports the roles
   openspec/changes/stage-5-8-system-group/specs/role-binaries/spec.md
 
   Scenario: The start order reaches readiness
-    When the supervisor starts the config service and the three roles
-    Then the config service answers first, storage's `/ready` answers before compute and the frontend are started, the frontend's answers last, and no role waited on one that was waiting on it
+    When the supervisor starts the config service and the two roles
+    Then the config service answers first, storage's `/ready` answers before compute is started, compute's answers last, and no role waited on one that was waiting on it
 
   Scenario: A failing role ends the container with its code
     When the storage process exits with code 74 while the others run
-    Then the supervisor stops the frontend and compute and exits with code 74
+    Then the supervisor stops compute and exits with code 74
 
   Scenario: A role killed by a signal is reported as a shell would
     When the compute process is killed by SIGKILL while the others run
-    Then the supervisor stops the frontend and storage and exits with code 137
+    Then the supervisor stops storage and exits with code 137
 
   Scenario: SIGTERM shuts down in order
     When the supervisor receives SIGTERM
-    Then the frontend stops accepting work first, compute drains next, storage flushes last, and the supervisor exits 0
+    Then compute stops accepting work and drains first, storage flushes last, and the supervisor exits 0
 
   Scenario: SIGINT shuts down as SIGTERM does
     When the supervisor receives SIGINT
-    Then the frontend stops accepting work first, compute drains next, storage flushes last, and the supervisor exits 0
+    Then compute stops accepting work and drains first, storage flushes last, and the supervisor exits 0
 
   Scenario: SIGHUP shuts down as SIGTERM does
     When the supervisor receives SIGHUP
-    Then the frontend stops accepting work first, compute drains next, storage flushes last, and the supervisor exits 0
+    Then compute stops accepting work and drains first, storage flushes last, and the supervisor exits 0
 
   Scenario: SIGQUIT shuts down as SIGTERM does
     When the supervisor receives SIGQUIT
-    Then the frontend stops accepting work first, compute drains next, storage flushes last, and the supervisor exits 0
+    Then compute stops accepting work and drains first, storage flushes last, and the supervisor exits 0
 
   Scenario: A role stopping cleanly ends the container with code 0
     When the storage process is told to stop by someone other than the supervisor
-    Then the supervisor stops the frontend and compute and exits with code 0
+    Then the supervisor stops compute and exits with code 0
 
   Scenario: A signal during the start stops what was started
     When the supervisor receives SIGTERM while storage waits for its partition
@@ -50,14 +50,14 @@ Feature: The supervisor starts, stops and reports the roles
 
   Scenario: The data layout matches a node's
     When the development container has started
-    Then `/data` holds `system/meta/`, `system/seq/` and `storage/p1/r1/`, the paths a cluster's hosting storage node uses, and no directory of the frontend's
+    Then `/data` holds `system/meta/`, `system/seq/` and `storage/p1/r1/`, the paths a cluster's hosting storage node uses, and no directory of compute's
 
   Scenario: The first start draws the keys and a restart keeps them
     When the development container starts, stops and starts again over one data directory
     Then the config service's two keys and the role secret stand in its data directory at mode 0600, each at least 32 bytes and differing, and the restart kept them and reached readiness
 
   Scenario: Two role secret files in one container are refused
-    When the supervisor starts on a target whose storage file names another `role_secret_file` than its frontend's
+    When the supervisor starts on a target whose storage file names another `role_secret_file` than its compute file's
     Then it exits with code 78, the error naming both files, and started no role
 
   Scenario: A bootstrap password removed after the first start stays removed
@@ -101,12 +101,12 @@ Feature: The supervisor starts, stops and reports the roles
     Then it exits with code 78, the error naming the directory and saying what it must be
 
   Scenario: Each binary's help names the exit codes
-    When each of the four binaries is asked for its help
+    When each of the three binaries is asked for its help
     Then each exits 0 and lists the codes 0, 69, 70, 74 and 78, and the supervisor's the code of a role a signal killed
 
   Scenario: A killed supervisor orphans no role
     When the supervisor is killed by SIGKILL while every role runs
-    Then the config service and the three roles each stop as on SIGTERM and free their ports
+    Then the config service and the two roles each stop as on SIGTERM and free their ports
 
   Scenario: The supervisor ends with the process it names
     When the supervisor starts with `ULTRAGRAPHDB_PARENT_PID` naming a process that is not its parent

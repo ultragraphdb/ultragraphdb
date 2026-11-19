@@ -169,7 +169,7 @@ impl ApartCluster {
         (1..=partitions)
             .for_each(|partition| placement.push_leader(PreferredLeader::new(partition, 1)));
         let (placement, members) = (Rc::new(placement), Rc::new(members));
-        let server = Server::new(CLUSTER, "frontend", Endpoint::Frontend)?;
+        let server = Server::new(CLUSTER, "compute", Endpoint::Frontend)?;
         let frontend = serve(&cluster, server, move || FrontendConnection {
             placement: Rc::clone(&placement),
             members: Rc::clone(&members),
@@ -217,7 +217,7 @@ impl ApartCluster {
             .map_err(|_| TestError::new("compute did not listen"))???;
         let password = self.cluster.secret().password();
         let address = Address::parse(&address)?;
-        let dial = RoleClient::dial(&address, CLUSTER, "frontend", password);
+        let dial = RoleClient::dial(&address, CLUSTER, "compute", password);
         // Compute serves on a runtime of its own, so a compute that stops answering fails the dial here rather than holding it.
         Ok(compio::time::timeout(LISTEN_WAIT, dial)
             .await

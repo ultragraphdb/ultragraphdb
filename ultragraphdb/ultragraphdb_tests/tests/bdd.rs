@@ -38,11 +38,10 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use ultragraphdb_protocol_wire::RoleKind;
 use ultragraphdb_tests::{
-    COMPUTE_BINARY, CONFIG_BINARY, FRONTEND_BINARY, SECRET, STORAGE_BINARY, answering,
-    compute_observability, compute_on_one_host, compute_role_address, frontend_holding,
-    frontend_observability, holding, http_status, members_at, role_of_service, scratch,
+    COMPUTE_BINARY, CONFIG_BINARY, STORAGE_BINARY, answering, compute_holding,
+    compute_observability, config_address, http_status, members_at, role_of_service, scratch,
     start_config_service, storage_holding, storage_observability, storage_role_address,
-    system_role_address, until_answering, with,
+    system_role_address, with,
 };
 use ultragraphdb_tool_bdd::TestResult;
 
@@ -52,12 +51,7 @@ const ROOT_PATH: &str = "ultragraphdb/ultragraphdb_tests";
 pub(crate) fn services() -> TestResult<ServiceUtil> {
     Ok(ServiceUtil::new(
         ROOT_PATH,
-        vec![
-            CONFIG_BINARY,
-            FRONTEND_BINARY,
-            COMPUTE_BINARY,
-            STORAGE_BINARY,
-        ],
+        vec![CONFIG_BINARY, COMPUTE_BINARY, STORAGE_BINARY],
     )?)
 }
 
@@ -89,7 +83,6 @@ struct Steps {
     carrier: cluster::Carriers,
     cluster: Option<cluster::Cluster>,
     committed: bool,
-    compute: String,
     conversation: Option<conformance_steps::Conversation>,
     described: Option<ultragraphdb_protocol_wire::Describe>,
     failures: failure_steps::Seen,
@@ -132,69 +125,61 @@ impl Steps {
     }
 }
 
-/// Starts the frontend, storage and compute in the order their readiness needs, on the settings given.
+/// Starts the config service, then storage, then compute, each once the one before is ready, as the supervisor orders them,
+/// on the settings given; and holds whether storage's `/ready` answered before compute started and compute's while storage's
+/// did, at once on its start.
 fn start_in_order(
     w: &mut Steps,
-    frontend_settings: &[(String, String)],
     storage_settings: &[(String, String)],
     compute_settings: &[(String, String)],
 ) -> TestResult {
     let util = services()?;
     let _service: u32 = start_config_service(
         &util,
-        &[
-            ("frontend", frontend_settings),
-            ("storage", storage_settings),
-            ("compute", compute_settings),
-        ],
+        &[("storage", storage_settings), ("compute", compute_settings)],
     )?;
-    let log = scratch(FRONTEND_BINARY);
-    let frontend = frontend_observability()?;
-    let wait = answering(&frontend, "/health");
-    let _pid: u32 =
-        util.start_service_from_config(role_of_service(FRONTEND_BINARY, "frontend", &log, wait)?)?;
-    assert_eq!(
-        http_status(&frontend, "/ready")?,
-        503,
-        "the frontend is ready only once a partition answers it"
-    );
-    for (program, instance, address) in [
-        (STORAGE_BINARY, "storage", storage_observability()?),
-        (COMPUTE_BINARY, "compute", compute_observability()?),
-    ] {
-        let ready = answering(&address, "/ready");
-        let joined = role_of_service(program, instance, &scratch(program), ready)?;
-        let _joined: u32 = util.start_service_from_config(joined)?;
-    }
+    let config_first = http_status(&config_address()?, "/ready")? == 200;
+    let storage = storage_observability()?;
+    let storage_ready = answering(&storage, "/ready");
+    let started = role_of_service(
+        STORAGE_BINARY,
+        "storage",
+        &scratch(STORAGE_BINARY),
+        storage_ready,
+    )?;
+    let _storage: u32 = util.start_service_from_config(started)?;
+    let storage_first = http_status(&storage, "/ready")? == 200;
+    let compute_ready = answering(&compute_observability()?, "/ready");
+    let started = role_of_service(
+        COMPUTE_BINARY,
+        "compute",
+        &scratch(COMPUTE_BINARY),
+        compute_ready,
+    )?;
+    let _compute: u32 = util.start_service_from_config(started)?;
+    w.committed = config_first && storage_first;
     w.roles = Some(util);
     Ok(())
 }
 
-#[when("the frontend starts, then storage, then compute")]
+#[when("the supervisor starts the config service and the two roles")]
 fn start_all(w: &mut Steps) -> TestResult {
     w.system = format!("tcp://{}", system_role_address()?);
     w.storage = format!("tcp://{}", storage_role_address()?);
-    w.compute = format!("tcp://{}", compute_role_address()?);
-    start_in_order(
-        w,
-        &frontend_holding()?,
-        &storage_holding()?,
-        &holding(compute_on_one_host()?, SECRET)?,
-    )
+    start_in_order(w, &storage_holding()?, &compute_holding()?)
 }
 
-#[when("the frontend starts, then storage, then compute, each at a Unix socket")]
+#[when("the storage process starts, then compute, each at a Unix socket")]
 fn start_all_unix(w: &mut Steps) -> TestResult {
     // A socket's path has a short limit, which the sandbox's own directory passes.
     let socket =
         |name: &str| PathBuf::from(format!("/tmp/ugdb-{name}-{}.sock", std::process::id()));
-    let paths = [socket("g"), socket("s"), socket("c")];
-    let [g, st, c] = paths
+    let paths = [socket("g"), socket("s")];
+    let [g, st] = paths
         .each_ref()
         .map(|path| format!("unix://{}", path.display()));
     let partition_socket = PathBuf::from(format!("/tmp/ugdb-s-{}-p1.sock", std::process::id()));
     let dialled = "cluster.system_address";
-    let frontend_settings = with(frontend_holding()?, dialled, &g);
     let storage_settings = with(
         with(
             with(storage_holding()?, dialled, &g),
@@ -204,35 +189,34 @@ fn start_all_unix(w: &mut Steps) -> TestResult {
         "storage.role_address",
         &st,
     );
-    let compute_settings = with(
-        with(compute_on_one_host()?, dialled, &g),
-        "compute.role_address",
-        &c,
-    );
-    (w.system, w.storage, w.compute) = (g, format!("unix://{}", partition_socket.display()), c);
-    let [g_path, _, c_path] = paths;
-    w.sockets = vec![g_path, partition_socket, c_path];
-    start_in_order(
-        w,
-        &frontend_settings,
-        &storage_settings,
-        &holding(compute_settings, SECRET)?,
-    )
+    let compute_settings = with(compute_holding()?, dialled, &g);
+    (w.system, w.storage) = (g, format!("unix://{}", partition_socket.display()));
+    let [g_path, _] = paths;
+    w.sockets = vec![g_path, partition_socket];
+    start_in_order(w, &storage_settings, &compute_settings)
 }
 
 #[then(
-    "every role's `/ready` answers, the frontend's last, and the frontend's members name storage and compute"
+    "the config service answers first, storage's `/ready` answers before compute is started, compute's answers last, and no role waited on one that was waiting on it"
 )]
 fn all_ready(w: &mut Steps) -> TestResult {
+    assert!(
+        w.committed,
+        "the config service, then storage, were ready first"
+    );
     assert_eq!(http_status(&storage_observability()?, "/ready")?, 200);
     assert_eq!(http_status(&compute_observability()?, "/ready")?, 200);
-    let frontend = frontend_observability()?;
-    until_answering(&frontend, "/ready")?;
-    assert_eq!(http_status(&frontend, "/other")?, 404);
-    let expected = vec![
-        (RoleKind::Compute, 0, w.compute.clone()),
-        (RoleKind::Storage, 1, w.storage.clone()),
-    ];
+    Ok(())
+}
+
+#[then(
+    "every role's `/ready` answers, compute's last, and the system group's members name storage alone"
+)]
+fn all_ready_over_unix(w: &mut Steps) -> TestResult {
+    all_ready(w)?;
+    assert_eq!(http_status(&compute_observability()?, "/other")?, 404);
+    // Compute sends the group no Join until the node list is built (C6.28): Members names the storage process alone.
+    let expected = vec![(RoleKind::Storage, 1, w.storage.clone())];
     assert_eq!(members_at(&w.system)?, expected);
     Ok(())
 }

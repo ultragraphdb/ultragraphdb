@@ -13,10 +13,10 @@ Feature: The role-binaries scenarios that need an image
 
   Scenario: The development container uses Unix sockets
     When the development image starts with its default profile
-    Then the system group listens at `unix:///run/ultragraph/system.sock`, compute at `unix:///run/ultragraph/compute.sock` and each partition at `unix:///run/ultragraph/storage-p<partition>.sock`, the frontend listens at no role address, and a write and a read through the frontend succeed
+    Then the system group listens at `unix:///run/ultragraph/system.sock`, each partition at `unix:///run/ultragraph/storage-p<partition>.sock`, compute listens at no role address, and a write and a read through compute succeed
 
   Scenario: The same frames cross TCP
-    When the three roles run in three containers configured with `tcp://` addresses
+    When the two roles run in two containers configured with `tcp://` addresses
     Then the same write and read succeed, and the read's rows are byte-identical to the Unix-socket run's
 
   Scenario: The seccomp profile enables io_uring

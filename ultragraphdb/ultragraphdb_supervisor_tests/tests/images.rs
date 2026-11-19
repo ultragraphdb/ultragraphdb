@@ -4,8 +4,8 @@
  */
 
 //! The scenarios that need an image, run in Docker by the `image_bdd` target: each image loaded from its Bazel load target for
-//! the daemon's own platform, the development image on its default profile, and the three role images on the `dev-net`
-//! profile in three containers of one network. Every Docker command is bounded and its failure names what it ran.
+//! the daemon's own platform, the development image on its default profile, and the config service's and the two role images
+//! on the `dev-net` profile in three containers of one network. Every Docker command is bounded and its failure names what it ran.
 
 use std::collections::BTreeSet;
 use std::fs::File;
@@ -21,8 +21,8 @@ use ultragraphdb_protocol_wire::{
     DirectWrite, PatternSlot, QuadPattern, Read, RequestTerm, ResultView, TermTable, WriteChange,
 };
 use ultragraphdb_tests::{
-    ADMIN_KEY, COMPUTE_BINARY, CONFIG_BINARY, FRONTEND_BINARY, READ_KEY, SECRET, START_SECONDS,
-    STORAGE_BINARY, http_status, scratch, until_answering,
+    ADMIN_KEY, COMPUTE_BINARY, CONFIG_BINARY, READ_KEY, SECRET, START_SECONDS, STORAGE_BINARY,
+    http_status, scratch, until_answering,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -57,10 +57,10 @@ const STORAGE_INDEX: &str =
 /// What the supervisor logs once every role is ready.
 const EVERY_ROLE_READY: &str = "every role is ready";
 
-/// The tenant the frontend's first start creates.
+/// The tenant compute's first start creates.
 const TENANT: u64 = 0;
 
-/// The administrator the frontend's first start creates from its bootstrap secret.
+/// The administrator compute's first start creates from its bootstrap secret.
 const ADMIN: &str = "admin";
 
 /// The client endpoint's port in every container, as both profiles declare it.
@@ -102,10 +102,6 @@ const GLIBC_BASE: Image = Image {
 const CONFIG_IMAGE: Image = Image {
     loader: "ultragraphdb/ultragraphdb_config/test_load.exe",
     name: "hansenmarvin/ultragraphdb_config:image-test",
-};
-const FRONTEND_IMAGE: Image = Image {
-    loader: "ultragraphdb/ultragraphdb_frontend/test_load.exe",
-    name: "hansenmarvin/ultragraphdb_frontend:image-test",
 };
 const STORAGE_IMAGE: Image = Image {
     loader: "ultragraphdb/ultragraphdb_storage/test_load.exe",
@@ -345,12 +341,7 @@ pub(crate) fn storage_image_holds_its_binary(c: &Containers) -> TestResult {
     for file in &image.files {
         let name = file.rsplit('/').next().unwrap_or(file);
         assert!(!SHELLS.contains(&name), "a shell: {file}");
-        for other in [
-            FRONTEND_BINARY,
-            COMPUTE_BINARY,
-            CONFIG_BINARY,
-            SUPERVISOR_BINARY,
-        ] {
+        for other in [COMPUTE_BINARY, CONFIG_BINARY, SUPERVISOR_BINARY] {
             assert!(!name.starts_with(other), "another role's binary: {file}");
         }
     }
@@ -435,7 +426,7 @@ pub(crate) fn start_development(c: &mut Containers, seccomp: Seccomp) -> TestRes
     c.started.push(container.clone());
     until_every_role_ready(c, &container, 1)?;
     c.endpoint = published(&container, ENDPOINT_PORT)?;
-    c.cluster = setting(&profile("dev/frontend.toml")?, "id")?.parse()?;
+    c.cluster = setting(&profile("dev/compute.toml")?, "id")?.parse()?;
     // The bootstrap administrator's password is the system group's host's to read (design D2, D11).
     let secret = setting(&profile("dev/storage.toml")?, "bootstrap_secret_file")?.to_string();
     let copied = scratch(&format!("{container}-bootstrap.secret"));
@@ -491,24 +482,21 @@ pub(crate) fn development_over_unix(c: &Containers) -> TestResult {
         (0o700, nonroot, nonroot),
         "the sockets' directory: its mode, user and group"
     );
-    // The system group listens at its host's `system.role_address`, which every role dials (design D2); the frontend's file
-    // names no role address, so the frontend adds no socket.
+    // The system group listens at its host's `system.role_address`, which every role dials (design D2); compute's file
+    // names no role address, so compute adds no socket.
     let storage = profile("dev/storage.toml")?;
     let system = table_setting(&storage, "system", "role_address")?.to_string();
-    let compute =
-        table_setting(&profile("dev/compute.toml")?, "compute", "role_address")?.to_string();
     assert_eq!(system, "unix:///run/ultragraph/system.sock");
-    assert_eq!(compute, "unix:///run/ultragraph/compute.sock");
     assert!(
-        !profile("dev/frontend.toml")?.contains("role_address"),
-        "the frontend names a role address"
+        !profile("dev/compute.toml")?.contains("role_address"),
+        "compute names a role address"
     );
     let first: u32 = setting(&storage, "partition_first")?.parse()?;
     let count: u32 = setting(&storage, "partition_count")?.parse()?;
-    let mut expected: BTreeSet<String> = [&system, &compute]
-        .iter()
-        .filter_map(|address| address.strip_prefix("unix://"))
+    let mut expected: BTreeSet<String> = system
+        .strip_prefix("unix://")
         .map(str::to_string)
+        .into_iter()
         .collect();
     expected.extend((first..first + count).map(|p| format!("/run/ultragraph/storage-p{p}.sock")));
     assert_eq!(sockets_added(container)?, expected, "{}", c.log);
@@ -519,7 +507,7 @@ pub(crate) fn development_over_unix(c: &Containers) -> TestResult {
 /// Every runtime of every role started on the driver `driver` names, and none on the other.
 pub(crate) fn on_driver(c: &Containers, driver: &str, other: &str) -> TestResult {
     let line = format!("a runtime on the {driver} driver");
-    let roles = ["frontend", "storage", "compute"].len();
+    let roles = ["storage", "compute"].len();
     assert!(
         c.log.matches(&line).count() >= roles,
         "{line} for each role: {}",
@@ -631,7 +619,6 @@ pub(crate) fn write_and_read(c: &Containers) -> TestResult<Vec<Vec<String>>> {
 /// reaches open on the container's interfaces, and its secrets and central file under `/secrets`.
 fn over_three_hosts(text: &str) -> String {
     text.replace("tcp://127.0.0.1:7081", "tcp://storage:7081")
-        .replace("tcp://127.0.0.1:7082", "tcp://compute:7082")
         .replace("tcp://127.0.0.1:7100", "tcp://storage:7100")
         .replace("tcp://127.0.0.1:", "tcp://0.0.0.0:")
         .replace("/data/config/read.key", "/secrets/read.key")
@@ -647,12 +634,7 @@ fn write_secrets(c: &mut Containers) -> TestResult<PathBuf> {
     let at = RUNS.fetch_add(1, Ordering::Relaxed);
     let secrets = scratch(&format!("secrets-{at}"));
     std::fs::create_dir_all(secrets.join("profile"))?;
-    for file in [
-        "targets.toml",
-        "frontend.toml",
-        "storage.toml",
-        "compute.toml",
-    ] {
+    for file in ["targets.toml", "storage.toml", "compute.toml"] {
         let text = profile(&format!("dev-net/{file}"))?;
         std::fs::write(secrets.join("profile").join(file), over_three_hosts(&text))?;
     }
@@ -669,7 +651,7 @@ fn write_secrets(c: &mut Containers) -> TestResult<PathBuf> {
     ] {
         std::fs::write(secrets.join(file), text)?;
     }
-    c.cluster = setting(&profile("dev-net/frontend.toml")?, "id")?.parse()?;
+    c.cluster = setting(&profile("dev-net/compute.toml")?, "id")?.parse()?;
     Ok(secrets)
 }
 
@@ -722,10 +704,10 @@ fn role_tail(role: &str, image: Image) -> Vec<String> {
     .collect()
 }
 
-/// The config service and the three role images in four containers of a network of their own, over `tcp://` alone, started
-/// in the start order of design D10: the config service, storage, compute, the frontend, each ready before the next starts.
-pub(crate) fn start_three_hosts(c: &mut Containers) -> TestResult {
-    for image in [CONFIG_IMAGE, FRONTEND_IMAGE, STORAGE_IMAGE, COMPUTE_IMAGE] {
+/// The config service and the two role images in three containers of a network of their own, over `tcp://` alone, started
+/// in the start order of design D10: the config service, storage, compute, each ready before the next starts.
+pub(crate) fn start_two_hosts(c: &mut Containers) -> TestResult {
+    for image in [CONFIG_IMAGE, STORAGE_IMAGE, COMPUTE_IMAGE] {
         load(image)?;
     }
     let network = container_name("network");
@@ -749,19 +731,12 @@ pub(crate) fn start_three_hosts(c: &mut Containers) -> TestResult {
     let compute = start_on_network(
         c,
         ("compute", NONROOT),
-        &["8082"],
+        &[ENDPOINT_PORT, "8082"],
         &role_tail("compute", COMPUTE_IMAGE),
     )?;
     until_ready(&compute, "8082")?;
-    let frontend = start_on_network(
-        c,
-        ("frontend", NONROOT),
-        &[ENDPOINT_PORT, "8081"],
-        &role_tail("frontend", FRONTEND_IMAGE),
-    )?;
-    until_ready(&frontend, "8081")?;
-    assert_eq!(http_status(&published(&frontend, "8081")?, "/ready")?, 200);
-    c.endpoint = published(&frontend, ENDPOINT_PORT)?;
+    assert_eq!(http_status(&published(&compute, "8082")?, "/ready")?, 200);
+    c.endpoint = published(&compute, ENDPOINT_PORT)?;
     Ok(())
 }
 
@@ -776,7 +751,7 @@ fn until_ready(container: &str, port: &str) -> TestResult {
 /// The supervisor stood at PID 1 and named itself to everything it started, which each role reads as its parent: past the time a
 /// role takes to look, none stopped, and a write and a read still succeed.
 pub(crate) fn roles_run_on_under_pid_1(c: &Containers) -> TestResult {
-    for instance in ["config", "frontend", "storage", "compute"] {
+    for instance in ["config", "storage", "compute"] {
         let named = c.log.lines().any(|line| {
             line.contains(&format!("started instance={instance} "))
                 && line.trim_end().ends_with(" parent=1")

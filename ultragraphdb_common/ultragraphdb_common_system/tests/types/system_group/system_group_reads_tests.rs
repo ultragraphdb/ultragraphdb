@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! What the frontend reads of the books besides the registry (`PROTOCOL.md` §13.7 to §13.9, §13.28): Defaults, a Catalog request
+//! What the compute reads of the books besides the registry (`PROTOCOL.md` §13.7 to §13.9, §13.28): Defaults, a Catalog request
 //! of `version` 0 naming an epoch, Challenge and Verify; corner cases C3.69 to C3.72 and the laws L3.30 to L3.32.
 
 use compio::runtime::Runtime;

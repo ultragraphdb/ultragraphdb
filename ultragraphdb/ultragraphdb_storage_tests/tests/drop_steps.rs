@@ -17,7 +17,7 @@ use ultragraphdb_protocol_wire::{
     Command, DirectWrite, DropCommand, ObjectRecords, RequestTerm, ScanAt, TermTable, WriteChange,
 };
 use ultragraphdb_tests::{
-    CLUSTER, FRONTEND_BINARY, answering, client_address, frontend_holding, frontend_observability,
+    CLUSTER, COMPUTE_BINARY, answering, client_address, compute_holding, compute_observability,
     role, scratch, storage_holding, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -69,13 +69,13 @@ fn started(w: &mut Steps) -> TestResult {
     );
     let _storage = crate::start_storage(&util, &hosting, &scratch("storage-drops"))?;
     let _frontend: u32 = util.start_service_from_config(role(
-        FRONTEND_BINARY,
-        &frontend_holding()?,
-        &scratch(FRONTEND_BINARY),
-        answering(&frontend_observability()?, "/health"),
+        COMPUTE_BINARY,
+        &compute_holding()?,
+        &scratch(COMPUTE_BINARY),
+        answering(&compute_observability()?, "/health"),
     )?)?;
     w.roles = Some(util);
-    until_answering(&frontend_observability()?, "/ready")
+    until_answering(&compute_observability()?, "/ready")
 }
 
 /// The administrator's connection to the frontend's client endpoint.

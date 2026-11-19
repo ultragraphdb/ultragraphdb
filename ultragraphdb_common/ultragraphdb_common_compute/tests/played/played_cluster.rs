@@ -153,7 +153,7 @@ impl PlayedCluster {
         Ok(RoleClient::dial(
             &address,
             self.cluster.id(),
-            "frontend",
+            "compute",
             self.cluster.secret().password(),
         )
         .await?)

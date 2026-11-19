@@ -6,22 +6,13 @@
 use crate::errors::service_config_error::ServiceConfigError;
 use crate::types::settings_reader::SettingsReader;
 
-/// The `[compute]` table: a compute process's own place.
+/// The `[compute]` table: a compute node's own settings. It holds none: compute listens at no role address (stage 5.9), so
+/// `compute.role_address` of a file written before is refused as an unknown setting by its name.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ComputeTable {
-    role_address: Option<String>,
-}
+pub struct ComputeTable {}
 
 impl ComputeTable {
-    pub(crate) fn read(reader: &mut SettingsReader) -> Result<Self, ServiceConfigError> {
-        Ok(Self {
-            role_address: reader.string("compute", "role_address")?,
-        })
-    }
-
-    /// `role_address`: the address the frontend reaches it at.
-    #[must_use]
-    pub fn role_address(&self) -> Option<&str> {
-        self.role_address.as_deref()
+    pub(crate) fn read(_reader: &mut SettingsReader) -> Result<Self, ServiceConfigError> {
+        Ok(Self {})
     }
 }

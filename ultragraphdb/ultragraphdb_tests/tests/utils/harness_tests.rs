@@ -27,12 +27,12 @@ use ultragraphdb_protocol_wire::{
     BodyBuilder, Command, ErrorCode, ErrorReply, FLAG_LAST, Header, Members,
 };
 use ultragraphdb_tests::{
-    ADMIN_KEY, CLUSTER, COMPUTE_BINARY, CONFIG_BINARY, DOUBLE_REVISION, FRONTEND_BINARY,
-    PARENT_PID, READ_KEY, SECRET, START_SECONDS, TARGET, answering, bootstrap, compute_on_one_host,
+    ADMIN_KEY, CLUSTER, COMPUTE_BINARY, CONFIG_BINARY, DOUBLE_REVISION, PARENT_PID, READ_KEY,
+    SECRET, START_SECONDS, TARGET, answering, bootstrap, compute_holding, compute_on_one_host,
     config_address, config_folder, config_folder_at, config_process, double_address, exit_is,
-    fresh_data, frontend_holding, holding, key_file, members_at, process, render_settings, role,
-    role_of_service, scratch, served_by_double, start_double, storage_holding, until_answering,
-    until_ports_free, with,
+    fresh_data, holding, key_file, members_at, process, render_settings, role, role_of_service,
+    scratch, served_by_double, start_double, storage_holding, until_answering, until_ports_free,
+    with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -145,18 +145,18 @@ fn test_a_role_asks_the_double_for_settings_it_serves() -> TestResult {
 #[test]
 fn test_the_double_serves_each_instance_apart() -> TestResult {
     std::fs::create_dir_all(scratch("config-double"))?;
-    let first = served_by_double(FRONTEND_BINARY, "first");
-    let second = served_by_double(FRONTEND_BINARY, "second");
+    let first = served_by_double(COMPUTE_BINARY, "first");
+    let second = served_by_double(COMPUTE_BINARY, "second");
     assert_ne!(first, second);
     for (instance, text) in [(&first, "first"), (&second, "second")] {
         let started = process(
-            FRONTEND_BINARY,
+            COMPUTE_BINARY,
             bootstrap(&double_address()?, instance),
             Path::new("unused.log"),
             answering("127.0.0.1:1", "/health"),
         );
         assert_eq!(
-            read_as(RoleKind::Frontend, &started)?.instance(),
+            read_as(RoleKind::Compute, &started)?.instance(),
             instance.as_str()
         );
         assert_eq!(
@@ -238,10 +238,10 @@ fn test_holding_again_replaces_the_secret_file_whole() -> TestResult {
 }
 
 /// Each storage process a scenario starts holds directories of its own, its partitions' and the system group's, apart from
-/// each other; the frontend holds none.
+/// each other; compute holds none.
 #[test]
 fn test_each_holding_role_has_a_data_directory_of_its_own() -> TestResult {
-    let (frontend, storage) = (frontend_holding()?, storage_holding()?);
+    let (compute, storage) = (compute_holding()?, storage_holding()?);
     let storage_again = storage_holding()?;
     for name in ["storage.data_dir", "system.data_dir"] {
         assert_ne!(setting(&storage, name)?, setting(&storage_again, name)?);
@@ -251,10 +251,10 @@ fn test_each_holding_role_has_a_data_directory_of_its_own() -> TestResult {
         setting(&storage, "system.data_dir")?
     );
     assert!(
-        frontend.iter().all(|(name, _)| !name.ends_with("data_dir")),
-        "{frontend:?}"
+        compute.iter().all(|(name, _)| !name.ends_with("data_dir")),
+        "{compute:?}"
     );
-    for settings in [&frontend, &storage] {
+    for settings in [&compute, &storage] {
         let file = setting(settings, "cluster.role_secret_file")?;
         assert_eq!(std::fs::read_to_string(file)?, SECRET);
     }
@@ -265,14 +265,10 @@ fn test_each_holding_role_has_a_data_directory_of_its_own() -> TestResult {
 type Instance = (String, Vec<(String, String)>);
 
 /// A whole cluster's settings, as the scenarios start it.
-fn cluster() -> TestResult<[Instance; 3]> {
+fn cluster() -> TestResult<[Instance; 2]> {
     Ok([
-        ("frontend".to_string(), frontend_holding()?),
         ("storage".to_string(), storage_holding()?),
-        (
-            "compute".to_string(),
-            holding(compute_on_one_host()?, SECRET)?,
-        ),
+        ("compute".to_string(), compute_holding()?),
     ])
 }
 
@@ -429,7 +425,7 @@ fn settings_head(instance: &str) -> TestResult<String> {
 #[test]
 fn test_the_double_answers_the_settings_it_serves_at_its_revision() -> TestResult {
     the_double()?;
-    let instance = served_by_double(FRONTEND_BINARY, "the served settings");
+    let instance = served_by_double(COMPUTE_BINARY, "the served settings");
     let answer = asked_of_double(&[format!(
         "GET /targets/{TARGET}/{}",
         settings_head(&instance)?
@@ -445,7 +441,7 @@ fn test_the_double_answers_the_settings_it_serves_at_its_revision() -> TestResul
 #[test]
 fn test_the_double_answers_a_request_whose_head_arrives_in_parts() -> TestResult {
     the_double()?;
-    let instance = served_by_double(FRONTEND_BINARY, "settings asked in parts");
+    let instance = served_by_double(COMPUTE_BINARY, "settings asked in parts");
     let answer = asked_of_double(&[format!("GET /targets/{TARGET}/"), settings_head(&instance)?])?;
     let (head, body) = answer.split_once("\r\n\r\n").context("an answer")?;
     assert!(head.starts_with("HTTP/1.1 200 "), "{answer}");
@@ -498,7 +494,7 @@ fn test_the_double_starts_once_and_names_a_port_taken() -> TestResult {
 #[test]
 fn test_the_double_answers_an_instance_it_does_not_serve_with_404() -> TestResult {
     the_double()?;
-    let instance = served_by_double(FRONTEND_BINARY, "served");
+    let instance = served_by_double(COMPUTE_BINARY, "served");
     let answer = asked_of_double(&[format!(
         "GET /targets/{TARGET}/{}",
         settings_head(&format!("{instance}-not-served"))?

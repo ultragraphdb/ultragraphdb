@@ -283,7 +283,7 @@ fn a_begin_asks_no_other_process(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend answers with the read version of the latest close its view holds, and sends no frame to the system group for it"
+    "compute answers with the read version of the latest close its view holds, and sends no frame to the system group for it"
 )]
 fn a_begin_asks_no_other_process_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -675,7 +675,7 @@ fn a_quiet_time_retry(w: &mut Steps) -> TestResult {
     })
 }
 
-#[then("the frontend answers code 14, and the client resends after a delay")]
+#[then("compute answers code 14, and the client resends after a delay")]
 fn a_quiet_time_retry_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
@@ -708,7 +708,7 @@ fn a_describe_across_frames(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend sends two Describe frames with one command header under the client's credit, the first without `LAST` and the second with it, and the client reads the declarations one frame would hold"
+    "compute sends two Describe frames with one command header under the client's credit, the first without `LAST` and the second with it, and the client reads the declarations one frame would hold"
 )]
 fn a_describe_across_frames_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -850,7 +850,7 @@ fn a_drop_beside_a_pending_version(w: &mut Steps) -> TestResult {
     })
 }
 
-#[then("the frontend passes it to the partition")]
+#[then("compute passes it to the partition")]
 fn a_drop_beside_a_pending_version_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }

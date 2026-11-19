@@ -52,7 +52,7 @@ fn wrong_owner(frame: &DoubleFrame, bucket: u32, owner: u32) -> Answer {
     partition_answer(frame, CLUSTER, BIND_VERSION)
 }
 
-#[when("the frontend allows 2 connections and a third client connects")]
+#[when("compute allows 2 connections and a third client connects")]
 fn connections_past_the_bound_are_refused(w: &mut Steps) -> TestResult {
     let options = Options {
         connections: 2,
@@ -177,7 +177,7 @@ fn a_data_request_before_authentication_is_refused_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
-#[when("a client asks to authenticate as an unknown name, twice, across a restart of the frontend")]
+#[when("a client asks to authenticate as an unknown name, twice, across a restart of compute")]
 fn an_unknown_name_answers_as_a_known_one_does(w: &mut Steps) -> TestResult {
     let options = Options {
         directory: Some(fresh()?),
@@ -215,7 +215,7 @@ fn an_unknown_name_answers_as_a_known_one_does_held(w: &mut Steps) {
 }
 
 #[when(
-    "a client authenticates as the unknown name `nobody`, the frontend restarts, and a client authenticates as `nobody` on another core"
+    "a client authenticates as the unknown name `nobody`, the system group's host and compute restart, and a client authenticates as `nobody` on another core"
 )]
 fn an_unknown_name_keeps_one_salt_across_a_restart(w: &mut Steps) -> TestResult {
     let options = Options {
@@ -1316,7 +1316,7 @@ fn an_empty_transaction_commits_at_the_frontend(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend answers `commit_version` 0, the token zero and no results, and no partition sees it"
+    "compute answers `commit_version` 0, the token zero and no results, and no partition sees it"
 )]
 fn an_empty_transaction_commits_at_the_frontend_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -1345,7 +1345,7 @@ fn a_resent_empty_commit_answers_not_committed_held(w: &mut Steps) {
 }
 
 #[when(
-    "a client sends a Write the frontend refuses and, before reading its answer, a second Write of the same transaction"
+    "a client sends a Write compute refuses and, before reading its answer, a second Write of the same transaction"
 )]
 fn a_transactions_first_refusal_is_the_one_its_client_sees(w: &mut Steps) -> TestResult {
     let options = Options::default();

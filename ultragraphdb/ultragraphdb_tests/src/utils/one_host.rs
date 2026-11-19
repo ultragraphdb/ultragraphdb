@@ -8,9 +8,6 @@
 
 use ultragraphdb_tool_bdd::{TestResult, loopback};
 
-/// The frontend binary's name.
-pub const FRONTEND_BINARY: &str = "ultragraphdb_frontend";
-
 /// The cluster a role of this host joins, which every frame's header names.
 pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
@@ -22,39 +19,26 @@ pub const STORAGE_BINARY: &str = "ultragraphdb_storage";
 
 /// The offsets above the target's port base (`ultragraphdb_tool_bdd::port`) of the addresses below. The first storage
 /// process's partitions follow its role address, up to four of them; a test's own addresses take the offsets these leave
-/// free: 4 to 9, 15 to 19, and from 20 on.
+/// free: 2, 4 to 9, 12, 15 to 19, and from 20 on.
 pub(crate) const CLIENT_OFFSET: u16 = 0;
 /// The system group's role address, as [`CLIENT_OFFSET`] says.
 pub(crate) const SYSTEM_ROLE_OFFSET: u16 = 1;
-/// Compute's role address, as [`CLIENT_OFFSET`] says.
-pub(crate) const COMPUTE_ROLE_OFFSET: u16 = 2;
 /// Storage's role address, its first partition's, as [`CLIENT_OFFSET`] says.
 pub(crate) const STORAGE_ROLE_OFFSET: u16 = 3;
 /// The config service's address, as [`CLIENT_OFFSET`] says.
 pub(crate) const CONFIG_OFFSET: u16 = 10;
 /// The config double's address, as [`CLIENT_OFFSET`] says.
 pub(crate) const DOUBLE_OFFSET: u16 = 11;
-/// The frontend's observability, as [`CLIENT_OFFSET`] says.
-pub(crate) const FRONTEND_OBSERVABILITY_OFFSET: u16 = 12;
 /// Compute's observability, as [`CLIENT_OFFSET`] says.
 pub(crate) const COMPUTE_OBSERVABILITY_OFFSET: u16 = 13;
 /// Storage's observability, as [`CLIENT_OFFSET`] says.
 pub(crate) const STORAGE_OBSERVABILITY_OFFSET: u16 = 14;
 
-/// The address the frontend's `/health` and `/ready` listen at.
-///
-/// # Errors
-///
-/// When the target sets no port base, as `ultragraphdb_tool_bdd::port` says.
-pub fn frontend_observability() -> TestResult<String> {
-    loopback(FRONTEND_OBSERVABILITY_OFFSET)
-}
-
 /// The address the system group listens at, in the storage process hosting it, which every role dials.
 ///
 /// # Errors
 ///
-/// As [`frontend_observability`].
+/// When the target sets no port base, as `ultragraphdb_tool_bdd::port` says.
 pub fn system_role_address() -> TestResult<String> {
     loopback(SYSTEM_ROLE_OFFSET)
 }
@@ -63,7 +47,7 @@ pub fn system_role_address() -> TestResult<String> {
 ///
 /// # Errors
 ///
-/// As [`frontend_observability`].
+/// As [`system_role_address`].
 pub fn client_address() -> TestResult<String> {
     loopback(CLIENT_OFFSET)
 }
@@ -72,25 +56,16 @@ pub fn client_address() -> TestResult<String> {
 ///
 /// # Errors
 ///
-/// As [`frontend_observability`].
+/// As [`system_role_address`].
 pub fn compute_observability() -> TestResult<String> {
     loopback(COMPUTE_OBSERVABILITY_OFFSET)
-}
-
-/// The address the frontend dials compute at.
-///
-/// # Errors
-///
-/// As [`frontend_observability`].
-pub fn compute_role_address() -> TestResult<String> {
-    loopback(COMPUTE_ROLE_OFFSET)
 }
 
 /// The address storage's `/health` and `/ready` listen at.
 ///
 /// # Errors
 ///
-/// As [`frontend_observability`].
+/// As [`system_role_address`].
 pub fn storage_observability() -> TestResult<String> {
     loopback(STORAGE_OBSERVABILITY_OFFSET)
 }
@@ -99,7 +74,7 @@ pub fn storage_observability() -> TestResult<String> {
 ///
 /// # Errors
 ///
-/// As [`frontend_observability`].
+/// As [`system_role_address`].
 pub fn storage_role_address() -> TestResult<String> {
     loopback(STORAGE_ROLE_OFFSET)
 }
@@ -111,32 +86,12 @@ fn named(settings: &[(&str, String)]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The settings of a frontend dialling the system group, each named `table.key`.
+/// The settings of a compute process dialling the system group and serving clients at [`client_address`] in clear text,
+/// each named `table.key`.
 ///
 /// # Errors
 ///
-/// As [`frontend_observability`].
-pub fn frontend_on_one_host() -> TestResult<Vec<(String, String)>> {
-    Ok(named(&[
-        (
-            "observability.address",
-            format!("tcp://{}", frontend_observability()?),
-        ),
-        ("cluster.id", CLUSTER.to_string()),
-        (
-            "cluster.system_address",
-            format!("tcp://{}", system_role_address()?),
-        ),
-        ("endpoint.address", format!("tcp://{}", client_address()?)),
-        ("endpoint.plaintext", "true".to_string()),
-    ]))
-}
-
-/// The settings of a compute process joining the system group, each named `table.key`.
-///
-/// # Errors
-///
-/// As [`frontend_observability`].
+/// As [`system_role_address`].
 pub fn compute_on_one_host() -> TestResult<Vec<(String, String)>> {
     Ok(named(&[
         (
@@ -148,10 +103,8 @@ pub fn compute_on_one_host() -> TestResult<Vec<(String, String)>> {
             "cluster.system_address",
             format!("tcp://{}", system_role_address()?),
         ),
-        (
-            "compute.role_address",
-            format!("tcp://{}", compute_role_address()?),
-        ),
+        ("endpoint.address", format!("tcp://{}", client_address()?)),
+        ("endpoint.plaintext", "true".to_string()),
     ]))
 }
 
@@ -160,7 +113,7 @@ pub fn compute_on_one_host() -> TestResult<Vec<(String, String)>> {
 ///
 /// # Errors
 ///
-/// As [`frontend_observability`].
+/// As [`system_role_address`].
 pub fn storage_on_one_host() -> TestResult<Vec<(String, String)>> {
     Ok(named(&[
         (

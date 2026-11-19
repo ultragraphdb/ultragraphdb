@@ -18,7 +18,7 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_log::{DurabilityTicket, LogEvent, OrderedLog, Position, Round, RoundRef};
 use ultragraphdb_transactions_log::{SimStorage, Wal, WalConfig};
 
-const FRONTEND: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n";
+const COMPUTE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n";
 /// The one storage instance, hosting the system group; its `[storage]` table comes last, so what a test appends lands there.
 const STORAGE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\npartition_count = 1\n[metadata]\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[sequencer]\nepoch_ms_min = 2\nepoch_ms_max = 10\n[system]\nrole_address = \"tcp://10.0.0.2:7100\"\ndata_dir = \"/data/system\"\n[storage]\npartition_count = 1\ndata_dir = \"/data/storage\"\nrole_address = \"tcp://10.0.0.2:7000\"\n";
 
@@ -46,7 +46,7 @@ fn open_log(storage: &SimStorage) -> TestResult<Wal<SimStorage>> {
 fn bundle(id: u64) -> Vec<u8> {
     let named = |text: &str| text.replace("id = 7", &format!("id = {id}")).into_bytes();
     let mut target = TargetFiles::new("ci");
-    target.insert("frontend", "frontend.toml", named(FRONTEND));
+    target.insert("compute", "compute.toml", named(COMPUTE));
     target.insert("storage", "storage.toml", named(STORAGE));
     target.to_bundle()
 }

@@ -8,18 +8,11 @@ load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("//bazel:test_ports.bzl", "port_env")
 
-# What the compute binary links, for the test that fails when it links an engine.
+# What the compute binary links, for the test that fails when it links an engine or a book.
 genquery(
     name = "compute_deps",
     expression = "deps(//ultragraphdb/ultragraphdb_compute:ultragraphdb_compute)",
     scope = ["//ultragraphdb/ultragraphdb_compute:ultragraphdb_compute"],
-)
-
-# What the frontend binary links, for the tests that fail when it links an engine or a book.
-genquery(
-    name = "frontend_deps",
-    expression = "deps(//ultragraphdb/ultragraphdb_frontend:ultragraphdb_frontend)",
-    scope = ["//ultragraphdb/ultragraphdb_frontend"],
 )
 
 # The binaries as processes: each is copied into the sandbox, and the test starts it. No container is involved, so Bazel
@@ -32,11 +25,9 @@ genquery(
         srcs = glob(["tests/**/*.rs"]),
         crate_root = "tests/bdd.rs",
         data = [feature] + [
-            ":copy_frontend",
             ":copy_compute",
             ":copy_storage",
             ":compute_deps",
-            ":frontend_deps",
         ],
         env = port_env(index),
         tags = ["integration_test", "compute-integration-test"],
@@ -45,14 +36,6 @@ genquery(
     )
     for index, feature in enumerate(glob(["features/**/*.feature"]))
 ]
-
-# Copy the frontend binary into the sandbox.
-copy_file(
-    name = "copy_frontend",
-    src = "//ultragraphdb/ultragraphdb_frontend:ultragraphdb_frontend",
-    out = "ultragraphdb_frontend",
-    is_executable = True,
-)
 
 # Copy the compute binary into the sandbox.
 copy_file(

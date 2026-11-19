@@ -1393,7 +1393,7 @@ fn describe_scene(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend answers asking no other role: `read_version` is the version bound of the latest closed epoch, the declarations list `name` with its `term` index, the property keys hold `name` and `score`, and the relationship types hold `score`"
+    "compute answers asking no partition: `read_version` is the version bound of the latest closed epoch, the declarations list `name` with its `term` index, the property keys hold `name` and `score`, and the relationship types hold `score`"
 )]
 fn described(w: &mut Steps) -> TestResult {
     let described = w.described.as_ref().context("the Describe")?;
@@ -2262,7 +2262,7 @@ fn drop_runs_again(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the second Drop removes nothing more, and the frontend builds the version removing `p`'s declaration before it relays the reply"
+    "the second Drop removes nothing more, and the system group builds the version removing `p`'s declaration, asked by compute before it relays the reply"
 )]
 fn drop_ran_again(w: &mut Steps) -> TestResult {
     assert_eq!(w.seen.commits.len(), 2, "{}", w.over());

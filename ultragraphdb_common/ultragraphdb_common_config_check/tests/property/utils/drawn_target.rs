@@ -123,14 +123,11 @@ pub(crate) fn unhost(settings: &mut Settings) {
     }
 }
 
-/// A target that passes every check: one frontend, `computes` compute instances and `storages` storage instances of one
-/// partition each, each on a host of its own, `storage_1` hosting the system group.
+/// A target that passes every check but the Roles check's count: `computes` compute instances, each serving clients, and
+/// `storages` storage instances of one partition each, each on a host of its own, `storage_1` hosting the system group.
 pub(crate) fn valid(computes: u64, storages: u64) -> Instances {
     let system_address = format!("tcp://10.0.2.1:{SYSTEM_PORT}");
     let mut instances = Instances::new();
-    let mut frontend = joined(&system_address);
-    frontend.text("observability", "address", "tcp://10.0.0.1:8080");
-    let _none = instances.insert("frontend".to_string(), frontend);
     for index in 1..=computes {
         let mut compute = joined(&system_address);
         compute.text(
@@ -138,11 +135,8 @@ pub(crate) fn valid(computes: u64, storages: u64) -> Instances {
             "address",
             &format!("tcp://10.0.1.{index}:8080"),
         );
-        compute.text(
-            "compute",
-            "role_address",
-            &format!("tcp://10.0.1.{index}:7082"),
-        );
+        compute.text("endpoint", "address", &format!("tcp://10.0.1.{index}:7080"));
+        compute.bare("endpoint", "plaintext", &true);
         let _no_compute = instances.insert(format!("compute_{index}"), compute);
     }
     for index in 1..=storages {

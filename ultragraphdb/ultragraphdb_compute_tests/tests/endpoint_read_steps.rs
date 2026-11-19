@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A client's reads through the real frontend, compute and storage: what a result names its terms by, and the order a
+//! A client's reads through the real compute and storage binaries: what a result names its terms by, and the order a
 //! transaction's requests keep.
 
 use std::time::Duration;
@@ -20,9 +20,9 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_quads::{iri_bucket, term_key};
 use ultragraphdb_tests::{
-    CLUSTER, COMPUTE_BINARY, FRONTEND_BINARY, SECRET, STORAGE_BINARY, answering,
-    compute_observability, compute_on_one_host, frontend_holding, frontend_observability, holding,
-    role, scratch, storage_observability, storage_role_address, until_answering,
+    CLUSTER, COMPUTE_BINARY, SECRET, STORAGE_BINARY, answering, compute_holding,
+    compute_observability, role, scratch, storage_observability, storage_role_address,
+    until_answering,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -65,21 +65,15 @@ impl Answered {
     }
 }
 
-/// Starts the three binaries over one partition: the administrator's connection to the frontend.
+/// The administrator's connection to compute's client endpoint.
 async fn connected() -> TestResult<Authenticated<Carrier>> {
     let carrier = Carrier::connect(&client_address()?).await?;
     Authenticated::over(carrier).await
 }
 
+/// Starts the two binaries over one partition, storage first.
 fn started(w: &mut Steps) -> TestResult {
     let util = services()?;
-    let frontend = answering(&frontend_observability()?, "/health");
-    let _frontend: u32 = util.start_service_from_config(role(
-        FRONTEND_BINARY,
-        &frontend_holding()?,
-        &scratch(FRONTEND_BINARY),
-        frontend,
-    )?)?;
     let _storage: u32 = util.start_service_from_config(role(
         STORAGE_BINARY,
         &bootstrapping()?,
@@ -88,7 +82,7 @@ fn started(w: &mut Steps) -> TestResult {
     )?)?;
     let _compute: u32 = util.start_service_from_config(role(
         COMPUTE_BINARY,
-        &holding(compute_on_one_host()?, SECRET)?,
+        &compute_holding()?,
         &scratch(COMPUTE_BINARY),
         answering(&compute_observability()?, "/health"),
     )?)?;
@@ -184,7 +178,7 @@ async fn read_rows(client: &mut Authenticated<Carrier>, from: u64) -> TestResult
 /// The bytes of the system ID the partition holds for `iri`.
 async fn system_id(iri: &str) -> TestResult<Vec<u8>> {
     let address = Address::parse(&format!("tcp://{}", storage_role_address()?))?;
-    let mut client = RoleClient::dial(&address, CLUSTER, "frontend", SECRET).await?;
+    let mut client = RoleClient::dial(&address, CLUSTER, "compute", SECRET).await?;
     let key = term_key(TENANT, iri);
     let past = [key.as_slice(), &[0]].concat();
     let mut scan = Scan::new(ScanAt::Latest, 0, 0, 0, [0; 16], 0, 0);
@@ -458,7 +452,7 @@ fn read_then_error(w: &mut Steps) -> TestResult {
     })
 }
 
-#[then("the frontend sends nothing further on that read's stream")]
+#[then("compute sends nothing further on that read's stream")]
 fn nothing_further(w: &mut Steps) {
     w.roles = None;
 }

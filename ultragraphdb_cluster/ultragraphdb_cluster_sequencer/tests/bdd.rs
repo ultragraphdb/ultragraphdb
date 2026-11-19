@@ -100,7 +100,7 @@ fn closes_10_to_20(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "the frontend starts once with `epoch_ms_min` 0, once with `epoch_ms_min` 1,001, once with `epoch_ms_min` 5 and `epoch_ms_max` 4, and once with `epoch_ms_max` 10,001"
+    "the hosting storage process starts once with `epoch_ms_min` 0, once with `epoch_ms_min` 1,001, once with `epoch_ms_min` 5 and `epoch_ms_max` 4, and once with `epoch_ms_max` 10,001"
 )]
 fn starts_out_of_bounds(w: &mut Steps) -> TestResult {
     // Each start states both settings: the other one within its bounds.
@@ -208,7 +208,7 @@ fn read_waits(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend asks its sequencer for a close, and epoch 7 closes once 2 ms have passed since epoch 6 closed"
+    "compute asks the sequencer for a close, and epoch 7 closes once 2 ms have passed since epoch 6 closed"
 )]
 fn frontend_asks(w: &mut Steps) -> TestResult {
     let (_, since_ms) = w.close_ms.context("the close of 6")?;
@@ -534,7 +534,7 @@ fn placement_assigned_40_41(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "a catalog version is committed as pending while epoch 38 is the latest close, and the frontend is killed before it closes epoch 39"
+    "a catalog version is committed as pending while epoch 38 is the latest close, and the system group's host is killed before it closes epoch 39"
 )]
 fn killed_before_39(w: &mut Steps) -> TestResult {
     w.start(config(1, 1)?)?;

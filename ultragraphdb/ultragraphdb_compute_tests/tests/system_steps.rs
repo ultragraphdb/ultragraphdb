@@ -3,13 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The roles over a system group a storage process hosts, by its `[system]` table, as built binaries (design D2, D5): where
-//! the client endpoint listens, what it keeps across its own restart and a storage process's, how the roles wait for the
-//! group, what the endpoint answers while the group is gone, and how compute joins a group again (system-group, "A lost
-//! system group is waited for until the deadline").
+//! Compute over a system group a storage process hosts, by its `[system]` table, as built binaries (design D2, D5): where it
+//! listens, what it keeps across its own restart and a storage process's, how it waits for the group, and what it answers
+//! while the group is gone (system-group, "A lost system group is waited for until the deadline").
 
 use std::collections::BTreeSet;
-use std::process::ExitStatus;
 use std::time::Duration;
 
 use compio::runtime::Runtime;
@@ -23,25 +21,19 @@ use ultragraphdb_protocol_transport::{
 use ultragraphdb_protocol_transport_compio::{Carrier, Connection};
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Command, ErrorCode, ErrorReplyView, Header, Hello, MAX_FRAME_SIZE,
-    MAX_FRAME_SIZE_U32, Recall, RoleKind,
+    MAX_FRAME_SIZE_U32, Recall,
 };
 use ultragraphdb_tests::{
-    CLUSTER, COMPUTE_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering,
-    compute_observability, compute_on_one_host, exit_is, fresh_data, frontend_holding,
-    frontend_observability, holding, http_status, members_at, role, scratch, storage_holding,
-    storage_observability, system_role_address, until_answering, with,
+    CLUSTER, SECRET, START_SECONDS, compute_holding, compute_observability, exit_is, http_status,
+    members_at, storage_observability, system_role_address, until_answering, with,
 };
-use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
+use crate::Steps;
 use crate::endpoint_steps::{ADMIN, PASSWORD, client_address};
 use crate::processes::{
-    ENDED, Roles, admin, host_of, second_of, second_role_address, signal, subject_of, write_of,
+    ENDED, Roles, admin, host_of, second_of, second_role_address, subject_of, write_of,
 };
-use crate::{Steps, services};
-
-/// Where the hosting storage process's system group listens, as an offset above the target's port base: an address of its
-/// own beside its partitions'.
-const SYSTEM_ROLE_OFFSET: u16 = 4;
 
 /// How long the roles of a scenario that loses the system group for good wait for it.
 const SHORT_DEADLINE_MS: &str = "800";
@@ -52,102 +44,6 @@ const OUTAGE_ATTEMPTS: usize = 80;
 
 /// How often a step looks again at what it waits for.
 const LOOK: Duration = Duration::from_millis(10);
-
-/// The address of the system group a scenario's storage process hosts at [`SYSTEM_ROLE_OFFSET`].
-pub(crate) fn own_system_address() -> TestResult<String> {
-    loopback(SYSTEM_ROLE_OFFSET)
-}
-
-/// The deadline of the compute process whose group restarts: compute asks the group whether it lists compute every half of
-/// it, a minute here, so only its connection's close lists it again within the [`START_SECONDS`] the scenario waits.
-const LONG_DEADLINE_MS: u64 = 120_000;
-
-/// `settings` dialling the system group at `system`.
-fn dialling(settings: Vec<(String, String)>, system: &str) -> Vec<(String, String)> {
-    with(settings, "cluster.system_address", system)
-}
-
-/// A storage process of one partition hosting the system group at `system`, its logs in a directory of their own.
-fn hosting(system: &str) -> TestResult<Vec<(String, String)>> {
-    let data = fresh_data();
-    let tables = [
-        ("cluster.partition_count", "1"),
-        ("system.role_address", system),
-        ("system.data_dir", data.as_str()),
-        ("sequencer.epoch_ms_min", "1"),
-        ("sequencer.epoch_ms_max", "20"),
-    ];
-    Ok(tables.into_iter().fold(
-        dialling(storage_holding()?, system),
-        |settings, (name, value)| with(settings, name, value),
-    ))
-}
-
-/// Whether the system group at `system` lists a compute process within [`START_SECONDS`].
-fn compute_listed(system: &str) -> TestResult<bool> {
-    for _ in 0..START_SECONDS * 20 {
-        if members_at(system)?
-            .iter()
-            .any(|(kind, _, _)| *kind == RoleKind::Compute)
-        {
-            return Ok(true);
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    Ok(false)
-}
-
-#[when("the hosting storage process is killed and started again within `join_deadline_ms`")]
-fn hosting_storage_restarted(w: &mut Steps) -> TestResult {
-    let util = services()?;
-    let system = format!("tcp://{}", own_system_address()?);
-    let settings = hosting(&system)?;
-    let storage_log = scratch("storage-restarted");
-    let storage_ready = storage_observability()?;
-    let hosting_storage = || {
-        role(
-            STORAGE_BINARY,
-            &settings,
-            &storage_log,
-            answering(&storage_ready, "/ready"),
-        )
-    };
-    let storage = util.start_service_from_config(hosting_storage()?)?;
-    let log = scratch("compute-restarted-group.log");
-    let _compute: u32 = util.start_service_from_config(role(
-        COMPUTE_BINARY,
-        &with(
-            dialling(holding(compute_on_one_host()?, SECRET)?, &system),
-            "cluster.join_deadline_ms",
-            &LONG_DEADLINE_MS.to_string(),
-        ),
-        &log,
-        answering(&compute_observability()?, "/ready"),
-    )?)?;
-    assert!(compute_listed(&system)?, "compute joined at its start");
-    signal(storage, "KILL")?;
-    let _killed = util.wait_for_exit(storage, Duration::from_secs(START_SECONDS))?;
-    let _again: u32 = util.start_service_from_config(hosting_storage()?)?;
-    w.outcome = Some(compute_listed(&system)?);
-    w.log = std::fs::read_to_string(&log)?;
-    w.roles = Some(util);
-    Ok(())
-}
-
-#[then(
-    "compute dials the group as its connection closes and joins it again on the connection the group answers, so the group's Members lists compute again as soon as the group is back"
-)]
-fn joined_again_at_once(w: &mut Steps) -> TestResult {
-    let (waited_ms, next_ask_ms) = (START_SECONDS * 1_000, LONG_DEADLINE_MS / 2);
-    if waited_ms >= next_ask_ms {
-        return Err(TestError::new(format!(
-            "the step waits {waited_ms} ms, past compute's next ask at {next_ask_ms} ms"
-        )));
-    }
-    assert_eq!(w.outcome, Some(true), "{}", w.log);
-    w.roles = None;
-    Ok(())
-}
 
 /// The TCP addresses process `pid` listens at, read back from the operating system: Linux's `/proc`, and on macOS `lsof`, which
 /// its base system holds.
@@ -208,12 +104,12 @@ fn listening_in_proc(pid: u32) -> TestResult<BTreeSet<String>> {
     Ok(found)
 }
 
-#[when("the frontend has started")]
-fn frontend_started(w: &mut Steps) -> TestResult {
+#[when("compute has started")]
+fn compute_started(w: &mut Steps) -> TestResult {
     let mut roles = Roles::default();
     roles.start_host(host_of(1)?, true)?;
-    roles.start_frontend(frontend_holding()?, true)?;
-    w.seen = listening(roles.frontend_pid()?)?.into_iter().collect();
+    roles.start_compute(compute_holding()?, true)?;
+    w.seen = listening(roles.compute_pid()?)?.into_iter().collect();
     w.processes = roles;
     Ok(())
 }
@@ -222,7 +118,7 @@ fn frontend_started(w: &mut Steps) -> TestResult {
 fn listens_alone(w: &mut Steps) -> TestResult {
     let expected: Vec<String> = [
         ultragraphdb_tests::client_address()?,
-        frontend_observability()?,
+        compute_observability()?,
     ]
     .into_iter()
     .collect::<BTreeSet<_>>()
@@ -234,12 +130,12 @@ fn listens_alone(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "a client registers a session and commits request 1, the frontend is killed and restarted, and the client reconnects and commits request 2 through the same session"
+    "a client registers a session and commits request 1, compute is killed and restarted, and the client reconnects and commits request 2 through the same session"
 )]
-fn frontend_restarted(w: &mut Steps) -> TestResult {
+fn compute_restarted(w: &mut Steps) -> TestResult {
     let mut roles = Roles::default();
     roles.start_host(host_of(1)?, true)?;
-    roles.start_frontend(frontend_holding()?, true)?;
+    roles.start_compute(compute_holding()?, true)?;
     let subject = "http://ex.org/kept";
     let (number, first) = Runtime::new()?.block_on(async {
         let mut client = admin(1).await?;
@@ -250,7 +146,7 @@ fn frontend_restarted(w: &mut Steps) -> TestResult {
         compio::time::sleep(ENDED).await;
         TestResult::Ok((session.number(), committed.request()))
     })?;
-    roles.restart_frontend()?;
+    roles.restart_compute()?;
     let second = Runtime::new()?.block_on(async {
         let mut client = admin(1).await?;
         // The session's next request is one above its last committed one (`PROTOCOL.md` §11.5).
@@ -264,21 +160,21 @@ fn frontend_restarted(w: &mut Steps) -> TestResult {
     w.seen = vec![
         first.to_string(),
         format!("{:?}", second.as_ref().map(|committed| committed.request())),
-        roles.last_log("frontend")?,
+        roles.last_log("compute")?,
     ];
     w.processes = roles;
     Ok(())
 }
 
-#[then("request 2 commits, and the frontend replayed no log and read no file of its own")]
+#[then("request 2 commits, and compute replayed no log and read no file of its own")]
 fn request_2_committed(w: &mut Steps) -> TestResult {
     let [first, second, log] = w.seen.as_slice() else {
         return Err(TestError::new(format!("{:?}", w.seen)));
     };
     assert_eq!(first, "1", "request 1 was the session's first");
     assert_eq!(second, "Ok(2)", "{log}");
-    // The frontend's settings name no directory of its own, and its restart says it recovered or replayed nothing.
-    let named: Vec<String> = frontend_holding()?
+    // Compute's settings name no directory of its own, and its restart says it recovered or replayed nothing.
+    let named: Vec<String> = compute_holding()?
         .into_iter()
         .map(|(name, _)| name)
         .filter(|name| name.ends_with("data_dir"))
@@ -291,12 +187,12 @@ fn request_2_committed(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("a storage process restarts at the same role address while the frontend runs")]
+#[when("a storage process restarts at the same role address while compute runs")]
 fn storage_restarted(w: &mut Steps) -> TestResult {
     let mut roles = Roles::default();
     roles.start_host(host_of(2)?, true)?;
     roles.start_second(second_of()?)?;
-    roles.start_frontend(frontend_holding()?, true)?;
+    roles.start_compute(compute_holding()?, true)?;
     let subject = subject_of("http://ex.org/second", 2)?;
     let system = format!("tcp://{}", system_role_address()?);
     let before = Runtime::new()?.block_on(async {
@@ -321,14 +217,14 @@ fn storage_restarted(w: &mut Steps) -> TestResult {
         format!("{:?}", before.map(|_| ())),
         format!("{members:?}"),
         format!("{:?}", after.map(|_| ())),
-        roles.last_log("frontend")?,
+        roles.last_log("compute")?,
     ];
     w.processes = roles;
     Ok(())
 }
 
 #[then(
-    "the frontend's connection to it closes, the frontend reads Members again and dials the address, and its next write to that partition is answered"
+    "compute's connection to it closes, compute reads Members again and dials the address, and its next write to that partition is answered"
 )]
 fn dialled_again(w: &mut Steps) -> TestResult {
     let [before, members, after, log] = w.seen.as_slice() else {
@@ -345,28 +241,28 @@ fn dialled_again(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-/// Polls the `/ready` of `frontend` and `storage` until the frontend's answers: whether storage's answered when it did, and
-/// whether the frontend's `/health` answered while its `/ready` did not yet.
+/// Polls the `/ready` of compute and storage until compute's answers: whether storage's answered when it did, and whether
+/// compute's `/health` answered while its `/ready` did not yet.
 fn readiness_order() -> TestResult<(bool, bool)> {
     let ready = |address: &str| http_status(address, "/ready").is_ok_and(|status| status == 200);
-    let (frontend, storage) = (frontend_observability()?, storage_observability()?);
+    let (compute, storage) = (compute_observability()?, storage_observability()?);
     let mut healthy_first = false;
     for _ in 0..START_SECONDS * 100 {
-        if ready(&frontend) {
-            // Readiness only rises, so storage's `/ready` read after the frontend's says whether it answered before.
+        if ready(&compute) {
+            // Readiness only rises, so storage's `/ready` read after compute's says whether it answered before.
             return Ok((ready(&storage), healthy_first));
         }
-        healthy_first |= http_status(&frontend, "/health").is_ok_and(|status| status == 200);
+        healthy_first |= http_status(&compute, "/health").is_ok_and(|status| status == 200);
         std::thread::sleep(LOOK);
     }
-    Err(TestError::new("the frontend's /ready never answered"))
+    Err(TestError::new("compute's /ready never answered"))
 }
 
-#[when("the frontend starts while the hosting storage process still recovers")]
-fn frontend_while_recovering(w: &mut Steps) -> TestResult {
+#[when("compute starts while the hosting storage process still recovers")]
+fn compute_while_recovering(w: &mut Steps) -> TestResult {
     let mut roles = Roles::default();
     roles.start_host(host_of(1)?, true)?;
-    roles.start_frontend(frontend_holding()?, true)?;
+    roles.start_compute(compute_holding()?, true)?;
     // Rounds in the host's partition log, which a restart replays before the partition joins and storage is ready.
     Runtime::new()?.block_on(async {
         let mut client = admin(1).await?;
@@ -381,12 +277,12 @@ fn frontend_while_recovering(w: &mut Steps) -> TestResult {
         TestResult::Ok(())
     })?;
     let (host, settings) = roles.host.take().context("the host")?;
-    let frontend = roles.frontend_pid()?;
+    let compute = roles.compute_pid()?;
     let _host_gone = roles.kill(host)?;
-    let _frontend_gone = roles.kill(frontend)?;
-    let frontend_settings = roles.frontend.take().context("the frontend")?.1;
+    let _compute_gone = roles.kill(compute)?;
+    let compute_settings = roles.compute.take().context("compute")?.1;
     roles.start_host(settings, false)?;
-    roles.start_frontend_unwaited(frontend_settings)?;
+    roles.start_compute_unwaited(compute_settings)?;
     let storage_ready_now =
         http_status(&storage_observability()?, "/ready").is_ok_and(|status| status == 200);
     let (storage_first, healthy_first) = readiness_order()?;
@@ -400,45 +296,45 @@ fn frontend_while_recovering(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the frontend's `/health` answers, and its `/ready` answers only after storage's")]
+#[then("compute's `/health` answers, and its `/ready` answers only after storage's")]
 fn ready_after_storage(w: &mut Steps) -> TestResult {
     let [storage_ready_then, storage_first, healthy_first, log] = w.seen.as_slice() else {
         return Err(TestError::new(format!("{:?}", w.seen)));
     };
-    // The premise: storage was still recovering when the frontend's `/health` answered.
+    // The premise: storage was still recovering when compute's `/health` answered.
     assert_eq!(
         storage_ready_then, "false",
         "storage was ready already: {log}"
     );
-    assert_eq!(healthy_first, "true", "the frontend's /health first");
+    assert_eq!(healthy_first, "true", "compute's /health first");
     assert_eq!(storage_first, "true", "storage's /ready first: {log}");
     w.processes = Roles::default();
     Ok(())
 }
 
 #[when(
-    "the frontend starts while no process listens at `cluster.system_address`, and the hosting storage process starts within the deadline"
+    "compute starts while no process listens at `cluster.system_address`, and the hosting storage process starts within the deadline"
 )]
-fn frontend_before_storage(w: &mut Steps) -> TestResult {
+fn compute_before_storage(w: &mut Steps) -> TestResult {
     let mut roles = Roles::default();
-    roles.start_frontend(frontend_holding()?, false)?;
-    let unready = http_status(&frontend_observability()?, "/ready")?;
-    // The frontend dials meanwhile; the host starts well within the default deadline of 60 s.
+    roles.start_compute(compute_holding()?, false)?;
+    let unready = http_status(&compute_observability()?, "/ready")?;
+    // Compute dials meanwhile; the host starts well within the default deadline of 60 s.
     std::thread::sleep(Duration::from_millis(500));
-    let still = http_status(&frontend_observability()?, "/ready")?;
+    let still = http_status(&compute_observability()?, "/ready")?;
     roles.start_host(host_of(1)?, false)?;
     let (storage_first, _healthy) = readiness_order()?;
     w.seen = vec![
         unready.to_string(),
         still.to_string(),
         storage_first.to_string(),
-        roles.last_log("frontend")?,
+        roles.last_log("compute")?,
     ];
     w.processes = roles;
     Ok(())
 }
 
-#[then("the frontend dials until it is answered, and its `/ready` answers after storage's")]
+#[then("compute dials until it is answered, and its `/ready` answers after storage's")]
 fn waited_for_storage(w: &mut Steps) -> TestResult {
     let [unready, still, storage_first, log] = w.seen.as_slice() else {
         return Err(TestError::new(format!("{:?}", w.seen)));
@@ -482,7 +378,7 @@ fn code_of(error: &ClientError) -> Option<ErrorCode> {
 fn recalled(session: u128, request: u64) -> TestResult<(Command, Option<ErrorCode>)> {
     Runtime::new()?.block_on(async {
         let address = Address::parse(&format!("tcp://{}", second_role_address()?))?;
-        let mut role = RoleClient::dial(&address, CLUSTER, "frontend", SECRET).await?;
+        let mut role = RoleClient::dial(&address, CLUSTER, "compute", SECRET).await?;
         role.send_only(&Recall::new(2, session.to_be_bytes(), request))
             .await?;
         let answer = role.next_frame().await?;
@@ -494,12 +390,12 @@ fn recalled(session: u128, request: u64) -> TestResult<(Command, Option<ErrorCod
     })
 }
 
-#[when("the frontend's connection to the group is closed and a client commits through its session")]
+#[when("compute's connection to the group is closed and a client commits through its session")]
 fn commit_in_outage(w: &mut Steps) -> TestResult {
     let mut roles = Roles::default();
     roles.start_host(host_of(2)?, true)?;
     roles.start_second(second_of()?)?;
-    roles.start_frontend(frontend_holding()?, true)?;
+    roles.start_compute(compute_holding()?, true)?;
     let subject = subject_of("http://ex.org/outage", 2)?;
     let runtime = Runtime::new()?;
     let (mut client, session, first) = runtime.block_on(async {
@@ -521,14 +417,14 @@ fn commit_in_outage(w: &mut Steps) -> TestResult {
     // The partition's table, asked while the group is gone: whether the refused request reached it.
     let at_partition = recalled(session.number(), first + 1)?;
     roles.start_host(settings, true)?;
-    until_answering(&frontend_observability()?, "/ready")?;
+    until_answering(&compute_observability()?, "/ready")?;
     let resent = runtime.block_on(async { client.resolve(session).await });
     w.seen = vec![
         format!("{:?}", refused.as_ref().err().and_then(code_of)),
         format!("{at_partition:?}"),
         format!("{:?}", resent.map(|committed| committed.request())),
         (first + 1).to_string(),
-        roles.last_log("frontend")?,
+        roles.last_log("compute")?,
     ];
     w.processes = roles;
     Ok(())
@@ -599,7 +495,7 @@ async fn authenticated_once() -> TestResult<Option<(u64, ErrorCode)>> {
 fn outage_authentications(w: &mut Steps) -> TestResult {
     let mut roles = Roles::default();
     roles.start_host(host_of(1)?, true)?;
-    roles.start_frontend(frontend_holding()?, true)?;
+    roles.start_compute(compute_holding()?, true)?;
     let (host, settings) = roles.host.take().context("the host")?;
     let _killed = roles.kill(host)?;
     let runtime = Runtime::new()?;
@@ -622,14 +518,12 @@ fn outage_authentications(w: &mut Steps) -> TestResult {
                 other => return Ok(other),
             }
         }
-        Err(TestError::new(
-            "the frontend never relayed an exchange again",
-        ))
+        Err(TestError::new("compute never relayed an exchange again"))
     })?;
     w.seen = vec![
         format!("{during:?}"),
         format!("{after:?}"),
-        roles.last_log("frontend")?,
+        roles.last_log("compute")?,
     ];
     w.processes = roles;
     Ok(())
@@ -649,44 +543,44 @@ fn outage_bans_nothing(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "the frontend is ready, and the hosting storage process is killed and started again within `join_deadline_ms`"
+    "compute is ready, and the hosting storage process is killed and started again within `join_deadline_ms`"
 )]
 fn group_lost_and_back(w: &mut Steps) -> TestResult {
     let mut roles = Roles::default();
     roles.start_host(host_of(1)?, true)?;
-    roles.start_frontend(frontend_holding()?, true)?;
-    let ready_before = http_status(&frontend_observability()?, "/ready")?;
+    roles.start_compute(compute_holding()?, true)?;
+    let ready_before = http_status(&compute_observability()?, "/ready")?;
     let (host, settings) = roles.host.take().context("the host")?;
     let _killed = roles.kill(host)?;
-    // The frontend's `/ready` once its link has found the connection closed, and its `/health` then; the default deadline,
-    // 60 s, leaves the frontend running throughout.
+    // Compute's `/ready` once its link has found the connection closed, and its `/health` then; the default deadline, 60 s,
+    // leaves compute running throughout.
     let mut withdrawn = None;
-    let frontend = frontend_observability()?;
+    let compute = compute_observability()?;
     for _ in 0..START_SECONDS * 100 {
-        let ready = http_status(&frontend, "/ready")?;
+        let ready = http_status(&compute, "/ready")?;
         if ready != 200 {
-            withdrawn = Some((ready, http_status(&frontend, "/health")?));
+            withdrawn = Some((ready, http_status(&compute, "/health")?));
             break;
         }
         std::thread::sleep(LOOK);
     }
-    let (unready, healthy) = withdrawn.context("the frontend's /ready withdrawn")?;
+    let (unready, healthy) = withdrawn.context("compute's /ready withdrawn")?;
     roles.start_host(settings, true)?;
-    until_answering(&frontend_observability()?, "/ready")?;
-    let ready_after = http_status(&frontend_observability()?, "/ready")?;
+    until_answering(&compute_observability()?, "/ready")?;
+    let ready_after = http_status(&compute_observability()?, "/ready")?;
     w.seen = vec![
         ready_before.to_string(),
         unready.to_string(),
         healthy.to_string(),
         ready_after.to_string(),
-        roles.last_log("frontend")?,
+        roles.last_log("compute")?,
     ];
     w.processes = roles;
     Ok(())
 }
 
 #[then(
-    "the frontend's `/ready` answers 503 once its connection to the system group has closed while its `/health` answers 200, and its `/ready` answers 200 again once the group answers it, Members lists every partition and one answers"
+    "compute's `/ready` answers 503 once its connection to the system group has closed while its `/health` answers 200, and its `/ready` answers 200 again once the group answers it, Members lists every partition and one answers"
 )]
 fn unready_while_lost(w: &mut Steps) -> TestResult {
     let [before, unready, healthy, after, log] = w.seen.as_slice() else {
@@ -704,52 +598,32 @@ fn unready_while_lost(w: &mut Steps) -> TestResult {
 fn hosting_storage_killed(w: &mut Steps) -> TestResult {
     let mut roles = Roles::default();
     roles.start_host(host_of(1)?, true)?;
-    // Both roles that depend on the group, each with a short deadline, so each scenario's Then judges its own.
-    let deadline = |settings| with(settings, "cluster.join_deadline_ms", SHORT_DEADLINE_MS);
-    roles.start_frontend(deadline(frontend_holding()?), true)?;
-    let compute = roles.start_compute(deadline(holding(compute_on_one_host()?, SECRET)?))?;
+    let settings = with(
+        compute_holding()?,
+        "cluster.join_deadline_ms",
+        SHORT_DEADLINE_MS,
+    );
+    roles.start_compute(settings, true)?;
     let _killed = roles.kill(roles.host_pid()?)?;
-    for (name, pid) in [("frontend", roles.frontend_pid()?), ("compute", compute)] {
-        let exited = roles
-            .util()?
-            .wait_for_exit(pid, Duration::from_secs(START_SECONDS))?;
-        w.dependants
-            .push((name, Some(exited), roles.last_log(name)?));
-    }
+    let compute = roles.compute_pid()?;
+    let exited = roles
+        .util()?
+        .wait_for_exit(compute, Duration::from_secs(START_SECONDS))?;
+    w.dependants
+        .push(("compute", Some(exited), roles.last_log("compute")?));
     w.processes = roles;
     Ok(())
 }
 
-/// How the role `name` ended when its system group was lost, and its log.
-fn dependant<'a>(w: &'a Steps, name: &str) -> TestResult<(Option<ExitStatus>, &'a str)> {
-    w.dependants
-        .iter()
-        .find(|(role, _, _)| *role == name)
-        .map(|(_, exited, log)| (*exited, log.as_str()))
-        .context("the role's end")
-}
-
-/// That the role `name` stopped through its ordinary path, the one SIGTERM takes, which logs the role's stop before it
-/// drains its work, and exited with code 69 naming the system group's address.
-fn ended_naming_the_group(w: &mut Steps, name: &str) -> TestResult {
-    let (exited, log) = dependant(w, name)?;
-    exit_is(exited, log, 69)?;
-    assert!(log.contains(&system_role_address()?), "{log}");
-    assert!(log.contains(&format!("stopping role={name}")), "{log}");
-    w.processes = Roles::default();
-    Ok(())
-}
-
 #[then(
-    "compute shuts down through its ordinary path and exits with code 69 naming the system group's address"
+    "every compute node shuts down through its ordinary path and exits with code 69 naming the system group's address"
 )]
 fn compute_ended(w: &mut Steps) -> TestResult {
-    ended_naming_the_group(w, "compute")
-}
-
-#[then(
-    "the frontend shuts down through its ordinary path and exits with code 69 naming the system group's address"
-)]
-fn frontend_ended(w: &mut Steps) -> TestResult {
-    ended_naming_the_group(w, "frontend")
+    let (_, exited, log) = w.dependants.first().context("compute's end")?;
+    exit_is(*exited, log, 69)?;
+    assert!(log.contains(&system_role_address()?), "{log}");
+    // The ordinary path is the one SIGTERM takes, which logs the role's stop before it drains its work.
+    assert!(log.contains("stopping role=compute"), "{log}");
+    w.processes = Roles::default();
+    Ok(())
 }

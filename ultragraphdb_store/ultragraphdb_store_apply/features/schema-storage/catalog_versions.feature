@@ -9,7 +9,7 @@ Feature: The schema persists in the metadata group
   The scenario of a version that does not decode runs in ultragraphdb_core_catalog's features.
 
   Scenario: The catalog survives a restart
-    When declarations are made and the frontend and storage are stopped and started
+    When declarations are made and compute and storage are stopped and started
     Then the loaded catalog equals the catalog before stopping
 
   Scenario: A removed declaration stays removed after a restart

@@ -16,7 +16,7 @@ use ultragraphdb_protocol_wire::{
     ErrorCode, RequestTerm, ScanAt, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tests::{
-    CLUSTER, FRONTEND_BINARY, answering, client_address, frontend_holding, frontend_observability,
+    CLUSTER, COMPUTE_BINARY, answering, client_address, compute_holding, compute_observability,
     role, scratch, storage_holding, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -72,10 +72,10 @@ fn with_an_administrator(w: &mut Steps) -> TestResult {
     let file = scratch("admin-secret");
     std::fs::write(&file, "pw")?;
     let _frontend: u32 = util.start_service_from_config(role(
-        FRONTEND_BINARY,
-        &frontend_holding()?,
-        &scratch(FRONTEND_BINARY),
-        answering(&frontend_observability()?, "/health"),
+        COMPUTE_BINARY,
+        &compute_holding()?,
+        &scratch(COMPUTE_BINARY),
+        answering(&compute_observability()?, "/health"),
     )?)?;
     let hosting = with(
         storage_holding()?,

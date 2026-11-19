@@ -103,7 +103,6 @@ BDD_DATA = [
     "//ultragraphdb_protocol/ultragraphdb_protocol_wire:golden_bodies",
     ":copy_config",
     ":copy_compute",
-    ":copy_frontend",
     ":copy_storage",
 ]
 
@@ -162,14 +161,6 @@ copy_file(
     name = "copy_compute",
     src = "//ultragraphdb/ultragraphdb_compute:ultragraphdb_compute",
     out = "ultragraphdb_compute",
-    is_executable = True,
-)
-
-# Copy the frontend binary into the sandbox.
-copy_file(
-    name = "copy_frontend",
-    src = "//ultragraphdb/ultragraphdb_frontend:ultragraphdb_frontend",
-    out = "ultragraphdb_frontend",
     is_executable = True,
 )
 

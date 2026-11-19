@@ -16,7 +16,6 @@ role_secret_file = "/secret"
 system_address = "tcp://f:1"
 partition_count = 12
 [compute]
-role_address = "tcp://c:2"
 [endpoint]
 address = "tcp://e:3"
 tls_cert_file = "/cert"
@@ -65,7 +64,6 @@ fn test_every_setting_reaches_its_field() -> TestResult {
     assert_eq!(c.cluster().role_secret_file(), Some("/secret"));
     assert_eq!(c.cluster().system_address(), Some("tcp://f:1"));
     assert_eq!(c.cluster().partition_count(), Some(12));
-    assert_eq!(c.compute().role_address(), Some("tcp://c:2"));
     assert_eq!(c.endpoint().address(), Some("tcp://e:3"));
     assert_eq!(c.endpoint().tls_cert_file(), Some("/cert"));
     assert_eq!(c.endpoint().tls_key_file(), Some("/key"));
@@ -295,8 +293,9 @@ fn test_the_remaining_settings_reach_their_fields() -> TestResult {
     Ok(())
 }
 
-/// C7.28: since the switch (design D2), `cluster.frontend_address`, `frontend.role_address` and `frontend.data_dir` are
-/// refused as unknown settings, each by its name, and `[frontend]` stays a table, holding no setting.
+/// C7.28 and C6.5 to C6.7: since the switches to the system group and to two roles, `cluster.frontend_address` and
+/// `compute.role_address` are refused as unknown settings, each by its name, and a `[frontend]` table, with a key or none, as
+/// an unknown table by its name (config-service, "The retired role's settings are refused by name").
 #[test]
 fn test_the_old_settings_are_refused_by_name() -> TestResult {
     for (text, table, key) in [
@@ -306,11 +305,10 @@ fn test_the_old_settings_are_refused_by_name() -> TestResult {
             "frontend_address",
         ),
         (
-            "[frontend]\nrole_address = \"tcp://f:4\"\n",
-            "frontend",
+            "[compute]\nrole_address = \"tcp://c:2\"\n",
+            "compute",
             "role_address",
         ),
-        ("[frontend]\ndata_dir = \"/f\"\n", "frontend", "data_dir"),
     ] {
         let ServiceConfigErrorEnum::Toml(toml) = refusal(ServiceConfig::parse(text.as_bytes()))?
         else {
@@ -321,10 +319,17 @@ fn test_the_old_settings_are_refused_by_name() -> TestResult {
             "{toml}"
         );
     }
-    assert_eq!(
-        ServiceConfig::parse(b"[frontend]\n")?,
-        ServiceConfig::default()
-    );
+    for text in [
+        "[frontend]\n",
+        "[frontend]\nrole_address = \"tcp://f:4\"\n",
+        "[frontend]\ndata_dir = \"/f\"\n",
+    ] {
+        let refused = refusal(ServiceConfig::parse(text.as_bytes()))?;
+        assert!(
+            matches!(refused, ServiceConfigErrorEnum::UnknownTable { ref table } if table == "frontend"),
+            "{text}: {refused:?}"
+        );
+    }
     Ok(())
 }
 

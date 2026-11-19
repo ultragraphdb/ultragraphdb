@@ -4,8 +4,8 @@
  */
 
 //! The processes a scenario over the system group starts, kills and starts again: the storage process hosting the group, a
-//! second storage process hosting none, compute and the frontend, each on settings served by the config double; and the
-//! administrator's client.
+//! second storage process hosting none, and compute, each on settings served by the config double; and the administrator's
+//! client.
 
 use std::path::PathBuf;
 use std::process::ExitStatus;
@@ -22,9 +22,9 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
-    CLUSTER, COMPUTE_BINARY, FRONTEND_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering,
-    client_address, compute_observability, frontend_observability, not_hosting, role, scratch,
-    storage_holding, storage_observability, system_role_address, until_answering, with,
+    CLUSTER, COMPUTE_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering, client_address,
+    compute_observability, not_hosting, role, scratch, storage_holding, storage_observability,
+    system_role_address, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback};
 
@@ -58,7 +58,7 @@ pub(crate) struct Roles {
     pub(crate) util: Option<ServiceUtil>,
     pub(crate) host: Option<(u32, Vec<(String, String)>)>,
     pub(crate) second: Option<(u32, Vec<(String, String)>)>,
-    pub(crate) frontend: Option<(u32, Vec<(String, String)>)>,
+    pub(crate) compute: Option<(u32, Vec<(String, String)>)>,
     /// The log of each start, by the order of the starts.
     pub(crate) logs: Vec<PathBuf>,
 }
@@ -111,36 +111,27 @@ impl Roles {
         Ok(())
     }
 
-    /// Starts the frontend on `settings`, once its `/health` answers, and when `ready` until its client endpoint listens and its
+    /// Starts compute on `settings`, once its `/health` answers, and when `ready` until its client endpoint listens and its
     /// `/ready` answers.
-    pub(crate) fn start_frontend(
+    pub(crate) fn start_compute(
         &mut self,
         settings: Vec<(String, String)>,
         ready: bool,
     ) -> TestResult {
-        let wait = answering(&frontend_observability()?, "/health");
-        let pid = self.start(FRONTEND_BINARY, &settings, "frontend", wait)?;
-        self.frontend = Some((pid, settings));
+        let wait = answering(&compute_observability()?, "/health");
+        let pid = self.start(COMPUTE_BINARY, &settings, "compute", wait)?;
+        self.compute = Some((pid, settings));
         if ready {
             until_listening()?;
-            until_answering(&frontend_observability()?, "/ready")?;
+            until_answering(&compute_observability()?, "/ready")?;
         }
         Ok(())
     }
 
-    /// Starts compute on `settings`, once its `/ready` answers: its pid.
-    pub(crate) fn start_compute(&mut self, settings: Vec<(String, String)>) -> TestResult<u32> {
-        let wait = answering(&compute_observability()?, "/ready");
-        self.start(COMPUTE_BINARY, &settings, "compute", wait)
-    }
-
-    /// Starts the frontend on `settings` and waits for nothing.
-    pub(crate) fn start_frontend_unwaited(
-        &mut self,
-        settings: Vec<(String, String)>,
-    ) -> TestResult {
-        let pid = self.start(FRONTEND_BINARY, &settings, "frontend", WaitStrategy::NoWait)?;
-        self.frontend = Some((pid, settings));
+    /// Starts compute on `settings` and waits for nothing.
+    pub(crate) fn start_compute_unwaited(&mut self, settings: Vec<(String, String)>) -> TestResult {
+        let pid = self.start(COMPUTE_BINARY, &settings, "compute", WaitStrategy::NoWait)?;
+        self.compute = Some((pid, settings));
         Ok(())
     }
 
@@ -170,11 +161,11 @@ impl Roles {
         self.host.as_ref().map(|(pid, _)| *pid).context("the host")
     }
 
-    pub(crate) fn frontend_pid(&self) -> TestResult<u32> {
-        self.frontend
+    pub(crate) fn compute_pid(&self) -> TestResult<u32> {
+        self.compute
             .as_ref()
             .map(|(pid, _)| *pid)
-            .context("the frontend")
+            .context("compute")
     }
 
     /// Kills the second storage process and starts it again at its address, waiting for its `/ready`.
@@ -184,11 +175,11 @@ impl Roles {
         self.start_second(settings)
     }
 
-    /// Kills the frontend and starts it again on its settings, waiting for its `/ready`.
-    pub(crate) fn restart_frontend(&mut self) -> TestResult {
-        let (pid, settings) = self.frontend.take().context("the frontend")?;
+    /// Kills compute and starts it again on its settings, waiting for its `/ready`.
+    pub(crate) fn restart_compute(&mut self) -> TestResult {
+        let (pid, settings) = self.compute.take().context("compute")?;
         let _killed = self.kill(pid)?;
-        self.start_frontend(settings, true)
+        self.start_compute(settings, true)
     }
 }
 

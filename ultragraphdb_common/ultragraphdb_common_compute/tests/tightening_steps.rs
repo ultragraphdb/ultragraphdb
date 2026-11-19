@@ -321,7 +321,7 @@ fn both_ways_held(w: &mut Steps) {
 }
 
 #[when(
-    "a client commits a declaration of `nick` single-valued, the frontend stops before any partition reports, and after its restart a partition reports that the data refuses it"
+    "a client commits a declaration of `nick` single-valued, compute stops before any partition reports, and after its restart a partition reports that the data refuses it"
 )]
 fn restarted(w: &mut Steps) -> TestResult {
     let directory = fresh()?;

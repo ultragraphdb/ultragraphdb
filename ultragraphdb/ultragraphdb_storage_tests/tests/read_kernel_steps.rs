@@ -95,14 +95,14 @@ pub(crate) fn one_partition(w: &mut Steps, stall: Option<&str>) -> TestResult {
 /// A frontend and one partition's storage, holding `settings` beside its own.
 pub(crate) fn partition_holding(w: &mut Steps, settings: &[(&str, &str)]) -> TestResult {
     use ultragraphdb_tests::{
-        FRONTEND_BINARY, answering, frontend_holding, frontend_observability, role, storage_holding,
+        COMPUTE_BINARY, answering, compute_holding, compute_observability, role, storage_holding,
     };
     let util = crate::services()?;
-    let wait = answering(&frontend_observability()?, "/health");
+    let wait = answering(&compute_observability()?, "/health");
     let _frontend: u32 = util.start_service_from_config(role(
-        FRONTEND_BINARY,
-        &frontend_holding()?,
-        &scratch(FRONTEND_BINARY),
+        COMPUTE_BINARY,
+        &compute_holding()?,
+        &scratch(COMPUTE_BINARY),
         wait,
     )?)?;
     let held = settings
@@ -1927,7 +1927,7 @@ async fn committed_body(session: [u8; 16], request: u64, subject: &str) -> TestR
     Ok(view.body().to_vec())
 }
 
-#[when("a session's request committed, and the frontend recalls it")]
+#[when("a session's request committed, and compute recalls it")]
 fn recalled(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
     let session = [0xAB; 16];
@@ -1954,7 +1954,7 @@ fn recall_holds(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "the frontend recalls a request the table holds no reply for, then a request below the session's last"
+    "compute recalls a request the table holds no reply for, then a request below the session's last"
 )]
 fn recalled_unheld(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;

@@ -266,8 +266,8 @@ async fn refused_where_partitions_arrive(
     let elsewhere = listener.local_address()?;
     serve_roles(listener, Endpoint::Partition, shared, cluster)?;
     let password = cluster.secret().password();
-    let mut frontend = RoleClient::dial(&elsewhere, CLUSTER, "frontend", password).await?;
-    let refused = frontend
+    let mut compute = RoleClient::dial(&elsewhere, CLUSTER, "compute", password).await?;
+    let refused = compute
         .request(&Closed::request(&[1]))
         .await
         .err()

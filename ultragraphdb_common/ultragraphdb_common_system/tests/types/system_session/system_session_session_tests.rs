@@ -99,9 +99,9 @@ async fn sent(client: &mut RoleClient, command: Command) -> TestResult {
     Ok(())
 }
 
-/// L3.35, and the scenario "A command another role requests is refused": a command the endpoint table does not have the
-/// connection's role send, the role being its SCRAM username, is refused as `CommandNotServed` naming it, closing the
-/// connection.
+/// L3.35, C6.14, C6.15 and the scenario "A command another role requests is refused": a command the endpoint table does not
+/// have the connection's role send, the role being its SCRAM username, is refused as `CommandNotServed` naming it, closing the
+/// connection: the commands of a client's sessions from storage, a Lease from compute.
 #[test]
 fn test_a_command_another_role_requests_is_refused() -> TestResult {
     Runtime::new()?.block_on(async {
@@ -111,11 +111,7 @@ fn test_a_command_another_role_requests_is_refused() -> TestResult {
             ("storage", Command::Session),
             ("storage", Command::Check),
             ("storage", Command::Ended),
-            ("compute", Command::Subscribe),
-            ("compute", Command::CloseRequest),
             ("compute", Command::Lease),
-            ("frontend", Command::Join),
-            ("frontend", Command::Lease),
         ];
         for (role, command) in refusals {
             let mut client = group.dial(role).await?;
@@ -133,11 +129,11 @@ fn test_a_command_another_role_requests_is_refused() -> TestResult {
 fn test_a_command_the_endpoint_does_not_serve_is_refused() -> TestResult {
     Runtime::new()?.block_on(async {
         let group = served("bind", 502).await?;
-        let mut frontend = group.dial("frontend").await?;
-        frontend
+        let mut compute = group.dial("compute").await?;
+        compute
             .send_only(&Bind::new(1, BindKind::Transaction, 0, 0, 0, [1; 16]))
             .await?;
-        refused_not_served(&mut frontend, Command::Bind).await?;
+        refused_not_served(&mut compute, Command::Bind).await?;
         group.stop().await?;
         Ok(())
     })
@@ -188,20 +184,20 @@ fn test_a_subscriber_holding_no_close_begins_at_the_latest() -> TestResult {
         }
         let latest = heard(group.handle.latest_close().await)?;
         assert!(latest >= 3, "{latest}");
-        let mut frontend = group.dial("frontend").await?;
-        frontend.send_only(&Subscribe::at_latest()).await?;
+        let mut compute = group.dial("compute").await?;
+        compute.send_only(&Subscribe::at_latest()).await?;
         let first = {
-            let frame = next_frame(&mut frontend).await?;
+            let frame = next_frame(&mut compute).await?;
             EpochCloseView::from_frame(&frame.view()?)?.epoch()
         };
         assert_eq!(first, latest);
         group.clock.advance(EPOCH_US);
         let second = {
-            let frame = next_frame(&mut frontend).await?;
+            let frame = next_frame(&mut compute).await?;
             EpochCloseView::from_frame(&frame.view()?)?.epoch()
         };
         assert_eq!(second, latest + 1);
-        drop(frontend);
+        drop(compute);
         group.stop().await?;
         Ok(())
     })
@@ -213,16 +209,16 @@ fn test_a_subscriber_holding_no_close_before_any_begins_at_epoch_one() -> TestRe
     Runtime::new()?.block_on(async {
         let group = served_slowly("latest-first", 505).await?;
         assert_eq!(heard(group.handle.latest_close().await)?, 0, "no close yet");
-        let mut frontend = group.dial("frontend").await?;
-        frontend.send_only(&Subscribe::at_latest()).await?;
-        frontend.send_only(&CloseRequest::frontend(1)).await?;
+        let mut compute = group.dial("compute").await?;
+        compute.send_only(&Subscribe::at_latest()).await?;
+        compute.send_only(&CloseRequest::frontend(1)).await?;
         epoch_min_passed(&group).await?;
         let first = {
-            let frame = next_frame(&mut frontend).await?;
+            let frame = next_frame(&mut compute).await?;
             EpochCloseView::from_frame(&frame.view()?)?.epoch()
         };
         assert_eq!(first, 1);
-        drop(frontend);
+        drop(compute);
         group.stop().await?;
         Ok(())
     })
@@ -230,21 +226,21 @@ fn test_a_subscriber_holding_no_close_before_any_begins_at_epoch_one() -> TestRe
 
 /// C3.73, C3.74, L3.35, and the scenarios "The frontend's request closes the open epoch" and "A request for a closed epoch closes
 /// nothing": a frontend's CloseRequest of `partition` 0 naming the open epoch closes it early; one naming a closed epoch, one
-/// above the open one, one of `partition` 0 from storage and one of `partition` 3 from the frontend are dropped, and no frame
+/// above the open one, one of `partition` 0 from storage and one of `partition` 3 from the compute are dropped, and no frame
 /// answers any of them.
 #[test]
 fn test_a_close_request_is_taken_by_its_senders_role() -> TestResult {
     Runtime::new()?.block_on(async {
         let group = served_slowly("close-request", 506).await?;
-        let mut frontend = group.dial("frontend").await?;
+        let mut compute = group.dial("compute").await?;
         let mut storage = group.dial("storage").await?;
-        frontend.send_only(&Subscribe::new(0)).await?;
-        let subscribed = frontend.last_stream();
+        compute.send_only(&Subscribe::new(0)).await?;
+        let subscribed = compute.last_stream();
         storage.send_only(&CloseRequest::frontend(1)).await?;
-        frontend.send_only(&CloseRequest::new(3, 1)).await?;
-        frontend.send_only(&CloseRequest::frontend(2)).await?;
+        compute.send_only(&CloseRequest::new(3, 1)).await?;
+        compute.send_only(&CloseRequest::frontend(2)).await?;
         assert_eq!(
-            watched(&mut frontend).await?,
+            watched(&mut compute).await?,
             None,
             "nothing closed, nothing answered"
         );
@@ -253,9 +249,9 @@ fn test_a_close_request_is_taken_by_its_senders_role() -> TestResult {
             None,
             "the storage connection's request dropped unanswered"
         );
-        frontend.send_only(&CloseRequest::frontend(1)).await?;
+        compute.send_only(&CloseRequest::frontend(1)).await?;
         epoch_min_passed(&group).await?;
-        let closed = next_frame(&mut frontend).await?;
+        let closed = next_frame(&mut compute).await?;
         let view = closed.view()?;
         assert_eq!(
             (
@@ -265,13 +261,13 @@ fn test_a_close_request_is_taken_by_its_senders_role() -> TestResult {
             (subscribed, 1)
         );
         drop(closed);
-        frontend.send_only(&CloseRequest::frontend(1)).await?;
+        compute.send_only(&CloseRequest::frontend(1)).await?;
         assert_eq!(
-            watched(&mut frontend).await?,
+            watched(&mut compute).await?,
             None,
             "a closed epoch closes nothing"
         );
-        drop((frontend, storage));
+        drop((compute, storage));
         group.stop().await?;
         Ok(())
     })
@@ -394,10 +390,10 @@ fn test_a_catalog_request_naming_an_epoch_is_answered_at_it() -> TestResult {
             .await?,
         )?;
         let latest = heard(group.handle.latest_close().await)?;
-        let mut frontend = group.dial("frontend").await?;
-        let (read, _) = catalog_read(&mut frontend, &Catalog::request_at(0, latest)).await?;
+        let mut compute = group.dial("compute").await?;
+        let (read, _) = catalog_read(&mut compute, &Catalog::request_at(0, latest)).await?;
         assert_eq!(read.view().context("the answer")?.version(), version);
-        let refused = frontend
+        let refused = compute
             .request(&Catalog::request_at(0, latest + 1_000))
             .await
             .err()
@@ -407,13 +403,13 @@ fn test_a_catalog_request_naming_an_epoch_is_answered_at_it() -> TestResult {
             Some(ErrorCode::Protocol),
             "{refused}"
         );
-        drop(frontend);
+        drop(compute);
         group.stop().await?;
         Ok(())
     })
 }
 
-/// The scenario "A closed connection's marks hold for the limit": a frontend connection marks a session and closes; a check of
+/// The scenario "A closed connection's marks hold for the limit": a compute connection marks a session and closes; a check of
 /// kind 1 on another connection answers 14 before twice `transaction_ms` and passes after it.
 #[test]
 fn test_a_closed_connections_marks_hold_for_twice_the_limit() -> TestResult {
@@ -423,12 +419,12 @@ fn test_a_closed_connections_marks_hold_for_twice_the_limit() -> TestResult {
         let alice = principal(&group.handle, "alice").await?;
         group.clock.advance(100_000);
         heard(group.handle.session(1, alice).await)?;
-        let mut first = group.dial("frontend").await?;
+        let mut first = group.dial("compute").await?;
         assert_eq!(
             checked(&mut first, &[(1, alice, CheckKind::Marks)]).await?,
             [1]
         );
-        let mut second = group.dial("frontend").await?;
+        let mut second = group.dial("compute").await?;
         drop(first);
         // The session of the connection closed is dropped once its server reads the close, and the group takes the close at
         // the clock's reading then, which this test does not move meanwhile.

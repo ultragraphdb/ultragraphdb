@@ -23,7 +23,7 @@ Feature: The endpoint asks the system group and keeps a view of what the closes 
 
   Scenario: A Begin asks no other process
     When an authenticated client sends a Begin naming tenant 0
-    Then the frontend answers with the read version of the latest close its view holds, and sends no frame to the system group for it
+    Then compute answers with the read version of the latest close its view holds, and sends no frame to the system group for it
 
   Scenario: A core that starts late begins at the latest close
     When an endpoint core subscribes with `latest` after the sequencer has closed 40 epochs and trimmed the first 30
@@ -55,11 +55,11 @@ Feature: The endpoint asks the system group and keeps a view of what the closes 
 
   Scenario: A retry checked in the quiet time stays undecided
     When a retried Commit is recalled, every partition answers 18, and the second Check answers 14, the system group having begun to listen less than twice `transaction_ms` before
-    Then the frontend answers code 14, and the client resends after a delay
+    Then compute answers code 14, and the client resends after a delay
 
   Scenario: A Describe continues across frames
     When a tenant's Describe answer takes two frames within the client's `max_frame`
-    Then the frontend sends two Describe frames with one command header under the client's credit, the first without `LAST` and the second with it, and the client reads the declarations one frame would hold
+    Then compute sends two Describe frames with one command header under the client's credit, the first without `LAST` and the second with it, and the client reads the declarations one frame would hold
 
   Scenario: A Describe past the catalog's bound is refused
     When a tenant's Describe answer's sections hold more than `catalog_bytes_max` bytes together

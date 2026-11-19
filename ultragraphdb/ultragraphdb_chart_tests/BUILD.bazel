@@ -46,6 +46,14 @@ load("@rules_rs//rs:rust_test.bzl", "rust_test")
                 "--set=partitions=2",
             ],
         ),
+        (
+            "nodes",
+            [
+                "--name-template=ultragraphdb",
+                "--namespace=ultragraphdb",
+                "--set=computeInstances={compute,compute_2}",
+            ],
+        ),
     ]
 ]
 
@@ -56,6 +64,7 @@ rust_test(
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]) + [
         ":rendered_graphs_json",
+        ":rendered_nodes_json",
         ":rendered_kube_json",
         "//deploy/helm/ultragraphdb:sources",
     ],

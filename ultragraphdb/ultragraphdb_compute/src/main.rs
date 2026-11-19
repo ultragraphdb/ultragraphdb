@@ -3,7 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The compute role: quad-pattern reads.
+//! The compute role: the client endpoint, the relay of a client's authentication to the system group, and the execution of
+//! its reads.
 
 mod service;
 

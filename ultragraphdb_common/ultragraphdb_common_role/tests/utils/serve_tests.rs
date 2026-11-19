@@ -17,7 +17,8 @@ use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Level, Metadata, Subscriber};
 use ultragraphdb_common_role::{
     Answer, ConnectionBound, OpenRequests, ParkedBytes, Push, ROLE_ITERATIONS, RoleClient,
-    RoleCredentials, RoleSecret, Server, Session, listen, serve_connection, serve_connection_with,
+    RoleCredentials, RoleSecret, ServeClock, Server, Session, WallClock, listen, serve_connection,
+    serve_connection_with,
 };
 use ultragraphdb_common_service::Stopping;
 use ultragraphdb_error_protocol::ProtocolError;
@@ -599,7 +600,7 @@ fn test_a_refusal_ending_an_open_stream_tells_the_session() -> TestResult {
             }
         })
         .detach();
-        let mut client = RoleClient::dial(&address, CLUSTER, "frontend", PASSWORD).await?;
+        let mut client = RoleClient::dial(&address, CLUSTER, "compute", PASSWORD).await?;
         client.send_only(&compute_read()).await?;
         let open = client.last_stream();
         // A Credit of no frames breaks its body's rule (`PROTOCOL.md` §9.2).
@@ -624,12 +625,17 @@ fn test_a_refusal_ending_an_open_stream_tells_the_session() -> TestResult {
     })
 }
 
-/// A wrong secret and an unknown name are refused alike, and a command the endpoint does not serve by its rule.
+/// A wrong secret and an unknown name are refused alike, the retired role's name `frontend` among them (C6.17), and a command
+/// the endpoint does not serve by its rule.
 #[test]
 fn test_a_wrong_secret_or_name_is_refused_with_code_19() -> TestResult {
     bounded(async {
         let address = serving(&free_tcp()?, Endpoint::Compute).await?;
-        for (name, password) in [("storage", "wrong"), ("alice", PASSWORD)] {
+        for (name, password) in [
+            ("storage", "wrong"),
+            ("alice", PASSWORD),
+            ("frontend", PASSWORD),
+        ] {
             let refused = RoleClient::dial(&address, CLUSTER, name, password)
                 .await
                 .err()
@@ -1210,6 +1216,123 @@ fn test_a_connection_authenticates_by_the_authenticator_it_is_served_with() -> T
                 assert_eq!(reply.command(), Command::Members.number());
             }
         }
+        Ok(())
+    })
+}
+
+/// A clock a test moves (task 6.6): its time stands still until the test arms it; armed, a wait on it moves its time at once
+/// by the wait less `short`, and with `once` a wait after that never ends. A wait made before the arming moves the time once
+/// it is armed, so a server's wait for a deadline is moved whichever of the two comes first. Shared by its clones on the
+/// test's one thread.
+#[derive(Debug, Clone)]
+struct SteppedClock {
+    at: Rc<Cell<std::time::Instant>>,
+    armed: Rc<Cell<Option<Duration>>>,
+    once: bool,
+    moved: Rc<Cell<bool>>,
+    waiting: Rc<RefCell<Option<std::task::Waker>>>,
+}
+
+impl SteppedClock {
+    /// A clock standing at `start`.
+    fn new(start: std::time::Instant, once: bool) -> Self {
+        Self {
+            at: Rc::new(Cell::new(start)),
+            armed: Rc::new(Cell::new(None)),
+            once,
+            moved: Rc::new(Cell::new(false)),
+            waiting: Rc::new(RefCell::new(None)),
+        }
+    }
+
+    /// From now on a wait moves the time by itself less `short`.
+    fn arm(&self, short: Duration) {
+        self.armed.set(Some(short));
+        if let Some(waker) = self.waiting.borrow_mut().take() {
+            waker.wake();
+        }
+    }
+}
+
+impl ServeClock for SteppedClock {
+    fn now(&self) -> std::time::Instant {
+        self.at.get()
+    }
+
+    fn sleep(&self, wait: Duration) -> impl Future<Output = ()> {
+        let clock = self.clone();
+        std::future::poll_fn(move |cx| {
+            let moving = clock
+                .armed
+                .get()
+                .filter(|_| !(clock.once && clock.moved.get()));
+            let Some(short) = moving else {
+                *clock.waiting.borrow_mut() = Some(cx.waker().clone());
+                return std::task::Poll::Pending;
+            };
+            clock.at.set(clock.at.get() + wait.saturating_sub(short));
+            clock.moved.set(true);
+            std::task::Poll::Ready(())
+        })
+    }
+}
+
+/// A connection authenticated at `endpoint` of a server on `clock`, silent from then on: the client, whose next frame tells
+/// whether the server closed the connection.
+async fn silent_on(endpoint: Endpoint, clock: SteppedClock) -> TestResult<RoleClient> {
+    let listener = listen(&free_tcp()?).await?;
+    let address = listener.local_address()?;
+    let server = Server::new(CLUSTER, "test", endpoint)?
+        .with_iterations(ROLE_ITERATIONS)
+        .with_clock(clock);
+    let held = credentials()?;
+    spawn(async move {
+        if let Ok(carrier) = listener.accept().await {
+            serve_connection(carrier, &server, held, Listing).await;
+        }
+    })
+    .detach();
+    Ok(RoleClient::dial(&address, CLUSTER, "compute", PASSWORD).await?)
+}
+
+/// Whether the server closed `client`'s connection within a moment of real time: its next frame is the connection's end.
+async fn closed_soon(client: &mut RoleClient) -> bool {
+    compio::time::timeout(Duration::from_millis(200), client.next_frame())
+        .await
+        .is_ok_and(|frame| frame.is_err())
+}
+
+/// C6.20 (task 6.6): a client's connection silent for its idle limit, 600 s by `IDLE_LIMIT`, on the server's clock is closed at
+/// the limit exactly, and stays open one tick before it; no real time passes.
+#[test]
+fn test_a_client_connection_closes_at_its_idle_limit_on_the_servers_clock() -> TestResult {
+    bounded(async {
+        let at_limit = SteppedClock::new(WallClock.now(), false);
+        let mut client = silent_on(Endpoint::Client, at_limit.clone()).await?;
+        at_limit.arm(Duration::ZERO);
+        assert!(closed_soon(&mut client).await, "closed at the limit");
+        let short = SteppedClock::new(WallClock.now(), true);
+        let mut open = silent_on(Endpoint::Client, short.clone()).await?;
+        short.arm(Duration::from_nanos(1));
+        assert!(!closed_soon(&mut open).await, "open one tick before it");
+        Ok(())
+    })
+}
+
+/// C6.20 (task 6.6): a role connection has no idle limit: silent while the server's clock is moved past 600 s, and past ten
+/// times that, it stays open.
+#[test]
+fn test_a_role_connection_has_no_idle_limit_on_the_servers_clock() -> TestResult {
+    bounded(async {
+        let start = WallClock.now();
+        let clock = SteppedClock::new(start, false);
+        let mut client = silent_on(Endpoint::Compute, clock.clone()).await?;
+        clock.arm(Duration::ZERO);
+        clock.at.set(start + Duration::from_secs(6_000));
+        assert!(
+            !closed_soon(&mut client).await,
+            "a role connection stays open"
+        );
         Ok(())
     })
 }

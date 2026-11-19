@@ -13,7 +13,7 @@ use ultragraphdb_common_service::{RoleKind, Stopping};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_error_role::{RoleError, RoleErrorEnum};
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame, TransportError};
-use ultragraphdb_protocol_wire::{BodyView, Join, Members, MembersView, RoleKind as MemberKind};
+use ultragraphdb_protocol_wire::{BodyView, Members, MembersView, RoleKind as MemberKind};
 
 /// How often a peer's task looks again: between the dials to a peer that did not answer, and at least between two asks
 /// of one that did; and how often the holder looks at what its tasks found.
@@ -22,32 +22,31 @@ const POLL: Duration = Duration::from_millis(100);
 /// How many times per `cluster.join_deadline_ms` compute asks each peer whether it still answers.
 const ASKS_PER_DEADLINE: u32 = 2;
 
-/// Joins the system group at `group` with `join` until it answers and its Members lists a partition that answers in turn,
-/// retrying until the cluster's deadline (`PROTOCOL.md` §11.12, *Joining*): where the partitions listen, or `None` once
-/// the service stops.
+/// Asks the system group at `group` for its Members until they list a partition that answers in turn, retrying until the
+/// cluster's deadline: where the partitions listen, or `None` once the service stops. Compute sends no Join until the node
+/// list is built (stage 5.9, task 3.7): its Members list storage alone.
 ///
-/// A future dropped at an await drops the connection it dialled; a Join the group took stays taken, and the next attempt
-/// joins again.
+/// A future dropped at an await drops the connection it dialled.
 ///
 /// # Errors
 ///
 /// [`RoleError::unavailable`] naming `group`, the attempts made and the last refusal, past the deadline.
-pub async fn join_group(
+pub async fn find_partitions(
     group: &Address,
-    join: &Join,
     cluster: &RoleCluster,
     stopping: &Stopping,
 ) -> Result<Option<Vec<Address>>, RoleError> {
     let name = RoleKind::Compute.to_string();
-    retry_until(cluster, &name, stopping, || attempt(group, cluster, join))
+    retry_until(cluster, &name, stopping, || attempt(group, cluster))
         .await
         .map_err(|error| naming(group, error))
 }
 
 /// `error`, an attempt's past the deadline, naming the system group at `group` it was made at.
 fn naming(group: &Address, error: RoleError) -> RoleError {
-    let at =
-        |message: String| format!("compute did not join the system group at {group}: {message}");
+    let at = |message: String| {
+        format!("compute found no partition through the system group at {group}: {message}")
+    };
     match error.0 {
         RoleErrorEnum::Unavailable { message } => RoleError::unavailable(at(message)),
         RoleErrorEnum::Configuration { message } => RoleError::configuration(at(message)),
@@ -56,19 +55,14 @@ fn naming(group: &Address, error: RoleError) -> RoleError {
     }
 }
 
-/// One attempt: dial, authenticate, Join, read the Members until a partition has joined, and dial the first: where those
+/// One attempt: dial, authenticate, read the Members until a partition has joined, and dial the first: where those
 /// partitions listen.
 ///
 /// A future dropped at an await drops the connection it dialled.
-async fn attempt(
-    group: &Address,
-    cluster: &RoleCluster,
-    join: &Join,
-) -> Result<Vec<Address>, TransportError> {
+async fn attempt(group: &Address, cluster: &RoleCluster) -> Result<Vec<Address>, TransportError> {
     let name = RoleKind::Compute.to_string();
     let mut client =
         RoleClient::dial(group, cluster.id(), &name, cluster.secret().password()).await?;
-    drop(client.request(join).await?);
     let answer = client.request(&Members::new()).await?;
     let view = answer.view().map_err(TransportError::protocol)?;
     let members = MembersView::from_frame(&view).map_err(TransportError::protocol)?;
@@ -103,10 +97,9 @@ struct Found {
 /// Asks the system group at `group` and each of `partitions` whether they answer, until the service stops or one is gone
 /// for the cluster's deadline, reading the time by `clock`, the time since an origin of its own. A role connection has no
 /// idle limit and the protocol no ping (`PROTOCOL.md` §11.4, §11.12), so a dial is the question: a peer answers by its
-/// Welcome and its proof of the secret. The group is asked its Members too, and a group that no longer lists `join`'s
-/// address, as one restarted, is sent `join` again (system-group, "A lost system group is waited for until the deadline").
-/// The connection the group was last asked on is held, and the group is asked again as soon as it closes, as storage
-/// subscribes again: a restarted group is joined again as it comes back, not at the next ask.
+/// Welcome and its proof of the secret, and the group by its Members too. The connection the group was last asked on is
+/// held, and the group is asked again as soon as it closes, so a restarted group is found answering as it comes back, not
+/// at the next ask.
 /// A partition lost while the group does not answer either, as when the process hosting both is killed, is reported as
 /// the group lost, once the group's own deadline passes.
 ///
@@ -119,7 +112,6 @@ struct Found {
 /// the deadline.
 pub async fn hold_peers<C>(
     group: &Address,
-    join: &Join,
     partitions: Vec<Address>,
     cluster: &RoleCluster,
     stopping: &Stopping,
@@ -134,13 +126,7 @@ where
         stopping: stopping.clone(),
         clock,
     };
-    spawn(hold_group(
-        asker.clone(),
-        group.clone(),
-        join.clone(),
-        Rc::clone(&found),
-    ))
-    .detach();
+    spawn(hold_group(asker.clone(), group.clone(), Rc::clone(&found))).detach();
     for partition in partitions {
         spawn(hold_partition(asker.clone(), partition, Rc::clone(&found))).detach();
     }
@@ -169,12 +155,12 @@ struct Asker<C> {
 
 /// Holds the group at `group` until the service stops or it is lost, which `found` is told.
 /// Spawned detached: a future dropped at the runtime's end holds nothing, the dial's half-made connection dropped with it.
-async fn hold_group<C>(asker: Asker<C>, group: Address, join: Join, found: Rc<Found>)
+async fn hold_group<C>(asker: Asker<C>, group: Address, found: Rc<Found>)
 where
     C: Fn() -> Duration,
 {
     let failing = |failing: bool| found.group_failing.set(failing);
-    let ask = || ask_group(&group, &join, &asker.cluster);
+    let ask = || ask_group(&group, &asker.cluster);
     if let Err(lost) = hold(&asker, &group, "the system group", ask, closes, failing).await {
         found.group_lost.set(Some(lost));
     }
@@ -306,31 +292,18 @@ async fn dial(peer: &Address, cluster: &RoleCluster) -> Result<(), TransportErro
     Ok(())
 }
 
-/// Whether the group at `group` answers its Members, sending it `join` again when they do not list `join`'s address, as a
-/// group restarted holds no Join from before: the connection it was asked on.
+/// Whether the group at `group` answers its Members: the connection it was asked on.
 ///
-/// A dropped future drops its connection; a Join the group took stays taken.
-async fn ask_group(
-    group: &Address,
-    join: &Join,
-    cluster: &RoleCluster,
-) -> Result<RoleClient, TransportError> {
+/// A dropped future drops its connection.
+async fn ask_group(group: &Address, cluster: &RoleCluster) -> Result<RoleClient, TransportError> {
     let name = RoleKind::Compute.to_string();
     let mut client =
         RoleClient::dial(group, cluster.id(), &name, cluster.secret().password()).await?;
-    let listed = {
+    {
         let answer = client.request(&Members::new()).await?;
         let view = answer.view().map_err(TransportError::protocol)?;
-        let members = MembersView::from_frame(&view).map_err(TransportError::protocol)?;
-        (0..members.len())
-            .filter_map(|index| members.member(index))
-            .filter(|member| member.kind() == MemberKind::Compute)
-            // A `u32` index into a `usize`, lossless on every target the node builds for.
-            .filter_map(|member| members.address(member.address() as usize))
-            .any(|address| address == join.address())
-    };
-    if !listed {
-        drop(client.request(join).await?);
+        let _members: MembersView<'_> =
+            MembersView::from_frame(&view).map_err(TransportError::protocol)?;
     }
     Ok(client)
 }

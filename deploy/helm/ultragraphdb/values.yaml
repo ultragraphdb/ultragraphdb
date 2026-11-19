@@ -1,14 +1,17 @@
 # One cluster of the roles in the release's namespace, one release per namespace: the objects take fixed names, `config`,
-# `frontend`, `storage` and `compute`, which the role addresses of the `kube` profile name.
+# `storage`, `compute` and `compute-client`, which the role addresses of the `kube` profile name.
 
 # Each role's image, and the bench's.
 images:
   config: ultragraphdb/config:local
-  frontend: ultragraphdb/frontend:local
   storage: ultragraphdb/storage:local
   compute: ultragraphdb/compute:local
   bench: ultragraphdb/client_bench:local
 imagePullPolicy: IfNotPresent
+
+# The compute instances, each a StatefulSet of one replica under the headless Service `compute`: each names a compute instance
+# of the `kube` profile, whose settings it starts on.
+computeInstances: ["compute"]
 
 # The partitions the storage instance holds and the system group places across, one core each.
 partitions: 1
@@ -36,7 +39,7 @@ seccompProfile:
 secrets:
   create: true
 
-# One run of client_bench against the frontend's client Service, as a Job, its JSON line its log.
+# One run of client_bench against compute's client Service, as a Job, its JSON line its log.
 bench:
   enabled: false
   args: ["--op", "direct", "--connections", "16", "--seconds", "20"]

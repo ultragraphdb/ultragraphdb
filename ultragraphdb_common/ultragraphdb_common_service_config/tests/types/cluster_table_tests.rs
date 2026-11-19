@@ -10,15 +10,14 @@
 use ultragraphdb_common_service_config::ServiceConfig;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-/// The table each role's own file holds beside `[cluster]`.
-const ROLE_TABLES: [&str; 3] = [
+/// The table each role's own file holds beside `[cluster]`: compute's endpoint, and storage's partitions.
+const ROLE_TABLES: [&str; 2] = [
     "[endpoint]\nplaintext = true\n",
-    "[compute]\nrole_address = \"tcp://compute-0:7300\"\n",
     "[storage]\nrole_address = \"tcp://storage-0:7200\"\ndata_dir = \"/data/storage\"\n",
 ];
 
-/// C2.8: `cluster.system_address` reads as written in a frontend's, a compute instance's and a storage instance's file,
-/// on either carrier.
+/// C2.8: `cluster.system_address` reads as written in a compute instance's and a storage instance's file, on either
+/// carrier.
 #[test]
 fn test_the_system_address_reads_in_every_role_file_on_either_carrier() -> TestResult {
     for table in ROLE_TABLES {

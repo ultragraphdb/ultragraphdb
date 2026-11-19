@@ -18,7 +18,7 @@ Feature: One-frame writes, Drops and retried Commits on their way to partitions
 
   Scenario: A DirectWrite refused naming another owner is resent there once
     When partition 1 refuses a DirectWrite with code 26 naming partition 2 as the owner
-    Then the frontend resends it to partition 2, and its reply reaches the client
+    Then compute resends it to partition 2, and its reply reaches the client
 
   Scenario: A one-frame write and a Drop whose partition closes under them are unavailable
     When a partition closes its connection while it holds a DirectWrite and a Drop's Bind

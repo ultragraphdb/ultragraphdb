@@ -33,13 +33,12 @@ DEFAULT_BENCH=(--op direct --connections 16 --seconds 20)
 # Each image: its Bazel target, then the name the chart runs it by.
 IMAGES=(
   "//ultragraphdb/ultragraphdb_config:ultragraphdb_config_multiarch ultragraphdb/config:local"
-  "//ultragraphdb/ultragraphdb_frontend:ultragraphdb_frontend_multiarch ultragraphdb/frontend:local"
   "//ultragraphdb/ultragraphdb_storage:ultragraphdb_storage_multiarch ultragraphdb/storage:local"
   "//ultragraphdb/ultragraphdb_compute:ultragraphdb_compute_multiarch ultragraphdb/compute:local"
   "//ultragraphdb_tool/ultragraphdb_tool_bench:client_bench_multiarch ultragraphdb/client_bench:local"
 )
-# In the start order (design D10): storage hosts the system group, which compute and the frontend dial.
-WORKLOADS=(statefulset/config statefulset/storage deployment/compute deployment/frontend)
+# In the start order: storage hosts the system group, which compute dials.
+WORKLOADS=(statefulset/config statefulset/storage statefulset/compute)
 
 fail() {
   echo "cluster_local.sh: $*" >&2
@@ -161,7 +160,7 @@ wait_ready() {
 # Each role's pod and the drivers its runtimes started on.
 drivers() {
   local pod
-  for pod in $(kube -n "${NAMESPACE}" get pods -l 'app.kubernetes.io/name in (config,frontend,storage,compute)' -o name); do
+  for pod in $(kube -n "${NAMESPACE}" get pods -l 'app.kubernetes.io/name in (config,storage,compute)' -o name); do
     local found
     found="$(kube -n "${NAMESPACE}" logs "${pod}" </dev/null | { grep -o 'a runtime on the [a-z_]* driver' || true; } | sort | uniq -c |
       awk '{ printf "%s%s x%s", sep, $6, $1; sep = ", " }')"
@@ -194,10 +193,10 @@ up() {
   else
     create_cluster "${cpus}" "${memory}"
   fi
-  # The frontend ran as a StatefulSet holding the books before stage 5.8; no data written before then is read after (design
-  # D11), so such a cluster starts over rather than run two frontends beside a storage volume of the old layout.
-  if [ "${existed}" = true ] && kube -n "${NAMESPACE}" get statefulset/frontend </dev/null >/dev/null 2>&1; then
-    fail "the cluster ${CLUSTER} runs the layout before the system group moved to storage (the frontend a StatefulSet): run make cluster-local-down, then make cluster-local"
+  # A cluster of three roles, a frontend beside compute, runs a layout no later start reads (stage 5.9): it starts over rather
+  # than run a frontend beside compute's StatefulSet.
+  if [ "${existed}" = true ] && kube -n "${NAMESPACE}" get statefulset/frontend deployment/frontend </dev/null 2>/dev/null | grep -q frontend; then
+    fail "the cluster ${CLUSTER} runs the layout of three roles (a frontend beside compute): run make cluster-local-down, then make cluster-local"
   fi
   install_seccomp
   forget_node_images

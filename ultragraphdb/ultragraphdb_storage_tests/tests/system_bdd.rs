@@ -29,8 +29,8 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
-    CLUSTER, CONFIG_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering, exit_is, fresh_data,
-    frontend_holding, http_status, members_at, not_hosting, role, role_of_service, scratch,
+    CLUSTER, CONFIG_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering, compute_holding,
+    exit_is, fresh_data, http_status, members_at, not_hosting, role, role_of_service, scratch,
     start_config_service, start_double, storage_holding, until_answering, until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback, port};
@@ -290,7 +290,7 @@ fn commits(address: &str, partition: u32, partitions: u32, count: u32) -> TestRe
     let subject = subject_of(partition, partitions)?;
     Runtime::new()?.block_on(async {
         let target = Address::parse(address)?;
-        let mut client = RoleClient::dial(&target, CLUSTER, "frontend", SECRET).await?;
+        let mut client = RoleClient::dial(&target, CLUSTER, "compute", SECRET).await?;
         let mut version = 0;
         for at in 0..count {
             let write = edge_write(&subject, &format!("http://ex.org/o{at}"));
@@ -360,7 +360,7 @@ fn hosting_answers(w: &mut Steps) -> TestResult {
     Runtime::new()?.block_on(async {
         for offset in [SECOND_OFFSET, SECOND_OFFSET + 1] {
             let target = Address::parse(&format!("tcp://{}", loopback(offset)?))?;
-            drop(RoleClient::dial(&target, CLUSTER, "frontend", SECRET).await?);
+            drop(RoleClient::dial(&target, CLUSTER, "compute", SECRET).await?);
         }
         Ok::<(), TestError>(())
     })?;
@@ -422,14 +422,14 @@ fn data_holds(w: &mut Steps) -> TestResult {
 fn storage_alone(w: &mut Steps) -> TestResult {
     let util = services()?;
     let settings = hosting((1, 1, FIRST_OFFSET, &first_observed()?), 1, &fresh_data())?;
-    // The target declares the frontend, as every target does (config-service, Roles); it is not started.
+    // The target declares compute, as every target does (config-service, Roles); it is not started.
     let _service: u32 = start_config_service(
         &util,
         &[
             (
-                "frontend",
+                "compute",
                 &with(
-                    frontend_holding()?,
+                    compute_holding()?,
                     "cluster.system_address",
                     &format!("tcp://{}", system_address()?),
                 ),

@@ -7,16 +7,14 @@ use ultragraphdb_tool_toml::{TomlDocument, TomlError, TomlErrorEnum};
 
 use crate::errors::service_config_error::{ServiceConfigError, ServiceConfigErrorEnum};
 
-/// The tables a settings file may hold, each mirrored by one type but `[frontend]`, which holds no setting since the system
-/// group left the frontend (stage 5.8, design D2): it stays a table, so a key in it, `frontend.role_address` or
-/// `frontend.data_dir` of a file written before, is refused as an unknown setting by its name.
-const TABLES: [&str; 12] = [
+/// The tables a settings file may hold, each mirrored by one type. A `[frontend]` table, of the role compute took over (stage
+/// 5.9), is refused as an unknown table by its name.
+const TABLES: [&str; 11] = [
     "admin",
     "cluster",
     "compute",
     "config",
     "endpoint",
-    "frontend",
     "metadata",
     "observability",
     "runtime",

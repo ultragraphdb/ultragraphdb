@@ -79,7 +79,7 @@ impl Played {
 
     /// One more endpoint core, its view answering.
     pub(crate) async fn add_core(&mut self) -> TestResult<usize> {
-        let links = RoleLinks::new(self.cluster.clone(), "frontend".to_string());
+        let links = RoleLinks::new(self.cluster.clone(), "compute".to_string());
         let address = Address::parse(self.group.address())?;
         let system = SystemLink::dial(
             address,
@@ -103,7 +103,7 @@ impl Played {
         );
         let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
         let client = listener.local_address()?;
-        let server = Server::new(CLUSTER, "frontend", Endpoint::Client)?;
+        let server = Server::new(CLUSTER, "compute", Endpoint::Client)?;
         let accepting = spawn(async move {
             while let Ok(carrier) = listener.accept().await {
                 let relay = RelayAuthenticator::default();

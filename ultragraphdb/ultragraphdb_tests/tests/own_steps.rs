@@ -127,11 +127,11 @@ fn refused_all(w: &Steps, code: ErrorCode, count: usize) -> TestResult {
     Ok(())
 }
 
-#[when("the frontend allows 2 connections and a third client connects")]
+#[when("compute allows 2 connections and a third client connects")]
 fn third_connection(w: &mut Steps) -> TestResult {
     own(
         w,
-        &Spec::one_partition().frontend("endpoint.connections_max", 2),
+        &Spec::one_partition().compute("endpoint.connections_max", 2),
     )?;
     let at = cluster(w)?.client.clone();
     let (refused, begun) = run(async {
@@ -220,7 +220,7 @@ fn logged(log: &str, marker: &str, key: &str) -> Vec<u64> {
 }
 
 #[when(
-    "32 clients each commit a write over a connection of their own to a frontend of two partitions"
+    "32 clients each commit a write over a connection of their own to a compute node of two partitions"
 )]
 #[expect(
     clippy::disallowed_methods,
@@ -229,7 +229,7 @@ fn logged(log: &str, marker: &str, key: &str) -> Vec<u64> {
 fn commits_on_every_core(w: &mut Steps) -> TestResult {
     own(w, &Spec::over(2))?;
     let at = cluster(w)?.client.clone();
-    let before = cluster(w)?.frontend_log()?.len();
+    let before = cluster(w)?.compute_log()?.len();
     let writes = (0..CORE_CLIENTS)
         .map(|n| direct_of(&w.iri(&format!("a{n}")), &w.iri("p"), &iri(&w.iri("b"))))
         .collect::<TestResult<Vec<_>>>()?;
@@ -248,7 +248,7 @@ fn commits_on_every_core(w: &mut Steps) -> TestResult {
     })?;
     let started = clock();
     loop {
-        let log = cluster(w)?.frontend_log()?;
+        let log = cluster(w)?.compute_log()?;
         let since = log.get(before..).unwrap_or_default();
         let relayed: u64 = logged(since, "one-frame write phases", "writes=")
             .iter()
@@ -262,7 +262,7 @@ fn commits_on_every_core(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "every write is committed, the frontend logs a runtime per CPU, and more than one of its cores relays the writes"
+    "every write is committed, compute logs a runtime per CPU, and more than one of its cores relays the writes"
 )]
 fn served_on_every_core(w: &mut Steps) -> TestResult {
     assert_eq!(w.seen.commits.len(), CORE_CLIENTS, "{}", w.over());
@@ -308,7 +308,7 @@ fn evicted_next_request(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend refuses the request with an error saying the session was evicted, and no partition sees it"
+    "compute refuses the request with an error saying the session was evicted, and no partition sees it"
 )]
 fn evicted_told(w: &mut Steps) -> TestResult {
     refused_as_evicted(w)
@@ -342,7 +342,7 @@ fn evicted_meanwhile(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the frontend answers code 12, and the client reports the outcome as unknown")]
+#[then("compute answers code 12, and the client reports the outcome as unknown")]
 fn evicted_unknown(w: &mut Steps) -> TestResult {
     assert!(w.committed, "{:?} {}", w.seen.facts, w.over());
     release(w)
@@ -504,7 +504,7 @@ async fn big_held(client: &mut TestClient) -> TestResult {
 fn past_held_bytes(w: &mut Steps) -> TestResult {
     own(
         w,
-        &Spec::one_partition().frontend("endpoint.held_bytes", 1024),
+        &Spec::one_partition().compute("endpoint.held_bytes", 1024),
     )?;
     let at = cluster(w)?.client.clone();
     let [a, p] = ["a", "p"].map(|name| w.iri(name));
@@ -575,7 +575,7 @@ fn credit_drains(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend reads the Credit and relays it, the read reaches its `LAST`, and the held Writes are then sent"
+    "compute reads the Credit and grants it to the read, which reaches its `LAST`, and the held Writes are then sent"
 )]
 fn credit_drained(w: &mut Steps) -> TestResult {
     let rows: usize = w.seen.facts.first().context("the rows")?.parse()?;
@@ -601,9 +601,7 @@ fn in_doubt_by_seventeen<T: std::fmt::Debug>(answer: &Result<T, ClientError>) ->
         if refusal_of(cause).is_ok_and(|(code, _, _)| code == ErrorCode::Unavailable))
 }
 
-#[when(
-    "the connection between the frontend and a storage process closes under a Write and a Commit"
-)]
+#[when("the connection between compute and a storage process closes under a Write and a Commit")]
 fn storage_closes(w: &mut Steps) -> TestResult {
     let (first, second) = two_storages(w, Spec::one_partition())?;
     let at = cluster(w)?.client.clone();
@@ -813,7 +811,7 @@ async fn resolve_within(
 }
 
 #[then(
-    "the frontend relays it, not recalls it, the partition commits it, and the reply carries its commit version"
+    "compute relays it, not recalls it, the partition commits it, and the reply carries its commit version"
 )]
 fn direct_resend_committed(w: &mut Steps) -> TestResult {
     assert!(w.committed, "{:?} {}", w.seen.facts, w.over());
@@ -853,7 +851,7 @@ fn recall_reaching_no_answer(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the frontend answers code 17, and the client resends after a delay")]
+#[then("compute answers code 17, and the client resends after a delay")]
 fn recall_in_doubt(w: &mut Steps) -> TestResult {
     assert!(w.committed, "{:?} {}", w.seen.facts, w.over());
     release(w)
@@ -1190,7 +1188,7 @@ async fn challenged(
     Ok(client.connect().await.err())
 }
 
-#[when("a client asks to authenticate as an unknown name, twice, across a restart of the frontend")]
+#[when("a client asks to authenticate as an unknown name, twice, across a restart of compute")]
 fn unknown_across_restart(w: &mut Steps) -> TestResult {
     own(w, &Spec::one_partition())?;
     // Storage and compute go with a frontend killed, so this cluster serves no scenario after this one.
@@ -1209,8 +1207,8 @@ fn unknown_across_restart(w: &mut Steps) -> TestResult {
         TestResult::Ok((first, wrong))
     })?;
     if let Some(running) = w.cluster.as_mut() {
-        running.signal("frontend", Signal::Kill)?;
-        running.restart("frontend")?;
+        running.signal("compute", Signal::Kill)?;
+        running.restart("compute")?;
     }
     let again = compio::runtime::Runtime::new()?.block_on(async {
         for _ in 0..100 {
@@ -1426,7 +1424,7 @@ const PROBE_GAP: Duration = Duration::from_millis(10);
 /// Asks the system group at `system` whether it marks `session` of `principal` in flight, by Checks of kind 1, which mark
 /// nothing (`PROTOCOL.md` §11.5, §13.24), until its answer is `marked`: on a role connection of the probe's own, on compio.
 async fn asked_until(system: &str, (session, principal): (u128, u64), marked: bool) -> TestResult {
-    let mut role = RoleClient::dial(&Address::parse(system)?, CLUSTER, "frontend", SECRET).await?;
+    let mut role = RoleClient::dial(&Address::parse(system)?, CLUSTER, "compute", SECRET).await?;
     let check = Check::new(vec![SessionCheck::new(
         session.to_be_bytes(),
         principal,

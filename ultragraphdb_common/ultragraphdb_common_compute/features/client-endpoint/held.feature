@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
-Feature: The frontend bounds what a connection's reads hold back
+Feature: Compute bounds what a connection's reads hold back
   openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md
 
   Scenario: A write past `held_bytes` is refused

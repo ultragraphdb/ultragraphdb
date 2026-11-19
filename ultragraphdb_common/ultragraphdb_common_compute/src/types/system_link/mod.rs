@@ -119,7 +119,7 @@ impl LinkState {
     }
 }
 
-/// One endpoint core's role connection to the system group at `cluster.system_address` (design D5): dialled as the frontend,
+/// One endpoint core's role connection to the system group at `cluster.system_address` (design D5): dialled as compute,
 /// dialled again when it closes, subscribed with `latest` on each connection, its closes kept in the core's
 /// [`EndpointView`]. The core's requests ask on it: Session, Challenge, Verify, Declare, Defaults, Catalog, Placement,
 /// Members and CloseRequest each on a stream of its own, and the Checks and Endeds of a turn ([`crate::SystemTurns`]),
@@ -143,7 +143,7 @@ pub struct SystemLink {
 }
 
 impl SystemLink {
-    /// The link to the system group at `address`, dialled on a task of this core as the frontend of `cluster` within
+    /// The link to the system group at `address`, dialled on a task of this core as compute of `cluster` within
     /// `dial_ms` milliseconds, reading Members into `links` (design D9) and setting `readiness` once the view holds a close
     /// and a placement, Members lists every partition of it and a partition answers (design D10); readiness is withdrawn
     /// while its connection is closed, and set again once all of that holds again.

@@ -46,12 +46,12 @@ fn address(tc: &TestCase) -> String {
     }
 }
 
-/// L2.5: a `cluster.system_address` drawn on either carrier, in a frontend's, a compute instance's or a storage
-/// instance's settings, is the address `system_address` gives.
+/// L2.5: a `cluster.system_address` drawn on either carrier, in a compute instance's or a storage instance's
+/// settings, is the address `system_address` gives.
 #[hegel::test]
 fn test_the_system_address_is_the_address_drawn(tc: TestCase) {
     let drawn = address(&tc);
-    let role = tc.draw(gs::sampled_from(vec!["frontend", "compute", "storage"]));
+    let role = tc.draw(gs::sampled_from(vec!["compute", "storage"]));
     let text = format!(
         "[observability]\naddress = \"tcp://127.0.0.1:1\"\n[cluster]\nsystem_address = \"{drawn}\"\n"
     );

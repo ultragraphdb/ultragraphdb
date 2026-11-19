@@ -112,7 +112,9 @@ fn refused_with(w: &Steps, code: ErrorCode) -> TestResult<String> {
     Ok(refusal.message().to_string())
 }
 
-#[when("a frontend with `partition_count` 4 starts on a metadata group holding no placement")]
+#[when(
+    "the system group's host with `partition_count` 4 starts on a metadata group holding no placement"
+)]
 fn forms(w: &mut Steps) -> TestResult {
     let directory = fresh()?;
     Runtime::new()?.block_on(async {

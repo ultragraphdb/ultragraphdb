@@ -133,17 +133,17 @@ fn test_a_subscribe_from_the_latest_close_reads() -> TestResult {
     Ok(())
 }
 
-/// `PROTOCOL.md` §13.3, wire-protocol "A Subscribe from the latest close names no epoch": the frontend alone sends
-/// `latest` 1, a rule of the connection's role, which the receiving session checks through the view.
+/// `PROTOCOL.md` §13.3, wire-protocol "A Subscribe from the latest close names no epoch": compute alone sends `latest` 1, a
+/// rule of the connection's role, which the receiving session checks through the view.
 #[test]
-fn test_only_a_frontends_connection_asks_from_the_latest_close() -> TestResult {
+fn test_only_a_compute_nodes_connection_asks_from_the_latest_close() -> TestResult {
     let latest = with_command_header(&bytes("subscribe")?, |h| {
         put(h, 0, 0, 8);
         put(h, 8, 1, 1);
     });
     let view = SubscribeView::from_frame(&frame_of(&latest)?)?;
-    view.check_sender(RoleKind::Frontend)?;
-    for sender in [RoleKind::Storage, RoleKind::Compute] {
+    view.check_sender(RoleKind::Compute)?;
+    for sender in [RoleKind::Storage, RoleKind::Frontend] {
         assert_eq!(
             view.check_sender(sender).err(),
             Some(ProtocolError::field_value(514, "latest", 1)),

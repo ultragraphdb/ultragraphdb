@@ -190,9 +190,7 @@ fn write_after_read(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then(
-    "the frontend sends the write only after the read is answered, and the read returns none of it"
-)]
+#[then("compute sends the write only after the read is answered, and the read returns none of it")]
 fn read_without_later_write(w: &mut Steps) -> TestResult {
     let [before, after] = w.seen.answers.as_slice() else {
         return Err(TestError::new("two answers"));
@@ -276,7 +274,7 @@ fn commit_takes_held(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend cancels the read, sends the Write on the Bind stream, then the Commit; the Write is in what commits, and no further frame of the read reaches the client"
+    "compute cancels the read, sends the Write on the Bind stream, then the Commit; the Write is in what commits, and no further frame of the read reaches the client"
 )]
 fn commit_took_held(w: &mut Steps) -> TestResult {
     assert!(
@@ -301,7 +299,7 @@ fn abort_drops_held(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend cancels the read, the partition never receives the Write, and nothing of the transaction is held"
+    "compute cancels the read, the partition never receives the Write, and nothing of the transaction is held"
 )]
 fn abort_dropped_held(w: &mut Steps) -> TestResult {
     nothing(w.seen.answers.first().context("what the abort left")?)
@@ -322,9 +320,7 @@ fn cancel_releases_held(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then(
-    "the frontend sends the read's Cancel and then the Write, without waiting for the read's `LAST`"
-)]
+#[then("compute sends the read's Cancel and then the Write, without waiting for the read's `LAST`")]
 fn cancel_released_held(w: &mut Steps) -> TestResult {
     let answer = w
         .seen
@@ -385,7 +381,7 @@ fn answered_then_ended(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the frontend sends nothing further on that read's stream")]
+#[then("compute sends nothing further on that read's stream")]
 fn nothing_further(w: &mut Steps) -> TestResult {
     let answer = w.seen.answers.first().context("the read's answer")?;
     assert_eq!(answer.column(0), [w.iri("b")], "{}", w.over());

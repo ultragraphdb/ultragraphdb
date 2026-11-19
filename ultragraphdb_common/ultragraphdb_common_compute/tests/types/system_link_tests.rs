@@ -84,7 +84,7 @@ async fn played_with(name: &str, play: SystemPlay, readiness: Readiness) -> Test
         script.answer(frame)
     })
     .await?;
-    let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
+    let links = RoleLinks::new(cluster.clone(), "compute".to_string());
     let address = Address::parse(double.address())?;
     let link = SystemLink::dial(address, cluster, links.clone(), 5_000, readiness);
     link.answering(now().await + WAIT).await.replied()?;
@@ -696,7 +696,7 @@ fn test_a_frame_the_link_refuses_closes_its_connection() -> TestResult {
         })
         .await?;
         let splice = Splice::to(double.address()).await?;
-        let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
+        let links = RoleLinks::new(cluster.clone(), "compute".to_string());
         let address = Address::parse(&splice.address)?;
         let link = SystemLink::dial(address, cluster, links, 5_000, Readiness::default());
         link.answering(now().await + WAIT).await.replied()?;
@@ -739,7 +739,7 @@ async fn spliced(name: &str) -> TestResult<(SystemPlay, RoleDouble, Splice, Syst
     })
     .await?;
     let splice = Splice::to(double.address()).await?;
-    let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
+    let links = RoleLinks::new(cluster.clone(), "compute".to_string());
     let address = Address::parse(&splice.address)?;
     let link = SystemLink::dial(address, cluster, links, 5_000, Readiness::default());
     link.answering(now().await + WAIT).await.replied()?;

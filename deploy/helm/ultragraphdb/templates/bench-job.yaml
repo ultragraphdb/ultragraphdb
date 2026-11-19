@@ -1,5 +1,5 @@
 {{- /*
-One run of client_bench against the frontend's client Service, inside the cluster, when `bench.enabled`; its log is the run's
+One run of client_bench against compute's client Service, inside the cluster, when `bench.enabled`; its log is the run's
 one JSON line. A Job's pod template cannot change, so a run after another deletes the Job first.
 */ -}}
 {{- if .Values.bench.enabled }}
@@ -27,7 +27,7 @@ spec:
           terminationMessagePolicy: FallbackToLogsOnError
           args:
             - --address
-            - {{ printf "frontend-client.%s.svc.%s:7080" .Release.Namespace .Values.clusterDomain }}
+            - {{ printf "compute-client.%s.svc.%s:7080" .Release.Namespace .Values.clusterDomain }}
             - --password-file
             - /secrets/bootstrap.secret
             {{- range .Values.bench.args }}

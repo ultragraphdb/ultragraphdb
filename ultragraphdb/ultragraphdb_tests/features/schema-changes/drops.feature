@@ -10,4 +10,4 @@ Feature: Drops through the three binaries
 
   Scenario: A Drop through no session runs again
     When a Drop of `p` through no session commits at its partition, its reply is lost, and the client sends the Drop again
-    Then the second Drop removes nothing more, and the frontend builds the version removing `p`'s declaration before it relays the reply
+    Then the second Drop removes nothing more, and the system group builds the version removing `p`'s declaration, asked by compute before it relays the reply

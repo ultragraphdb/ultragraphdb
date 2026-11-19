@@ -80,8 +80,8 @@ fn core_over_played(times: ReadTimes) -> TestResult<Rc<ComputeCore>> {
         RoleIdentity::new("ci", "compute", 1),
     )?;
     let cluster = RoleCluster::read(&start)?;
-    let frontend = Address::parse(&format!("tcp://127.0.0.1:{}", info.base + 1))?;
-    Ok(ComputeCore::new(cluster, frontend, times, "compute"))
+    let system = Address::parse(&format!("tcp://127.0.0.1:{}", info.base + 1))?;
+    Ok(ComputeCore::new(cluster, system, times, "compute"))
 }
 
 /// A lookup's refusal as a test reads it.
@@ -571,8 +571,7 @@ fn past_credit_closes(w: &mut Steps) -> TestResult {
     after.whole()?;
     let stream = *w.numbers.first().context("the list's stream")?;
     let said = ProtocolError::past_credit(stream).to_string();
-    let base = w.scene()?.info.base;
-    let log = std::fs::read_to_string(scratch(&format!("compute-{base}.log")))?;
+    let log = std::fs::read_to_string(scratch(crate::IN_PROCESS_LOG))?;
     assert!(log.contains(&said), "`{said}` in compute's log: {log}");
     Ok(())
 }

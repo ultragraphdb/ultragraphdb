@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! What the system group decides apart from the frontend: a tightening's check, which outlives the frontend that asked for it,
+//! What the system group decides apart from compute: a tightening's check, which outlives the compute node that asked for it,
 //! and an eviction, which reaches a partition's session table with the close carrying it.
 
 use std::time::{Duration, Instant};
@@ -17,7 +17,7 @@ use ultragraphdb_protocol_wire::{
     EpochCloseView, ErrorCode, ErrorReplyView, Recall, Subscribe, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tests::{
-    CLUSTER, SECRET, START_SECONDS, frontend_holding, storage_role_address, system_role_address,
+    CLUSTER, SECRET, START_SECONDS, compute_holding, storage_role_address, system_role_address,
     with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -89,13 +89,13 @@ fn two_nicks(runtime: &Runtime, a: &str) -> TestResult {
 }
 
 #[when(
-    "a client commits a declaration of `nick` single-valued, the frontend stops before any partition reports, and a partition then reports that the data refuses it"
+    "a client commits a declaration of `nick` single-valued, compute stops before any partition reports, and a partition then reports that the data refuses it"
 )]
-fn check_outlives_frontend(w: &mut Steps) -> TestResult {
+fn check_outlives_compute(w: &mut Steps) -> TestResult {
     let mut roles = Roles::default();
     roles.start_host(host_of(2)?, true)?;
     roles.start_second(second_of()?)?;
-    roles.start_frontend(frontend_holding()?, true)?;
+    roles.start_compute(compute_holding()?, true)?;
     // `a` in partition 2, the second process's, holding two objects of `nick`.
     let a = subject_of("http://ex.org/a", 2)?;
     let runtime = Runtime::new()?;
@@ -126,15 +126,15 @@ fn check_outlives_frontend(w: &mut Steps) -> TestResult {
     });
     // The Declare reached the group once the version it asks for is held, being checked.
     let asked = until_version(before + 1, Duration::from_secs(START_SECONDS));
-    let frontend = roles.frontend_pid()?;
-    let stopped = roles.kill(frontend);
+    let compute = roles.compute_pid()?;
+    let stopped = roles.kill(compute);
     // Whatever the steps above came to, a process left stopped would hold the scenario's end up.
     signal(second, "CONT")?;
     let (left, asked, _stopped) = (left?, asked?, stopped?);
     let restored = until_version(before + 2, Duration::from_secs(START_SECONDS))?;
     let host_log = roles.last_log("storage-host")?;
-    let frontend_settings = roles.frontend.take().context("the frontend")?.1;
-    roles.start_frontend(frontend_settings, true)?;
+    let compute_settings = roles.compute.take().context("compute")?.1;
+    roles.start_compute(compute_settings, true)?;
     let single = runtime.block_on(async {
         let mut client = admin(1).await?;
         let described = client.describe(TENANT).await?;
@@ -167,10 +167,10 @@ fn check_restored(w: &mut Steps) -> TestResult {
     };
     assert_eq!(
         left, "true",
-        "the Commit was still unanswered as the frontend stopped"
+        "the Commit was still unanswered as compute stopped"
     );
     assert_eq!(asked, "true", "the version being checked was held: {log}");
-    // The data refuses it: partition 2's report, which it could send only after the frontend was gone.
+    // The data refuses it: partition 2's report, which it could send only after compute was gone.
     let refusing = log.lines().any(|line| {
         line.contains(REPORTED) && line.contains("partition=2") && line.contains("refused=true")
     });
@@ -190,7 +190,7 @@ fn check_restored(w: &mut Steps) -> TestResult {
 /// What partition 1 answers a Recall of `request` of `session` with: its command, and an Error's code.
 async fn recalled(session: u128, request: u64) -> TestResult<(Command, Option<ErrorCode>)> {
     let address = Address::parse(&format!("tcp://{}", storage_role_address()?))?;
-    let mut role = RoleClient::dial(&address, CLUSTER, "frontend", SECRET).await?;
+    let mut role = RoleClient::dial(&address, CLUSTER, "compute", SECRET).await?;
     role.send_only(&Recall::new(1, session.to_be_bytes(), request))
         .await?;
     let answer = role.next_frame().await?;
@@ -223,7 +223,7 @@ fn session_evicted(w: &mut Steps) -> TestResult {
     roles.start_host(host, true)?;
     // The group listened before the host's `/ready`: its quiet time ends at most twice `transaction_ms` from here.
     let quiet_until = Instant::now() + Duration::from_millis(2 * TRANSACTION_MS);
-    roles.start_frontend(frontend_holding()?, true)?;
+    roles.start_compute(compute_holding()?, true)?;
     let runtime = Runtime::new()?;
     let (mut client, first) = runtime.block_on(async {
         let mut client = admin(1).await?;
@@ -236,9 +236,9 @@ fn session_evicted(w: &mut Steps) -> TestResult {
     })?;
     std::thread::sleep(quiet_until.saturating_duration_since(Instant::now()));
     let seen = runtime.block_on(async {
-        // A role connection as the frontend, subscribed at the latest close, which asks for the closes itself.
+        // A role connection as compute, subscribed at the latest close, which asks for the closes itself.
         let address = Address::parse(&format!("tcp://{}", system_role_address()?))?;
-        let mut role = RoleClient::dial(&address, CLUSTER, "frontend", SECRET).await?;
+        let mut role = RoleClient::dial(&address, CLUSTER, "compute", SECRET).await?;
         let latest = closed_epoch(&role.request(&Subscribe::at_latest()).await?)?;
         // A close now: the next on the sequencer's own time is then 10 s away.
         role.send_only(&CloseRequest::frontend(latest + 1)).await?;

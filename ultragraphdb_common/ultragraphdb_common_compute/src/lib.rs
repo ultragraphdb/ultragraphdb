@@ -63,7 +63,7 @@ pub use crate::types::throttle_handle::ThrottleHandle;
 pub use crate::types::turn::Turn;
 pub use crate::utils::declare_bound::declare_fits;
 pub use crate::utils::iri_place::{IriPlace, iri_place};
-pub use crate::utils::joining::{hold_peers, join_group};
+pub use crate::utils::joining::{find_partitions, hold_peers};
 pub use crate::utils::keys::prefix_end;
 pub use crate::utils::read_times_of::read_times_of;
 pub use crate::utils::recall_order::{check_refusal, recall_decision, second_check_answer};

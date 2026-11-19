@@ -30,7 +30,7 @@ Feature: Reads over a spread tenant
 
   Scenario: A later latest-state read waits for the first read's partition
     When a transaction at latest level sends two reads beside each other, the first binding it to partition 1
-    Then the frontend sends the second only after the first's first Result names partition 1, with `partition` 1, and compute refuses it with code 25 when it reaches another partition
+    Then compute starts the second only after the first's first Result names partition 1, bound to partition 1, and refuses it with code 25 when it reaches another partition
 
   Scenario: A first read refused leaves the next read first
     When a transaction at latest level sends two reads, and the first is refused before any Result

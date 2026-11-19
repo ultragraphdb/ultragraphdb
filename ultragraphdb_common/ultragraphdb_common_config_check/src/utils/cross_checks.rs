@@ -105,6 +105,7 @@ pub(crate) fn cross_checks(target: &TargetFiles, active: Option<&TargetFiles>) -
     };
     let held: Vec<Instance> = checking.instances.clone();
     roles(&mut checking, &held);
+    tables(&mut checking, &held);
     for instance in &held {
         if let Some(config) = instance.config() {
             required(&mut checking, instance, config);
@@ -358,24 +359,44 @@ fn roles(checking: &mut Checking<'_>, held: &[Instance]) {
             .count()
     };
     let name = checking.target.name().to_string();
-    let frontends = count("frontend");
-    if frontends != 1 {
-        checking.defects.push(
-            Defect::new(
-                format!("the target has {frontends} frontends"),
-                "a target has exactly one frontend in this release",
-            )
-            .of_target(&name),
-        );
+    for role in ["compute", "storage"] {
+        if count(role) == 0 {
+            checking.defects.push(
+                Defect::new(
+                    format!("the target has no {role} instance"),
+                    "a target has at least one compute and at least one storage instance",
+                )
+                .of_target(&name),
+            );
+        }
     }
-    if count("storage") == 0 {
-        checking.defects.push(
-            Defect::new(
-                "the target has no storage instance",
-                "a target has at least one",
-            )
-            .of_target(&name),
-        );
+}
+
+/// The tables of the other role none of whose settings `role` reads: what the Tables check refuses in its instances' files.
+/// Compute reads `[storage] scan_stall_ms` and `read_retain_ms`, so `[storage]` is no such table of compute's.
+fn foreign_tables(role: &str) -> &'static [&'static str] {
+    match role {
+        "storage" => &["compute", "endpoint"],
+        _ => &["system"],
+    }
+}
+
+/// The Tables check: an instance's files hold no table of the other role none of whose settings its own role reads.
+fn tables(checking: &mut Checking<'_>, held: &[Instance]) {
+    for instance in held {
+        for table in foreign_tables(instance.role()) {
+            if checking.holds(instance, table) == Some(true) {
+                checking.report(
+                    instance.name(),
+                    table,
+                    format!(
+                        "it holds a [{table}] table, of which a {} reads no setting",
+                        instance.role()
+                    ),
+                    "remove the table: a file holds the tables its role reads",
+                );
+            }
+        }
     }
 }
 
@@ -395,41 +416,34 @@ fn required(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceCo
             config.observability().address().is_some(),
         ),
     ];
-    match instance.role() {
-        "frontend" => {}
-        "storage" => {
+    if instance.role() == "storage" {
+        needed.extend([
+            (
+                "storage.role_address",
+                config.storage().role_address().is_some(),
+            ),
+            ("storage.data_dir", config.storage().data_dir().is_some()),
+            (
+                "storage.partition_count",
+                config.storage().partition_count().is_some(),
+            ),
+        ]);
+        if config.system().is_some() {
             needed.extend([
                 (
-                    "storage.role_address",
-                    config.storage().role_address().is_some(),
+                    "cluster.partition_count",
+                    cluster.partition_count().is_some(),
                 ),
-                ("storage.data_dir", config.storage().data_dir().is_some()),
                 (
-                    "storage.partition_count",
-                    config.storage().partition_count().is_some(),
+                    "sequencer.epoch_ms_min",
+                    config.sequencer().epoch_ms_min().is_some(),
+                ),
+                (
+                    "sequencer.epoch_ms_max",
+                    config.sequencer().epoch_ms_max().is_some(),
                 ),
             ]);
-            if config.system().is_some() {
-                needed.extend([
-                    (
-                        "cluster.partition_count",
-                        cluster.partition_count().is_some(),
-                    ),
-                    (
-                        "sequencer.epoch_ms_min",
-                        config.sequencer().epoch_ms_min().is_some(),
-                    ),
-                    (
-                        "sequencer.epoch_ms_max",
-                        config.sequencer().epoch_ms_max().is_some(),
-                    ),
-                ]);
-            }
         }
-        _ => needed.push((
-            "compute.role_address",
-            config.compute().role_address().is_some(),
-        )),
     }
     for (setting, present) in needed {
         if !present {
@@ -508,17 +522,17 @@ fn bounds(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceConf
 }
 
 /// The most `scan_stall_ms` holds: a client's read timeout, which no Welcome adjusts, runs at least this long past a read's
-/// deadline, so a hung compute process is answered before its client gives the connection up (`PROTOCOL.md` §11.11).
+/// deadline, so a hung partition is answered before its client gives the connection up (`PROTOCOL.md` §11.11).
 const SCAN_STALL_MS_MAX: u64 = 30_000;
 
-/// The settings a value of 0 leaves with no time or room to act: a Scan's stall, a storage process's retention, the bytes a
-/// frontend's reads hold back, and its counts and time of failed authentications before a throttle and a ban. A frontend bounds a
-/// hung compute process by its own `scan_stall_ms`.
+/// The settings a value of 0 leaves with no time or room to act: a Scan's stall, a storage process's retention, the bytes
+/// compute's reads hold back, and its counts and time of failed authentications before a throttle and a ban. Compute times a
+/// hung partition by its own `scan_stall_ms`.
 fn no_time_bounds(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceConfig) {
-    let (storage, frontend) = (instance.role() == "storage", instance.role() == "frontend");
+    let (storage, compute) = (instance.role() == "storage", instance.role() == "compute");
     let settings = [
         (
-            storage || frontend,
+            storage || compute,
             "storage.scan_stall_ms",
             config.storage().scan_stall_ms(),
         ),
@@ -529,12 +543,12 @@ fn no_time_bounds(checking: &mut Checking<'_>, instance: &Instance, config: &Ser
         ),
         (storage, "storage.held_bytes", config.storage().held_bytes()),
         (
-            frontend,
+            compute,
             "endpoint.held_bytes",
             config.endpoint().held_bytes(),
         ),
         (
-            frontend,
+            compute,
             "endpoint.auth_failures_before_throttle",
             config
                 .endpoint()
@@ -542,7 +556,7 @@ fn no_time_bounds(checking: &mut Checking<'_>, instance: &Instance, config: &Ser
                 .map(u64::from),
         ),
         (
-            frontend,
+            compute,
             "endpoint.auth_throttled_failures_before_ban",
             config
                 .endpoint()
@@ -550,7 +564,7 @@ fn no_time_bounds(checking: &mut Checking<'_>, instance: &Instance, config: &Ser
                 .map(u64::from),
         ),
         (
-            frontend,
+            compute,
             "endpoint.auth_ban_ms",
             config.endpoint().auth_ban_ms(),
         ),
@@ -569,7 +583,7 @@ fn no_time_bounds(checking: &mut Checking<'_>, instance: &Instance, config: &Ser
     if let Some(stall) = config
         .storage()
         .scan_stall_ms()
-        .filter(|stall| (storage || frontend) && *stall > SCAN_STALL_MS_MAX)
+        .filter(|stall| (storage || compute) && *stall > SCAN_STALL_MS_MAX)
     {
         checking.report(
             instance.name(),
@@ -634,20 +648,12 @@ fn role_addresses<'a>(
     if let Some(address) = config.cluster().system_address() {
         held.push(("cluster.system_address", address));
     }
-    match instance.role() {
-        "frontend" => {}
-        "storage" => {
-            if let Some(address) = config.storage().role_address() {
-                held.push(("storage.role_address", address));
-            }
-            if let Some(table) = config.system() {
-                held.push(("system.role_address", table.role_address()));
-            }
+    if instance.role() == "storage" {
+        if let Some(address) = config.storage().role_address() {
+            held.push(("storage.role_address", address));
         }
-        _ => {
-            if let Some(address) = config.compute().role_address() {
-                held.push(("compute.role_address", address));
-            }
+        if let Some(table) = config.system() {
+            held.push(("system.role_address", table.role_address()));
         }
     }
     held
@@ -823,8 +829,7 @@ fn listeners(instance: &Instance, config: &ServiceConfig) -> Vec<(&'static str, 
     add("observability.address", config.observability().address());
     add("admin.address", config.admin().address());
     match instance.role() {
-        "frontend" => add("endpoint.address", config.endpoint().address()),
-        "compute" => add("compute.role_address", config.compute().role_address()),
+        "compute" => add("endpoint.address", config.endpoint().address()),
         _ => {
             if let Some(base) = config.storage().role_address() {
                 let first = config.storage().partition_first().unwrap_or(1);

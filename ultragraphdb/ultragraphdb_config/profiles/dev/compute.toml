@@ -4,5 +4,6 @@ role_secret_file = "/data/config/role.secret"
 system_address = "unix:///run/ultragraph/system.sock"
 [observability]
 address = "tcp://127.0.0.1:8082"
-[compute]
-role_address = "unix:///run/ultragraph/compute.sock"
+[endpoint]
+address = "tcp://0.0.0.0:7080"
+plaintext = true

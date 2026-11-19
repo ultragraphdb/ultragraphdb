@@ -2,7 +2,8 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 Feature: The system group
-  The system group of openspec/changes/stage-5-8-system-group/specs/system-group/spec.md, every scenario of every
+  The system group of openspec/changes/stage-5-8-system-group/specs/system-group/spec.md, with the endpoint's table for two
+  roles of openspec/changes/stage-5-9-compute-role/specs/system-group/spec.md, every scenario of every
   requirement but the two groups 4 and 8 run, verbatim: the group run on the test's runtime over the simulated storage, or
   on a thread of its own over real logs, its role connections served by `SystemSession` over the TCP loopback. What a
   scenario says of a host process or the network binds the group's half here; `notes/group-3.md` names the half groups 4
@@ -15,8 +16,8 @@ Feature: The system group
       When `storage_1` holds a `[system]` table and `storage_2` none, and both start
       Then `storage_1` listens at `system.role_address` and answers a Placement request there, and `storage_2` listens at its partitions' addresses alone
 
-    Scenario: The frontend holds no book
-      When the frontend binary's dependency graph is listed
+    Scenario: Compute holds no book
+      When the compute binary's dependency graph is listed
       Then it names neither `ultragraphdb_cluster_metadata`, `ultragraphdb_cluster_sequencer` nor `ultragraphdb_transactions_log`
 
   Rule: The system group runs on a core of its own over logs of its own

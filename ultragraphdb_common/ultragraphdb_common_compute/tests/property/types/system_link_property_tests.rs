@@ -48,7 +48,7 @@ async fn core() -> Option<(SystemPlay, RoleDouble, SystemLink, Address)> {
     })
     .await
     .ok()?;
-    let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
+    let links = RoleLinks::new(cluster.clone(), "compute".to_string());
     let address = Address::parse(group.address()).ok()?;
     let system = SystemLink::dial(address, cluster, links.clone(), 5_000, Readiness::default());
     let deadline =
@@ -67,7 +67,7 @@ async fn core() -> Option<(SystemPlay, RoleDouble, SystemLink, Address)> {
         .await
         .ok()?;
     let client = listener.local_address().ok()?;
-    let server = Server::new(CLUSTER, "frontend", Endpoint::Client).ok()?;
+    let server = Server::new(CLUSTER, "compute", Endpoint::Client).ok()?;
     spawn(async move {
         while let Ok(carrier) = listener.accept().await {
             let relay = RelayAuthenticator::default();

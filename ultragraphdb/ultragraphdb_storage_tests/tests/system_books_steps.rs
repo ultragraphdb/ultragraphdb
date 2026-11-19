@@ -159,7 +159,7 @@ async fn books() -> TestResult<Books> {
             .collect(),
     );
     drop(placed_reply);
-    let mut frontend = group_as("frontend").await?;
+    let mut frontend = group_as("compute").await?;
     let challenge_reply = frontend.request(&Challenge::request(ADMIN)).await?;
     let challenge_view = challenge_reply.view()?;
     let challenged = ChallengeView::from_frame(&challenge_view)?;
@@ -183,7 +183,7 @@ async fn leased(storage: &mut RoleClient) -> TestResult<(u64, u64)> {
 
 /// The latest close the group holds, as the first close of a subscription at the latest.
 async fn latest_close() -> TestResult<u64> {
-    let mut closes = group_as("frontend").await?;
+    let mut closes = group_as("compute").await?;
     closes.send_only(&Subscribe::at_latest()).await?;
     close_epoch(&closes.next_frame().await?)
 }
@@ -247,9 +247,9 @@ fn books_recover(w: &mut Steps) -> TestResult {
 /// Declares a predicate, which builds version 1, and asks for closes through the twelfth, which assign the version's
 /// epoch: the Declare is answered once they have.
 async fn declared_through_closes() -> TestResult {
-    let mut closes = group_as("frontend").await?;
+    let mut closes = group_as("compute").await?;
     closes.send_only(&Subscribe::at_latest()).await?;
-    let mut asking = group_as("frontend").await?;
+    let mut asking = group_as("compute").await?;
     // Answered once a close has assigned the version's epoch, which the closes asked for below bring.
     let declared = vec![Declared::Predicate(DeclaredPredicate::new(
         "http://ex.org/declared",
@@ -329,7 +329,7 @@ fn committed_at_or_after(
     let began = Instant::now();
     Runtime::new()?.block_on(async {
         let target = Address::parse(address)?;
-        let mut client = RoleClient::dial(&target, CLUSTER, "frontend", SECRET).await?;
+        let mut client = RoleClient::dial(&target, CLUSTER, "compute", SECRET).await?;
         // Ends at a commit of `epoch` or later, or past the bound (Ultra rule 2).
         for at in 0u32.. {
             let write = edge_write(&subject, &format!("http://ex.org/late{at}"));
@@ -390,7 +390,7 @@ fn partition_delayed(w: &mut Steps) -> TestResult {
     // Partition 2's process stopped whole: whatever sync of its log is in flight, and every read of its subscription,
     // waits until it runs again.
     let during = Runtime::new()?.block_on(async {
-        let mut closes = group_as("frontend").await?;
+        let mut closes = group_as("compute").await?;
         closes.send_only(&Subscribe::at_latest()).await?;
         let mut during = vec![timed_close(&closes.next_frame().await?)?];
         signal(pid, "-STOP")?;
@@ -487,7 +487,7 @@ fn restarts_with_version(w: &mut Steps) -> TestResult {
     )?;
     w.roles = Some(util);
     let effective = Runtime::new()?.block_on(async {
-        let mut asking = group_as("frontend").await?;
+        let mut asking = group_as("compute").await?;
         let mut effective = 0;
         for built_on in 0..VERSIONS {
             let declared = vec![Declared::Predicate(DeclaredPredicate::new(format!(

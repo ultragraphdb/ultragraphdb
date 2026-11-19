@@ -76,9 +76,7 @@ fn write_of_subjects(subjects: [&str; 2], p: &str, b: &str) -> Write {
     Write::new(terms, changes)
 }
 
-#[when(
-    "a transaction's first Write names subjects the frontend's map places in partitions 1 and 2"
-)]
+#[when("a transaction's first Write names subjects compute's map places in partitions 1 and 2")]
 fn first_spreading(w: &mut Steps) -> TestResult {
     let (one, two, p, b) = (
         w.iri_in(1, "one")?,
@@ -146,7 +144,7 @@ fn direct_spreading(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the frontend refuses it with code 23 before any relay, and neither is held")]
+#[then("compute refuses it with code 23 before any relay, and neither is held")]
 fn direct_spreading_refused(w: &mut Steps) -> TestResult {
     let refused = w.seen.refusals.first().context("the refusal")?;
     names_partitions(refused, ErrorCode::CrossPartition, 1, 2)?;
@@ -710,7 +708,7 @@ fn latest_two_reads(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend sends the second only after the first's first Result names partition 1, with `partition` 1, and compute refuses it with code 25 when it reaches another partition"
+    "compute starts the second only after the first's first Result names partition 1, bound to partition 1, and refuses it with code 25 when it reaches another partition"
 )]
 fn latest_second_refused(w: &mut Steps) -> TestResult {
     let first = w.seen.answers.first().context("the first read's answer")?;
@@ -790,7 +788,7 @@ fn blanks_in_turn(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend binds them to partitions 1, 2 and 3 in turn, and each blank node's bucket is one its partition owns"
+    "compute binds them to partitions 1, 2 and 3 in turn, and each blank node's bucket is one its partition owns"
 )]
 fn blanks_bound(w: &mut Steps) -> TestResult {
     let mut partitions = w.seen.facts.clone();
@@ -851,7 +849,7 @@ fn claim_route(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the frontend relays it to partition 2, and its reply names the node")]
+#[then("compute relays it to partition 2, and its reply names the node")]
 fn claim_routed(w: &mut Steps) {
     assert!(
         w.committed,

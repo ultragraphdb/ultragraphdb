@@ -197,10 +197,10 @@ pub fn refusal_of(frame: &ReceivedFrame) -> TestResult<Option<Refused>> {
     }))
 }
 
-/// A connection compute takes reads on, as the frontend's.
+/// A connection compute's session takes reads on, as a role's.
 pub async fn compute_client(info: &ClusterInfo) -> TestResult<RoleClient> {
     let target = Address::parse(&info.compute_address())?;
-    Ok(RoleClient::dial(&target, CLUSTER, "frontend", SECRET).await?)
+    Ok(RoleClient::dial(&target, CLUSTER, "compute", SECRET).await?)
 }
 
 /// Sends `read` on `client` and reads its answer, granting a frame's credit per batch.
@@ -356,13 +356,13 @@ impl Scene {
         Err(TestError::new("no IRI of the partition"))
     }
 
-    /// A client of `partition`, as the frontend dials it.
+    /// A client of `partition`, as compute dials it.
     pub async fn partition_client(&self, partition: u32) -> TestResult<RoleClient> {
         let target = Address::parse(&format!(
             "tcp://127.0.0.1:{}",
             self.info.partition_port(partition)
         ))?;
-        Ok(RoleClient::dial(&target, CLUSTER, "frontend", SECRET).await?)
+        Ok(RoleClient::dial(&target, CLUSTER, "compute", SECRET).await?)
     }
 
     /// Commits `write` at `partition` through no session: its commit version.
@@ -540,7 +540,7 @@ pub fn insert_of(
     ))
 }
 
-/// A read-write transaction, bound through a played frontend's connection.
+/// A read-write transaction, bound through a role connection to its partition.
 #[derive(Debug)]
 pub struct Transaction {
     pub client: RoleClient,

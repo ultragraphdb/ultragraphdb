@@ -1,21 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
-Feature: The frontend and a lost system group
-  openspec/changes/stage-5-8-system-group/specs/system-group/spec.md, "A lost system group is waited for until the deadline":
-  the frontend's part, over the role binaries as processes, one storage process hosting the system group.
-  Compute's part is bound in system_group.feature.
+Feature: Compute and a lost system group
+  openspec/changes/stage-5-9-compute-role/specs/system-group/spec.md, "A lost system group is waited for until the deadline":
+  compute's part, over the role binaries as processes, one storage process hosting the system group.
 
-  Scenario: A frontend started before storage waits
-    When the frontend starts while no process listens at `cluster.system_address`, and the hosting storage process starts within the deadline
-    Then the frontend dials until it is answered, and its `/ready` answers after storage's
+  Scenario: A compute node started before storage waits
+    When compute starts while no process listens at `cluster.system_address`, and the hosting storage process starts within the deadline
+    Then compute dials until it is answered, and its `/ready` answers after storage's
 
   Scenario: A group gone past the deadline ends its dependants
     When the hosting storage process is killed and does not return within `join_deadline_ms`
-    Then the frontend shuts down through its ordinary path and exits with code 69 naming the system group's address
+    Then every compute node shuts down through its ordinary path and exits with code 69 naming the system group's address
 
   Scenario: A commit during the outage is refused, not lost
-    When the frontend's connection to the group is closed and a client commits through its session
+    When compute's connection to the group is closed and a client commits through its session
     Then the Commit is answered code 17 and reaches no partition, and the same Commit succeeds once the group answers again
 
   Scenario: An outage bans no source

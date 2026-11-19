@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Whether a role listens and is ready, which its role's work sets, `/health` answering the first and `/ready` the second.
 ///
-/// A role that binds listeners from its start, the frontend, starts [`Readiness::binding`] and sets itself listening once
+/// A role that binds listeners from its start, compute, starts [`Readiness::binding`] and sets itself listening once
 /// they are bound, so `/health` answering says a connection to its addresses is accepted; every other role starts
 /// listening ([`Readiness::default`]). Shared by an `Arc` of atomics: the responder's core reads what a role's other core
 /// sets, once at start and once at shutdown, so this is control plane and no request's path touches it (Ultra rule 9).

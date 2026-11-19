@@ -29,7 +29,7 @@ fn cluster(name: &str) -> TestResult<RoleCluster> {
 /// The links hold no placement map, and so no run or partition, until they are given one, and then hold that one.
 #[test]
 fn test_the_links_hold_the_map_they_were_given() -> TestResult {
-    let links = RoleLinks::new(cluster("map")?, "frontend".to_string());
+    let links = RoleLinks::new(cluster("map")?, "compute".to_string());
     assert_eq!(links.map(), None);
     assert!(links.run_partitions(0).is_empty(), "no run without a map");
     assert!(
@@ -51,7 +51,7 @@ fn test_a_closed_link_is_dialled_anew() -> TestResult {
         .local_addr()?
         .port();
     Runtime::new()?.block_on(async {
-        let links = RoleLinks::new(cluster, "frontend".to_string());
+        let links = RoleLinks::new(cluster, "compute".to_string());
         links.joined(&Join::storage(format!("tcp://127.0.0.1:{port}"), vec![1]));
         let first = links.partition(1).context("the partition's link")?;
         let mut waited = 0;
@@ -71,7 +71,7 @@ fn test_a_closed_link_is_dialled_anew() -> TestResult {
 /// The links list the partitions joined, ascending, as the last join for each says; a compute node's Join lists none.
 #[test]
 fn test_the_links_list_the_partitions_joined() -> TestResult {
-    let links = RoleLinks::new(cluster("joined")?, "frontend".to_string());
+    let links = RoleLinks::new(cluster("joined")?, "compute".to_string());
     assert!(links.partitions().is_empty());
     links.joined(&Join::compute("tcp://127.0.0.1:1"));
     assert!(
@@ -88,7 +88,7 @@ fn test_the_links_list_the_partitions_joined() -> TestResult {
 /// range only touches it.
 #[test]
 fn test_a_runs_partitions_are_those_overlapping_it() -> TestResult {
-    let links = RoleLinks::new(cluster("run")?, "frontend".to_string());
+    let links = RoleLinks::new(cluster("run")?, "compute".to_string());
     // The first run on partition 1, every other on partition 2: the second's range starts where the first run ends.
     let mut map = PlacementMap::even(1, NodeId::new(1))?;
     let first_run = TenantRun::new(0).range();

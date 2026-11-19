@@ -221,12 +221,12 @@ fn status(text: &str) -> Option<&str> {
 fn test_a_role_answers_until_it_is_stopped() -> TestResult {
     let runtime = Runtime::new()?;
     runtime.block_on(async {
-        // A frontend's `/health` waits for the role to say it has bound its addresses; every other role's answers at once.
+        // Compute's `/health` waits for the role to say it has bound its client address; storage's answers at once.
         for (kind, ready, listens, healthy, answers) in [
             (RoleKind::Storage, true, false, "200", "200"),
-            (RoleKind::Frontend, false, false, "503", "503"),
-            (RoleKind::Frontend, false, true, "200", "503"),
-            (RoleKind::Compute, false, false, "200", "503"),
+            (RoleKind::Storage, false, false, "200", "503"),
+            (RoleKind::Compute, false, false, "503", "503"),
+            (RoleKind::Compute, false, true, "200", "503"),
         ] {
             let start = start_on_free_port()?;
             let (stop, task) = serving(kind, &start, ready, listens);

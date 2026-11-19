@@ -82,7 +82,7 @@ impl PlayedFrontend {
         let address = listener.local_address()?.to_string();
         let credentials = cluster.secret().credentials()?;
         let open = OpenRequests::default();
-        let server = Server::new(cluster.id(), "frontend", Endpoint::Frontend)?
+        let server = Server::new(cluster.id(), "compute", Endpoint::Frontend)?
             .with_iterations(ROLE_ITERATIONS)
             .with_open(open.clone());
         let played = Self {

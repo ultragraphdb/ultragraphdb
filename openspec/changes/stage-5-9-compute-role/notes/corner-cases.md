@@ -148,7 +148,7 @@ tells the administrator what to do"; T 0.1, T 6.3.
 | C6.6 | a compute instance's file holding `compute.role_address` | refused naming the setting as unknown |
 | C6.7 | any file holding `cluster.frontend_address` | refused naming the setting as unknown |
 | C6.8 | an instance named `frontend_1` | refused by the Names rule: the name begins with no role's name |
-| C6.9 | a compute instance's file holding a `[storage]` table; a storage instance's holding a `[compute]` table | refused naming the table and the instance |
+| C6.9 | a storage instance's file holding a `[compute]` or an `[endpoint]` table; a compute instance's holding a `[system]` table | refused naming the table and the instance; a compute instance's `[storage]` table, whose `scan_stall_ms` and `read_retain_ms` compute reads, is not (the Tables rule) |
 | C6.10 | a compute instance holding a `[metadata]` or a `[sequencer]` table | refused by the System rule |
 | C6.11 | one revision holding C6.5, C6.8 and C6.9 | refused listing all three, each naming its instance and setting |
 | C6.12 | the config service started over a directory whose active revision holds a `[frontend]` table | exit code 78 naming the target, the revision and the table; the release before, over the same directory, serves as it did |

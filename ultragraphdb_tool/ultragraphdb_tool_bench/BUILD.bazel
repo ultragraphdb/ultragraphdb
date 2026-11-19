@@ -105,7 +105,7 @@ glibc_multiarch_img(
     visibility = ["//visibility:public"],
 )
 
-# `client_bench` on the glibc base the roles ship on, run as a Kubernetes Job against the frontend's client Service
+# `client_bench` on the glibc base the roles ship on, run as a Kubernetes Job against compute's client Service
 # (batch-commits-through-the-roles, design D7). Build with `-c opt`; its `oci_tarball` output group loads into `container`.
 glibc_multiarch_img(
     name = "client_bench_multiarch",

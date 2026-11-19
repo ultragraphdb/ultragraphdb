@@ -6,12 +6,15 @@
 use ultragraphdb_common_config_check::{TargetFiles, instances};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-/// An instance is a role's name, `_` and a label of a-z, 0-9 and `_`; any other key names none.
+/// An instance is a role's name, `compute` or `storage`, alone or with `_` and a label of a-z, 0-9 and `_`; any other key,
+/// the retired `frontend` among them, names none.
 #[test]
 fn test_an_instance_label_is_lowercase_digits_and_underscores() {
     let mut target = TargetFiles::new("ci");
     for key in [
+        "compute",
         "frontend",
+        "frontend_1",
         "storage_a_1",
         "storage_A",
         "storage_",
@@ -23,7 +26,7 @@ fn test_an_instance_label_is_lowercase_digits_and_underscores() {
         .iter()
         .map(|instance| instance.name().to_string())
         .collect();
-    assert_eq!(names, ["frontend", "storage_a_1"]);
+    assert_eq!(names, ["compute", "storage_a_1"]);
 }
 
 /// Merged settings render as canonical TOML, a basic string escaping what TOML 1.0 requires: `"`, `\`, and the control

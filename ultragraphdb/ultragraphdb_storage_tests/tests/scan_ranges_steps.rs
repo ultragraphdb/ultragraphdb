@@ -547,7 +547,7 @@ fn seventeen_on_both(w: &mut Steps) -> TestResult {
 /// A transaction that only read: partition 1 holds no catalog of the tenant and `rdf:type` is homed elsewhere, so a Commit naming it
 /// would be refused.
 #[when(
-    "a Scan of a transaction waits on a home's answer, the frontend cancels the read and sends the Commit"
+    "a Scan of a transaction waits on a home's answer, compute cancels the read and sends the Commit"
 )]
 fn commit_behind_read(w: &mut Steps) -> TestResult {
     crate::one_process_of_two(w)?;
@@ -647,7 +647,7 @@ fn commit_took_its_turn(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "the frontend sends a Write on a Bind stream, its references registered and its changes held by the partition"
+    "compute sends a Write on a Bind stream, its references registered and its changes held by the partition"
 )]
 fn write_on_bind(w: &mut Steps) -> TestResult {
     crate::one_process_of_two(w)?;
@@ -709,7 +709,7 @@ fn write_on_bind(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the partition answers Held on the stream, which stays open; the dialling side's check accepts it, and the frontend relays nothing to the client"
+    "the partition answers Held on the stream, which stays open; the dialling side's check accepts it, and compute relays nothing to the client"
 )]
 fn held_answered(w: &mut Steps) -> TestResult {
     assert!(w.kernel.refused.is_empty(), "{:?}", w.kernel.refused);

@@ -43,17 +43,17 @@ const DRAWING: &str = ".drawing";
 const CONFIG: &str = "config";
 
 /// The order the roles start in, each ready before the next starts: storage hosts the system group and depends on no other
-/// role, compute reads from storage, and the frontend's readiness asks for a partition answering (design D10).
-const START_ORDER: [&str; 3] = ["storage", "compute", "frontend"];
+/// role, and compute's readiness asks for a partition answering.
+const START_ORDER: [&str; 2] = ["storage", "compute"];
 
-/// The order the processes stop in: the frontend takes no more work, compute drains, storage flushes, and the settings go last.
-const STOP_ORDER: [&str; 4] = ["frontend", "compute", "storage", CONFIG];
+/// The order the processes stop in: compute takes no more work and drains, storage flushes, and the settings go last.
+const STOP_ORDER: [&str; 3] = ["compute", "storage", CONFIG];
 
 const HELP: &str = "ultragraphdb_supervisor --config <file>
 
-Runs the development container: the config service, storage, compute and the frontend, each its own process, started in that
-order, each waited on over HTTP until it is ready before the next starts. It restarts nothing. SIGTERM and SIGINT stop them in
-the shutdown order: the frontend, compute, storage, the config service. SIGHUP and SIGQUIT do the same, as SIGTERM, since a
+Runs the development container: the config service, storage and compute, each its own process, started in that order, each
+waited on over HTTP until it is ready before the next starts. It restarts nothing. SIGTERM and SIGINT stop them in the shutdown
+order: compute, storage, the config service. SIGHUP and SIGQUIT do the same, as SIGTERM, since a
 closed terminal reaches the supervisor alone.
 ULTRAGRAPHDB_PARENT_PID names a process to end with: once it is not this one's parent, the supervisor stops as on SIGTERM. The
 supervisor sets the variable to its own process for everything it starts, so killed outright it takes each of them with it, each
@@ -312,10 +312,9 @@ async fn supervise(start: &Start, signals: &Signals) -> Result<u8, RoleError> {
 }
 
 impl Supervised<'_> {
-    /// The start order (design D10): the config service; storage, which hosts the system group and depends on no other role;
-    /// compute; the frontend; each waited on until its `/ready` answers before the next starts. No role waits on one waiting
-    /// on it, and compute and the frontend retry dialling the system group until their own deadlines, so neither needs the
-    /// order to hold.
+    /// The start order: the config service; storage, which hosts the system group and depends on no other role; compute; each
+    /// waited on until its `/ready` answers before the next starts. No role waits on one waiting on it, and compute retries
+    /// dialling the system group until its own deadline, so it does not need the order to hold.
     ///
     /// A future dropped at a wait leaves the roles started so far running, each held in `processes`.
     async fn start_all(&mut self) -> Result<(), Interrupt> {

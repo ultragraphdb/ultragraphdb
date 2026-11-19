@@ -174,6 +174,6 @@ impl PlayedCluster {
 
     /// A connection to compute's role address, as the frontend's.
     pub async fn client(&self) -> TestResult<RoleClient> {
-        Ok(RoleClient::dial(&self.compute, CLUSTER, "frontend", PASSWORD).await?)
+        Ok(RoleClient::dial(&self.compute, CLUSTER, "compute", PASSWORD).await?)
     }
 }

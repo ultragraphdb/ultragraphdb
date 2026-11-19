@@ -5,31 +5,15 @@ Feature: The compute binary as a process
   openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md, and compute's parts of
   openspec/changes/stage-5-8-system-group/specs/role-binaries/spec.md: "A lost dependency exits with its code" is that
   change's scenario as it stands, and compute's readiness once the system group and a storage process answer is
-  "Compute is ready once a partition has joined"
+  "Compute is ready once a partition has joined". What compute's client endpoint decides is endpoint_process.feature's.
 
   Scenario: A signal stops a role cleanly
     When a role is running and receives SIGTERM
     Then it exits with code 0
 
-  Scenario: The compute binary carries no storage engine
-    When the compute binary's dependency graph is listed
-    Then it names neither `ultragraphdb_store_kv` nor fjall
-
-  Scenario: A compute process without its address stops the start
-    When the compute binary receives settings with no `compute.role_address`
-    Then it exits with code 78 and an error naming `compute.role_address`
-
   Scenario: Compute is ready once a partition has joined
     When compute has started while no process listens at `cluster.system_address`
     Then its `/health` answers, its `/ready` does not, and it turns ready once a partition joins
-
-  Scenario: Compute serves reads alone
-    When a role asks compute for a command it does not host
-    Then the connection authenticates and the command is refused as not served
-
-  Scenario: Compute refuses a role with another secret
-    When a role asks compute with a different role secret
-    Then its authentication is refused
 
   Scenario: A lost dependency exits with its code
     When compute loses its storage process, which does not return within compute's deadline

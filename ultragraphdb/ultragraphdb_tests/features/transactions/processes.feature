@@ -10,7 +10,7 @@ Feature: Sessions under a whole cluster of their own
 
   Scenario: An evicted session is told so
     When a session is evicted from the full registry and its client sends its next request
-    Then the frontend refuses the request with an error saying the session was evicted, and no partition sees it
+    Then compute refuses the request with an error saying the session was evicted, and no partition sees it
 
   Scenario: A session with a commit in flight is not evicted
     When the registry holds `sessions_max` sessions, the oldest has a Commit at its partition unanswered, its client's connection closes, and another session is registered
@@ -22,12 +22,12 @@ Feature: Sessions under a whole cluster of their own
 
   Scenario: A retry of a session evicted meanwhile is unknown
     When a retried Commit is recalled, every partition answers 18, and the registry has evicted the session meanwhile
-    Then the frontend answers code 12, and the client reports the outcome as unknown
+    Then compute answers code 12, and the client reports the outcome as unknown
 
   Scenario: A one-frame write's resend is decided by the table
     When a DirectWrite through a session is answered code 17, the partition had not committed it, and the client sends it again
-    Then the frontend relays it, not recalls it, the partition commits it, and the reply carries its commit version
+    Then compute relays it, not recalls it, the partition commits it, and the reply carries its commit version
 
   Scenario: A Recall reaching no answer stays in doubt
     When a retried Commit is recalled over two partitions, partition 1 answers 18 and the role connection to partition 2 closes under the Recall
-    Then the frontend answers code 17, and the client resends after a delay
+    Then compute answers code 17, and the client resends after a delay

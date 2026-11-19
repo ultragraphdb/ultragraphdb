@@ -3,7 +3,8 @@
 
 Feature: Validating settings before anything serves them
   openspec/changes/stage-5-5-three-role-refactor/specs/config-service/spec.md, with the System, System address, Data and
-  Fixed rules of openspec/changes/stage-5-8-system-group/specs/config-service/spec.md
+  Fixed rules of openspec/changes/stage-5-8-system-group/specs/config-service/spec.md and the Roles and Tables rules and
+  the retired role's settings of openspec/changes/stage-5-9-compute-role/specs/config-service/spec.md
 
   Scenario: An instance's file overrides its role's
     When target `ci` holds `storage` with `partition_count = 2` and `storage_2` with `partition_first = 3`
@@ -29,9 +30,13 @@ Feature: Validating settings before anything serves them
     When no storage instance holds a `[system]` table
     Then the revision is refused naming `system` and the target
 
-  Scenario: The frontend's old settings are refused by name
-    When the frontend's file holds `frontend.role_address`, or any file holds `cluster.frontend_address`
-    Then the revision is refused naming the setting as unknown
+  Scenario: The retired role's settings are refused by name
+    When any file holds a `[frontend]` table, `compute.role_address` or `cluster.frontend_address`
+    Then the revision is refused naming the table or the setting as unknown
+
+  Scenario: Another role's table is refused by name
+    When `storage_1` holds a `[compute]` table
+    Then the revision is refused naming `compute` and the instance
 
   Scenario: The books' directory inside a partition's is refused
     When `storage_1` holds `storage.data_dir = "/data/storage"` and `system.data_dir = "/data/storage/system"`
@@ -85,12 +90,12 @@ Feature: Validating settings before anything serves them
     When `ci_storage_1.toml` sets `storage.scan_stall_ms = 0`
     Then the entry names `storage.scan_stall_ms`, the value 0 and the bound it must meet
 
-  Scenario: A stall past the client's read timeout is refused
+  Scenario: A stall past what the client's read timeout covers is refused
     When `ci_storage_1.toml` sets `storage.scan_stall_ms = 30001`
     Then the entry names `storage.scan_stall_ms`, the value 30001 and the bound it must meet
 
-  Scenario: A hung compute's stall of no time is refused
-    When `ci_frontend.toml` sets `storage.scan_stall_ms = 0`
+  Scenario: A hung partition's stall of no time is refused
+    When `ci_compute.toml` sets `storage.scan_stall_ms = 0`
     Then the entry names `storage.scan_stall_ms`, the value 0 and the bound it must meet
 
   Scenario: A retention of no time is refused
@@ -98,7 +103,7 @@ Feature: Validating settings before anything serves them
     Then the entry names `storage.read_retain_ms`, the value 0 and the bound it must meet
 
   Scenario: A held-bytes bound of nothing is refused
-    When `ci_frontend.toml` sets `endpoint.held_bytes = 0`
+    When `ci_compute.toml` sets `endpoint.held_bytes = 0`
     Then the entry names `endpoint.held_bytes`, the value 0 and the bound it must meet
 
   Scenario: A parked-bytes bound of nothing is refused

@@ -36,7 +36,7 @@ fn cluster(deadline: Duration) -> TestResult<RoleCluster> {
     Ok(RoleCluster::new(7, secret, deadline))
 }
 
-/// The settings of a start as `role` (`frontend`, `compute` or `storage`), `cluster` the lines of their `[cluster]`
+/// The settings of a start as `role` (`compute` or `storage`), `cluster` the lines of their `[cluster]`
 /// table.
 fn start_as(role: &str, cluster: &str) -> TestResult<RoleStart> {
     let text = format!("[observability]\naddress = \"tcp://127.0.0.1:1\"\n[cluster]\n{cluster}");
@@ -46,11 +46,11 @@ fn start_as(role: &str, cluster: &str) -> TestResult<RoleStart> {
     )?)
 }
 
-/// C2.8: the system group's address is the one the settings name, on either carrier, for a frontend, a compute and a
-/// storage instance alike.
+/// C2.8: the system group's address is the one the settings name, on either carrier, for a compute and a storage instance
+/// alike.
 #[test]
 fn test_the_system_address_is_the_setting_for_every_role() -> TestResult {
-    for role in ["frontend", "compute", "storage"] {
+    for role in ["compute", "storage"] {
         for address in ["tcp://storage-0:7100", "unix:///run/ultragraph/system.sock"] {
             let start = start_as(role, &format!("system_address = \"{address}\"\n"))?;
             assert_eq!(system_address(&start)?.to_string(), address);

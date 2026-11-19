@@ -3,25 +3,25 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A real compute process and real storage processes over played frontends, started once per test process: a scenario isolates
-//! itself by a tenant of its own.
+//! Real storage processes over played system groups, and a compute session served in process beside one, started once per test
+//! process: a scenario isolates itself by a tenant of its own.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use service_utils::ServiceUtil;
+use ultragraphdb_common_compute::{ReadTimes, read_times_of};
 use ultragraphdb_tests::{
-    COMPUTE_BINARY, SECRET, STORAGE_BINARY, answering, compute_on_one_host, holding, not_hosting,
-    role, scratch, storage_holding, with,
+    STORAGE_BINARY, answering, not_hosting, role, scratch, storage_holding, with,
 };
 use ultragraphdb_tool_bdd::{TestResult, port};
 
-use crate::played_frontend::{EpochClock, Played, play};
+use crate::played_system::{EpochClock, Played, ServedCompute, play};
 use crate::tap::{TapLog, tap};
 
 /// The offset above the target's port base of the first cluster's base, and how many ports each cluster takes from its base:
-/// the played frontends at the base and one above, the partitions from 10, the taps from 30, and from 18 to 22 the
-/// observability of the cores the steps build, compute's role address, compute's observability and storage's.
+/// the played system groups at the base and one above, the partitions from 10, the taps from 30, and from 18 to 22 the
+/// observability of the cores the steps build, the compute session's address and storage's observability.
 const FIRST_CLUSTER: u16 = 20;
 const CLUSTER_PORTS: u16 = 34;
 
@@ -83,13 +83,14 @@ pub fn start_cluster(
             )
         })
         .collect();
-    let played = |listed| Played {
+    let played = |listed, compute| Played {
         partitions,
         clock: Arc::clone(&clock),
         listed,
+        compute,
     };
-    play(base, played(real))?;
-    play(base + 1, played(tapped))?;
+    play(base, played(real, None))?;
+    play(base + 1, played(tapped, Some(served_compute(base, extra)?)))?;
     for partition in 1..=partitions {
         tap(
             base + 30 + partition - 1,
@@ -99,8 +100,7 @@ pub fn start_cluster(
         )?;
     }
     let storage = start_storage(util, &info, extra)?;
-    let compute = start_compute(util, base, extra)?;
-    Ok((info, vec![compute, storage]))
+    Ok((info, vec![storage]))
 }
 
 fn start_storage(
@@ -138,35 +138,25 @@ fn start_storage(
     )?)?)
 }
 
-pub fn start_compute(util: &ServiceUtil, base: u32, extra: &[(&str, &str)]) -> TestResult<u32> {
-    let settings = [
-        (
-            "observability.address",
-            format!("tcp://127.0.0.1:{}", base + 21),
-        ),
-        (
-            "cluster.system_address",
-            format!("tcp://127.0.0.1:{}", base + 1),
-        ),
-        (
-            "compute.role_address",
-            format!("tcp://127.0.0.1:{}", base + 20),
-        ),
-    ];
-    let mut held = holding(compute_on_one_host()?, SECRET)?;
-    for (name, value) in &settings {
-        held = with(held, name, value);
-    }
-    for (name, value) in extra {
-        held = with(held, name, value);
-    }
-    let wait = answering(&format!("127.0.0.1:{}", base + 21), "/ready");
-    Ok(util.start_service_from_config(role(
-        COMPUTE_BINARY,
-        &held,
-        &scratch(&format!("compute-{base}.log")),
-        wait,
-    )?)?)
+/// The compute session a cluster's tapped group serves at its base's port 20, its reads stalling and retaining as `extra`'s
+/// `storage.scan_stall_ms` and `storage.read_retain_ms` say, as the compute binary read them from its settings.
+pub fn served_compute(base: u32, extra: &[(&str, &str)]) -> TestResult<ServedCompute> {
+    let setting = |name: &str| -> TestResult<Option<u64>> {
+        extra
+            .iter()
+            .find(|(held, _)| *held == name)
+            .map(|(_, value)| value.parse::<u64>())
+            .transpose()
+            .map_err(Into::into)
+    };
+    let times: ReadTimes = read_times_of(
+        setting("storage.scan_stall_ms")?,
+        setting("storage.read_retain_ms")?,
+    );
+    Ok(ServedCompute {
+        port: base + 20,
+        times,
+    })
 }
 
 /// A tenant no earlier scenario wrote.

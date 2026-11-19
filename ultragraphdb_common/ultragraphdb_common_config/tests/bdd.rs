@@ -17,7 +17,7 @@ use ultragraphdb_transactions_log::{FaultMode, SimStorage, Wal, WalConfig};
 
 type Store = ConfigStore<Wal<SimStorage>>;
 
-const FRONTEND: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n";
+const COMPUTE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n";
 /// The one storage instance, hosting the system group; its `[storage]` table comes last, so what a test appends lands there.
 const STORAGE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\npartition_count = 1\n[metadata]\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[sequencer]\nepoch_ms_min = 2\nepoch_ms_max = 10\n[system]\nrole_address = \"tcp://10.0.0.2:7100\"\ndata_dir = \"/data/system\"\n[storage]\npartition_count = 1\ndata_dir = \"/data/storage\"\nrole_address = \"tcp://10.0.0.2:7000\"\n";
 
@@ -73,7 +73,7 @@ fn open_store(storage: &SimStorage) -> TestResult<Store> {
 /// A valid set of files; `storage` adds `extra` to the storage file.
 fn files(extra: &str) -> TargetFiles {
     let mut target = TargetFiles::new("ci");
-    target.insert("frontend", "frontend.toml", FRONTEND.as_bytes().to_vec());
+    target.insert("compute", "compute.toml", COMPUTE.as_bytes().to_vec());
     target.insert(
         "storage",
         "storage.toml",

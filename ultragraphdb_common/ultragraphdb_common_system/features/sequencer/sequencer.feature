@@ -8,8 +8,8 @@ Feature: The sequencer in the system group
 
   Rule: An early close is asked by CloseRequest from either role
 
-    Scenario: The frontend's request closes the open epoch
-      When epoch 12 is the latest close, and the frontend sends CloseRequest naming epoch 13 with `partition` 0
+    Scenario: Compute's request closes the open epoch
+      When epoch 12 is the latest close, and compute sends CloseRequest naming epoch 13 with `partition` 0
       Then the sequencer closes epoch 13 before `epoch_ms_max` has passed, once `epoch_ms_min` has, and every subscriber receives the close
 
     Scenario: A request for a closed epoch closes nothing

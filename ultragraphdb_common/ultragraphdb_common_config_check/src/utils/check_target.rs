@@ -57,7 +57,7 @@ fn file_checks(target: &TargetFiles) -> Vec<Defect> {
                 vec![
                     Defect::new(
                         format!("{key} names no role"),
-                        "a key is frontend, compute or storage, alone or followed by _ and a label of a-z, 0-9 and _",
+                        "a key is compute or storage, alone or followed by _ and a label of a-z, 0-9 and _",
                     )
                     .in_file(label)
                     .of_target(target.name()),

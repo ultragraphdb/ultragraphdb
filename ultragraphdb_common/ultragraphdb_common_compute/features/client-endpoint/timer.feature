@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
-Feature: The frontend times a read-write transaction
+Feature: Compute times a read-write transaction
   openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md
 
   Scenario: An unbound transaction passes its limit

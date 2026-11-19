@@ -1,7 +1,10 @@
 {{- /*
-Compute: no data directory, so a Deployment. Its role address, which it binds and announces to the system group, is
-`compute.compute.<namespace>.svc.<domain>`: the pod's `hostname` under the headless Service `compute` as its `subdomain`. One
-replica, replaced by `Recreate`, so no two pods hold that name at once.
+Compute: the client endpoint and the execution of its clients' reads, holding no data directory. Each compute instance of
+`computeInstances` is a StatefulSet of one replica with no volume, as an instance takes its name and its settings file from its
+pod's environment: one pod is one instance, so several compute nodes are several instances, each with its own file. Its pod's
+stable name is `<instance>-0.compute.<namespace>.svc.<domain>`, the pod's name under the headless Service `compute`, a `_` of
+the instance's name a `-` in its objects'. It listens at no role address: it dials the system group at the hosting storage
+pod's name, and clients reach its endpoint through the Service `compute-client`, which spans every compute pod.
 */ -}}
 apiVersion: v1
 kind: Service
@@ -14,56 +17,72 @@ spec:
   clusterIP: None
   publishNotReadyAddresses: true
   selector:
-    {{- include "ultragraphdb.selector" (dict "name" "compute") | nindent 4 }}
+    app.kubernetes.io/component: compute
   ports:
-    - name: role
-      port: 7082
+    - name: endpoint
+      port: 7080
     - name: observability
       port: 8082
 ---
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: v1
+kind: Service
 metadata:
-  name: compute
+  name: compute-client
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "ultragraphdb.labels" (dict "name" "compute" "root" .) | nindent 4 }}
 spec:
+  selector:
+    app.kubernetes.io/component: compute
+  ports:
+    - name: endpoint
+      port: 7080
+{{- range $instance := .Values.computeInstances }}
+{{- $name := replace "_" "-" $instance }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "ultragraphdb.labels" (dict "name" $name "root" $) | nindent 4 }}
+    app.kubernetes.io/component: compute
+spec:
+  serviceName: compute
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
-      {{- include "ultragraphdb.selector" (dict "name" "compute") | nindent 6 }}
+      {{- include "ultragraphdb.selector" (dict "name" $name) | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "ultragraphdb.labels" (dict "name" "compute" "root" .) | nindent 8 }}
+        {{- include "ultragraphdb.labels" (dict "name" $name "root" $) | nindent 8 }}
+        app.kubernetes.io/component: compute
     spec:
-      hostname: compute
-      subdomain: compute
-      {{- include "ultragraphdb.podSecurity" (dict "user" 65532 "root" .) | nindent 6 }}
+      {{- include "ultragraphdb.podSecurity" (dict "user" 65532 "root" $) | nindent 6 }}
       containers:
         - name: compute
-          image: {{ .Values.images.compute }}
-          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          image: {{ $.Values.images.compute }}
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
           # The last lines of a failed start's log stay in the pod's status, naming what stopped it.
           terminationMessagePolicy: FallbackToLogsOnError
           env:
-            {{- include "ultragraphdb.bootstrap" (dict "name" "compute" "root" .) | nindent 12 }}
+            {{- include "ultragraphdb.bootstrap" (dict "name" $instance "root" $) | nindent 12 }}
           ports:
-            - {name: role, containerPort: 7082}
+            - {name: endpoint, containerPort: 7080}
             - {name: observability, containerPort: 8082}
-          {{- include "ultragraphdb.containerSecurity" . | nindent 10 }}
+          {{- include "ultragraphdb.containerSecurity" $ | nindent 10 }}
           {{- include "ultragraphdb.probes" (dict "port" 8082 "startup" 90) | nindent 10 }}
           volumeMounts:
             - {name: secrets, mountPath: /secrets, readOnly: true}
       volumes:
         # Each Secret optional, so a missing one leaves its file absent and the role names it as it exits with code 78, rather
-        # than the pod waiting unstarted.
+        # than the pod waiting unstarted. The bootstrap secret is the hosting storage pod's alone.
         - name: secrets
           projected:
             defaultMode: 0440
             sources:
               - secret: {name: ultragraphdb-read-key, optional: true}
               - secret: {name: ultragraphdb-role-secret, optional: true}
+{{- end }}

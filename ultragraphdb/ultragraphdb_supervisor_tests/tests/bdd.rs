@@ -21,9 +21,9 @@ use cucumber::{World, then, when};
 use service_utils::{ServiceStartConfig, ServiceUtil, WaitStrategy};
 use sha2::{Digest, Sha256};
 use ultragraphdb_tests::{
-    ADMIN_KEY, COMPUTE_BINARY, CONFIG_BINARY, FRONTEND_BINARY, PARENT_PID, START_SECONDS,
-    STORAGE_BINARY, client_address, compute_observability, config_address, exit_is,
-    frontend_observability, http_status, scratch, storage_observability, until_answering,
+    ADMIN_KEY, COMPUTE_BINARY, CONFIG_BINARY, PARENT_PID, START_SECONDS, STORAGE_BINARY,
+    client_address, compute_observability, config_address, exit_is, http_status, scratch,
+    storage_observability, until_answering,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback};
 use ultragraphdb_transport_http_client::{HttpClient, HttpUrl};
@@ -43,14 +43,9 @@ const ALONE_PATH: &str = "ultragraphdb/ultragraphdb_supervisor_tests/alone";
 const ADMIN_OFFSET: u16 = 45;
 
 /// What the `dev` profile's central file declares.
-const PROFILE_FILES: [&str; 4] = [
-    "targets.toml",
-    "frontend.toml",
-    "storage.toml",
-    "compute.toml",
-];
+const PROFILE_FILES: [&str; 3] = ["targets.toml", "storage.toml", "compute.toml"];
 
-/// What the supervisor logs once the frontend's `/ready`, the last it waits on, has answered.
+/// What the supervisor logs once compute's `/ready`, the last it waits on, has answered.
 const EVERY_ROLE_READY: &str = "every role is ready";
 
 /// The secrets the first start draws, relative to the data directory.
@@ -96,7 +91,6 @@ fn moved(text: &str, root: &Path, sockets: &Path) -> TestResult<String> {
             "/etc/ultragraphdb/profiles/dev",
             &root.join("profile").display().to_string(),
         )
-        .replace("127.0.0.1:8081", &frontend_observability()?)
         .replace("127.0.0.1:8082", &compute_observability()?)
         .replace("127.0.0.1:8083", &storage_observability()?)
         .replace("127.0.0.1:8090", &config_address()?)
@@ -129,7 +123,6 @@ fn services() -> TestResult<ServiceUtil> {
         vec![
             SUPERVISOR_BINARY,
             CONFIG_BINARY,
-            FRONTEND_BINARY,
             COMPUTE_BINARY,
             STORAGE_BINARY,
         ],
@@ -171,8 +164,7 @@ fn read_log(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-/// Starts the supervisor on the scenario's profile, and waits until it says every role is ready: the frontend's `/ready` alone
-/// answers before compute has started, since a partition answering it is what decides it.
+/// Starts the supervisor on the scenario's profile, and waits until it says every role is ready.
 fn start_to_ready(w: &mut Steps) -> TestResult {
     start_supervisor(w, on_profile(w))?;
     for _ in 0..START_SECONDS * 20 {
@@ -217,26 +209,22 @@ fn signal(pid: u32, signal: &str) -> TestResult {
     Ok(())
 }
 
-#[when("the supervisor starts the config service and the three roles")]
+#[when("the supervisor starts the config service and the two roles")]
 fn starts_all(w: &mut Steps) -> TestResult {
     write_profile(w)?;
     start_to_ready(w)
 }
 
 #[then(
-    "the config service answers first, storage's `/ready` answers before compute and the frontend are started, the frontend's answers last, and no role waited on one that was waiting on it"
+    "the config service answers first, storage's `/ready` answers before compute is started, compute's answers last, and no role waited on one that was waiting on it"
 )]
 fn start_order(w: &mut Steps) -> TestResult {
-    for address in [
-        storage_observability()?,
-        compute_observability()?,
-        frontend_observability()?,
-    ] {
+    for address in [storage_observability()?, compute_observability()?] {
         assert_eq!(http_status(&address, "/ready")?, 200, "{address}");
     }
     assert_eq!(http_status(&config_address()?, "/ready")?, 200);
-    // Storage hosts the system group and depends on no other role, so it is ready before compute starts; compute and the
-    // frontend each wait on a role already ready, so none waited on one waiting on it (design D10).
+    // Storage hosts the system group and depends on no other role, so it is ready before compute starts; compute waits on a
+    // role already ready, so none waited on one waiting on it.
     in_order(
         &w.log,
         &[
@@ -245,8 +233,6 @@ fn start_order(w: &mut Steps) -> TestResult {
             "answering instance=storage path=/ready",
             "started instance=compute",
             "answering instance=compute path=/ready",
-            "started instance=frontend",
-            "answering instance=frontend path=/ready",
             EVERY_ROLE_READY,
         ],
     )
@@ -273,7 +259,7 @@ fn storage_fails(w: &mut Steps) -> TestResult {
     std::fs::write(config.join("admin.key"), ADMIN_KEY)?;
     start_to_ready(w)?;
     // A log that cannot be opened is what a store's failure is to a role: it restarts by a load, into the code 74 of a real
-    // store, while the frontend and compute run on.
+    // store, while compute runs on.
     let log = w
         .root
         .join("data")
@@ -293,7 +279,7 @@ fn storage_fails(w: &mut Steps) -> TestResult {
     until_exit(w)
 }
 
-#[then("the supervisor stops the frontend and compute and exits with code 74")]
+#[then("the supervisor stops compute and exits with code 74")]
 fn stopped_on_74(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 74)?;
     // The process that ended was reaped, so its ID may be another's by now: it is sent no signal.
@@ -303,8 +289,6 @@ fn stopped_on_74(w: &mut Steps) -> TestResult {
         &[
             "the partition 1 log",
             "ended instance=storage code=74",
-            "stopping role=frontend",
-            "stopped instance=frontend code=0",
             "stopping role=compute",
             "stopped instance=compute code=0",
             "stopped instance=config code=0",
@@ -320,15 +304,13 @@ fn compute_killed(w: &mut Steps) -> TestResult {
     until_exit(w)
 }
 
-#[then("the supervisor stops the frontend and storage and exits with code 137")]
+#[then("the supervisor stops storage and exits with code 137")]
 fn stopped_on_137(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 137)?;
     in_order(
         &w.log,
         &[
             "ended instance=compute code=137",
-            "stopping role=frontend",
-            "stopped instance=frontend code=0",
             "stopping role=storage",
             "stopped instance=storage code=0",
             "stopped instance=config code=0",
@@ -370,17 +352,15 @@ fn quit(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend stops accepting work first, compute drains next, storage flushes last, and the supervisor exits 0"
+    "compute stops accepting work and drains first, storage flushes last, and the supervisor exits 0"
 )]
 fn stopped_in_order(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 0)?;
     in_order(
         &w.log,
         &[
-            "stopping role=frontend",
-            "stopped accepting",
-            "stopped instance=frontend code=0",
             "stopping role=compute",
+            "stopped accepting",
             "stopped instance=compute code=0",
             "stopping role=storage",
             "stopped instance=storage code=0",
@@ -407,14 +387,13 @@ fn storage_told(w: &mut Steps) -> TestResult {
     until_exit(w)
 }
 
-#[then("the supervisor stops the frontend and compute and exits with code 0")]
+#[then("the supervisor stops compute and exits with code 0")]
 fn stopped_on_0(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 0)?;
     in_order(
         &w.log,
         &[
             "ended instance=storage code=0",
-            "stopped instance=frontend code=0",
             "stopped instance=compute code=0",
             "stopped instance=config code=0",
         ],
@@ -439,13 +418,18 @@ fn terminated_in_the_start(w: &mut Steps) -> TestResult {
     until_exit(w)
 }
 
+/// Asserts that `log` names neither role started: the config service may have been.
+fn started_no_role(log: &str) {
+    for role in ["storage", "compute"] {
+        assert!(!log.contains(&format!("started instance={role} ")), "{log}");
+    }
+}
+
 #[then("it starts nothing more, stops what it started, and exits 0")]
 fn stopped_what_it_started(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 0)?;
-    for later in ["compute", "frontend"] {
-        let started = format!("started instance={later}");
-        assert!(!w.log.contains(&started), "{started}: {}", w.log);
-    }
+    let started = "started instance=compute";
+    assert!(!w.log.contains(started), "{started}: {}", w.log);
     in_order(
         &w.log,
         &[
@@ -467,11 +451,7 @@ fn stray_variable(w: &mut Steps) -> TestResult {
 
 #[then("every role reaches readiness, since a role would refuse the variable")]
 fn ready_past_the_variable(_w: &mut Steps) -> TestResult {
-    for address in [
-        storage_observability()?,
-        compute_observability()?,
-        frontend_observability()?,
-    ] {
+    for address in [storage_observability()?, compute_observability()?] {
         assert_eq!(http_status(&address, "/ready")?, 200, "{address}");
     }
     Ok(())
@@ -511,7 +491,7 @@ fn container_started(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "`/data` holds `system/meta/`, `system/seq/` and `storage/p1/r1/`, the paths a cluster's hosting storage node uses, and no directory of the frontend's"
+    "`/data` holds `system/meta/`, `system/seq/` and `storage/p1/r1/`, the paths a cluster's hosting storage node uses, and no directory of compute's"
 )]
 fn data_layout(w: &mut Steps) -> TestResult {
     let data = w.root.join("data");
@@ -519,14 +499,9 @@ fn data_layout(w: &mut Steps) -> TestResult {
         assert!(data.join(path).is_dir(), "{path}");
     }
     // What stands under `/data` is what the profile's data directories name, the config service's, storage's and the system
-    // group's, and nothing else: the frontend's file names none, so nothing of it is there.
+    // group's, and nothing else: compute's file names none, so nothing of it is there.
     let mut named = std::collections::BTreeSet::new();
-    for file in [
-        "dev.toml",
-        "profile/frontend.toml",
-        "profile/storage.toml",
-        "profile/compute.toml",
-    ] {
+    for file in ["dev.toml", "profile/storage.toml", "profile/compute.toml"] {
         let text = std::fs::read_to_string(w.root.join(file))?;
         named.extend(
             text.lines()
@@ -584,7 +559,7 @@ fn secrets_drawn(w: &mut Steps) -> TestResult {
     assert_ne!(read, admin);
     assert_ne!(read, role);
     assert_ne!(admin, role);
-    assert_eq!(http_status(&frontend_observability()?, "/ready")?, 200);
+    assert_eq!(http_status(&compute_observability()?, "/ready")?, 200);
     Ok(())
 }
 
@@ -609,7 +584,7 @@ fn bootstrap_removed(w: &mut Steps) -> TestResult {
 fn bootstrap_stays_removed(w: &mut Steps) -> TestResult {
     let password = w.root.join("data").join(BOOTSTRAP_SECRET);
     assert!(!password.exists(), "{} was drawn again", password.display());
-    assert_eq!(http_status(&frontend_observability()?, "/ready")?, 200);
+    assert_eq!(http_status(&compute_observability()?, "/ready")?, 200);
     Ok(())
 }
 
@@ -722,12 +697,12 @@ fn broken_file(w: &mut Steps) -> TestResult {
 fn names_data_dir(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 78)?;
     assert!(w.log.contains("storage.data_dir"), "{}", w.log);
-    assert!(!w.log.contains("started instance=frontend"), "{}", w.log);
+    started_no_role(&w.log);
     Ok(())
 }
 
 #[when(
-    "the supervisor starts on a target whose storage file names another `role_secret_file` than its frontend's"
+    "the supervisor starts on a target whose storage file names another `role_secret_file` than its compute file's"
 )]
 fn two_role_secrets(w: &mut Steps) -> TestResult {
     write_profile(w)?;
@@ -741,7 +716,7 @@ fn two_role_secrets(w: &mut Steps) -> TestResult {
     let other = named.replacen("role.secret", "role-secret", 1);
     std::fs::write(&settings, text.replacen(&named, &other, 1))?;
     w.files = vec![
-        quoted(&named).context("the frontend's file")?,
+        quoted(&named).context("compute's file")?,
         quoted(&other).context("storage's file")?,
     ];
     start_supervisor(w, on_profile(w))?;
@@ -759,7 +734,7 @@ fn names_both_secrets(w: &mut Steps) -> TestResult {
     for file in &w.files {
         assert!(w.log.contains(file.as_str()), "{file}: {}", w.log);
     }
-    assert!(!w.log.contains("started instance=frontend"), "{}", w.log);
+    started_no_role(&w.log);
     Ok(())
 }
 
@@ -770,9 +745,7 @@ fn declare_two(w: &mut Steps) -> TestResult<String> {
     let text = std::fs::read_to_string(&central)?;
     std::fs::write(
         &central,
-        format!(
-            "{text}[other]\nfrontend = \"frontend.toml\"\nstorage = \"storage.toml\"\ncompute = \"compute.toml\"\n"
-        ),
+        format!("{text}[other]\nstorage = \"storage.toml\"\ncompute = \"compute.toml\"\n"),
     )?;
     start_supervisor(w, on_profile(w))?;
     until_exit(w)?;
@@ -850,7 +823,7 @@ fn says_to_activate(w: &mut Steps) -> TestResult {
     for said in ["[dev]", "PUT /v1/targets/<name>/active"] {
         assert!(w.log.contains(said), "{said}: {}", w.log);
     }
-    assert!(!w.log.contains("started instance=frontend"), "{}", w.log);
+    started_no_role(&w.log);
     Ok(())
 }
 
@@ -885,19 +858,14 @@ fn names_both_targets(w: &mut Steps) -> TestResult {
     ] {
         assert!(w.log.contains(said), "{said}: {}", w.log);
     }
-    assert!(!w.log.contains("started instance=frontend"), "{}", w.log);
+    started_no_role(&w.log);
     Ok(())
 }
 
-#[when("each of the four binaries is asked for its help")]
+#[when("each of the three binaries is asked for its help")]
 fn asks_help(w: &mut Steps) -> TestResult {
     w.log.clear();
-    for binary in [
-        SUPERVISOR_BINARY,
-        FRONTEND_BINARY,
-        COMPUTE_BINARY,
-        STORAGE_BINARY,
-    ] {
+    for binary in [SUPERVISOR_BINARY, COMPUTE_BINARY, STORAGE_BINARY] {
         let asked = Command::new(Path::new(ROOT_PATH).join(binary))
             .arg("--help")
             .env_clear()
@@ -922,7 +890,7 @@ fn asks_help(w: &mut Steps) -> TestResult {
 fn help_names_codes(w: &mut Steps) -> TestResult {
     let (supervisor, _) = w
         .log
-        .split_once(FRONTEND_BINARY)
+        .split_once(COMPUTE_BINARY)
         .context("the supervisor's help first")?;
     assert!(supervisor.contains("128 plus"), "{supervisor}");
     Ok(())
@@ -939,7 +907,7 @@ fn under_default_seccomp(w: &mut Steps) -> TestResult {
     read_log(w)
 }
 
-/// In Docker, every role on the polling driver and a write and a read through the frontend. On this host io_uring exists on
+/// In Docker, every role on the polling driver and a write and a read through compute. On this host io_uring exists on
 /// Linux alone, so everywhere else this is the refusal itself, and on Linux with io_uring allowed the same role says it runs
 /// on io_uring.
 #[then("it starts on the polling driver, logs that it does, and serves requests")]
@@ -975,15 +943,15 @@ fn development_started(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the system group listens at `unix:///run/ultragraph/system.sock`, compute at `unix:///run/ultragraph/compute.sock` and each partition at `unix:///run/ultragraph/storage-p<partition>.sock`, the frontend listens at no role address, and a write and a read through the frontend succeed"
+    "the system group listens at `unix:///run/ultragraph/system.sock`, each partition at `unix:///run/ultragraph/storage-p<partition>.sock`, compute listens at no role address, and a write and a read through compute succeed"
 )]
 fn development_unix(w: &mut Steps) -> TestResult {
     images::development_over_unix(&w.containers)
 }
 
-#[when("the three roles run in three containers configured with `tcp://` addresses")]
-fn three_hosts(w: &mut Steps) -> TestResult {
-    images::start_three_hosts(&mut w.containers)
+#[when("the two roles run in two containers configured with `tcp://` addresses")]
+fn two_hosts(w: &mut Steps) -> TestResult {
+    images::start_two_hosts(&mut w.containers)
 }
 
 #[then(
@@ -1041,7 +1009,7 @@ fn supervisor_killed(w: &mut Steps) -> TestResult {
     write_profile(w)?;
     start_to_ready(w)?;
     let mut started = Vec::new();
-    for instance in ["config", "frontend", "storage", "compute"] {
+    for instance in ["config", "storage", "compute"] {
         started.push((instance, pid_of(w, instance)?));
     }
     let (_, pid) = w.running.as_ref().context("a running supervisor")?;
@@ -1051,9 +1019,9 @@ fn supervisor_killed(w: &mut Steps) -> TestResult {
     read_log(w)
 }
 
-#[then("the config service and the three roles each stop as on SIGTERM and free their ports")]
+#[then("the config service and the two roles each stop as on SIGTERM and free their ports")]
 fn none_orphaned(w: &mut Steps) -> TestResult {
-    for role in ["frontend", "storage", "compute"] {
+    for role in ["storage", "compute"] {
         assert!(
             w.log.contains(&format!("stopping role={role}")),
             "{role} stopped by no stop of its own:\n{}",
@@ -1070,7 +1038,6 @@ fn none_orphaned(w: &mut Steps) -> TestResult {
         w.log
     );
     for address in [
-        frontend_observability()?,
         compute_observability()?,
         storage_observability()?,
         config_address()?,

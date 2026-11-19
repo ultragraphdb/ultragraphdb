@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 #
-# One point of the cluster benchmark: a fresh three-role cluster per run on the machines of
-# openspec/benches (ugdb-s storage, ugdb-f config service, frontend and compute, ugdb-c clients),
+# One point of the cluster benchmark: a fresh two-role cluster per run on the machines of
+# openspec/benches (ugdb-s storage, ugdb-f config service and compute, ugdb-c clients),
 # a timed client_bench run, and what each machine's CPUs did meanwhile.
 #
 # usage: M7=<dir mounted at /m7> scripts/bench_cluster.sh <partitions> <op> <connections> [client_bench flags...]
@@ -13,7 +13,7 @@
 #                 PIN=0 runs the roles unpinned, as the record of 2026-11-09 did
 #   KEEP=1        leaves the last cluster up
 #
-# $M7 holds bin/ (the five binaries, built -c opt for aarch64-unknown-linux-gnu) and keys/ (read.key,
+# $M7 holds bin/ (the four binaries, built -c opt for aarch64-unknown-linux-gnu) and keys/ (read.key,
 # admin.key, role.secret, bootstrap.secret: 96 hexadecimal digits each, no newline).
 set -u
 : "${M7:?names the directory mounted at /m7 in each machine}"
@@ -43,21 +43,8 @@ targets_file = "/m7/profile/targets.toml"
 EOF
   cat > "$M7/profile/targets.toml" <<EOF
 [split]
-frontend = "frontend.toml"
 storage = "storage.toml"
 compute = "compute.toml"
-EOF
-  cat > "$M7/profile/frontend.toml" <<EOF
-[cluster]
-id = 1
-role_secret_file = "/m7/keys/role.secret"
-system_address = "tcp://$S:7081"
-[observability]
-address = "tcp://0.0.0.0:8081"
-[endpoint]
-address = "tcp://0.0.0.0:7080"
-plaintext = true
-$(runtime)
 EOF
   # The storage instance hosts the system group, the metadata group and the sequencer, at an address of its own.
   cat > "$M7/profile/storage.toml" <<EOF
@@ -90,8 +77,9 @@ role_secret_file = "/m7/keys/role.secret"
 system_address = "tcp://$S:7081"
 [observability]
 address = "tcp://0.0.0.0:8082"
-[compute]
-role_address = "tcp://$F:7082"
+[endpoint]
+address = "tcp://0.0.0.0:7080"
+plaintext = true
 $(runtime)
 EOF
 }
@@ -117,9 +105,8 @@ up() {
   rm -f "$M7"/run/logs/*.log
   container exec -d -u 65532:65532 ugdb-f sh -c "/m7/bin/ultragraphdb_config --config /m7/profile/config.toml > /m7/run/logs/config.log 2>&1" > /dev/null
   sleep 1
-  role ugdb-f frontend ultragraphdb_frontend
-  role ugdb-f compute ultragraphdb_compute
   role ugdb-s storage ultragraphdb_storage
+  role ugdb-f compute ultragraphdb_compute
   # Ready once a one-second client run succeeds.
   for _ in $(seq 1 60); do
     if container exec ugdb-c /m7/bin/client_bench --address "$F:7080" --password-file /m7/keys/bootstrap.secret \

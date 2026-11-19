@@ -21,14 +21,13 @@ static_binary(
     deps = all_crate_deps(normal = True),
 )
 
-# The development image: the supervisor, the config service and the three roles in one directory, since the supervisor
-# starts the binaries standing beside it.
+# The development image: the supervisor, the config service and the two roles in one directory, since the supervisor starts
+# the binaries standing beside it.
 image_layer(
     name = "development_binaries_layer",
     srcs = {
         "/ultragraphdb_compute": "//ultragraphdb/ultragraphdb_compute",
         "/ultragraphdb_config": "//ultragraphdb/ultragraphdb_config",
-        "/ultragraphdb_frontend": "//ultragraphdb/ultragraphdb_frontend",
         "/ultragraphdb_storage": "//ultragraphdb/ultragraphdb_storage",
         "/ultragraphdb_supervisor": ":ultragraphdb_supervisor",
     },

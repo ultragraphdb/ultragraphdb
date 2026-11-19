@@ -23,8 +23,8 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback};
 use crate::utils::http_status::http_status;
 use crate::utils::one_host::{
     CLUSTER, CONFIG_OFFSET, DOUBLE_OFFSET, client_address, compute_observability,
-    compute_role_address, frontend_observability, frontend_on_one_host, render_settings,
-    storage_observability, storage_on_one_host, storage_role_address, system_role_address,
+    compute_on_one_host, render_settings, storage_observability, storage_on_one_host,
+    storage_role_address, system_role_address,
 };
 
 /// How long a role has to answer its first probe, or to exit. A start takes milliseconds; the margin is for a loaded machine.
@@ -326,13 +326,13 @@ pub fn storage_holding() -> TestResult<Vec<(String, String)>> {
     ))
 }
 
-/// The frontend's settings, with a role secret; it holds no data.
+/// Compute's settings, with a role secret; it holds no data.
 ///
 /// # Errors
 ///
 /// When the role secret file cannot be written.
-pub fn frontend_holding() -> TestResult<Vec<(String, String)>> {
-    holding(frontend_on_one_host()?, SECRET)
+pub fn compute_holding() -> TestResult<Vec<(String, String)>> {
+    holding(compute_on_one_host()?, SECRET)
 }
 
 /// `settings` with a role secret file holding `secret`.
@@ -436,13 +436,11 @@ fn answer_double(mut stream: TcpStream) -> std::io::Result<()> {
 }
 
 /// Every address a process of these tests declares, and what declares it: the config double's last.
-fn declared() -> TestResult<[(String, &'static str); 9]> {
+fn declared() -> TestResult<[(String, &'static str); 7]> {
     Ok([
         (config_address()?, "the config service"),
-        (client_address()?, "the frontend's client endpoint"),
+        (client_address()?, "compute's client endpoint"),
         (system_role_address()?, "the system group's role endpoint"),
-        (frontend_observability()?, "the frontend's observability"),
-        (compute_role_address()?, "compute's role endpoint"),
         (compute_observability()?, "compute's observability"),
         (storage_role_address()?, "storage's role endpoint"),
         (storage_observability()?, "storage's observability"),

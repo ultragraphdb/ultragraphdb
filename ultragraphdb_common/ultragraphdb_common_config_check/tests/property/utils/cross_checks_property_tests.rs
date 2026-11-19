@@ -4,7 +4,7 @@
  */
 
 //! The checks only a target's set of instances can show (config-service, "The config service validates every setting before
-//! it serves one"): laws L7.1 to L7.6 of `notes/laws.md`. Each verdict is the rule of the specification's table applied to
+//! it serves one"): laws L7.1 to L7.5 of stage 5.8's `notes/laws.md`, and L6.1 to L6.3 of stage 5.9's. Each verdict is the rule of the specification's table applied to
 //! what the test drew; which check refused is read from the setting each defect names.
 
 use hegel::TestCase;
@@ -32,13 +32,13 @@ fn of_the_system_check(defect: &str) -> bool {
     ["system", "metadata", "sequencer"].contains(&table)
 }
 
-/// L7.1: over a target of one frontend, 0 to 3 compute and 1 to 8 storage instances, one or two storage instances drawn
-/// holding `[system]`, each with or without each of its two settings, `[metadata]`, `[sequencer]` and a partition or not, and the frontend and each compute
+/// L7.1: over a target of 1 to 3 compute and 1 to 8 storage instances, one or two storage instances drawn holding
+/// `[system]`, each with or without each of its two settings, `[metadata]`, `[sequencer]` and a partition or not, and each compute
 /// instance drawn holding `[metadata]` or `[sequencer]` or not, the System check accepts exactly the targets in which one
 /// storage instance holds `[system]` with both settings, both moved tables and a partition, and no other holds a moved table.
 #[hegel::test]
 fn test_the_system_check_accepts_exactly_one_complete_host(tc: TestCase) {
-    let (computes, storages) = (within(&tc, 0, 3), within(&tc, 1, 8));
+    let (computes, storages) = (within(&tc, 1, 3), within(&tc, 1, 8));
     let mut instances = valid(computes, storages);
     unhost(of(&mut instances, "storage_1"));
     // One host drawn, a second one now and then: each part of a host kept, and each table elsewhere held, at odds that leave
@@ -82,8 +82,8 @@ fn test_the_system_check_accepts_exactly_one_complete_host(tc: TestCase) {
             settings.bare("storage", "partition_count", &0);
         }
     }
-    let others: Vec<String> = std::iter::once("frontend".to_string())
-        .chain((1..=computes).map(|index| format!("compute_{index}")))
+    let others: Vec<String> = (1..=computes)
+        .map(|index| format!("compute_{index}"))
         .collect();
     for name in others {
         for table in ["metadata", "sequencer"] {
@@ -139,7 +139,7 @@ fn address(tcp: bool, port: u64, path: &str, varied: &Varied) -> String {
 /// targets in which every address agrees with the host's in scheme, port and Unix path, a host alone free to differ.
 #[hegel::test]
 fn test_the_system_address_check_accepts_exactly_the_agreeing_targets(tc: TestCase) {
-    let (computes, storages) = (within(&tc, 0, 3), within(&tc, 1, 8));
+    let (computes, storages) = (within(&tc, 1, 3), within(&tc, 1, 8));
     let mut instances = valid(computes, storages);
     let tcp = coin(&tc);
     let path = "/run/ultragraph/system.sock";
@@ -216,7 +216,7 @@ fn share_a_path(first: &str, second: &str) -> bool {
 /// when it is equal to, inside or containing a `data_dir` of an instance on its host, the host's own included.
 #[hegel::test]
 fn test_the_data_check_refuses_exactly_a_shared_path_on_the_host(tc: TestCase) {
-    let (computes, storages) = (within(&tc, 0, 3), within(&tc, 1, 8));
+    let (computes, storages) = (within(&tc, 1, 3), within(&tc, 1, 8));
     let mut instances = valid(computes, storages);
     let system = directory(&tc);
     of(&mut instances, "storage_1").text("system", "data_dir", &system);
@@ -254,7 +254,7 @@ fn test_the_data_check_refuses_exactly_a_shared_path_on_the_host(tc: TestCase) {
 /// first two and refuses the others naming the setting.
 #[hegel::test]
 fn test_the_fixed_check_keeps_the_host_and_its_directory(tc: TestCase) {
-    let (computes, storages) = (within(&tc, 0, 3), within(&tc, 2, 8));
+    let (computes, storages) = (within(&tc, 1, 3), within(&tc, 2, 8));
     let active = valid(computes, storages);
     let mut changed = active.clone();
     let refused = match within(&tc, 0, 3) {
@@ -286,7 +286,7 @@ fn test_the_fixed_check_keeps_the_host_and_its_directory(tc: TestCase) {
     }
 }
 
-/// A defect planted in an accepted target of one frontend, three compute and three storage instances: what it changes, and
+/// A defect planted in an accepted target of four compute and three storage instances: what it changes, and
 /// the instance and setting its refusal names. Each stands in an instance of its own, so no two meet.
 const PLANTED: [(&str, &str, &str, &str); 7] = [
     ("compute_1", "compute", "bogus", "1"),
@@ -301,7 +301,7 @@ const PLANTED: [(&str, &str, &str, &str); 7] = [
     ("compute_3", "cluster", "id", "8"),
     ("storage_3", "storage", "read_retain_ms", "0"),
     (
-        "frontend",
+        "compute_4",
         "cluster",
         "frontend_address",
         "\"tcp://frontend:7081\"",
@@ -323,7 +323,7 @@ fn refused_setting(planted: &(&str, &str, &str, &str)) -> String {
 /// and its rule, and no other.
 #[hegel::test]
 fn test_every_planted_defect_is_listed_and_no_other(tc: TestCase) {
-    let mut instances: Instances = valid(3, 3);
+    let mut instances: Instances = valid(4, 3);
     let mut chosen: Vec<&(&str, &str, &str, &str)> =
         PLANTED.iter().filter(|_| coin(&tc)).take(4).collect();
     if chosen.is_empty() {
@@ -351,25 +351,110 @@ fn test_every_planted_defect_is_listed_and_no_other(tc: TestCase) {
     }
 }
 
-/// L7.6: an accepted target with `cluster.frontend_address`, `frontend.role_address` or `frontend.data_dir` added to a drawn
-/// file: it is refused naming the setting as unknown.
+/// The defects the Roles check lists: a target lacking a role, named by the role it lacks.
+fn of_the_roles_check(defect: &str) -> bool {
+    defect.starts_with("target ci, the target has no ")
+}
+
+/// L6.1: over a target of 0 to 3 compute and 0 to 3 storage instances, each otherwise valid, the Roles check accepts exactly
+/// the targets holding at least one of each, and names the target and each role absent.
 #[hegel::test]
-fn test_an_old_setting_is_refused_as_unknown(tc: TestCase) {
-    let (computes, storages) = (within(&tc, 0, 3), within(&tc, 1, 8));
+fn test_the_roles_check_accepts_exactly_a_target_of_both_roles(tc: TestCase) {
+    let (computes, storages) = (within(&tc, 0, 3), within(&tc, 0, 3));
+    let instances = valid(computes, storages);
+    let mut refusals: Vec<String> = defects(&instances, None)
+        .into_iter()
+        .filter(|defect| of_the_roles_check(defect))
+        .collect();
+    let mut expected: Vec<String> = [("compute", computes), ("storage", storages)]
+        .into_iter()
+        .filter(|(_, count)| *count == 0)
+        .map(|(role, _)| format!("target ci, the target has no {role} instance"))
+        .collect();
+    refusals.iter_mut().for_each(|defect| {
+        *defect = defect
+            .split_once(';')
+            .map_or(defect.clone(), |(found, _)| found.to_string());
+    });
+    refusals.sort();
+    expected.sort();
+    assert_eq!(refusals, expected, "{instances:?}");
+}
+
+/// A drawn instance of `instances`.
+fn drawn_instance(tc: &TestCase, instances: &Instances, prefix: &str) -> String {
+    let names: Vec<&String> = instances
+        .keys()
+        .filter(|name| name.starts_with(prefix))
+        .collect();
+    let at = usize::try_from(within(tc, 0, 99)).unwrap_or_default() % names.len().max(1);
+    names
+        .get(at)
+        .map_or_else(String::new, |name| (*name).clone())
+}
+
+/// L6.2: an accepted target with one retired name added: a `[frontend]` table in any file, `compute.role_address` in a compute
+/// instance's, `cluster.frontend_address` in any, or an instance whose name begins `frontend`. It is refused naming the
+/// table or the setting as unknown, or the instance by the Names rule, and no other defect is listed.
+#[hegel::test]
+fn test_a_retired_name_is_refused_by_name_and_alone(tc: TestCase) {
+    let (computes, storages) = (within(&tc, 1, 3), within(&tc, 1, 3));
     let mut instances = valid(computes, storages);
-    let names: Vec<String> = instances.keys().cloned().collect();
-    let at = usize::try_from(within(&tc, 0, 99)).unwrap_or_default() % names.len().max(1);
-    let name = names.get(at).cloned().unwrap_or_default();
-    let (table, key, value) = match within(&tc, 0, 2) {
-        0 => ("cluster", "frontend_address", "tcp://frontend:7081"),
-        1 => ("frontend", "role_address", "tcp://10.0.0.1:7081"),
-        _ => ("frontend", "data_dir", "/data"),
+    let naming = match within(&tc, 0, 3) {
+        0 => {
+            let name = drawn_instance(&tc, &instances, "");
+            of(&mut instances, &name).header("frontend");
+            format!("instance {name}, the table [frontend] does not exist")
+        }
+        1 => {
+            let name = drawn_instance(&tc, &instances, "compute_");
+            of(&mut instances, &name).text("compute", "role_address", "tcp://10.0.9.1:7082");
+            format!("instance {name}, setting compute.role_address: no such setting exists")
+        }
+        2 => {
+            let name = drawn_instance(&tc, &instances, "");
+            of(&mut instances, &name).text("cluster", "frontend_address", "tcp://frontend:7081");
+            format!("instance {name}, setting cluster.frontend_address: no such setting exists")
+        }
+        _ => {
+            let name = if coin(&tc) { "frontend_1" } else { "frontend" }.to_string();
+            let copied = instances.get("compute_1").cloned().unwrap_or_default();
+            let _none = instances.insert(name.clone(), copied);
+            format!("{name} names no role")
+        }
     };
-    of(&mut instances, &name).text(table, key, value);
     let found = defects(&instances, None);
-    let naming = format!("instance {name}, setting {table}.{key}: no such setting exists");
+    assert_eq!(found.len(), 1, "{found:?}");
     assert!(
-        found.iter().any(|defect| defect.contains(&naming)),
+        found.iter().all(|defect| defect.contains(&naming)),
+        "{naming} in {found:?}"
+    );
+}
+
+/// L6.3: an accepted target whose drawn instance's file is given one table of the other role, none of whose settings its own
+/// role reads: `[compute]` or `[endpoint]` in a storage instance's, `[system]` in a compute instance's. It is refused naming
+/// the table and the instance, and no other defect is listed.
+#[hegel::test]
+fn test_another_roles_table_is_refused_naming_it(tc: TestCase) {
+    let (computes, storages) = (within(&tc, 1, 3), within(&tc, 1, 3));
+    let mut instances = valid(computes, storages);
+    let (name, table) = if coin(&tc) {
+        let name = drawn_instance(&tc, &instances, "storage_");
+        let table = if coin(&tc) { "compute" } else { "endpoint" };
+        of(&mut instances, &name).header(table);
+        (name, table)
+    } else {
+        let name = drawn_instance(&tc, &instances, "compute_");
+        let settings = of(&mut instances, &name);
+        settings.text("system", "role_address", "tcp://10.0.9.1:7100");
+        settings.text("system", "data_dir", "/data/system");
+        (name, "system")
+    };
+    let found = defects(&instances, None);
+    let naming = format!("instance {name}, setting {table}: it holds a [{table}] table");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found.iter().all(|defect| defect.contains(&naming)),
         "{naming} in {found:?}"
     );
 }

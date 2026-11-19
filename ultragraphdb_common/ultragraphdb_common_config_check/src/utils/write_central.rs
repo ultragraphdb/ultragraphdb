@@ -38,7 +38,7 @@ pub fn write_central(folder: &Path, targets: &[TargetFiles]) -> Result<PathBuf, 
                     "target {} holds the file {key}, which names no role",
                     target.name()
                 ),
-                "a key is frontend, compute or storage, alone or followed by _ and a label of a-z, 0-9 and _",
+                "a key is compute or storage, alone or followed by _ and a label of a-z, 0-9 and _",
             ));
         }
     }

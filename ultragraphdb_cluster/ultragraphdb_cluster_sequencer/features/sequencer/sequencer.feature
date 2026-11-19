@@ -15,7 +15,7 @@ Feature: The sequencer
       Then it closes between 10 and 20 epochs, numbered consecutively from 1
 
     Scenario: Epoch lengths out of their bounds stop the start
-      When the frontend starts once with `epoch_ms_min` 0, once with `epoch_ms_min` 1,001, once with `epoch_ms_min` 5 and `epoch_ms_max` 4, and once with `epoch_ms_max` 10,001
+      When the hosting storage process starts once with `epoch_ms_min` 0, once with `epoch_ms_min` 1,001, once with `epoch_ms_min` 5 and `epoch_ms_max` 4, and once with `epoch_ms_max` 10,001
       Then each start exits with code 78 and an error naming the setting and its bound: 1, 1,000, `epoch_ms_min` and 10,000
 
     Scenario: A partition's request closes the epoch early
@@ -24,7 +24,7 @@ Feature: The sequencer
 
     Scenario: A waiting read closes the epoch early
       When `epoch_ms_min` is 2 and `epoch_ms_max` 10, epoch 6 closed 1 ms ago, and a snapshot read waits on the open epoch 7
-      Then the frontend asks its sequencer for a close, and epoch 7 closes once 2 ms have passed since epoch 6 closed
+      Then compute asks the sequencer for a close, and epoch 7 closes once 2 ms have passed since epoch 6 closed
 
     Scenario: A clock stepping back does not lower close times
       When the clock steps back by one second between two closes
@@ -73,7 +73,7 @@ Feature: The sequencer
       Then the close of 39 assigns version 1 effective epoch 40, and the close of 40 assigns version 2 effective epoch 41
 
     Scenario: A crash before the close leaves the version pending
-      When a catalog version is committed as pending while epoch 38 is the latest close, and the frontend is killed before it closes epoch 39
+      When a catalog version is committed as pending while epoch 38 is the latest close, and the system group's host is killed before it closes epoch 39
       Then after recovery the version is still pending, and the next close, of epoch 39, assigns it effective epoch 40
 
   Rule: The sequencer orders multi-partition transactions in its log

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
-Feature: The frontend keeps a transaction's order
+Feature: Compute keeps a transaction's order
   openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md, through the three binaries: what compute and storage
   answer is theirs, where ultragraphdb_common_compute's suite plays them to see each frame's order.
 
@@ -11,4 +11,4 @@ Feature: The frontend keeps a transaction's order
 
   Scenario: A read already answered takes nothing further
     When a read of a transaction has reached its `LAST`, and the transaction then ends with an Error
-    Then the frontend sends nothing further on that read's stream
+    Then compute sends nothing further on that read's stream

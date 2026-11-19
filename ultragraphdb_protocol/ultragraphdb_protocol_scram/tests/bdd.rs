@@ -223,7 +223,7 @@ fn refused_alike(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "a client authenticates as `ann` and the frames the frontend receives from the system group are read"
+    "a client authenticates as `ann` and the frames compute receives from the system group are read"
 )]
 fn authenticate_ann(w: &mut Steps) -> TestResult {
     w.exchanges.push(authenticate(ANN, ANN_PASSWORD, "server")?);
@@ -247,7 +247,7 @@ fn frames_hold_the_verifiers_public_part(w: &mut Steps) -> TestResult {
     holds_no_key(relayed)
 }
 
-#[when("a client asks to authenticate as an unknown name, twice, across a restart of the frontend")]
+#[when("a client asks to authenticate as an unknown name, twice, across a restart of compute")]
 fn unknown_twice(w: &mut Steps) -> TestResult {
     // Each start of the frontend is a relay of its own, drawing its own server nonce; the group keeps its secret.
     w.exchanges

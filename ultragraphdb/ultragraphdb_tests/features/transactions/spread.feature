@@ -26,11 +26,11 @@ Feature: Transactions over a spread tenant
 
   Scenario: A write reaching two partitions is refused
     When a DirectWrite writes subjects of partitions 1 and 2
-    Then the frontend refuses it with code 23 before any relay, and neither is held
+    Then compute refuses it with code 23 before any relay, and neither is held
 
   Scenario: A ConditionalWrite claiming a value goes to its claim
     When a ConditionalWrite's changes name only new blank nodes as subjects, its operation is an insert-if-absent of `epi.id` `"x"`, and partition 2 owns the bucket of `"x"`
-    Then the frontend relays it to partition 2, and its reply names the node
+    Then compute relays it to partition 2, and its reply names the node
 
   Scenario: A claim owned by another partition is cross-partition
     When `epi.id` is declared unique, partition 2 owns the bucket of `"x"`, and a transaction bound to partition 1 upsert-and-links the entity with `epi.id` `"x"`

@@ -144,7 +144,7 @@ fn a_one_frame_write_forced_elsewhere(w: &mut Steps) -> TestResult {
     })
 }
 
-#[then("the frontend resends it to partition 2, and its reply reaches the client")]
+#[then("compute resends it to partition 2, and its reply reaches the client")]
 fn a_one_frame_write_forced_elsewhere_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }

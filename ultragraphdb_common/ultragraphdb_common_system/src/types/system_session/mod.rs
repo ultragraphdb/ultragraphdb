@@ -135,7 +135,7 @@ impl SystemSession {
         Ok(self.answer_frames(stream, frames))
     }
 
-    /// A Subscribe: from the close it names, or for `latest` 1, which a frontend's connection alone may ask, from the
+    /// A Subscribe: from the close it names, or for `latest` 1, which a compute node's connection alone may ask, from the
     /// latest durable close (`PROTOCOL.md` §13.3).
     async fn subscribe(
         &mut self,
@@ -201,7 +201,7 @@ impl SystemSession {
         built(&body, self.header(stream, Command::Report))
     }
 
-    /// A CloseRequest, answered by no frame: of `partition` 0 from the frontend alone, and of `partition` 1 or above from
+    /// A CloseRequest, answered by no frame: of `partition` 0 from compute alone, and of `partition` 1 or above from
     /// storage alone (`PROTOCOL.md` §13.16); every refusal is dropped unanswered.
     async fn close_request(&self, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
         let asked =
@@ -209,9 +209,10 @@ impl SystemSession {
         let role = self.role.ok_or_else(unauthenticated)?;
         let partition = asked.partition();
         let named = match role {
-            RoleKind::Frontend => partition == 0,
+            RoleKind::Compute => partition == 0,
             RoleKind::Storage => partition != 0,
-            RoleKind::Compute => false,
+            // No connection acts as the retired frontend: `role_named` names no such role.
+            RoleKind::Frontend => false,
         };
         if !named {
             let rule = ProtocolError::field_value(
@@ -249,28 +250,37 @@ impl SystemSession {
     }
 }
 
-/// Whether the system group's endpoint table has `role` send `command` (`PROTOCOL.md` §11.12): a connection not yet
+/// Whether the system group's endpoint table has `role` send `command` (`PROTOCOL.md` §11.12a): a connection not yet
 /// authenticated sends nothing its machine hands on.
 fn served(role: Option<RoleKind>, command: Command) -> bool {
     let Some(role) = role else {
         return false;
     };
-    let (frontend, storage) = (role == RoleKind::Frontend, role == RoleKind::Storage);
-    if command == Command::Join {
-        role != RoleKind::Frontend
-    } else if [Command::Members, Command::Placement, Command::Catalog].contains(&command) {
-        true
-    } else if [Command::Subscribe, Command::CloseRequest].contains(&command) {
-        frontend || storage
-    } else if [Command::Lease, Command::DefaultEntry, Command::Report].contains(&command) {
+    let (compute, storage) = (role == RoleKind::Compute, role == RoleKind::Storage);
+    if BOTH_ROLES.contains(&command) {
+        compute || storage
+    } else if STORAGE_ALONE.contains(&command) {
         storage
     } else {
-        frontend && FRONTEND_ALONE.contains(&command)
+        compute && COMPUTE_ALONE.contains(&command)
     }
 }
 
-/// The commands the frontend alone sends the system group.
-const FRONTEND_ALONE: [Command; 7] = [
+/// The commands both roles send the system group.
+const BOTH_ROLES: [Command; 6] = [
+    Command::Join,
+    Command::Members,
+    Command::Placement,
+    Command::Catalog,
+    Command::Subscribe,
+    Command::CloseRequest,
+];
+
+/// The commands storage alone sends the system group.
+const STORAGE_ALONE: [Command; 3] = [Command::Lease, Command::DefaultEntry, Command::Report];
+
+/// The commands compute alone sends the system group: a client's authentication, its sessions and its declarations.
+const COMPUTE_ALONE: [Command; 7] = [
     Command::Challenge,
     Command::Verify,
     Command::Session,
@@ -280,11 +290,10 @@ const FRONTEND_ALONE: [Command; 7] = [
     Command::Defaults,
 ];
 
-/// The role a connection authenticated as `name` acts in: a role connection's SCRAM username is its role's name
-/// (`PROTOCOL.md` §11.12).
+/// The role a connection authenticated as `name` acts in: a role connection's SCRAM username is its role's name, `compute`
+/// or `storage` (`PROTOCOL.md` §11.12a).
 fn role_named(name: &str) -> Option<RoleKind> {
     match name {
-        "frontend" => Some(RoleKind::Frontend),
         "compute" => Some(RoleKind::Compute),
         "storage" => Some(RoleKind::Storage),
         _ => None,

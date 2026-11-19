@@ -62,7 +62,7 @@ async fn holds_term(address: &str, partition: u32, iri: &str) -> TestResult<bool
 
 async fn scanned_term(address: &str, partition: u32, iri: &str) -> TestResult<bool> {
     let mut storage =
-        RoleClient::dial(&Address::parse(address)?, CLUSTER, "frontend", SECRET).await?;
+        RoleClient::dial(&Address::parse(address)?, CLUSTER, "compute", SECRET).await?;
     let key = term_key(TENANT, iri);
     let past = [key.as_slice(), &[0]].concat();
     let mut scan = Scan::new(ScanAt::Latest, 0, 0, 0, [0; 16], 0, 0);
@@ -91,7 +91,7 @@ fn writes_one_per_partition(w: &mut Steps) -> TestResult {
                 .await?;
             let committed = client.commit(transaction, None).await?;
             // The frontend logs a first request a partition refused as another's, which storage's correction would hide.
-            let log = cluster.frontend_log()?;
+            let log = cluster.compute_log()?;
             if log.contains(RESENT) {
                 return Err(TestError::new(format!(
                     "the Write of {subject} went first to a partition not owning its bucket: {log}"
@@ -115,7 +115,7 @@ fn writes_one_per_partition(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend sends each Write first to the partition owning its subject's bucket, and each commit's reply reaches the client"
+    "compute sends each Write first to the partition owning its subject's bucket, and each commit's reply reaches the client"
 )]
 fn reached_each_owner(w: &mut Steps) {
     assert_eq!(w.routed.len() as u32, PARTITIONS, "{}", w.over());

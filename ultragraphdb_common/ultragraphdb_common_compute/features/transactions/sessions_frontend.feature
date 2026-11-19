@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
-Feature: Exactly-once commits, the frontend's side
+Feature: Exactly-once commits, compute's side
   openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md
 
   Scenario: A session belongs to its principal
@@ -10,7 +10,7 @@ Feature: Exactly-once commits, the frontend's side
 
   Scenario: An evicted session is told so
     When a session is evicted from the full registry and its client sends its next request
-    Then the frontend refuses the request with an error saying the session was evicted, and no partition sees it
+    Then compute refuses the request with an error saying the session was evicted, and no partition sees it
 
   Scenario: A retry of a request never committed is told so
     When a client sends request 8 of its session again, with no transaction open for it, and the session's last committed request is 7
@@ -18,11 +18,11 @@ Feature: Exactly-once commits, the frontend's side
 
   Scenario: A Recall reaching no answer stays in doubt
     When a retried Commit is recalled over two partitions, partition 1 answers 18 and the role connection to partition 2 closes under the Recall
-    Then the frontend answers code 17, and the client resends after a delay
+    Then compute answers code 17, and the client resends after a delay
 
   Scenario: Any other refusal of a Recall stays in doubt
     When a retried Commit is recalled over two partitions, partition 1 answers 18 and partition 2's address refuses the Recall with Error 1, serving another partition
-    Then the frontend answers code 17, and the client resends after a delay
+    Then compute answers code 17, and the client resends after a delay
 
   Scenario: A stored reply outranks every other Recall answer
     When a retried Commit is recalled over three partitions, one answers the stored reply, one 14, and one's connection closes
@@ -30,15 +30,15 @@ Feature: Exactly-once commits, the frontend's side
 
   Scenario: A retry of a session evicted meanwhile is unknown
     When a retried Commit is recalled, every partition answers 18, and the registry has evicted the session meanwhile
-    Then the frontend answers code 12, and the client reports the outcome as unknown
+    Then compute answers code 12, and the client reports the outcome as unknown
 
   Scenario: A one-frame write's resend is decided by the table
     When a DirectWrite through a session is answered code 17, the partition had not committed it, and the client sends it again
-    Then the frontend relays it, not recalls it, the partition commits it, and the reply carries its commit version
+    Then compute relays it, not recalls it, the partition commits it, and the reply carries its commit version
 
   Scenario: A write reaching two partitions is refused
     When a DirectWrite writes subjects of partitions 1 and 2
-    Then the frontend refuses it with code 23 before any relay, and neither is held
+    Then compute refuses it with code 23 before any relay, and neither is held
 
   Scenario: A declaration in a write is refused
     When a DirectWrite holds a declaration of a predicate
@@ -46,7 +46,7 @@ Feature: Exactly-once commits, the frontend's side
 
   Scenario: A ConditionalWrite claiming a value goes to its claim
     When a ConditionalWrite's changes name only new blank nodes as subjects, its operation is an insert-if-absent of `epi.id` `"x"`, and partition 2 owns the bucket of `"x"`
-    Then the frontend relays it to partition 2, and its reply names the node
+    Then compute relays it to partition 2, and its reply names the node
 
   Scenario: A resent blank-node write reaches one session table
     When a DirectWrite through a session names only new blank nodes as subjects, its reply is lost, and the client sends it again

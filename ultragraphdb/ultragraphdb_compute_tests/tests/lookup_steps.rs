@@ -75,10 +75,10 @@ fn core_over_played() -> TestResult<Rc<ComputeCore>> {
         RoleIdentity::new("ci", "compute", 1),
     )?;
     let cluster = RoleCluster::read(&start)?;
-    let frontend = Address::parse(&format!("tcp://127.0.0.1:{}", info.base + 1))?;
+    let system = Address::parse(&format!("tcp://127.0.0.1:{}", info.base + 1))?;
     Ok(ComputeCore::new(
         cluster,
-        frontend,
+        system,
         read_times_of(None, None),
         "compute",
     ))

@@ -590,7 +590,7 @@ impl Played {
             played.push(partition);
         }
         let frontend_server =
-            Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+            Server::new(CLUSTER, "compute", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
         let connection = FrontendConnection { partitions, listed };
         let frontend = serve(frontend_server, credentials.clone(), move || {
             connection.clone()
@@ -648,6 +648,6 @@ impl Played {
 
     /// A connection to compute, as the frontend's.
     pub async fn client(&self) -> TestResult<RoleClient> {
-        Ok(RoleClient::dial(&self.compute, CLUSTER, "frontend", PASSWORD).await?)
+        Ok(RoleClient::dial(&self.compute, CLUSTER, "compute", PASSWORD).await?)
     }
 }

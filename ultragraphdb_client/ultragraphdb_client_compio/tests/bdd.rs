@@ -166,7 +166,7 @@ fn scram_server() -> Rc<RefCell<TestServer>> {
 }
 
 #[when(
-    "the frontend holds the test CA's certificate for `localhost` and a client trusting the CA connects and authenticates"
+    "compute holds the test CA's certificate for `localhost` and a client trusting the CA connects and authenticates"
 )]
 fn tls_client(w: &mut Steps) -> TestResult {
     let pki = TestPki::new()?;

@@ -67,7 +67,7 @@ async fn linked(
 ) -> TestResult<(SystemLink, Address)> {
     let cluster = cluster_named(name)?;
     let roles =
-        Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+        Server::new(CLUSTER, "compute", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
     let credentials = cluster.secret().credentials()?;
     let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
     let address = listener.local_address()?;
@@ -118,7 +118,7 @@ async fn endpoint_within(
     );
     let (throttle, throttling) = AuthThrottle::new(logins).serve();
     spawn(throttling).detach();
-    let links = RoleLinks::new(cluster, "frontend".to_string());
+    let links = RoleLinks::new(cluster, "compute".to_string());
     let (link, _group) = linked(owner, links.clone(), &format!("link-{port}")).await?;
     let core = EndpointCore::new(
         link,
@@ -309,7 +309,7 @@ async fn counted_endpoint(
         cluster_named("compute")?,
         group,
         ReadTimes::new(Duration::from_secs(30), Duration::from_secs(600)),
-        "frontend",
+        "compute",
     );
     let core = EndpointCore::new(
         link,
@@ -396,7 +396,7 @@ fn test_a_relayed_commit_stays_open_until_its_reply_leaves() -> TestResult {
             partition_answer(frame, CLUSTER, 5 << 22)
         })
         .await?;
-        let links = RoleLinks::new(cluster, "frontend".to_string());
+        let links = RoleLinks::new(cluster, "compute".to_string());
         links.set_map(owner.handle().map().await.context("a placement map")?);
         // The system group lists it in Members, which the core's link reads into its links (design D9).
         owner
@@ -467,7 +467,7 @@ fn test_a_read_stays_open_until_its_last_leaves() -> TestResult {
             Duration::from_secs(1),
         );
         let partition = RoleDouble::start(&cluster, Endpoint::Partition, holding_scans).await?;
-        let links = RoleLinks::new(cluster, "frontend".to_string());
+        let links = RoleLinks::new(cluster, "compute".to_string());
         links.set_map(owner.handle().map().await.context("a placement map")?);
         // The system group lists it in Members, which the core reads (design D9).
         owner
@@ -546,7 +546,7 @@ fn test_a_relayed_one_frame_write_and_drop_are_each_open() -> TestResult {
             partition_answer(frame, CLUSTER, 5 << 22)
         })
         .await?;
-        let links = RoleLinks::new(cluster, "frontend".to_string());
+        let links = RoleLinks::new(cluster, "compute".to_string());
         links.set_map(owner.handle().map().await.context("a placement map")?);
         // The system group lists it in Members, which the core's link reads into its links (design D9).
         owner
@@ -670,7 +670,7 @@ fn test_a_connection_holds_the_default_count_of_statements() -> TestResult {
             Duration::from_secs(1),
         );
         let partition = RoleDouble::start(&cluster, Endpoint::Partition, holding_scans).await?;
-        let links = RoleLinks::new(cluster, "frontend".to_string());
+        let links = RoleLinks::new(cluster, "compute".to_string());
         links.set_map(owner.handle().map().await.context("a placement map")?);
         // The system group lists it in Members, which the core reads (design D9).
         owner
@@ -843,7 +843,7 @@ async fn relaying(owner: &SystemThread, name: &str) -> TestResult<Relaying> {
         }
     })
     .await?;
-    let links = RoleLinks::new(cluster, "frontend".to_string());
+    let links = RoleLinks::new(cluster, "compute".to_string());
     links.set_map(owner.handle().map().await.context("a placement map")?);
     // The system group lists it in Members, which the core's link reads into its links (design D9).
     for join in [Join::storage(partition.address(), vec![1])] {

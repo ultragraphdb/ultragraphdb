@@ -20,6 +20,6 @@ Feature: A storage instance hosts the system group
     When the development container has started with `system.data_dir = "/data/system"`
     Then `/data` holds `system/meta/`, `system/seq/` and `storage/p1/r1/`
 
-  Scenario: Storage is ready before any frontend exists
+  Scenario: Storage is ready before any compute node exists
     When the config service and the hosting storage process start, and no other role does
     Then the storage process's `/ready` answers

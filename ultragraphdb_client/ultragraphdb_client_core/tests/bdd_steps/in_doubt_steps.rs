@@ -342,7 +342,7 @@ fn recall_reaches_no_answer(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the frontend answers code 17, and the client resends after a delay")]
+#[then("compute answers code 17, and the client resends after a delay")]
 fn resent_after_a_delay(w: &mut Steps) -> TestResult {
     let h = w.harness.as_ref().context("a harness")?;
     let delay = u64::try_from(h.core.config().retry_delay().as_nanos())?;
@@ -377,7 +377,7 @@ fn evicted_meanwhile(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the frontend answers code 12, and the client reports the outcome as unknown")]
+#[then("compute answers code 12, and the client reports the outcome as unknown")]
 fn evicted_unknown(w: &mut Steps) -> TestResult {
     let session = w.session.context("a session")?;
     let answer = w.errors.first().context("the answer")?;
@@ -406,7 +406,7 @@ fn direct_write_resent(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend relays it, not recalls it, the partition commits it, and the reply carries its commit version"
+    "compute relays it, not recalls it, the partition commits it, and the reply carries its commit version"
 )]
 fn relayed_and_committed(w: &mut Steps) -> TestResult {
     let h = w.harness.as_ref().context("a harness")?;

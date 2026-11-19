@@ -16,6 +16,7 @@ mod traits;
 mod types;
 mod utils;
 
+pub use crate::traits::serve_clock::ServeClock;
 pub use crate::traits::session::{Answer, Push, Session};
 pub use crate::types::answered::Answered;
 pub use crate::types::connection_bound::ConnectionBound;
@@ -30,6 +31,7 @@ pub use crate::types::role_secret::{
     COMPUTE_WELCOME_CREDIT, PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS, RoleSecret,
 };
 pub use crate::types::role_writer::RoleWriter;
+pub use crate::types::wall_clock::WallClock;
 pub use crate::utils::finish_open::finish_open;
 pub use crate::utils::joining_role::{retry_until, system_address};
 pub use crate::utils::serve::{Server, serve_connection, serve_connection_with};

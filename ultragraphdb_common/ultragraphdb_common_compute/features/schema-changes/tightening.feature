@@ -24,8 +24,8 @@ Feature: A tightening is checked before it is acknowledged
     When `friend` is declared an edge, and a client commits a declaration of `friend` a property
     Then the Commit is refused with code 7, `detail` its declaration's index, naming `friend`, and the catalog is unchanged
 
-  Scenario: A restarted frontend finishes the check it held
-    When a client commits a declaration of `nick` single-valued, the frontend stops before any partition reports, and after its restart a partition reports that the data refuses it
+  Scenario: A restarted compute node finishes the check it held
+    When a client commits a declaration of `nick` single-valued, compute stops before any partition reports, and after its restart a partition reports that the data refuses it
     Then the metadata group holds a version restoring the previous declaration, and no Describe reports `nick` single-valued
 
   Scenario: A Drop during a check stands against the restoring version

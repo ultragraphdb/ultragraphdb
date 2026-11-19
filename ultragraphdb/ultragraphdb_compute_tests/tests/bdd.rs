@@ -3,9 +3,10 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The role binaries as processes, bound to `features/`, with no container: compute, and the client endpoint, which the
-//! frontend binary serves until the switch to two roles. One scenario runs at a time: the binaries listen at their declared
-//! ports.
+//! The compute binary as a process, bound to `features/`, with no container: its client endpoint over storage processes and
+//! the system group one hosts; and, until stage 5.9's task 6.4 binds them to the client endpoint, the reads the read features
+//! send as ComputeReads to a compute session the test serves in process over real storage processes. One scenario runs at a
+//! time: the binaries listen at their declared ports.
 
 mod access_steps;
 mod batch_steps;
@@ -15,8 +16,8 @@ mod endpoint_read_steps;
 mod endpoint_steps;
 mod level_steps;
 mod lookup_steps;
-mod played_frontend;
 mod played_partition;
+mod played_system;
 mod processes;
 mod read_steps;
 mod resume_steps;
@@ -35,23 +36,19 @@ use std::process::ExitStatus;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use ultragraphdb_client_compio::{Client, ClientConfig, TcpConnector};
-use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_common_service::BIND_RETRIES;
 use ultragraphdb_protocol_scram::{ScramLogin, system_nonce};
-use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_wire::{Scan, ScanAt, ScanRange};
 use ultragraphdb_tests::{
-    CLUSTER, COMPUTE_BINARY, FRONTEND_BINARY, PARENT_PID, SECRET, START_SECONDS, STORAGE_BINARY,
-    answering, bootstrap, client_address, compute_observability, compute_on_one_host,
-    compute_role_address, double_address, exit_is, frontend_holding, frontend_observability,
-    holding, http_status, process, render_settings, role, scratch, served_by_double, start_double,
+    CLUSTER, COMPUTE_BINARY, PARENT_PID, SECRET, START_SECONDS, STORAGE_BINARY, answering,
+    bootstrap, client_address, compute_holding, compute_observability, double_address, exit_is,
+    http_status, process, render_settings, role, scratch, served_by_double, start_double,
     storage_holding, storage_observability, until_answering, until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-use crate::cluster::{ClusterInfo, cluster_base, start_cluster};
-use crate::played_frontend::{EpochClock, Played, play};
+use crate::cluster::{ClusterInfo, cluster_base, served_compute, start_cluster};
 use crate::played_partition::{PlayedTables, play_partition};
+use crate::played_system::{EpochClock, Played, play};
 use crate::scene::{ReadAnswer, Scene};
 use crate::tap::{ScanSeen, TapLog};
 
@@ -70,7 +67,7 @@ const NO_INTERFACE: &str = "203.0.113.1:18099";
 fn services() -> TestResult<ServiceUtil> {
     Ok(ServiceUtil::new(
         ROOT_PATH,
-        vec![FRONTEND_BINARY, COMPUTE_BINARY, STORAGE_BINARY],
+        vec![COMPUTE_BINARY, STORAGE_BINARY],
     )?)
 }
 
@@ -134,9 +131,9 @@ fn brief() -> TestResult<&'static ClusterInfo> {
 
 /// The cluster of played partitions.
 fn played() -> TestResult<&'static ClusterInfo> {
-    shared(&PLAYED, |util| {
-        let (info, compute) = start_played_cluster(util, cluster_base(3)?)?;
-        Ok((info, vec![compute]))
+    shared(&PLAYED, |_util| {
+        let info = start_played_cluster(cluster_base(3)?)?;
+        Ok((info, Vec::new()))
     })
 }
 
@@ -150,9 +147,8 @@ fn played_tables(partition: u32) -> TestResult<&'static PlayedTables> {
         .context("the played partition")
 }
 
-/// The addresses a role of these scenarios holds beyond those every suite declares: the second storage process's, and the
-/// system group a scenario's storage process hosts at an address of its own.
-fn own_addresses() -> TestResult<[(String, &'static str); 3]> {
+/// The addresses a role of these scenarios holds beyond those every suite declares: the second storage process's.
+fn own_addresses() -> TestResult<[(String, &'static str); 2]> {
     Ok([
         (
             processes::second_role_address()?,
@@ -161,10 +157,6 @@ fn own_addresses() -> TestResult<[(String, &'static str); 3]> {
         (
             processes::second_observability()?,
             "the second storage process's observability",
-        ),
-        (
-            system_steps::own_system_address()?,
-            "the system group at an address of its own",
         ),
     ])
 }
@@ -216,7 +208,7 @@ fn terminate(w: &mut Steps) -> TestResult {
     let util = services()?;
     let log = scratch("compute-stopped.log");
     let wait = answering(&compute_observability()?, "/health");
-    let settings = holding(compute_on_one_host()?, SECRET)?;
+    let settings = compute_holding()?;
     let pid = util.start_service_from_config(role(COMPUTE_BINARY, &settings, &log, wait)?)?;
     w.exited = Some(util.stop_service(pid)?);
     w.log = std::fs::read_to_string(&log)?;
@@ -228,65 +220,9 @@ fn exits_clean(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 0)
 }
 
-#[then("it names neither `ultragraphdb_store_kv` nor fjall")]
-fn no_engine(w: &mut Steps) -> TestResult {
-    if !w.graph.contains("ultragraphdb_common_service") {
-        return Err(TestError::new(format!(
-            "the graph is not the binary's: {}",
-            w.graph
-        )));
-    }
-    for engine in ["ultragraphdb_store_kv", "fjall"] {
-        assert!(!w.graph.contains(engine), "{engine} is linked");
-    }
-    Ok(())
-}
-
-#[when("the compute binary receives settings with no `compute.role_address`")]
-fn no_compute_address(w: &mut Steps) -> TestResult {
-    let mut settings = holding(compute_on_one_host()?, SECRET)?;
-    settings.retain(|(name, _)| name != "compute.role_address");
-    let log = scratch("compute-no-address.log");
-    let util = services()?;
-    let instance = served_by_double(COMPUTE_BINARY, &render_settings(&settings));
-    let pid = util.start_service_from_config(process(
-        COMPUTE_BINARY,
-        bootstrap(&double_address()?, &instance),
-        &log,
-        WaitStrategy::NoWait,
-    ))?;
-    w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
-    w.log = std::fs::read_to_string(&log)?;
-    Ok(())
-}
-
-#[then("it exits with code 78 and an error naming `compute.role_address`")]
-fn names_compute_address(w: &mut Steps) -> TestResult {
-    exit_is(w.exited, &w.log, 78)?;
-    assert!(w.log.contains("compute.role_address"), "{}", w.log);
-    Ok(())
-}
-
 #[when("the compute binary's dependency graph is listed")]
 fn compute_graph(w: &mut Steps) -> TestResult {
     w.graph = std::fs::read_to_string(Path::new(ROOT_PATH).join("compute_deps"))?;
-    Ok(())
-}
-
-/// Starts compute as a process joining a frontend, served by the double.
-fn compute_joining(util: &ServiceUtil) -> TestResult {
-    let _frontend: u32 = util.start_service_from_config(role(
-        FRONTEND_BINARY,
-        &frontend_holding()?,
-        &scratch(FRONTEND_BINARY),
-        answering(&frontend_observability()?, "/health"),
-    )?)?;
-    let _compute: u32 = util.start_service_from_config(role(
-        COMPUTE_BINARY,
-        &holding(compute_on_one_host()?, SECRET)?,
-        &scratch(COMPUTE_BINARY),
-        answering(&compute_observability()?, "/health"),
-    )?)?;
     Ok(())
 }
 
@@ -297,7 +233,7 @@ fn compute_alone(w: &mut Steps) -> TestResult {
     let util = services()?;
     let _compute: u32 = util.start_service_from_config(role(
         COMPUTE_BINARY,
-        &holding(compute_on_one_host()?, SECRET)?,
+        &compute_holding()?,
         &scratch(COMPUTE_BINARY),
         answering(&compute_observability()?, "/health"),
     )?)?;
@@ -322,66 +258,13 @@ fn ready_after_a_partition(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("a role asks compute for a command it does not host")]
-fn asks_compute(w: &mut Steps) -> TestResult {
-    let util = services()?;
-    compute_joining(&util)?;
-    w.log = crate::scene::run(async {
-        let target = Address::parse(&format!("tcp://{}", compute_role_address()?))?;
-        let mut client = RoleClient::dial(&target, CLUSTER, "frontend", SECRET).await?;
-        let mut scan = Scan::new(ScanAt::Latest, 0, 0, 1, [0; 16], 0, 0);
-        let first = [0x1B_u8; 9];
-        let past = [first.as_slice(), &[0]].concat();
-        scan.push_range(ScanRange::new(1, &first, &past));
-        let refused = client.request(&scan).await.err();
-        let refused = refused.context("a refusal")?;
-        Ok::<String, TestError>(refused.to_string())
-    })?;
-    w.roles = Some(util);
-    Ok(())
-}
-
-#[then("the connection authenticates and the command is refused as not served")]
-fn not_served(w: &mut Steps) {
-    assert!(w.log.contains("524"), "{}", w.log);
-    w.roles = None;
-}
-
-#[when("a role asks compute with a different role secret")]
-fn wrong_secret_at_compute(w: &mut Steps) -> TestResult {
-    let util = services()?;
-    compute_joining(&util)?;
-    w.log = crate::scene::run(async {
-        let target = Address::parse(&format!("tcp://{}", compute_role_address()?))?;
-        let refused = RoleClient::dial(&target, CLUSTER, "frontend", "another secret")
-            .await
-            .err()
-            .context("a refusal")?;
-        Ok::<String, TestError>(refused.to_string())
-    })?;
-    w.roles = Some(util);
-    Ok(())
-}
-
-#[then("its authentication is refused")]
-fn refused_at_compute(w: &mut Steps) {
-    assert!(w.log.contains("authentication failed"), "{}", w.log);
-    w.roles = None;
-}
-
-/// Starts the three roles over two storage processes, the first hosting the system group and partition 1 and the second
-/// partition 2, with compute's deadline short; sends the second `to_storage`, and holds how compute exits. A hung or killed
+/// Starts compute over two storage processes, the first hosting the system group and partition 1 and the second partition 2,
+/// with compute's deadline short; sends the second `to_storage`, and holds how compute exits. A hung or killed
 /// process hosting the group too would be the group's loss, which compute names by the group's address (system-group, "A
 /// lost system group is waited for until the deadline"). The lost storage process is returned to its caller, for what it
 /// still needs.
 fn lose_storage(w: &mut Steps, to_storage: &str) -> TestResult<u32> {
     let util = services()?;
-    let _frontend: u32 = util.start_service_from_config(role(
-        FRONTEND_BINARY,
-        &frontend_holding()?,
-        &scratch(FRONTEND_BINARY),
-        answering(&frontend_observability()?, "/health"),
-    )?)?;
     let _hosting: u32 = util.start_service_from_config(role(
         STORAGE_BINARY,
         &with(storage_holding()?, "cluster.partition_count", "2"),
@@ -397,11 +280,7 @@ fn lose_storage(w: &mut Steps, to_storage: &str) -> TestResult<u32> {
     let log = scratch("compute-lost-storage.log");
     let compute = util.start_service_from_config(role(
         COMPUTE_BINARY,
-        &with(
-            holding(compute_on_one_host()?, SECRET)?,
-            "cluster.join_deadline_ms",
-            "800",
-        ),
+        &with(compute_holding()?, "cluster.join_deadline_ms", "800"),
         &log,
         answering(&compute_observability()?, "/ready"),
     )?)?;
@@ -441,8 +320,11 @@ fn lost_storage(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-/// A compute process over `PARTITIONS_PLAYED` partitions the test plays.
-fn start_played_cluster(util: &ServiceUtil, base: u32) -> TestResult<(ClusterInfo, u32)> {
+/// A compute session over `PARTITIONS_PLAYED` partitions the test plays, served in process beside their played group.
+/// Where this process logs, the in-process compute role sessions among it.
+pub(crate) const IN_PROCESS_LOG: &str = "compute-in-process.log";
+
+fn start_played_cluster(base: u32) -> TestResult<ClusterInfo> {
     let clock = EpochClock::new();
     let mut tables = Vec::new();
     let mut listed = Vec::new();
@@ -452,26 +334,22 @@ fn start_played_cluster(util: &ServiceUtil, base: u32) -> TestResult<(ClusterInf
         listed.push((partition, format!("tcp://127.0.0.1:{port}")));
     }
     drop(TABLES.set(tables));
+    let compute = served_compute(base, &[("storage.scan_stall_ms", PLAYED_SCAN_STALL_MS)])?;
     play(
         base + 1,
         Played {
             partitions: PARTITIONS_PLAYED,
             clock: Arc::clone(&clock),
             listed,
+            compute: Some(compute),
         },
     )?;
-    let compute = crate::cluster::start_compute(
-        util,
-        base,
-        &[("storage.scan_stall_ms", PLAYED_SCAN_STALL_MS)],
-    )?;
-    let info = ClusterInfo {
+    Ok(ClusterInfo {
         partitions: PARTITIONS_PLAYED,
         base,
         clock,
         log: Arc::new(TapLog::default()),
-    };
-    Ok((info, compute))
+    })
 }
 
 /// A client's refusal as it reads it, logging in as `name` with `password`.
@@ -488,8 +366,8 @@ fn client_refusal(name: &str, password: &str) -> TestResult<String> {
 
 #[when("a client authenticates on the client endpoint with the role secret")]
 fn client_with_secret(w: &mut Steps) -> TestResult {
-    // The frontend relays an exchange to the system group, so the storage process hosting it starts first.
-    endpoint_steps::started(w, &frontend_holding()?)?;
+    // Compute relays an exchange to the system group, so the storage process hosting it starts first.
+    endpoint_steps::started(w, &compute_holding()?)?;
     w.log = client_refusal("storage", SECRET)?;
     Ok(())
 }
@@ -503,14 +381,17 @@ fn same_as_wrong_password(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "it names neither `ultragraphdb_common_system`, `ultragraphdb_cluster_metadata`, `ultragraphdb_cluster_sequencer` nor `ultragraphdb_transactions_log`"
+    "it names neither `ultragraphdb_store_kv`, fjall, `ultragraphdb_common_system`, `ultragraphdb_cluster_metadata`, `ultragraphdb_cluster_sequencer` nor `ultragraphdb_transactions_log`"
 )]
-fn no_book(w: &mut Steps) -> TestResult {
+fn no_engine_and_no_book(w: &mut Steps) -> TestResult {
     if !w.graph.contains("ultragraphdb_common_service") {
         return Err(TestError::new(format!(
             "the graph is not the binary's: {}",
             w.graph
         )));
+    }
+    for engine in ["ultragraphdb_store_kv", "fjall"] {
+        assert!(!w.graph.contains(engine), "{engine} is linked");
     }
     // A crate's target is named for it, so a label naming one ends in `:<crate>`.
     for book in [
@@ -529,26 +410,20 @@ fn no_book(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("the frontend binary's dependency graph is listed")]
-fn frontend_graph(w: &mut Steps) -> TestResult {
-    w.graph = std::fs::read_to_string(Path::new(ROOT_PATH).join("frontend_deps"))?;
-    Ok(())
-}
-
-#[when("the frontend binary receives settings with no `cluster.system_address`")]
+#[when("the compute binary receives settings with no `cluster.system_address`")]
 fn no_system_address(w: &mut Steps) -> TestResult {
-    let mut settings = frontend_holding()?;
+    let mut settings = compute_holding()?;
     let before = settings.len();
     settings.retain(|(name, _)| name != "cluster.system_address");
     assert_eq!(
         settings.len() + 1,
         before,
-        "the frontend's settings named the address once"
+        "compute's settings named the address once"
     );
-    let log = scratch("frontend-no-address.log");
+    let log = scratch("compute-no-address.log");
     let util = services()?;
     let pid = util.start_service_from_config(role(
-        FRONTEND_BINARY,
+        COMPUTE_BINARY,
         &settings,
         &log,
         WaitStrategy::NoWait,
@@ -567,8 +442,8 @@ fn names_system_address(w: &mut Steps) -> TestResult {
 
 #[when("a role starts with `ULTRAGRAPHDB_PARENT_PID` naming a process that is not its parent")]
 fn parent_gone(w: &mut Steps) -> TestResult {
-    let log = scratch("frontend-parent.log");
-    let instance = served_by_double(FRONTEND_BINARY, &render_settings(&frontend_holding()?));
+    let log = scratch("compute-parent.log");
+    let instance = served_by_double(COMPUTE_BINARY, &render_settings(&compute_holding()?));
     // No process holds the largest identity, so it is no parent of the role's.
     let named = with(
         bootstrap(&double_address()?, &instance),
@@ -576,12 +451,8 @@ fn parent_gone(w: &mut Steps) -> TestResult {
         &u32::MAX.to_string(),
     );
     let util = services()?;
-    let pid = util.start_service_from_config(process(
-        FRONTEND_BINARY,
-        named,
-        &log,
-        WaitStrategy::NoWait,
-    ))?;
+    let pid =
+        util.start_service_from_config(process(COMPUTE_BINARY, named, &log, WaitStrategy::NoWait))?;
     w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
     w.log = std::fs::read_to_string(&log)?;
     Ok(())
@@ -592,26 +463,22 @@ fn stopped_with_its_parent(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 0)
 }
 
-/// Starts a frontend on `settings`, served by the double, its log in `log`.
-fn start_frontend(
+/// Starts compute on `settings`, served by the double, its log in `log`.
+fn start_compute(
     w: &mut Steps,
     settings: &[(String, String)],
     log: &std::path::Path,
 ) -> TestResult<u32> {
     let util = services()?;
-    let pid = util.start_service_from_config(role(
-        FRONTEND_BINARY,
-        settings,
-        log,
-        WaitStrategy::NoWait,
-    )?)?;
+    let pid =
+        util.start_service_from_config(role(COMPUTE_BINARY, settings, log, WaitStrategy::NoWait)?)?;
     w.roles = Some(util);
     Ok(pid)
 }
 
-/// The frontend `pid` of `w`, its exit and log held once it ends.
-fn until_frontend_exits(w: &mut Steps, pid: u32, log: &std::path::Path) -> TestResult {
-    let util = w.roles.as_ref().context("the frontend")?;
+/// Compute's `pid` of `w`, its exit and log held once it ends.
+fn until_compute_exits(w: &mut Steps, pid: u32, log: &std::path::Path) -> TestResult {
+    let util = w.roles.as_ref().context("compute")?;
     w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
     w.log = std::fs::read_to_string(log)?;
     Ok(())
@@ -626,10 +493,10 @@ fn retries_of(log: &str, address: &str) -> usize {
 
 #[when("a role starts at a TCP address another process holds, which lets it go within the bound")]
 fn port_held_a_moment(w: &mut Steps) -> TestResult {
-    let log = scratch("frontend-port-a-moment.log");
-    let observability = frontend_observability()?;
+    let log = scratch("compute-port-a-moment.log");
+    let observability = compute_observability()?;
     let held = std::net::TcpListener::bind(&observability)?;
-    let _pid = start_frontend(w, &frontend_holding()?, &log)?;
+    let _pid = start_compute(w, &compute_holding()?, &log)?;
     let mut retried = false;
     for _ in 0..START_SECONDS * 100 {
         w.log = std::fs::read_to_string(&log).unwrap_or_default();
@@ -652,21 +519,21 @@ fn port_held_a_moment(w: &mut Steps) -> TestResult {
 
 #[then("the role logs each retry naming the address, binds it, and answers `/health`")]
 fn took_the_port(w: &mut Steps) -> TestResult {
-    let observability = frontend_observability()?;
+    let observability = compute_observability()?;
     assert_eq!(http_status(&observability, "/health")?, 200);
     assert!(retries_of(&w.log, &observability) > 0, "{}", w.log);
     Ok(())
 }
 
 #[when(
-    "the frontend starts while another process holds its client address, which lets it go within the bound"
+    "compute starts while another process holds its client address, which lets it go within the bound"
 )]
 fn client_port_held_a_moment(w: &mut Steps) -> TestResult {
-    let log = scratch("frontend-client-port-a-moment.log");
-    // The frontend's one listener beside its observability: since the switch it listens at no role address (design D2).
+    let log = scratch("compute-client-port-a-moment.log");
+    // Compute's one listener beside its observability: it listens at no role address.
     let client = client_address()?;
     let held = std::net::TcpListener::bind(&client)?;
-    let _pid = start_frontend(w, &frontend_holding()?, &log)?;
+    let _pid = start_compute(w, &compute_holding()?, &log)?;
     let mut retried = false;
     for _ in 0..START_SECONDS * 100 {
         w.log = std::fs::read_to_string(&log).unwrap_or_default();
@@ -682,7 +549,7 @@ fn client_port_held_a_moment(w: &mut Steps) -> TestResult {
         w.log
     );
     // The observability address is bound, the client address is not.
-    let observability = frontend_observability()?;
+    let observability = compute_observability()?;
     w.status = http_status(&observability, "/health")?;
     drop(held);
     until_answering(&observability, "/health")?;
@@ -702,11 +569,11 @@ fn health_after_binding(w: &mut Steps) -> TestResult {
 
 #[when("a role starts at a TCP address another process holds past the bound")]
 fn port_held_past_the_bound(w: &mut Steps) -> TestResult {
-    let log = scratch("frontend-port-held.log");
-    // The frontend's client endpoint: since the switch it listens at no role address (design D2).
+    let log = scratch("compute-port-held.log");
+    // Compute's client endpoint: it listens at no role address.
     let held = std::net::TcpListener::bind(client_address()?)?;
-    let pid = start_frontend(w, &frontend_holding()?, &log)?;
-    until_frontend_exits(w, pid, &log)?;
+    let pid = start_compute(w, &compute_holding()?, &log)?;
+    until_compute_exits(w, pid, &log)?;
     drop(held);
     Ok(())
 }
@@ -727,14 +594,14 @@ fn past_the_bound(w: &mut Steps) -> TestResult {
 
 #[when("a role starts at a TCP address no interface of its host holds")]
 fn no_such_interface(w: &mut Steps) -> TestResult {
-    let log = scratch("frontend-no-interface.log");
+    let log = scratch("compute-no-interface.log");
     let settings = with(
-        frontend_holding()?,
+        compute_holding()?,
         "observability.address",
         &format!("tcp://{NO_INTERFACE}"),
     );
-    let pid = start_frontend(w, &settings, &log)?;
-    until_frontend_exits(w, pid, &log)
+    let pid = start_compute(w, &settings, &log)?;
+    until_compute_exits(w, pid, &log)
 }
 
 #[then("it exits with code 69 at once, the error naming the address, with no retry logged")]
@@ -746,6 +613,14 @@ fn at_once(w: &mut Steps) -> TestResult {
 }
 
 fn main() -> TestResult {
+    // Compute's role sessions run in this process, one beside each shared cluster's played group, until task 6.4 binds their
+    // reads to the client endpoint: what they log is written to `IN_PROCESS_LOG`.
+    let log = std::fs::File::create(scratch(IN_PROCESS_LOG))?;
+    tracing_subscriber::fmt()
+        .with_writer(Mutex::new(log))
+        .with_ansi(false)
+        .try_init()
+        .map_err(|error| TestError::new(format!("the process's log: {error}")))?;
     start_double()?;
     SHARED
         .set(services()?)

@@ -25,10 +25,12 @@ use ultragraphdb_protocol_wire::{
     MAX_FRAME_SIZE_U32, ROLE_MAX_STREAMS, Welcome,
 };
 
+use crate::traits::serve_clock::ServeClock;
 use crate::traits::session::{Answer, Push, Session};
 use crate::types::connection_bound::ConnectionBound;
 use crate::types::open_requests::OpenRequests;
 use crate::types::parked_bytes::ParkedBytes;
+use crate::types::wall_clock::WallClock;
 
 const PROTOCOL: u16 = 1;
 const RELEASE: u32 = 1;
@@ -37,15 +39,16 @@ const RELEASE: u32 = 1;
     clippy::disallowed_methods,
     reason = "the shell reads the clock and tells the connection, which reads none"
 )]
-fn now() -> Instant {
+pub(crate) fn now() -> Instant {
     Instant::now()
 }
 
 /// How one kind of connection is served: its cluster, the endpoint it arrived at, and the secret an unknown name's
-/// verifier derives from, at the iterations a known name's took, so a refused name costs what a wrong password costs.
-/// Its `Debug` holds every field but the secret.
+/// verifier derives from, at the iterations a known name's took, so a refused name costs what a wrong password costs; and
+/// the clock its connections' deadlines are read and waited on by, the wall clock unless a test gives its own. Its `Debug`
+/// holds every field but the secret.
 #[derive(Clone)]
-pub struct Server {
+pub struct Server<K = WallClock> {
     cluster: u64,
     endpoint: Endpoint,
     name: &'static str,
@@ -54,9 +57,10 @@ pub struct Server {
     open: OpenRequests,
     bound: Option<ConnectionBound>,
     welcome: fn(Welcome) -> Welcome,
+    clock: K,
 }
 
-impl fmt::Debug for Server {
+impl<K> fmt::Debug for Server<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Server")
             .field("cluster", &self.cluster)
@@ -90,9 +94,28 @@ impl Server {
             open: OpenRequests::default(),
             bound: None,
             welcome: |welcome| welcome,
+            clock: WallClock,
         })
     }
 
+    /// The server reading and waiting on `clock` in place of the wall clock.
+    #[must_use]
+    pub fn with_clock<L: ServeClock>(self, clock: L) -> Server<L> {
+        Server {
+            cluster: self.cluster,
+            endpoint: self.endpoint,
+            name: self.name,
+            unknown: self.unknown,
+            iterations: self.iterations,
+            open: self.open,
+            bound: self.bound,
+            welcome: self.welcome,
+            clock,
+        }
+    }
+}
+
+impl<K: ServeClock> Server<K> {
     /// The server answering unknown names with verifiers derived from `secret`, the one the metadata group holds, so every
     /// core and restart answers one name with one salt.
     #[must_use]
@@ -153,7 +176,7 @@ impl Server {
 
     /// The machine of a connection accepted at `at`, authenticating through `authenticator`.
     fn machine_of<A: Authenticator>(&self, authenticator: A, at: Instant) -> ServerConnection<A> {
-        // The default limits are a client's. A role connection carries what the frontend already bounded on its clients'
+        // The default limits are a client's. A role connection carries what compute already bounded on its clients'
         // connections, so a role endpoint announces the protocol's largest frame and its most streams (`PROTOCOL.md` §11.12).
         let limits =
             (self.welcome)(Welcome::new(PROTOCOL, RELEASE, self.name)).with_mechanisms([MECHANISM]);
@@ -182,15 +205,16 @@ impl Server {
 /// A dropped future ends the connection as a failing stream does, without its shutdown: a frame read or written in part is
 /// cut, `session` is dropped with what it holds, and the connection's place under the server's bound and its open
 /// request are let go.
-pub async fn serve_connection<S, C, H>(stream: S, server: &Server, credentials: C, session: H)
+pub async fn serve_connection<S, C, H, K>(stream: S, server: &Server<K>, credentials: C, session: H)
 where
     S: Splittable,
     S::ReadHalf: AsyncRead,
     S::WriteHalf: AsyncWrite,
     C: Credentials + Clone,
     H: Session,
+    K: ServeClock,
 {
-    let Some(machine) = server.machine(credentials, now()) else {
+    let Some(machine) = server.machine(credentials, server.clock.now()) else {
         tracing::warn!("no nonce could be drawn for a connection");
         return;
     };
@@ -198,12 +222,12 @@ where
 }
 
 /// Serves one connection as [`serve_connection`] does, its authentication run by `authenticator` in place of credentials held
-/// here: the frontend's client endpoint, which relays each exchange to the system group (`PROTOCOL.md` §11.1).
+/// here: compute's client endpoint, which relays each exchange to the system group (`PROTOCOL.md` §11.1).
 ///
 /// A dropped future ends the connection as [`serve_connection`] says.
-pub async fn serve_connection_with<S, A, H>(
+pub async fn serve_connection_with<S, A, H, K>(
     stream: S,
-    server: &Server,
+    server: &Server<K>,
     authenticator: A,
     session: H,
 ) where
@@ -212,15 +236,16 @@ pub async fn serve_connection_with<S, A, H>(
     S::WriteHalf: AsyncWrite,
     A: Authenticator,
     H: Session,
+    K: ServeClock,
 {
-    let machine = server.machine_of(authenticator, now());
+    let machine = server.machine_of(authenticator, server.clock.now());
     serve_machine(stream, server, machine, session).await;
 }
 
 /// Serves one connection by `machine`. A dropped future ends it as [`serve_connection`] says.
-async fn serve_machine<S, A, H>(
+async fn serve_machine<S, A, H, K>(
     stream: S,
-    server: &Server,
+    server: &Server<K>,
     machine: ServerConnection<A>,
     mut session: H,
 ) where
@@ -229,6 +254,7 @@ async fn serve_machine<S, A, H>(
     S::WriteHalf: AsyncWrite,
     A: Authenticator,
     H: Session,
+    K: ServeClock,
 {
     // Held until the connection ends, whichever way it goes on from here.
     let held = server.bound.as_ref().map(ConnectionBound::enter);
@@ -244,7 +270,7 @@ async fn serve_machine<S, A, H>(
         &mut reader,
         &mut writer,
         &mut machine,
-        &pool,
+        (&pool, &server.clock),
         &mut session,
         &server.open,
     )
@@ -257,11 +283,11 @@ async fn serve_machine<S, A, H>(
 
 /// The connection's event loop. A dropped future lets go of the frame in hand and its open request, and leaves the
 /// connection to its end, as [`serve_connection`] says.
-async fn run<R, W, A, H>(
+async fn run<R, W, A, H, K>(
     reader: &mut Connection<R>,
     writer: &mut Connection<W>,
     machine: &mut ServerConnection<A>,
-    pool: &BufferPool,
+    (pool, clock): (&BufferPool, &K),
     session: &mut H,
     open: &OpenRequests,
 ) -> Result<(), TransportError>
@@ -270,15 +296,24 @@ where
     W: AsyncWrite,
     A: Authenticator,
     H: Session,
+    K: ServeClock,
 {
     let parked = session.parked();
     // An event loop: the connection machine's close or a transport error ends it (Ultra rule 2).
     while !machine.is_closing() {
-        let frame = next_frame(reader, writer, machine, pool, session, parked.as_ref()).await?;
+        let frame = next_frame(
+            reader,
+            writer,
+            machine,
+            (pool, clock),
+            session,
+            parked.as_ref(),
+        )
+        .await?;
         // A frame stays open until what it asks is on the wire, past the flush below: that is what a stop waits for.
         let _open = open.enter();
         match frame {
-            Some(Ok(received)) => take(reader, machine, session, received, open).await?,
+            Some(Ok(received)) => take(reader, machine, session, received, (open, clock)).await?,
             Some(Err(error)) => {
                 let TransportErrorEnum::Protocol { error: refusal } = &error.0 else {
                     return Err(error);
@@ -296,11 +331,11 @@ where
 /// is never cut short, and starts only once `parked` has room, which only a frame taken can use up. `None` once a deadline passed
 /// and the connection's machine has taken it, or the session pushed a close. A dropped future drops the pinned read with it,
 /// cutting a frame read in part, and may cut a pushed frame being written: the connection ends with it.
-async fn next_frame<R, W, A, H>(
+async fn next_frame<R, W, A, H, K>(
     reader: &mut Connection<R>,
     writer: &mut Connection<W>,
     machine: &mut ServerConnection<A>,
-    pool: &BufferPool,
+    (pool, clock): (&BufferPool, &K),
     session: &mut H,
     parked: Option<&ParkedBytes>,
 ) -> Result<Option<Result<ReceivedFrame, TransportError>>, TransportError>
@@ -309,6 +344,7 @@ where
     W: AsyncWrite,
     A: Authenticator,
     H: Session,
+    K: ServeClock,
 {
     let mut read = pin!(async {
         if let Some(parked) = parked {
@@ -320,12 +356,12 @@ where
     loop {
         let wait = machine
             .next_deadline()
-            .map(|deadline| deadline.saturating_duration_since(now()));
+            .map(|deadline| deadline.saturating_duration_since(clock.now()));
         // The push future borrows the session, so its scope ends before a flush tells the session of room.
         let event = {
             let mut deadline = pin!(async {
                 match wait {
-                    Some(wait) => compio::time::sleep(wait).await,
+                    Some(wait) => clock.sleep(wait).await,
                     None => std::future::pending().await,
                 }
             });
@@ -364,7 +400,7 @@ where
                 return Ok(None);
             }
             Event::Deadline => {
-                let _closing = machine.handle_timeout(now())?;
+                let _closing = machine.handle_timeout(clock.now())?;
                 if machine.is_closing() {
                     return Ok(None);
                 }
@@ -382,16 +418,17 @@ enum Event {
 
 /// `received` taken by the machine, and a request it hands on answered. A future dropped at the session's `.await` drops
 /// `received` unanswered, and leaves what the session's own future leaves.
-async fn take<R, A, H>(
+async fn take<R, A, H, K>(
     reader: &mut Connection<R>,
     machine: &mut ServerConnection<A>,
     session: &mut H,
     received: ReceivedFrame,
-    open: &OpenRequests,
+    (open, clock): (&OpenRequests, &K),
 ) -> Result<(), TransportError>
 where
     A: Authenticator,
     H: Session,
+    K: ServeClock,
 {
     if let Ok(view) = received.view()
         && view.command() == Command::Authenticate
@@ -421,7 +458,7 @@ where
     let was_open = received
         .view()
         .is_ok_and(|view| machine.outbound().is_open(view.header().stream()));
-    match machine.receive(&received, now())? {
+    match machine.receive(&received, clock.now())? {
         Inbound::Welcomed {
             protocol,
             max_frame,

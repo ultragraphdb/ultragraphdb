@@ -193,7 +193,7 @@ fn both_commit_with_default(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("declarations are made and the frontend and storage are stopped and started")]
+#[when("declarations are made and compute and storage are stopped and started")]
 fn declared_and_restarted(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     let _refusals = take_effect(&w.source, &a, TENANT, 2, declared()?)?;

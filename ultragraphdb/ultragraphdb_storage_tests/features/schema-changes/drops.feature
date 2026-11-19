@@ -2,7 +2,7 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
 @drops
-Feature: Drops through the frontend, read back at the partition
+Feature: Drops through compute, read back at the partition
   openspec/changes/stage-5-8-system-group/specs/schema-changes/spec.md, "Drops": the frontend and a storage process hosting
   the system group as processes, each Drop sent by a client through the frontend, and the partition's keys read back over its
   role address with a Scan of the tenant's key ranges. "Dropping a vector predicate drops its vector index" is not bound

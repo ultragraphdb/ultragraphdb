@@ -14,7 +14,7 @@ load("//bazel:test_ports.bzl", "port_env")
 #
 # `bdd.rs` runs every feature in its runfiles but those tagged `@system` and `@drops`, so each feature file without those tags
 # is a target of its own, its runfiles holding it alone. `drops_bdd` runs the `@drops` features, the Drops a client sends
-# through the frontend, by `BDD_FEATURES`. `system_bdd.rs` runs the features tagged `@system`, the storage binary hosting the
+# through compute, by `BDD_FEATURES`. `system_bdd.rs` runs the features tagged `@system`, the storage binary hosting the
 # system group, one target per second tag. The tagged features are those under `features/system/` and
 # `features/schema-changes/drops.feature`; a feature tagged elsewhere is left out of its file's target by its tag.
 BDD_SRCS = [
@@ -31,8 +31,8 @@ BDD_SRCS = [
 ]
 
 BDD_DATA = [
+    ":copy_compute",
     ":copy_config",
-    ":copy_frontend",
     ":copy_storage",
 ]
 
@@ -41,7 +41,7 @@ SYSTEM_SRCS = [
     "tests/system_books_steps.rs",
 ]
 
-# No frontend runs in the system group's scenarios.
+# No compute process runs in the system group's scenarios.
 SYSTEM_DATA = [
     ":copy_config",
     ":copy_storage",
@@ -110,11 +110,11 @@ copy_file(
     is_executable = True,
 )
 
-# Copy the frontend binary into the sandbox.
+# Copy the compute binary into the sandbox.
 copy_file(
-    name = "copy_frontend",
-    src = "//ultragraphdb/ultragraphdb_frontend",
-    out = "ultragraphdb_frontend",
+    name = "copy_compute",
+    src = "//ultragraphdb/ultragraphdb_compute",
+    out = "ultragraphdb_compute",
     is_executable = True,
 )
 

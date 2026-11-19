@@ -7,7 +7,7 @@ use crate::errors::service_config_error::{ServiceConfigError, ServiceConfigError
 use crate::types::endpoint_security::EndpointSecurity;
 use crate::types::settings_reader::SettingsReader;
 
-/// The `[endpoint]` table: the frontend's client endpoint.
+/// The `[endpoint]` table: compute's client endpoint.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EndpointTable {
     address: Option<String>,

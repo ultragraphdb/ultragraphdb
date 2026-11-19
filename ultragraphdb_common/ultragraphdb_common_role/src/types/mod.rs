@@ -15,3 +15,4 @@ pub mod role_credentials;
 pub mod role_reader;
 pub mod role_secret;
 pub mod role_writer;
+pub mod wall_clock;

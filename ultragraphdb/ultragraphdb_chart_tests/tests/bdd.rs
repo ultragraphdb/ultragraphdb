@@ -227,10 +227,7 @@ fn every_pod(w: &mut Steps) -> TestResult {
 )]
 fn unprivileged(w: &mut Steps) -> TestResult {
     let names: BTreeSet<&str> = w.pods.iter().map(|(name, _)| name.as_str()).collect();
-    assert_eq!(
-        names,
-        BTreeSet::from(["compute", "config", "frontend", "storage"])
-    );
+    assert_eq!(names, BTreeSet::from(["compute", "config", "storage"]));
     for (name, pod) in &w.pods {
         let user = if name == "config" {
             CONFIG_USER
@@ -292,25 +289,82 @@ fn one_pod(w: &mut Steps, name: &str) -> TestResult {
     Ok(())
 }
 
-#[when("the frontend's pod is inspected")]
-fn frontend_pod(w: &mut Steps) -> TestResult {
-    one_pod(w, "frontend")
+#[when("compute's pod is inspected")]
+fn compute_pod(w: &mut Steps) -> TestResult {
+    one_pod(w, "compute")
+}
+
+/// That the compute workload `name` of `release`, whose pod is `pod`, mounts the role secret and no bootstrap secret, and
+/// holds no volume of data: a Secret's projection is how a pod reads a key, and a volume of data would be a claim, an emptyDir
+/// or a host path.
+fn holds_no_data(release: &Release, name: &str, pod: &Value) -> TestResult {
+    let secrets = secrets_of(pod);
+    assert!(secrets.contains(ROLE_SECRET), "{name}: {secrets:?}");
+    assert!(!secrets.contains(BOOTSTRAP_SECRET), "{name}: {secrets:?}");
+    let workload = release.object("StatefulSet", name)?;
+    assert!(
+        workload.pointer("/spec/volumeClaimTemplates").is_none(),
+        "{name}"
+    );
+    for volume in list(pod, "/volumes") {
+        assert!(volume.pointer("/projected").is_some(), "{name}: {volume}");
+    }
+    Ok(())
 }
 
 #[then("it mounts the role secret and no bootstrap secret, and holds no volume claim")]
 fn no_bootstrap(w: &mut Steps) -> TestResult {
-    let (_, pod) = w.pods.first().context("the frontend's pod")?;
-    let secrets = secrets_of(pod);
-    assert!(secrets.contains(ROLE_SECRET), "{secrets:?}");
-    assert!(!secrets.contains(BOOTSTRAP_SECRET), "{secrets:?}");
-    let workload = w.release.object("Deployment", "frontend")?;
-    assert!(workload.pointer("/spec/volumeClaimTemplates").is_none());
-    for volume in list(pod, "/volumes") {
-        assert!(
-            volume.pointer("/persistentVolumeClaim").is_none(),
-            "{volume}"
+    let (name, pod) = w.pods.first().context("compute's pod")?;
+    holds_no_data(&w.release, name, pod)
+}
+
+#[when("the chart is rendered with the compute instances `compute` and `compute_2`")]
+fn two_computes(w: &mut Steps) -> TestResult {
+    w.release = rendered(
+        "nodes",
+        "ultragraphdb".to_string(),
+        "cluster.local".to_string(),
+    )?;
+    w.pods = w
+        .release
+        .pods()?
+        .into_iter()
+        .filter(|(name, _)| name.starts_with("compute"))
+        .collect();
+    Ok(())
+}
+
+#[then(
+    "each is a StatefulSet of one replica with no volume under the headless Service `compute`, its pod mounting the role secret and no bootstrap secret, and one client Service spans every compute pod"
+)]
+fn each_compute_its_own(w: &mut Steps) -> TestResult {
+    let release = &w.release;
+    let names: Vec<&str> = w.pods.iter().map(|(name, _)| name.as_str()).collect();
+    // An object's name takes a `-` where an instance's takes a `_`.
+    assert_eq!(names, ["compute", "compute-2"]);
+    let service = release.object("Service", "compute")?;
+    assert_eq!(text(service, "/spec/clusterIP")?, "None");
+    let component = "/spec/selector/app.kubernetes.io~1component";
+    for (name, pod) in &w.pods {
+        let set = release.object("StatefulSet", name)?;
+        assert_eq!(
+            set.pointer("/spec/replicas"),
+            Some(&Value::from(1)),
+            "{name}"
         );
+        assert_eq!(text(set, "/spec/serviceName")?, "compute", "{name}");
+        let labels = set
+            .pointer("/spec/template/metadata/labels")
+            .context("the pod's labels")?;
+        assert_eq!(
+            text(labels, "/app.kubernetes.io~1component")?,
+            text(service, component)?,
+            "{name}"
+        );
+        holds_no_data(release, name, pod)?;
     }
+    let client = release.object("Service", "compute-client")?;
+    assert_eq!(text(client, component)?, text(service, component)?);
     Ok(())
 }
 
@@ -415,7 +469,7 @@ fn headless(release: &Release, name: &str) -> TestResult {
 }
 
 #[then(
-    "the config service and the storage instance are StatefulSets of one replica, each holding its data directory on a volume of its own, the frontend and compute are Deployments with no volume, each StatefulSet and compute has a headless Service publishing not-ready addresses, and the frontend's client endpoint has a Service"
+    "the config service and the storage instance are StatefulSets of one replica, each holding its data directory on a volume of its own, compute is a StatefulSet of one replica with no volume, each StatefulSet has a headless Service publishing not-ready addresses, and compute's client endpoint has a Service"
 )]
 fn workloads(w: &mut Steps) -> TestResult {
     let release = &w.release;
@@ -452,27 +506,23 @@ fn workloads(w: &mut Steps) -> TestResult {
         }
         headless(release, name)?;
     }
-    for name in ["frontend", "compute"] {
-        let deployment = release.object("Deployment", name)?;
-        assert_eq!(
-            deployment.pointer("/spec/replicas"),
-            Some(&Value::from(1)),
-            "{name}"
-        );
-        let pod = deployment.pointer("/spec/template/spec").context("a pod")?;
-        // A Secret's projection is how a pod reads a key; a volume of data would be a claim, an emptyDir or a host path.
-        for volume in list(pod, "/volumes") {
-            assert!(volume.pointer("/projected").is_some(), "{name}: {volume}");
-        }
-    }
-    headless(release, "compute")?;
-    let client = release.object("Service", "frontend-client")?;
+    let compute = release.object("StatefulSet", "compute")?;
+    assert_eq!(compute.pointer("/spec/replicas"), Some(&Value::from(1)));
+    let pod = compute.pointer("/spec/template/spec").context("a pod")?;
+    holds_no_data(release, "compute", pod)?;
+    let service = release.object("Service", "compute")?;
+    assert_eq!(text(service, "/spec/clusterIP")?, "None");
     assert_eq!(
-        text(client, "/spec/selector/app.kubernetes.io~1name")?,
-        "frontend"
+        service.pointer("/spec/publishNotReadyAddresses"),
+        Some(&Value::Bool(true))
+    );
+    let client = release.object("Service", "compute-client")?;
+    assert_eq!(
+        text(client, "/spec/selector/app.kubernetes.io~1component")?,
+        "compute"
     );
     let endpoint = port_of(setting(
-        release.profile("frontend.toml")?,
+        release.profile("compute.toml")?,
         "endpoint",
         "address",
     )?)?;
@@ -487,12 +537,12 @@ fn workloads(w: &mut Steps) -> TestResult {
 #[then(
     "its container declares the client endpoint's port and its observability port, and no other"
 )]
-fn frontend_ports(w: &mut Steps) -> TestResult {
-    let (_, pod) = w.pods.first().context("the frontend's pod")?;
-    let frontend = w.release.profile("frontend.toml")?;
+fn compute_ports(w: &mut Steps) -> TestResult {
+    let (_, pod) = w.pods.first().context("compute's pod")?;
+    let compute = w.release.profile("compute.toml")?;
     let expected = BTreeSet::from([
-        port_of(setting(frontend, "endpoint", "address")?)?,
-        port_of(setting(frontend, "observability", "address")?)?,
+        port_of(setting(compute, "endpoint", "address")?)?,
+        port_of(setting(compute, "observability", "address")?)?,
     ]);
     assert_eq!(ports_of(container(pod)?), expected);
     Ok(())
@@ -575,7 +625,7 @@ fn system_address(w: &mut Steps, partitions: u32) -> TestResult {
         "tcp://{pod}.{service}.{}.svc.{}:{port}",
         release.namespace, release.domain
     );
-    for role in ["frontend.toml", "storage.toml", "compute.toml"] {
+    for role in ["storage.toml", "compute.toml"] {
         let file = release.profile(role)?;
         assert_eq!(
             setting(file, "cluster", "system_address")?,
@@ -591,7 +641,7 @@ fn system_address(w: &mut Steps, partitions: u32) -> TestResult {
     Ok(())
 }
 
-#[when("the frontend's, storage's and compute's pods are inspected")]
+#[when("storage's and compute's pods are inspected")]
 fn role_pods(w: &mut Steps) -> TestResult {
     w.release = default_release()?;
     w.pods = w
@@ -600,7 +650,7 @@ fn role_pods(w: &mut Steps) -> TestResult {
         .into_iter()
         .filter(|(name, _)| name != "config")
         .collect();
-    assert_eq!(w.pods.len(), 3);
+    assert_eq!(w.pods.len(), 2);
     Ok(())
 }
 

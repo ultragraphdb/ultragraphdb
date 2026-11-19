@@ -10,13 +10,13 @@ use ultragraphdb_cluster_placement::PlacementMap;
 use ultragraphdb_common_config_check::{Defect, TargetFiles, check_target};
 use ultragraphdb_tool_bdd::TestResult;
 
-const FRONTEND: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n";
 const STORAGE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[storage]\npartition_count = 1\ndata_dir = \"/data/storage\"\n";
 /// The instance hosting the system group: its `[system]` table, the two moved tables and the partition count it forms the
 /// placement over. Its `[storage]` table comes last, so a key appended to it lands there.
 const STORAGE_1: &str = "[cluster]\npartition_count = 2\n[metadata]\n[sequencer]\nepoch_ms_min = 2\nepoch_ms_max = 10\n[system]\nrole_address = \"tcp://10.0.0.2:7100\"\ndata_dir = \"/data/system\"\n[storage]\npartition_first = 1\nrole_address = \"tcp://10.0.0.2:7000\"\n";
 const STORAGE_2: &str = "[storage]\npartition_first = 2\nrole_address = \"tcp://10.0.0.4:7000\"\n";
-const COMPUTE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://0.0.0.0:8080\"\n[compute]\nrole_address = \"tcp://10.0.0.3:7082\"\n";
+/// A compute instance: its client endpoint in clear text, its `[endpoint]` table last, so a key appended to it lands there.
+const COMPUTE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nsystem_address = \"tcp://10.0.0.2:7100\"\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n[endpoint]\naddress = \"tcp://10.0.0.3:7080\"\nplaintext = true\n";
 
 /// The host's `system.role_address`, which every `cluster.system_address` of the fixtures names.
 const SYSTEM_ROLE_ADDRESS: &str = "tcp://10.0.0.2:7100";
@@ -37,10 +37,9 @@ fn target_of(files: &[(&str, &str)]) -> TargetFiles {
     target
 }
 
-/// A valid target: one frontend, two storage instances of one partition each, one compute.
+/// A valid target: two storage instances of one partition each, one compute instance.
 fn valid() -> TargetFiles {
     target_of(&[
-        ("frontend", FRONTEND),
         ("storage", STORAGE),
         ("storage_1", STORAGE_1),
         ("storage_2", STORAGE_2),
@@ -82,29 +81,151 @@ fn test_the_valid_target_passes() {
     assert_eq!(checked(&valid(), Some(&valid())), "");
 }
 
-/// A target has exactly one frontend and at least one storage instance.
+/// C6.1 to C6.4, the Roles check: a target holds at least one compute and at least one storage instance, naming the target
+/// and the role absent; one compute instance or two beside a storage instance pass.
 #[test]
-fn test_a_target_holds_one_frontend_and_a_storage_instance() {
-    let two = target_of(&[
-        ("frontend_1", FRONTEND),
-        ("frontend_2", FRONTEND),
+fn test_a_target_holds_a_compute_and_a_storage_instance() {
+    let no_compute = target_of(&[
         ("storage", STORAGE),
         ("storage_1", STORAGE_1),
         ("storage_2", STORAGE_2),
     ]);
     says(
-        &checked(&two, None),
-        &["target ci, the target has 2 frontends"],
+        &checked(&no_compute, None),
+        &["target ci, the target has no compute instance"],
     );
-    let none = target_of(&[("storage", STORAGE), ("storage_1", STORAGE_1)]);
-    says(
-        &checked(&none, None),
-        &["target ci, the target has 0 frontends"],
-    );
-    let no_storage = target_of(&[("frontend", FRONTEND), ("compute_1", COMPUTE)]);
+    let no_storage = target_of(&[("compute_1", COMPUTE)]);
     says(
         &checked(&no_storage, None),
         &["target ci, the target has no storage instance"],
+    );
+    let alone = STORAGE_1.replace("partition_count = 2", "partition_count = 1");
+    let one_each = target_of(&[
+        ("storage", STORAGE),
+        ("storage_1", &alone),
+        ("compute", COMPUTE),
+    ]);
+    assert_eq!(checked(&one_each, None), "");
+    let second = COMPUTE
+        .replace("10.0.0.3:7080", "10.0.0.5:7080")
+        .replace("127.0.0.1:18081", "127.0.0.1:18082");
+    let two = with(valid(), "compute_2", &second);
+    assert_eq!(checked(&two, None), "");
+}
+
+/// C6.5 to C6.7: a `[frontend]` table in any file, `compute.role_address` in a compute instance's and
+/// `cluster.frontend_address` in any are refused naming the table or the setting as unknown.
+#[test]
+fn test_the_retired_names_are_refused_as_unknown() {
+    let cases = [
+        (
+            "compute_1",
+            format!("{COMPUTE}[frontend]\n"),
+            "instance compute_1, the table [frontend] does not exist",
+        ),
+        (
+            "storage_2",
+            format!("{STORAGE_2}[frontend]\nrole_address = \"tcp://10.0.0.1:7081\"\n"),
+            "instance storage_2, the table [frontend] does not exist",
+        ),
+        (
+            "compute_1",
+            format!("{COMPUTE}[compute]\nrole_address = \"tcp://10.0.0.3:7082\"\n"),
+            "instance compute_1, setting compute.role_address: no such setting exists",
+        ),
+        (
+            "storage",
+            STORAGE.replace(
+                "[cluster]\n",
+                "[cluster]\nfrontend_address = \"tcp://frontend:7081\"\n",
+            ),
+            "instance storage, setting cluster.frontend_address: no such setting exists",
+        ),
+    ];
+    for (instance, text, expected) in cases {
+        says(&checked(&with(valid(), instance, &text), None), &[expected]);
+    }
+}
+
+/// C6.8: an instance named `frontend_1` is refused by the Names rule: its name begins with no role's name.
+#[test]
+fn test_an_instance_named_for_the_retired_role_names_no_role() {
+    let listing = checked(&with(valid(), "frontend_1", COMPUTE), None);
+    says(
+        &listing,
+        &["frontend_1 names no role", "compute or storage"],
+    );
+}
+
+/// C6.9, the Tables check: a storage instance's file holding `[compute]` or `[endpoint]`, and a compute instance's holding
+/// `[system]`, are refused naming the table and the instance; `[storage]` in a compute instance's file, whose
+/// `scan_stall_ms` and `read_retain_ms` compute reads, is not.
+#[test]
+fn test_another_roles_table_is_refused_by_name() {
+    let cases = [
+        ("storage_2", format!("{STORAGE_2}[compute]\n"), "compute"),
+        (
+            "storage_2",
+            format!("{STORAGE_2}[endpoint]\nplaintext = true\n"),
+            "endpoint",
+        ),
+        (
+            "compute_1",
+            format!(
+                "{COMPUTE}[system]\nrole_address = \"tcp://10.0.0.3:7100\"\ndata_dir = \"/data/system\"\n"
+            ),
+            "system",
+        ),
+    ];
+    for (instance, text, table) in cases {
+        says(
+            &checked(&with(valid(), instance, &text), None),
+            &[&format!(
+                "instance {instance}, setting {table}: it holds a [{table}] table"
+            )],
+        );
+    }
+    let read = format!("{COMPUTE}[storage]\nscan_stall_ms = 500\nread_retain_ms = 50\n");
+    assert_eq!(checked(&with(valid(), "compute_1", &read), None), "");
+}
+
+/// C6.10: a compute instance holding `[metadata]` or `[sequencer]` is refused by the System check, as any instance not
+/// hosting is.
+#[test]
+fn test_a_moved_table_in_a_compute_instance_is_the_system_checks() {
+    for table in ["metadata", "sequencer"] {
+        says(
+            &checked(
+                &with(valid(), "compute_1", &format!("{COMPUTE}[{table}]\n")),
+                None,
+            ),
+            &[&format!(
+                "instance compute_1, setting {table}: it holds a [{table}] table and does not host the system group"
+            )],
+        );
+    }
+}
+
+/// C6.11: one revision holding a `[frontend]` table, an instance named `frontend_1` and another role's table lists all
+/// three, each naming its instance.
+#[test]
+fn test_every_retired_name_of_a_revision_is_listed() {
+    let target = with(
+        with(
+            with(valid(), "compute_1", &format!("{COMPUTE}[frontend]\n")),
+            "frontend_1",
+            COMPUTE,
+        ),
+        "storage_2",
+        &format!("{STORAGE_2}[compute]\n"),
+    );
+    says(
+        &checked(&target, None),
+        &[
+            "instance compute_1, the table [frontend] does not exist",
+            "frontend_1 names no role",
+            "instance storage_2, setting compute: it holds a [compute] table",
+        ],
     );
 }
 
@@ -146,11 +267,6 @@ fn test_a_role_address_that_does_not_parse_is_refused() {
         ),
         (
             "compute_1",
-            COMPUTE.replace("tcp://10.0.0.3", "ftp://10.0.0.3"),
-            "instance compute_1, setting compute.role_address: it holds ftp://10.0.0.3:7082;",
-        ),
-        (
-            "compute_1",
             COMPUTE.replace(SYSTEM_ROLE_ADDRESS, "ftp://10.0.0.2:7100"),
             "instance compute_1, setting cluster.system_address: it holds ftp://10.0.0.2:7100;",
         ),
@@ -163,17 +279,17 @@ fn test_a_role_address_that_does_not_parse_is_refused() {
 /// A listener names TLS or clear text, and an admin listener the admin key's digest.
 #[test]
 fn test_a_listener_names_its_security() {
-    let endpoint = format!("{FRONTEND}[endpoint]\naddress = \"tcp://10.0.0.1:9080\"\n");
+    let endpoint = COMPUTE.replace("plaintext = true\n", "");
     says(
-        &checked(&with(valid(), "frontend", &endpoint), None),
-        &["instance frontend, setting endpoint.plaintext:"],
+        &checked(&with(valid(), "compute_1", &endpoint), None),
+        &["instance compute_1, setting endpoint.plaintext:"],
     );
-    let admin = format!("{FRONTEND}[admin]\naddress = \"tcp://10.0.0.1:9090\"\n");
+    let admin = format!("{COMPUTE}[admin]\naddress = \"tcp://10.0.0.1:9090\"\n");
     says(
-        &checked(&with(valid(), "frontend", &admin), None),
+        &checked(&with(valid(), "compute_1", &admin), None),
         &[
-            "instance frontend, setting admin.plaintext:",
-            "instance frontend, setting admin.key_sha256: it is absent;",
+            "instance compute_1, setting admin.plaintext:",
+            "instance compute_1, setting admin.key_sha256: it is absent;",
         ],
     );
 }
@@ -181,10 +297,10 @@ fn test_a_listener_names_its_security() {
 /// A secret's path is absolute, and the admin key's digest is 64 hexadecimal digits.
 #[test]
 fn test_secrets_are_absolute_paths_and_a_digest() {
-    let relative = FRONTEND.replace("\"/run/secret\"", "\"run/secret\"");
+    let relative = COMPUTE.replace("\"/run/secret\"", "\"run/secret\"");
     says(
-        &checked(&with(valid(), "frontend", &relative), None),
-        &["instance frontend, setting cluster.role_secret_file: it holds run/secret;"],
+        &checked(&with(valid(), "compute_1", &relative), None),
+        &["instance compute_1, setting cluster.role_secret_file: it holds run/secret;"],
     );
     let digest = |text: &str| format!("{COMPUTE}[admin]\nkey_sha256 = \"{text}\"\n");
     assert_eq!(
@@ -239,11 +355,7 @@ fn test_the_system_role_address_takes_part_in_the_address_checks() -> TestResult
     let everywhere = |text: &str| text.replace(SYSTEM_ROLE_ADDRESS, partition);
     let target = with(
         with(
-            with(
-                with(valid(), "storage_1", &shared),
-                "frontend",
-                &everywhere(FRONTEND),
-            ),
+            with(valid(), "storage_1", &shared),
             "storage",
             &everywhere(STORAGE),
         ),
@@ -346,7 +458,7 @@ fn test_each_metadata_bound_is_checked() {
     }
 }
 
-/// Each of a frontend's settings of failed authentications, its counts before a throttle and a ban and the ban's time, is refused
+/// Each of a compute instance's settings of failed authentications, its counts before a throttle and a ban and the ban's time, is refused
 /// at 0 (design D15).
 #[test]
 fn test_each_failed_login_setting_is_at_least_1() {
@@ -355,11 +467,11 @@ fn test_each_failed_login_setting_is_at_least_1() {
         "auth_throttled_failures_before_ban",
         "auth_ban_ms",
     ] {
-        let zero = format!("{FRONTEND}[endpoint]\n{setting} = 0\n");
+        let zero = format!("{COMPUTE}{setting} = 0\n");
         says(
-            &checked(&with(valid(), "frontend", &zero), None),
+            &checked(&with(valid(), "compute_1", &zero), None),
             &[&format!(
-                "instance frontend, setting endpoint.{setting}: it holds 0; it must be at least 1"
+                "instance compute_1, setting endpoint.{setting}: it holds 0; it must be at least 1"
             )],
         );
     }
@@ -384,11 +496,11 @@ fn test_a_partition_count_bounds_the_partitions_held() {
 /// An observability address is an IP address and a port, which a listener binds without a lookup.
 #[test]
 fn test_an_observability_address_names_an_ip() {
-    let named = FRONTEND.replace("tcp://127.0.0.1:18081", "tcp://frontend:18081");
+    let named = COMPUTE.replace("tcp://127.0.0.1:18081", "tcp://compute:18081");
     says(
-        &checked(&with(valid(), "frontend", &named), None),
+        &checked(&with(valid(), "compute_1", &named), None),
         &[
-            "instance frontend, setting observability.address: it holds tcp://frontend:18081; it must be tcp://<ip>:<port>",
+            "instance compute_1, setting observability.address: it holds tcp://compute:18081; it must be tcp://<ip>:<port>",
         ],
     );
 }
@@ -413,13 +525,17 @@ fn test_a_storage_instance_without_a_role_address_derives_no_listener() {
 /// nothing.
 #[test]
 fn test_only_instances_the_active_revision_holds_are_compared() {
-    let without_compute = target_of(&[
-        ("frontend", FRONTEND),
-        ("storage", STORAGE),
-        ("storage_1", STORAGE_1),
-        ("storage_2", STORAGE_2),
-    ]);
-    assert_eq!(checked(&valid(), Some(&without_compute)), "");
+    let without_compute_2 = valid();
+    let second = COMPUTE
+        .replace("10.0.0.3:7080", "10.0.0.5:7080")
+        .replace("127.0.0.1:18081", "127.0.0.1:18082");
+    assert_eq!(
+        checked(
+            &with(valid(), "compute_2", &second),
+            Some(&without_compute_2)
+        ),
+        ""
+    );
     let refused = format!("{STORAGE_2}bogus = 1\n");
     let listing = checked(&with(valid(), "storage_2", &refused), Some(&valid()));
     says(&listing, &["storage.bogus"]);
@@ -498,7 +614,6 @@ fn test_two_hosting_instances_are_refused() -> TestResult {
 fn test_one_host_among_one_or_eight_storage_instances_is_accepted() -> TestResult {
     let alone = STORAGE_1.replace("partition_count = 2", "partition_count = 1");
     let one = target_of(&[
-        ("frontend", FRONTEND),
         ("storage", STORAGE),
         ("storage_1", &alone),
         ("compute_1", COMPUTE),
@@ -514,7 +629,6 @@ fn test_one_host_among_one_or_eight_storage_instances_is_accepted() -> TestResul
         })
         .collect();
     let mut files: Vec<(&str, &str)> = vec![
-        ("frontend", FRONTEND),
         ("storage", STORAGE),
         ("storage_1", &eight_host),
         ("compute_1", COMPUTE),
@@ -598,13 +712,13 @@ fn test_a_host_holding_no_partition_is_refused() -> TestResult {
     Ok(())
 }
 
-/// C7.9: a storage instance not hosting holds `[metadata]`, the frontend `[sequencer]`, a compute instance `[metadata]`: each
-/// refused naming the table and the instance.
+/// C7.9: a storage instance not hosting holds `[metadata]`, a compute instance `[sequencer]` or `[metadata]`: each refused
+/// naming the table and the instance.
 #[test]
 fn test_a_moved_table_outside_the_host_is_refused() -> TestResult {
     let cases = [
         ("storage_2", format!("[metadata]\n{STORAGE_2}"), "metadata"),
-        ("frontend", format!("{FRONTEND}[sequencer]\n"), "sequencer"),
+        ("compute_1", format!("{COMPUTE}[sequencer]\n"), "sequencer"),
         ("compute_1", format!("{COMPUTE}[metadata]\n"), "metadata"),
     ];
     for (instance, text, table) in cases {
@@ -640,7 +754,6 @@ fn test_every_system_defect_is_listed() -> TestResult {
 /// The listing of the valid target with `instance`'s `cluster.system_address` holding `address`.
 fn reaching(instance: &str, address: &str) -> String {
     let text = match instance {
-        "frontend" => FRONTEND,
         "compute_1" => COMPUTE,
         _ => STORAGE,
     };
@@ -682,11 +795,7 @@ fn test_a_system_address_reaches_a_unix_host_by_its_path() -> TestResult {
     let unix_host = |instance_text: &str| instance_text.replace(SYSTEM_ROLE_ADDRESS, socket);
     let target = with(
         with(
-            with(
-                with(valid(), "storage_1", &unix_host(STORAGE_1)),
-                "frontend",
-                &unix_host(FRONTEND),
-            ),
+            with(valid(), "storage_1", &unix_host(STORAGE_1)),
             "storage",
             &unix_host(STORAGE),
         ),
@@ -839,41 +948,6 @@ fn test_the_host_and_its_directory_stay_fixed() -> TestResult {
     Ok(())
 }
 
-/// C7.28: `cluster.frontend_address` in any file, `frontend.role_address` and `frontend.data_dir` are refused naming the
-/// setting as unknown.
-#[test]
-fn test_the_old_settings_are_refused_by_name() -> TestResult {
-    let cases = [
-        (
-            "compute_1",
-            COMPUTE.replace(
-                "[cluster]\n",
-                "[cluster]\nfrontend_address = \"tcp://frontend:7081\"\n",
-            ),
-            "cluster.frontend_address",
-        ),
-        (
-            "frontend",
-            format!("{FRONTEND}[frontend]\nrole_address = \"tcp://10.0.0.1:7081\"\n"),
-            "frontend.role_address",
-        ),
-        (
-            "frontend",
-            format!("{FRONTEND}[frontend]\ndata_dir = \"/data\"\n"),
-            "frontend.data_dir",
-        ),
-    ];
-    for (instance, text, setting) in cases {
-        says(
-            &checked(&with(valid(), instance, &text), None),
-            &[&format!(
-                "instance {instance}, setting {setting}: no such setting exists"
-            )],
-        );
-    }
-    Ok(())
-}
-
 /// A table in a role's file is held by every instance of the role: `[metadata]` there serves the host, which then lacks no
 /// moved table, and is refused in the instance not hosting.
 #[test]
@@ -911,27 +985,15 @@ fn test_only_the_hosts_sequencer_bounds_are_checked() -> TestResult {
     Ok(())
 }
 
-/// A frontend dials the system group alone: a `compute.role_address` in its file is no address of its own, so it is not
-/// parsed as one.
+/// Compute's client endpoint is a listener: it cannot share an address with another instance's.
 #[test]
-fn test_a_frontends_role_addresses_are_its_system_address_alone() -> TestResult {
-    let foreign = format!("{FRONTEND}[compute]\nrole_address = \"ftp://10.0.0.1:7082\"\n");
-    says_not(
-        &checked(&with(valid(), "frontend", &foreign), None),
-        &["instance frontend, setting compute.role_address"],
-    );
-    Ok(())
-}
-
-/// A frontend's client endpoint is a listener: it cannot share an address with another instance's.
-#[test]
-fn test_the_frontends_endpoint_takes_part_in_the_address_checks() -> TestResult {
-    let compute = "tcp://10.0.0.3:7082";
-    let endpoint = format!("{FRONTEND}[endpoint]\naddress = \"{compute}\"\nplaintext = true\n");
+fn test_the_compute_endpoint_takes_part_in_the_address_checks() -> TestResult {
+    let partition = "tcp://10.0.0.4:7000";
+    let endpoint = COMPUTE.replace("tcp://10.0.0.3:7080", partition);
     says(
-        &checked(&with(valid(), "frontend", &endpoint), None),
+        &checked(&with(valid(), "compute_1", &endpoint), None),
         &[&format!(
-            "instance frontend, setting endpoint.address: {compute} is also compute_1's compute.role_address"
+            "instance storage_2, setting storage.role_address: {partition} is also compute_1's endpoint.address"
         )],
     );
     Ok(())

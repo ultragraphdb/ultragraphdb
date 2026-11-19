@@ -9,7 +9,7 @@ Feature: Requests are routed through the three binaries
 
     Scenario: A write reaches its partition
       When a client writes one statement per partition, each subject an IRI of that partition's buckets
-      Then the frontend sends each Write first to the partition owning its subject's bucket, and each commit's reply reaches the client
+      Then compute sends each Write first to the partition owning its subject's bucket, and each commit's reply reaches the client
 
     @core
     Scenario: A one-frame write is read at the default level

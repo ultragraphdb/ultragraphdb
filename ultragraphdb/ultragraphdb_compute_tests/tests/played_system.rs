@@ -3,22 +3,25 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A frontend played by the test: real storage processes and a real compute process join it. It closes each partition's epochs
-//! as a scenario says, which no real frontend can be made to do per partition, and it tells compute that partitions listen where
+//! A system group played by the test: real storage processes join it, and compute's reads ask it. It closes each partition's epochs
+//! as a scenario says, which no real system group can be made to do per partition, and it tells compute that partitions listen where
 //! the test's tap does, so a scenario sees every Scan compute sends.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use std::rc::Rc;
+
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
+use ultragraphdb_common_compute::{ComputeCore, ComputeSession, ReadTimes};
 use ultragraphdb_common_role::{
-    Answer, Push, ROLE_ITERATIONS, RoleCredentials, RoleSecret, Server, Session, listen,
-    serve_connection,
+    Answer, COMPUTE_WELCOME_CREDIT, Push, ROLE_ITERATIONS, RoleCluster, RoleCredentials,
+    RoleSecret, Server, Session, listen, serve_connection,
 };
 use ultragraphdb_core_ids::Epoch;
-use ultragraphdb_protocol_transport::{Endpoint, ReceivedFrame};
+use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, BucketRange, Command, EpochClose, ErrorCode, ErrorReply, FLAG_LAST,
     Header, Join, JoinView, Lease, LeaseView, Members, Placement, PreferredLeader, TenantRun,
@@ -88,7 +91,7 @@ impl EpochClock {
 
 #[expect(
     clippy::disallowed_methods,
-    reason = "the played frontend's own clock, in the test's shell"
+    reason = "the played system group's own clock, in the test's shell"
 )]
 fn now() -> Instant {
     Instant::now()
@@ -105,7 +108,7 @@ fn built<B: BodyBuilder>(body: &B, stream: u64, command: Command) -> Answer {
     }
 }
 
-/// The even placement over `partitions`, as a real frontend's first start forms it.
+/// The even placement over `partitions`, as a real system group's first start forms it.
 fn placement(partitions: u32) -> TestResult<Placement> {
     let map = PlacementMap::even(partitions, NodeId::new(1))?;
     let mut reply = Placement::reply(0, 0, 1, 0);
@@ -126,15 +129,56 @@ fn placement(partitions: u32) -> TestResult<Placement> {
     Ok(reply)
 }
 
-/// What one played frontend answers: where each partition listens, as what joins it reads it.
+/// What one played system group answers: where each partition listens, as what joins it reads it; and the compute session
+/// its thread serves beside it, when it serves one.
 #[derive(Debug, Clone)]
 pub struct Played {
     pub partitions: u32,
     pub clock: Arc<EpochClock>,
     pub listed: Vec<(u32, String)>,
+    pub compute: Option<ServedCompute>,
 }
 
-/// One connection at a played frontend.
+/// A compute session served in process, as the compute binary served its role address until the switch to two roles: the
+/// read features send it ComputeReads until stage 5.9's task 6.4 binds them to the client endpoint. It reads the placement
+/// and the partitions' addresses from the played group it is served beside.
+#[derive(Debug, Clone, Copy)]
+pub struct ServedCompute {
+    /// Where it listens on the loopback.
+    pub port: u32,
+    /// What its reads stall and retain by.
+    pub times: ReadTimes,
+}
+
+/// How long a compute session waits for a peer before it counts it gone: compute's default `join_deadline_ms`.
+const COMPUTE_DEADLINE: Duration = Duration::from_secs(60);
+
+/// Serves `served` on this runtime, its reads asking the group at `group`, every role connection authenticated by `held`, its
+/// role secret read from `secret`. A dropped future accepts no more.
+async fn serve_compute(
+    served: ServedCompute,
+    group: Address,
+    held: RoleCredentials,
+    secret: String,
+) -> TestResult {
+    let listener = listen(&format!("tcp://127.0.0.1:{}", served.port)).await?;
+    let cluster = RoleCluster::new(CLUSTER, RoleSecret::read(&secret)?, COMPUTE_DEADLINE);
+    let core = ComputeCore::new(cluster, group, served.times, "compute");
+    let server = Server::new(CLUSTER, "role", Endpoint::Compute)?
+        .with_welcome(|welcome| welcome.with_initial_credit(COMPUTE_WELCOME_CREDIT))
+        .with_iterations(ROLE_ITERATIONS);
+    while let Ok(carrier) = listener.accept().await {
+        let (server, held, session) = (
+            server.clone(),
+            held.clone(),
+            ComputeSession::new(Rc::clone(&core)),
+        );
+        spawn(async move { serve_connection(carrier, &server, held, session).await }).detach();
+    }
+    Ok(())
+}
+
+/// One connection at a played system group.
 #[derive(Debug)]
 struct PlayedConnection {
     played: Played,
@@ -199,10 +243,10 @@ impl Session for PlayedConnection {
             return Answer::Done;
         }
         if command == Command::Catalog {
-            // The played frontend holds no catalog version, so it refuses each as the group refuses one a tenant never held.
+            // The played system group holds no catalog version, so it refuses each as the group refuses one a tenant never held.
             return Answer::Refuse(ErrorReply::new(
                 ErrorCode::Refused,
-                "the played frontend holds no catalog version",
+                "the played system group holds no catalog version",
             ));
         }
         Answer::Refuse(ErrorReply::new(
@@ -233,17 +277,22 @@ impl Session for PlayedConnection {
 /// Serves `played` at the TCP port `port`, on a thread of the test's own, for the life of the test process.
 #[expect(
     clippy::disallowed_methods,
-    reason = "the played frontend answers beside the scenarios, on a thread of the test's own"
+    reason = "the played system group answers beside the scenarios, on a thread of the test's own"
 )]
 pub fn play(port: u32, played: Played) -> TestResult {
-    let file = scratch(&format!("played-frontend-secret-{port}"));
+    let file = scratch(&format!("played-system-secret-{port}"));
     std::fs::write(&file, SECRET)?;
     let held: RoleCredentials = RoleSecret::read(&file.display().to_string())?.credentials()?;
     let server =
-        Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+        Server::new(CLUSTER, "system", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+    let secret = file.display().to_string();
     drop(std::thread::spawn(move || -> TestResult {
         Runtime::new()?.block_on(async move {
             let listener = listen(&format!("tcp://127.0.0.1:{port}")).await?;
+            if let Some(served) = played.compute {
+                let group = Address::parse(&format!("tcp://127.0.0.1:{port}"))?;
+                spawn(serve_compute(served, group, held.clone(), secret)).detach();
+            }
             while let Ok(carrier) = listener.accept().await {
                 let (server, held, played) = (server.clone(), held.clone(), played.clone());
                 spawn(async move {

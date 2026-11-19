@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
-Feature: The frontend forms the placement and takes claims on it
+Feature: The system group forms the placement and takes claims on it
 
-  Scenario: The frontend forms the placement
-    When a frontend with `partition_count` 4 starts on a metadata group holding no placement
+  Scenario: The system group forms the placement
+    When the system group's host with `partition_count` 4 starts on a metadata group holding no placement
     Then the metadata group holds an even map over 4 partitions, and a restart forms none
 
   Scenario: A claim on a held partition is refused

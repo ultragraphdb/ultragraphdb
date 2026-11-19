@@ -312,7 +312,7 @@ fn after_restart(w: &mut Steps) -> TestResult {
     // The storage process hosts the system group, which the frontend dials again: a client connecting before both are ready
     // is refused, the frontend's connection to the group closed.
     until_answering(&cluster.observability("storage")?, "/ready")?;
-    until_answering(&cluster.frontend_ready_address()?, "/ready")?;
+    until_answering(&cluster.compute_ready_address()?, "/ready")?;
     w.tightening = run(async {
         let mut client = client(&cluster.client).await?;
         let object: RequestTerm = iri(&b);

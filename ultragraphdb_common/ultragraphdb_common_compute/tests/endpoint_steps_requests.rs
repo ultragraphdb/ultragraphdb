@@ -875,7 +875,7 @@ fn an_evicted_session_is_told_so(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend refuses the request with an error saying the session was evicted, and no partition sees it"
+    "compute refuses the request with an error saying the session was evicted, and no partition sees it"
 )]
 fn an_evicted_session_is_told_so_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -925,7 +925,7 @@ fn a_recall_reaching_no_answer_stays_in_doubt(w: &mut Steps) -> TestResult {
     })
 }
 
-#[then("the frontend answers code 17, and the client resends after a delay")]
+#[then("compute answers code 17, and the client resends after a delay")]
 fn a_recall_reaching_no_answer_stays_in_doubt_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
@@ -1023,7 +1023,7 @@ fn a_retry_of_a_session_evicted_meanwhile_is_unknown(w: &mut Steps) -> TestResul
     })
 }
 
-#[then("the frontend answers code 12, and the client reports the outcome as unknown")]
+#[then("compute answers code 12, and the client reports the outcome as unknown")]
 fn a_retry_of_a_session_evicted_meanwhile_is_unknown_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
@@ -1070,7 +1070,7 @@ fn a_one_frame_write_s_resend_is_decided_by_the_table(w: &mut Steps) -> TestResu
 }
 
 #[then(
-    "the frontend relays it, not recalls it, the partition commits it, and the reply carries its commit version"
+    "compute relays it, not recalls it, the partition commits it, and the reply carries its commit version"
 )]
 fn a_one_frame_write_s_resend_is_decided_by_the_table_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -1104,7 +1104,7 @@ fn a_write_reaching_two_partitions_is_refused(w: &mut Steps) -> TestResult {
     })
 }
 
-#[then("the frontend refuses it with code 23 before any relay, and neither is held")]
+#[then("compute refuses it with code 23 before any relay, and neither is held")]
 fn a_write_reaching_two_partitions_is_refused_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
@@ -1212,7 +1212,7 @@ fn a_conditionalwrite_claiming_a_value_goes_to_its_claim(w: &mut Steps) -> TestR
     })
 }
 
-#[then("the frontend relays it to partition 2, and its reply names the node")]
+#[then("compute relays it to partition 2, and its reply names the node")]
 fn a_conditionalwrite_claiming_a_value_goes_to_its_claim_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
@@ -1622,7 +1622,7 @@ fn describe_answers_from_the_metadata_group(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend answers asking no other role: `read_version` is the version bound of the latest closed epoch, the declarations list `name` with its `term` index, the property keys hold `name` and `score`, and the relationship types hold `score`"
+    "compute answers asking no partition: `read_version` is the version bound of the latest closed epoch, the declarations list `name` with its `term` index, the property keys hold `name` and `score`, and the relationship types hold `score`"
 )]
 fn describe_answers_from_the_metadata_group_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -1979,7 +1979,7 @@ fn a_commit_crossing_its_stream_s_error_is_late_held(w: &mut Steps) {
 }
 
 #[when(
-    "a client sends a Write and a second Commit on its transaction's stream after the Commit the frontend relayed, and the partition then answers that Commit"
+    "a client sends a Write and a second Commit on its transaction's stream after the Commit compute relayed, and the partition then answers that Commit"
 )]
 fn a_request_behind_its_transaction_s_commit_is_late(w: &mut Steps) -> TestResult {
     let options = Options::default();
@@ -2059,7 +2059,7 @@ fn header_and_body(frame: &[u8]) -> TestResult<(Vec<u8>, Vec<u8>)> {
     ))
 }
 
-#[when("a client authenticated as principal 9 sends a DirectWrite through the frontend")]
+#[when("a client authenticated as principal 9 sends a DirectWrite through compute")]
 fn a_direct_write_is_relayed_with_its_principal(w: &mut Steps) -> TestResult {
     let options = Options::default();
     run(w, options, |stage| async move {
@@ -2197,7 +2197,7 @@ fn a_read_crossing_its_transaction_s_error_takes_that_error_held(w: &mut Steps) 
     assert!(w.ran, "the scenario ran");
 }
 
-#[when("a frontend starts on a metadata group holding no tenant")]
+#[when("the system group's host starts on a metadata group holding no tenant")]
 fn the_first_start_creates_tenant_0(w: &mut Steps) -> TestResult {
     let options = Options {
         directory: Some(fresh()?),
@@ -2230,7 +2230,7 @@ fn the_first_start_creates_tenant_0(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the group holds tenant 0 durably before the frontend serves, Placement's runs list it, and a restart creates none"
+    "the group holds tenant 0 durably before it listens, Placement's runs list it, and a restart creates none"
 )]
 fn the_first_start_creates_tenant_0_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -2369,7 +2369,7 @@ fn a_catalog_version_past_its_cap_is_refused_at_its_commit_held(w: &mut Steps) {
 }
 
 #[when(
-    "a Drop of `p` through a session commits at its partition, the frontend stops before it commits the catalog version removing `p`'s declaration, and the client resends the Drop after the frontend restarts"
+    "a Drop of `p` through a session commits at its partition, compute stops before the catalog version removing `p`'s declaration is asked for, and the client resends the Drop after compute restarts"
 )]
 fn a_resent_drop_builds_the_version_a_stopped_frontend_left(w: &mut Steps) -> TestResult {
     let options = Options {
@@ -2440,7 +2440,7 @@ fn a_resent_drop_builds_the_version_a_stopped_frontend_left(w: &mut Steps) -> Te
 }
 
 #[then(
-    "the partition's table answers the stored reply, the frontend commits that version as pending before it relays the reply, and `p` is dropped once"
+    "the partition's table answers the stored reply, the system group commits that version as pending, asked by compute before it relays the reply, and `p` is dropped once"
 )]
 fn a_resent_drop_builds_the_version_a_stopped_frontend_left_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -2484,7 +2484,7 @@ fn a_drop_through_no_session_runs_again(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the second Drop removes nothing more, and the frontend builds the version removing `p`'s declaration before it relays the reply"
+    "the second Drop removes nothing more, and the system group builds the version removing `p`'s declaration, asked by compute before it relays the reply"
 )]
 fn a_drop_through_no_session_runs_again_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -2555,7 +2555,7 @@ fn transactions_naming_only_new_blank_nodes_bind_in_turn(w: &mut Steps) -> TestR
 }
 
 #[then(
-    "the frontend binds them to partitions 1, 2 and 3 in turn, and each blank node's bucket is one its partition owns"
+    "compute binds them to partitions 1, 2 and 3 in turn, and each blank node's bucket is one its partition owns"
 )]
 fn transactions_naming_only_new_blank_nodes_bind_in_turn_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");

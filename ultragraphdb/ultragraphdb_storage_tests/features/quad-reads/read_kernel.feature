@@ -128,7 +128,7 @@ Feature: Quad reads: storage's read kernel
       Then the Scan is refused with code 17, the message naming the key, and no frame says the range ended
 
     Scenario: A Commit behind a cancelled read's wait takes its turn
-      When a Scan of a transaction waits on a home's answer, the frontend cancels the read and sends the Commit
+      When a Scan of a transaction waits on a home's answer, compute cancels the read and sends the Commit
       Then the partition answers the Commit once the home's reply is in, and the Commit is not refused
 
     Scenario: An unheld skolem IRI answers no entry wherever it is homed
@@ -192,9 +192,9 @@ Feature: Quad reads: storage's read kernel
   Rule: A partition answers a Recall from its session table
 
     Scenario: A Recall returns the stored reply
-      When a session's request committed, and the frontend recalls it
+      When a session's request committed, and compute recalls it
       Then the partition answers with a Commit frame holding what the commit's reply held
 
     Scenario: A Recall of what the table does not hold
-      When the frontend recalls a request the table holds no reply for, then a request below the session's last
+      When compute recalls a request the table holds no reply for, then a request below the session's last
       Then the first is refused with code 18 (NotCommitted), and the second with code 13 (RequestOutOfOrder), `detail` the last

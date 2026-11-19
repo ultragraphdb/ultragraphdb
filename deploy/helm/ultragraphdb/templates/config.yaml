@@ -68,7 +68,6 @@ spec:
             name: ultragraphdb-profile
             items:
               - {key: targets.toml, path: targets.toml}
-              - {key: frontend.toml, path: frontend.toml}
               - {key: storage.toml, path: storage.toml}
               - {key: compute.toml, path: compute.toml}
         # Each Secret optional, so a missing one leaves its file absent and the process names it as it exits with code 78,

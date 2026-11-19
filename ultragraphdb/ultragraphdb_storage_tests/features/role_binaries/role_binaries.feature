@@ -5,7 +5,7 @@ Feature: The storage binary as a process
   openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md
 
   Scenario: A role with the wrong secret is refused
-    When a frontend started with a different role secret connects to the system group
+    When a compute node started with a different role secret connects to the system group
     Then its authentication is refused, it sends no role command, and it retries until its deadline
 
   Scenario: A missing role secret stops the start

@@ -23,7 +23,7 @@ Feature: The metadata group in the system group
   Rule: Principals live in the metadata group
 
     Scenario: An unknown name keeps one salt across a restart
-      When a client authenticates as the unknown name `nobody`, the system group's host and the frontend restart, and a client authenticates as `nobody` on another core
+      When a client authenticates as the unknown name `nobody`, the system group's host and compute restart, and a client authenticates as `nobody` on another core
       Then both challenges carry one salt, and the metadata group's log holds the secret it derives from
 
   Rule: The metadata group holds the tenants

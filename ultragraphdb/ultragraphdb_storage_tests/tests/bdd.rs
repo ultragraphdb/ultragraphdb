@@ -42,13 +42,14 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
-    ADMIN_KEY, CLUSTER, CONFIG_BINARY, DOUBLE_REVISION, FRONTEND_BINARY, READ_KEY, SECRET,
-    START_SECONDS, STORAGE_BINARY, TARGET, answering, bootstrap, config_address, config_folder,
-    config_process, double_address, exit_is, fresh_data, frontend_holding, frontend_observability,
-    frontend_on_one_host, holding, http_body, http_status, members_at, not_hosting, process,
-    render_settings, role, role_of_service, scratch, served_by_double, start_config_service,
-    start_double, storage_holding, storage_observability, storage_on_one_host,
-    storage_role_address, system_role_address, until_answering, until_ports_free, with,
+    ADMIN_KEY, CLUSTER, COMPUTE_BINARY, CONFIG_BINARY, DOUBLE_REVISION, READ_KEY, SECRET,
+    START_SECONDS, STORAGE_BINARY, TARGET, answering, bootstrap, compute_holding,
+    compute_observability, compute_on_one_host, config_address, config_folder, config_process,
+    double_address, exit_is, fresh_data, holding, http_body, http_status, members_at, not_hosting,
+    process, render_settings, role, role_of_service, scratch, served_by_double,
+    start_config_service, start_double, storage_holding, storage_observability,
+    storage_on_one_host, storage_role_address, system_role_address, until_answering,
+    until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback, port};
 use ultragraphdb_transport_http_client::{HttpClient, HttpReply, HttpUrl};
@@ -60,7 +61,7 @@ const ROOT_PATH: &str = "ultragraphdb/ultragraphdb_storage_tests";
 fn services() -> TestResult<ServiceUtil> {
     Ok(ServiceUtil::new(
         ROOT_PATH,
-        vec![CONFIG_BINARY, FRONTEND_BINARY, STORAGE_BINARY],
+        vec![CONFIG_BINARY, COMPUTE_BINARY, STORAGE_BINARY],
     )?)
 }
 
@@ -171,7 +172,7 @@ fn run_to_exit(w: &mut Steps, variables: Vec<(String, String)>) -> TestResult {
 
 /// A frontend logs a refused dial below the level a role logs at, so the system group it dials is the test's: the played group
 /// holding the cluster's secret, which counts the authentications it refuses and the role commands it is asked.
-#[when("a frontend started with a different role secret connects to the system group")]
+#[when("a compute node started with a different role secret connects to the system group")]
 fn wrong_secret(w: &mut Steps) -> TestResult {
     let refused = [
         (
@@ -182,7 +183,7 @@ fn wrong_secret(w: &mut Steps) -> TestResult {
     ]
     .iter()
     .fold(
-        holding(frontend_on_one_host()?, "another secret")?,
+        holding(compute_on_one_host()?, "another secret")?,
         |settings, (name, value)| with(settings, name, value),
     );
     let log = scratch("frontend-refused.log");
@@ -190,7 +191,7 @@ fn wrong_secret(w: &mut Steps) -> TestResult {
     let played = Runtime::new()?.block_on(async {
         let played = play_frontend(Push::Nothing).await?;
         let pid = util.start_service_from_config(role(
-            FRONTEND_BINARY,
+            COMPUTE_BINARY,
             &refused,
             &log,
             WaitStrategy::NoWait,
@@ -300,7 +301,7 @@ async fn commit_through(
     commit: Commit,
 ) -> TestResult<u64> {
     let target = Address::parse(address)?;
-    let mut client = RoleClient::dial(&target, CLUSTER, "frontend", SECRET).await?;
+    let mut client = RoleClient::dial(&target, CLUSTER, "compute", SECRET).await?;
     let bind = Bind::new(partition, BindKind::Transaction, TENANT, 0, 1, [7; 16]);
     drop(client.request(&bind).await?);
     let stream = client.last_stream();
@@ -365,7 +366,7 @@ fn start_processes(w: &mut Steps, firsts: &[u32]) -> TestResult {
 /// As [`start_processes`], both storage processes holding `held` beside their own settings.
 fn processes_holding(w: &mut Steps, firsts: &[u32], held: &[(&str, &str)]) -> TestResult {
     let util = services()?;
-    let settings = frontend_holding()?;
+    let settings = compute_holding()?;
     let holding = |own: Vec<(String, String)>| {
         held.iter()
             .fold(own, |all, (setting, value)| with(all, setting, value))
@@ -377,16 +378,16 @@ fn processes_holding(w: &mut Steps, firsts: &[u32], held: &[(&str, &str)]) -> Te
     let _service: u32 = start_config_service(
         &util,
         &[
-            ("frontend", &settings),
+            ("compute", &settings),
             ("storage_1", &first),
             ("storage_3", &second),
         ],
     )?;
-    let wait = answering(&frontend_observability()?, "/health");
-    let _frontend: u32 = util.start_service_from_config(role_of_service(
-        FRONTEND_BINARY,
-        "frontend",
-        &scratch(FRONTEND_BINARY),
+    let wait = answering(&compute_observability()?, "/health");
+    let _compute: u32 = util.start_service_from_config(role_of_service(
+        COMPUTE_BINARY,
+        "compute",
+        &scratch(COMPUTE_BINARY),
         wait,
     )?)?;
     for at in firsts {
@@ -520,11 +521,11 @@ type Committed = (ServiceUtil, Vec<(String, String)>, u32);
 /// A frontend and one partition's storage, with commits acknowledged: what restarts it, its log and its pid.
 fn committed_storage(w: &mut Steps) -> TestResult<Committed> {
     let util = services()?;
-    let wait = answering(&frontend_observability()?, "/health");
-    let _frontend: u32 = util.start_service_from_config(role(
-        FRONTEND_BINARY,
-        &frontend_holding()?,
-        &scratch(FRONTEND_BINARY),
+    let wait = answering(&compute_observability()?, "/health");
+    let _compute: u32 = util.start_service_from_config(role(
+        COMPUTE_BINARY,
+        &compute_holding()?,
+        &scratch(COMPUTE_BINARY),
         wait,
     )?)?;
     let settings = storage_holding()?;
@@ -903,7 +904,7 @@ fn names_the_service(w: &mut Steps) {
 fn service_late(w: &mut Steps) -> TestResult {
     let util = services()?;
     let settings = storage_holding()?;
-    let frontend_settings = frontend_holding()?;
+    let compute_settings = compute_holding()?;
     let waiting = role_of_service(
         STORAGE_BINARY,
         "storage",
@@ -914,7 +915,7 @@ fn service_late(w: &mut Steps) -> TestResult {
     std::thread::sleep(Duration::from_millis(600));
     let _service: u32 = start_config_service(
         &util,
-        &[("frontend", &frontend_settings), ("storage", &settings)],
+        &[("compute", &compute_settings), ("storage", &settings)],
     )?;
     w.roles = Some(util);
     Ok(())
@@ -934,10 +935,10 @@ fn took_settings(w: &mut Steps) -> TestResult {
 fn wrong_key(w: &mut Steps) -> TestResult {
     let util = services()?;
     let settings = storage_holding()?;
-    let frontend_settings = frontend_holding()?;
+    let compute_settings = compute_holding()?;
     let _service: u32 = start_config_service(
         &util,
-        &[("frontend", &frontend_settings), ("storage", &settings)],
+        &[("compute", &compute_settings), ("storage", &settings)],
     )?;
     let file = scratch("wrong.key");
     std::fs::write(&file, "a key the service never issued to anyone")?;
@@ -1057,7 +1058,7 @@ fn over_tls(w: &mut Steps) -> TestResult {
     std::fs::write(&ca, pki.ca_pem())?;
     let own = config_folder(
         &[
-            ("frontend", &frontend_holding()?),
+            ("compute", &compute_holding()?),
             ("storage", &storage_holding()?),
         ],
         &format!(
@@ -1121,20 +1122,20 @@ fn with_admin(settings: Vec<(String, String)>) -> TestResult<Vec<(String, String
 /// commits, and adds revision 2 unactivated. What it leaves running stays in `w`, with storage's pid.
 fn loadable(w: &mut Steps) -> TestResult {
     let util = services()?;
-    let frontend_settings = frontend_holding()?;
+    let compute_settings = compute_holding()?;
     let storage_settings = with_admin(storage_holding()?)?;
     w.config_pid = start_config_service(
         &util,
         &[
-            ("frontend", &frontend_settings),
+            ("compute", &compute_settings),
             ("storage", &storage_settings),
         ],
     )?;
-    let _frontend: u32 = util.start_service_from_config(role_of_service(
-        FRONTEND_BINARY,
-        "frontend",
-        &scratch(FRONTEND_BINARY),
-        answering(&frontend_observability()?, "/health"),
+    let _compute: u32 = util.start_service_from_config(role_of_service(
+        COMPUTE_BINARY,
+        "compute",
+        &scratch(COMPUTE_BINARY),
+        answering(&compute_observability()?, "/health"),
     )?)?;
     w.pid = util.start_service_from_config(role_of_service(
         STORAGE_BINARY,
@@ -1153,7 +1154,7 @@ fn loadable(w: &mut Steps) -> TestResult {
     })?;
     let mut body = Vec::new();
     for (key, text) in [
-        ("frontend", render_settings(&frontend_settings)),
+        ("compute", render_settings(&compute_settings)),
         (
             "storage",
             format!("{}# revision 2\n", render_settings(&storage_settings)),

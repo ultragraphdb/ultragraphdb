@@ -23,10 +23,11 @@ use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
-    BodyView, Catalog, CatalogFrames, Challenge, Check, CheckKind, CloseRequest, Command, Credit,
-    Declare, Declared, DeclaredPredicate, Defaults, EpochCloseView, ErrorCode, ErrorReplyView,
-    FLAG_LAST, Join, Lease, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE_U32, Members, Placement, Session,
-    SessionCheck, Subscribe, Verify,
+    Bind, BindKind, BodyView, Catalog, CatalogFrames, Challenge, Check, CheckKind, CloseRequest,
+    Command, ComputeRead, Credit, Declare, Declared, DeclaredPredicate, Defaults, Ended,
+    EpochCloseView, ErrorCode, ErrorReplyView, FLAG_LAST, Join, Lease, MAX_FRAME_FLOOR_U32,
+    MAX_FRAME_SIZE_U32, Members, PatternSlot, Placement, QuadPattern, ReadLevel, Session,
+    SessionCheck, Subscribe, TermTable, Verify,
 };
 use ultragraphdb_transactions_log::SimStorage;
 
@@ -164,7 +165,7 @@ fn test_a_version_reads_back_whole_at_any_max_frame(tc: TestCase) {
     }
 }
 
-/// L3.34: a frontend's Subscribe of `latest` 1 after a drawn number of closes, of which the sequencer holds a drawn number,
+/// L3.34: compute's Subscribe of `latest` 1 after a drawn number of closes, of which the sequencer holds a drawn number,
 /// begins with the latest durable close, or the close of epoch 1 when none exists, and goes on one epoch at a time.
 #[hegel::test(test_cases = 15)]
 fn test_a_subscription_at_the_latest_begins_there(tc: TestCase) {
@@ -182,17 +183,17 @@ fn test_a_subscription_at_the_latest_begins_there(tc: TestCase) {
             clock.advance(EPOCH_US);
             closed = handle.next_close(closed).await.ok()?.epoch().get();
         }
-        let mut frontend = dialled(address, password, "frontend", MAX_FRAME_SIZE_U32).await?;
-        frontend.send_only(&Subscribe::at_latest()).await.ok()?;
+        let mut compute = dialled(address, password, "compute", MAX_FRAME_SIZE_U32).await?;
+        compute.send_only(&Subscribe::at_latest()).await.ok()?;
         if closes == 0 {
             clock.advance(EPOCH_US);
         }
-        let first = EpochCloseView::from_frame(&next(&mut frontend).await?.view().ok()?)
+        let first = EpochCloseView::from_frame(&next(&mut compute).await?.view().ok()?)
             .ok()?
             .epoch();
         clock.advance(EPOCH_US);
         let _latest = handle.latest_close().await.ok()?;
-        let second = EpochCloseView::from_frame(&next(&mut frontend).await?.view().ok()?)
+        let second = EpochCloseView::from_frame(&next(&mut compute).await?.view().ok()?)
             .ok()?
             .epoch();
         Some((first, second))
@@ -201,24 +202,32 @@ fn test_a_subscription_at_the_latest_begins_there(tc: TestCase) {
     assert_eq!(seen, Some((first, first + 1)));
 }
 
-/// The roles a connection authenticates as.
-const ROLES: [&str; 3] = ["frontend", "compute", "storage"];
+/// The roles a connection authenticates as: the two roles' names, the SCRAM usernames of role connections (`PROTOCOL.md`
+/// §11.12a).
+const ROLES: [&str; 2] = ["compute", "storage"];
 
-/// Whether `PROTOCOL.md` §11.12's table of the system group's role address has `role` send `command`.
+/// Whether `PROTOCOL.md` §11.12a's table of the system group's role address has `role` send `command`, as the system-group
+/// spec's table writes it out: Join, Members, Placement, Catalog, Subscribe and CloseRequest from both roles; Lease,
+/// DefaultEntry and Report from storage; the commands of a client's authentication, its sessions and its declarations from
+/// compute; nothing else from either.
 fn table_has(role: &str, command: Command) -> bool {
-    let frontend = role == "frontend";
     let compute = role == "compute";
     let storage = role == "storage";
-    if command == Command::Join {
+    if [
+        Command::Join,
+        Command::Members,
+        Command::Placement,
+        Command::Catalog,
+        Command::Subscribe,
+        Command::CloseRequest,
+    ]
+    .contains(&command)
+    {
         compute || storage
-    } else if [Command::Members, Command::Placement, Command::Catalog].contains(&command) {
-        true
-    } else if [Command::Subscribe, Command::CloseRequest].contains(&command) {
-        frontend || storage
     } else if [Command::Lease, Command::DefaultEntry, Command::Report].contains(&command) {
         storage
     } else {
-        frontend
+        compute
             && [
                 Command::Challenge,
                 Command::Verify,
@@ -274,18 +283,45 @@ async fn send(client: &mut RoleClient, command: Command) -> Option<()> {
             .await
     } else if command == Command::Defaults {
         client.send_only(&Defaults::request(0)).await
+    } else if command == Command::Ended {
+        client.send_only(&Ended::new(vec![session])).await
+    } else if command == Command::Bind {
+        client
+            .send_only(&Bind::new(1, BindKind::Transaction, 0, 0, 0, [1; 16]))
+            .await
+    } else if command == Command::ComputeRead {
+        let pattern = QuadPattern::new(
+            PatternSlot::Unbound,
+            PatternSlot::Unbound,
+            PatternSlot::Unbound,
+            PatternSlot::Unbound,
+        );
+        let read = ComputeRead::new(
+            0,
+            true,
+            ReadLevel::Snapshot,
+            TermTable::new(),
+            pattern,
+            Vec::new(),
+        );
+        client.send_only(&read).await
     } else {
         return None;
     };
     sent.ok()
 }
 
-/// L3.35: a command the endpoint table does not have the connection's role send is refused as `CommandNotServed` naming it, Error
-/// 1 on stream 0 and the connection closed; one it has is not.
+/// L3.35 and L6.4: over the two roles and the commands the test builds a body of, Bind and ComputeRead (523) among them, a
+/// command the endpoint table does not have the connection's role send is refused as `CommandNotServed` naming it, Error 1 on
+/// stream 0 and the connection closed; one it has is not. A number section 3 holds no command of is refused by the frame's
+/// own checks before the connection's session sees it, the wire's law (`Command::from_number`).
 #[hegel::test(test_cases = 40)]
 fn test_the_endpoint_table_by_role(tc: TestCase) {
     let role = tc.draw(gs::sampled_from(ROLES.to_vec()));
     let command = tc.draw(gs::sampled_from(vec![
+        Command::Bind,
+        Command::ComputeRead,
+        Command::Ended,
         Command::Join,
         Command::Members,
         Command::Placement,
@@ -330,7 +366,7 @@ fn test_the_endpoint_table_by_role(tc: TestCase) {
     );
 }
 
-/// L3.33: over a drawn sequence of the commands the frontend sends the group, no reply frame holds a run of 32 bytes equal to a
+/// L3.33: over a drawn sequence of the commands compute sends the group, no reply frame holds a run of 32 bytes equal to a
 /// principal's stored key or server key.
 #[hegel::test(test_cases = 10)]
 fn test_no_reply_holds_a_key(tc: TestCase) {
@@ -349,11 +385,11 @@ fn test_no_reply_holds_a_key(tc: TestCase) {
         })
         .collect();
     let replies = with_served(start_of(8, 50), async |_, address, password, _| {
-        let mut frontend = dialled(address, password, "frontend", MAX_FRAME_SIZE_U32).await?;
+        let mut compute = dialled(address, password, "compute", MAX_FRAME_SIZE_U32).await?;
         let mut replies = Vec::new();
         for command in &commands {
-            send(&mut frontend, *command).await?;
-            through_members(&mut frontend, |frame| replies.push(frame.bytes().to_vec())).await?;
+            send(&mut compute, *command).await?;
+            through_members(&mut compute, |frame| replies.push(frame.bytes().to_vec())).await?;
         }
         Some(replies)
     });

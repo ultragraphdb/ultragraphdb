@@ -1,9 +1,0 @@
-[cluster]
-id = 1
-role_secret_file = "/data/config/role.secret"
-system_address = "tcp://127.0.0.1:7081"
-[observability]
-address = "tcp://127.0.0.1:8081"
-[endpoint]
-address = "tcp://0.0.0.0:7080"
-plaintext = true

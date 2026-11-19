@@ -7,7 +7,7 @@ Feature: The client endpoint through the three binaries
 
   @over_tls
   Scenario: A TLS client reaches the endpoint
-    When the frontend holds the test CA's certificate for `localhost` and a client trusting the CA connects and authenticates
+    When compute holds the test CA's certificate for `localhost` and a client trusting the CA connects and authenticates
     Then the TLS handshake, the wire handshake and SCRAM complete, and a write and a read succeed
 
   @over_tls
@@ -27,9 +27,9 @@ Feature: The client endpoint through the three binaries
     When an authenticated principal sends a Begin, a Prepare, a Describe, an Install, a Drop, a DirectWrite and a ConditionalWrite, each naming tenant 9, which the metadata group does not hold
     Then each is refused with code 7, `detail` 9, the message naming tenant 9, and no other role sees it
 
-  Scenario: An empty transaction commits at the frontend
+  Scenario: An empty transaction commits at compute
     When a client begins a read-write transaction and sends Commit through its session with nothing else
-    Then the frontend answers `commit_version` 0, the token zero and no results, and no partition sees it
+    Then compute answers `commit_version` 0, the token zero and no results, and no partition sees it
 
   Scenario: A vector index is refused
     When a client declares a vector index on `embedding`

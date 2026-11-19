@@ -5,7 +5,7 @@ Feature: A client connection
   openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md
 
   Scenario: Connections past the bound are refused
-    When the frontend allows 2 connections and a third client connects
+    When compute allows 2 connections and a third client connects
     Then the third connection is refused with the limit error, and the first two keep working
 
   Scenario: A blocked commit does not block other connections
@@ -21,5 +21,5 @@ Feature: A client connection
     Then the request is refused with the authentication error, and the connection stays open for authentication
 
   Scenario: An unknown name answers as a known one does
-    When a client asks to authenticate as an unknown name, twice, across a restart of the frontend
+    When a client asks to authenticate as an unknown name, twice, across a restart of compute
     Then both challenges carry the same salt and iteration count, and the exchange fails with the same authentication error as a wrong password

@@ -12,8 +12,8 @@ use ultragraphdb_tool_toml::{TomlDocument, TomlValue};
 use crate::types::instance::Instance;
 use crate::types::target_files::TargetFiles;
 
-/// The roles a target's instances play.
-pub(crate) const ROLES: [&str; 3] = ["frontend", "compute", "storage"];
+/// The roles a target's instances play: compute, which serves clients and executes their reads, and storage.
+pub(crate) const ROLES: [&str; 2] = ["compute", "storage"];
 
 /// The role `key` names: a role alone, or a role, `_` and a label.
 pub(crate) fn role_of(key: &str) -> Option<&'static str> {

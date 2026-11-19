@@ -197,7 +197,7 @@ fn unbound_sits(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the frontend answers code 4 on its stream, with no partition having seen it")]
+#[then("compute answers code 4 on its stream, with no partition having seen it")]
 fn unbound_answered(w: &mut Steps) -> TestResult {
     past_limit(w.seen.facts.first().context("the refusal")?);
     Ok(())
@@ -214,7 +214,7 @@ fn bound_sits(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend cancels the Bind stream, which aborts it at the partition, and answers code 4 on its stream"
+    "compute cancels the Bind stream, which aborts it at the partition, and answers code 4 on its stream"
 )]
 fn bound_answered(w: &mut Steps) -> TestResult {
     past_limit(w.seen.facts.first().context("the refusal")?);
@@ -231,7 +231,7 @@ fn holding_sits(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend answers code 4, the message naming the first read's stream and that it had no credit"
+    "compute answers code 4, the message naming the first read's stream and that it had no credit"
 )]
 fn holding_answered(w: &mut Steps) -> TestResult {
     let [said, stream] = w.seen.facts.as_slice() else {
@@ -244,7 +244,7 @@ fn holding_answered(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "a read of a transaction is under way, the transaction passes its limit, and compute's Error 1 of `detail` 1 reaches the frontend before the Bind stream's code 4"
+    "a read of a transaction is under way, the transaction passes its limit, and the Scan's Error 1 of `detail` 1 arrives before the Bind stream's code 4"
 )]
 fn under_way_sits(w: &mut Steps) -> TestResult {
     w.seen.facts = vec![taken(w.carrier, |outcomes| outcomes.under_way.take())?];
@@ -252,7 +252,7 @@ fn under_way_sits(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the frontend holds that Error until the Bind stream ends, and the client's read is refused with code 4"
+    "compute holds that Error until the Bind stream ends, and the client's read is refused with code 4"
 )]
 fn under_way_answered(w: &mut Steps) -> TestResult {
     past_limit(w.seen.facts.first().context("the refusal")?);

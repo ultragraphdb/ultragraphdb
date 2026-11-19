@@ -18,7 +18,6 @@ rust_test(
     data = glob(["features/**/*.feature"]) + [
         ":copy_compute",
         ":copy_config",
-        ":copy_frontend",
         ":copy_storage",
         ":copy_supervisor",
         ":copy_supervisor_alone",
@@ -46,7 +45,6 @@ rust_test(
         "//ultragraphdb/ultragraphdb_compute:test_load",
         "//ultragraphdb/ultragraphdb_config:test_load",
         "//ultragraphdb/ultragraphdb_config:profiles",
-        "//ultragraphdb/ultragraphdb_frontend:test_load",
         "//ultragraphdb/ultragraphdb_storage:test_load",
         "//ultragraphdb/ultragraphdb_storage:ultragraphdb_storage_multiarch",
         "//ultragraphdb/ultragraphdb_supervisor:development_test_load",
@@ -85,14 +83,6 @@ copy_file(
     name = "copy_config",
     src = "//ultragraphdb/ultragraphdb_config",
     out = "ultragraphdb_config",
-    is_executable = True,
-)
-
-# Copy the frontend binary into the sandbox.
-copy_file(
-    name = "copy_frontend",
-    src = "//ultragraphdb/ultragraphdb_frontend",
-    out = "ultragraphdb_frontend",
     is_executable = True,
 )
 

@@ -6,7 +6,7 @@ Feature: Routing and reads held back through the three binaries
 
   Scenario: Credit still drains a read under held writes
     When a read holds Writes back, and the client grants the read credit
-    Then the frontend reads the Credit and relays it, the read reaches its `LAST`, and the held Writes are then sent
+    Then compute reads the Credit and grants it to the read, which reaches its `LAST`, and the held Writes are then sent
 
   Scenario: A first read holds a later read only until its first frame
     When a transaction's first read takes six frames at `initial_credit` 4, and after its first batch the client sends a second read and waits on it

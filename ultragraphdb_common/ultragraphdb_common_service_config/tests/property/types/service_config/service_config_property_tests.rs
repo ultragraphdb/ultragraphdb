@@ -175,10 +175,10 @@ impl Moved {
 }
 
 /// L2.4: `[metadata]` and `[sequencer]` with drawn values in a storage instance's file, hosting or not, read back as
-/// drawn, and equal to what the same text reads as in a frontend's file, which the settings read alike and the config
-/// service's System check refuses.
+/// drawn, and equal to what the same text reads as in a compute instance's file, which the settings read alike and the
+/// config service's System check refuses.
 #[hegel::test]
-fn test_the_moved_tables_read_alike_in_a_storage_and_a_frontend_file(tc: TestCase) {
+fn test_the_moved_tables_read_alike_in_a_storage_and_a_compute_file(tc: TestCase) {
     let moved = Moved::draw(&tc);
     let hosting = if coin(&tc) {
         format!(
@@ -195,9 +195,9 @@ fn test_the_moved_tables_read_alike_in_a_storage_and_a_frontend_file(tc: TestCas
         path(&tc),
         moved.text()
     );
-    let frontend = format!("[endpoint]\nplaintext = true\n{}", moved.text());
+    let compute = format!("[endpoint]\nplaintext = true\n{}", moved.text());
     let in_storage = ServiceConfig::parse(storage.as_bytes()).ok();
-    let in_frontend = ServiceConfig::parse(frontend.as_bytes()).ok();
+    let in_compute = ServiceConfig::parse(compute.as_bytes()).ok();
     assert!(
         in_storage
             .as_ref()
@@ -211,7 +211,7 @@ fn test_the_moved_tables_read_alike_in_a_storage_and_a_frontend_file(tc: TestCas
         in_storage
             .as_ref()
             .map(|config| (config.metadata().clone(), config.sequencer().clone())),
-        in_frontend
+        in_compute
             .as_ref()
             .map(|config| (config.metadata().clone(), config.sequencer().clone()))
     );

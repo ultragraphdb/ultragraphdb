@@ -17,12 +17,12 @@ Feature: Exactly-once commits through sessions
 
   Scenario: A Recall reaching no answer stays in doubt
     When a retried Commit is recalled over two partitions, partition 1 answers 18 and the role connection to partition 2 closes under the Recall
-    Then the frontend answers code 17, and the client resends after a delay
+    Then compute answers code 17, and the client resends after a delay
 
   Scenario: A retry of a session evicted meanwhile is unknown
     When a retried Commit is recalled, every partition answers 18, and the registry has evicted the session meanwhile
-    Then the frontend answers code 12, and the client reports the outcome as unknown
+    Then compute answers code 12, and the client reports the outcome as unknown
 
   Scenario: A one-frame write's resend is decided by the table
     When a DirectWrite through a session is answered code 17, the partition had not committed it, and the client sends it again
-    Then the frontend relays it, not recalls it, the partition commits it, and the reply carries its commit version
+    Then compute relays it, not recalls it, the partition commits it, and the reply carries its commit version

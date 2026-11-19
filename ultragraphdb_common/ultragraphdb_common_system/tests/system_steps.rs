@@ -102,10 +102,10 @@ fn hosting_serves_held(w: &mut Steps) {
     assert!(w.ran);
 }
 
-#[when("the frontend binary's dependency graph is listed")]
-fn frontend_graph(w: &mut Steps) -> TestResult {
+#[when("the compute binary's dependency graph is listed")]
+fn compute_graph(w: &mut Steps) -> TestResult {
     // The group's half: the books are the system group's crate's own dependencies, which a binary not linking it lacks; the
-    // frontend binary drops that crate in group 5.
+    // compute binary's half is `ultragraphdb_compute_tests`'.
     let manifest = manifest()?;
     for book in [
         "ultragraphdb_cluster_metadata",
@@ -124,7 +124,7 @@ fn frontend_graph(w: &mut Steps) -> TestResult {
 #[then(
     "it names neither `ultragraphdb_cluster_metadata`, `ultragraphdb_cluster_sequencer` nor `ultragraphdb_transactions_log`"
 )]
-fn frontend_graph_held(w: &mut Steps) {
+fn compute_graph_held(w: &mut Steps) {
     assert!(w.ran);
 }
 
@@ -396,10 +396,10 @@ async fn not_served(client: &mut RoleClient, command: Command) -> TestResult {
 fn sends_bind(w: &mut Steps) -> TestResult {
     run(w, || async {
         let stage = Stage::new(6, &start_of(1, 8)?).await?;
-        let mut frontend = stage.dial("frontend").await?;
+        let mut compute = stage.dial("compute").await?;
         let bind = Bind::new(1, BindKind::Transaction, 0, 0, 0, [1; 16]);
-        frontend.send_only(&bind).await?;
-        not_served(&mut frontend, Command::Bind).await?;
+        compute.send_only(&bind).await?;
+        not_served(&mut compute, Command::Bind).await?;
         let _ended = stage.stop().await?;
         Ok(())
     })
@@ -512,13 +512,13 @@ fn frame_of_checks(w: &mut Steps) -> TestResult {
         stage.clock.advance(HOLD_US);
         heard(stage.handle.session(1, alice).await)?;
         heard(stage.handle.session(3, bob).await)?;
-        let mut frontend = stage.dial("frontend").await?;
+        let mut compute = stage.dial("compute").await?;
         let sent = vec![
             SessionCheck::new(1_u128.to_be_bytes(), alice, MARKS),
             SessionCheck::new(2_u128.to_be_bytes(), alice, MARKS),
             SessionCheck::new(3_u128.to_be_bytes(), alice, ASKS),
         ];
-        let reply = frontend.request(&Check::new(sent.clone())).await?;
+        let reply = compute.request(&Check::new(sent.clone())).await?;
         let view = reply.view()?;
         let answered = CheckView::from_frame(&view)?;
         answered.check_reply(&sent)?;
@@ -531,7 +531,7 @@ fn frame_of_checks(w: &mut Steps) -> TestResult {
         let connection = connected(&stage).await?;
         let marked = outcomes(&stage, connection, &[(1, alice, ASKS), (3, bob, ASKS)]).await?;
         assert_eq!(marked, [14, 1], "alice's alone marked");
-        drop(frontend);
+        drop(compute);
         let _ended = stage.stop().await?;
         Ok(())
     })
@@ -656,19 +656,19 @@ fn ended_twice(w: &mut Steps) -> TestResult {
         let alice = stage.principal("alice").await?;
         stage.clock.advance(HOLD_US);
         heard(stage.handle.session(1, alice).await)?;
-        let mut frontend = stage.dial("frontend").await?;
-        assert_eq!(checked_on(&mut frontend, 1, alice, MARKS).await?, 1);
+        let mut compute = stage.dial("compute").await?;
+        assert_eq!(checked_on(&mut compute, 1, alice, MARKS).await?, 1);
         for _ in 0..2 {
-            frontend
+            compute
                 .send_only(&Ended::new(vec![1_u128.to_be_bytes()]))
                 .await?;
         }
         let answered =
-            compio::time::timeout(Duration::from_millis(100), frontend.next_frame()).await;
+            compio::time::timeout(Duration::from_millis(100), compute.next_frame()).await;
         assert!(answered.is_err(), "no frame answers either");
-        let after = checked_on(&mut frontend, 1, alice, MARKS).await?;
+        let after = checked_on(&mut compute, 1, alice, MARKS).await?;
         assert_eq!(after, 1, "the first took the mark away");
-        drop(frontend);
+        drop(compute);
         let _ended = stage.stop().await?;
         Ok(())
     })
@@ -923,7 +923,7 @@ fn eviction_appended_held(w: &mut Steps) {
 
 /// An exchange as `name` of `password` over the frontend's connection: the client, the relay, the AuthMessage and the proof.
 async fn exchanged(
-    frontend: &mut RoleClient,
+    compute: &mut RoleClient,
     name: &str,
     password: &str,
 ) -> TestResult<(ScramClient, ScramRelay, String, [u8; 32])> {
@@ -931,7 +931,7 @@ async fn exchanged(
     let mut relay = ScramRelay::new("group-nonce");
     let asked = relay.first(&client.first_message()?)?;
     let (iterations, salt) = {
-        let reply = frontend.request(&Challenge::request(asked)).await?;
+        let reply = compute.request(&Challenge::request(asked)).await?;
         let view = reply.view()?;
         let challenge = ChallengeView::from_frame(&view)?;
         (challenge.iterations(), challenge.salt().to_vec())
@@ -946,12 +946,12 @@ type Verified = (bool, u64, Option<[u8; 32]>, Vec<u8>);
 
 /// What a Verify of `name`, `auth_message` and `proof` is answered over `frontend`.
 async fn verified(
-    frontend: &mut RoleClient,
+    compute: &mut RoleClient,
     name: &str,
     auth_message: &str,
     proof: [u8; 32],
 ) -> TestResult<Verified> {
-    let reply = frontend
+    let reply = compute
         .request(&Verify::request(name, auth_message, proof))
         .await?;
     let view = reply.view()?;
@@ -971,15 +971,15 @@ fn proof_holds(w: &mut Steps) -> TestResult {
     run(w, || async {
         let stage = Stage::new(22, &start_of(1, 8)?).await?;
         let ann = stage.principal("ann").await?;
-        let mut frontend = stage.dial("frontend").await?;
+        let mut compute = stage.dial("compute").await?;
         let (mut client, mut relay, auth_message, proof) =
-            exchanged(&mut frontend, "ann", "pw").await?;
+            exchanged(&mut compute, "ann", "pw").await?;
         let (held, principal, signature, _bytes) =
-            verified(&mut frontend, "ann", &auth_message, proof).await?;
+            verified(&mut compute, "ann", &auth_message, proof).await?;
         assert_eq!((held, principal), (true, ann));
         let signature = signature.context("a ServerSignature")?;
         client.verify(&relay.finish(&signature)?)?;
-        drop(frontend);
+        drop(compute);
         let _ended = stage.stop().await?;
         Ok(())
     })
@@ -996,14 +996,14 @@ fn proof_holds_held(w: &mut Steps) {
 fn wrong_and_unknown(w: &mut Steps) -> TestResult {
     run(w, || async {
         let stage = Stage::new(23, &start_of(1, 8)?).await?;
-        let mut frontend = stage.dial("frontend").await?;
+        let mut compute = stage.dial("compute").await?;
         let (_client, _relay, auth_message, proof) =
-            exchanged(&mut frontend, "ann", "not pw").await?;
-        let wrong = verified(&mut frontend, "ann", &auth_message, proof).await?;
-        let unknown = verified(&mut frontend, "nobody", &auth_message, proof).await?;
+            exchanged(&mut compute, "ann", "not pw").await?;
+        let wrong = verified(&mut compute, "ann", &auth_message, proof).await?;
+        let unknown = verified(&mut compute, "nobody", &auth_message, proof).await?;
         assert_eq!((wrong.0, wrong.1, wrong.2), (false, 0, None));
         assert_eq!((unknown.0, unknown.1, unknown.2), (false, 0, None));
-        drop(frontend);
+        drop(compute);
         let _ended = stage.stop().await?;
         Ok(())
     })
@@ -1018,14 +1018,14 @@ fn wrong_and_unknown_held(w: &mut Steps) {
 fn no_stored_key(w: &mut Steps) -> TestResult {
     run(w, || async {
         let stage = Stage::new(24, &start_of(1, 8)?).await?;
-        let mut frontend = stage.dial("frontend").await?;
-        let challenge = frontend
+        let mut compute = stage.dial("compute").await?;
+        let challenge = compute
             .request(&Challenge::request("ann"))
             .await?
             .bytes()
             .to_vec();
-        let (_client, _relay, auth_message, proof) = exchanged(&mut frontend, "ann", "pw").await?;
-        let (_, _, _, verify) = verified(&mut frontend, "ann", &auth_message, proof).await?;
+        let (_client, _relay, auth_message, proof) = exchanged(&mut compute, "ann", "pw").await?;
+        let (_, _, _, verify) = verified(&mut compute, "ann", &auth_message, proof).await?;
         let held = ScramVerifier::derive("pw", b"a salt of ann", 4_096)?;
         for reply in [&challenge, &verify] {
             for key in [held.stored_key(), held.server_key()] {
@@ -1035,7 +1035,7 @@ fn no_stored_key(w: &mut Steps) -> TestResult {
                 );
             }
         }
-        drop(frontend);
+        drop(compute);
         let _ended = stage.stop().await?;
         Ok(())
     })
@@ -1228,8 +1228,8 @@ fn defaults_order(w: &mut Steps) -> TestResult {
             let found = heard(stage.handle.record_default(0, predicate.to_string()).await)?;
             assert!(!found);
         }
-        let mut frontend = stage.dial("frontend").await?;
-        let reply = frontend.request(&Defaults::request(0)).await?;
+        let mut compute = stage.dial("compute").await?;
+        let reply = compute.request(&Defaults::request(0)).await?;
         let view = reply.view()?;
         let answer = DefaultsView::from_frame(&view)?;
         let listed: Vec<&str> = (0..answer.len())
@@ -1238,7 +1238,7 @@ fn defaults_order(w: &mut Steps) -> TestResult {
         assert_eq!(listed, ["http://ex.org/nick", "http://ex.org/score"]);
         assert!(answer.position() >= 1);
         drop(reply);
-        drop(frontend);
+        drop(compute);
         let _ended = stage.stop().await?;
         Ok(())
     })
