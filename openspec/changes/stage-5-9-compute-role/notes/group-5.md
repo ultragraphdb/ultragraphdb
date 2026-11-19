@@ -312,3 +312,44 @@ where the scenario expects a refusal the client marks `RunsAgain::Read`. Run alo
 - Every target keeps `max_concurrent_scenarios(1)`: its scenarios share its block.
 - The fixed sleeps in the scenarios' paths (`frontend_before_storage` 500 ms, `ENDED` 300 ms, `service_late` 600 ms, the
   double's 300 ms split) are what those scenarios test.
+
+## Two intermittent failures after task 5.8 (2026-11-18)
+
+A full `make test` failed once in each of `storage_tests:bdd_config_service_bootstrap` and
+`ultragraphdb_tests:bdd_transactions_lost_replies`, both green on the next run; neither run's log survived the rerun.
+
+### `bdd_config_service_bootstrap`: a race in the shared harness, fixed
+
+`ultragraphdb_tests::key_file()` truncated and rewrote `read.key` on every call. In "A role reads its settings over TLS" the
+config service starts without waiting, and the next `bootstrap()` rewrites the key at once, so under the storage group's
+side-by-side load the service could read the file between the truncation and the write. It then exits with "holds 0
+bytes", and the storage process's `/health` wait times out. Reproduced in 6 of 40 runs with the 14 other storage targets
+looping beside it; every failing run's config log held "holds 0 bytes", and no passing run's did. `key_file()` and
+`holding()` now write through `replace`, a staged file renamed into place, so a reader finds the old file or the new one
+whole. Two harness unit tests pin this by inode, each red against the old code. The `WRITTEN_AGAIN` mutex that had fenced
+the harness's own tests from the same race is removed. After the fix: 0 failures in 40 runs under the same load.
+
+### `bdd_transactions_lost_replies`: not reproduced, open
+
+117 valid runs, 0 failures: 112 direct runs of the binary from its runfiles, 4 to 16 at a time beside other cluster
+targets and CPU load (load average 40 to 70), and 5 rounds of all 40 cluster targets, 16 side by side. Four further
+failures came after the Mac's idle sleep at 15:38 and are discarded. Unconfirmed candidate: a resend's kind-1 Check
+reaching the system group before the original's Ended, which travels on another endpoint core's connection; the group's
+answer, code 14, is legal (`PROTOCOL.md` §11.5), and the scenario's one-attempt client reports it as a final `InDoubt`. Open
+until a captured log of the next failure shows the cause.
+
+### Found by the two investigations, open
+
+- **"Code 17 runs a read again and leaves a commit in doubt"** (`wire-protocol/process_faults.feature`): 12 failures in 25
+  runs. The read is refused with `ClientSession::unavailable()`'s message as request kind Other, which fits `bind_event`'s
+  `LinkEvent::Closed` ending the read-write transaction bound to the killed `storage_2`: the reader's read takes the refusal
+  of another transaction's stream. Group 5's code.
+- **"A Register answered busy is sent again"** (`process_faults.feature`): 20 failures in 25 runs under load, through the
+  step's wall-clock gaps (`own_steps.rs` `register_retried`: a 20 ms pause, `storage_2` continued after 120 ms).
+- **`storage_tests:system_books_bdd`**, "A partition recovers from the group of its own process": 12 failures in 21 runs
+  under load, "Transaction has been aborted", before and after the harness fix; twice "3 closes in 500 ms".
+- Under load heavier than `make test` makes: catalog-check timeouts of 8,000 ms in `bdd_transactions_operations`,
+  `bdd_transactions_requests` and `bdd_schema_changes`, and `bdd_quad_reads_levels`' "answers at epoch 12 without waiting".
+- The config service a test starts outlives a test killed by its pid: `config_process` starts it with `clear_env` and no
+  `ULTRAGRAPHDB_PARENT_PID`. Under Bazel the process group's kill covers it.
+- RustRover holds 127.0.0.1:30001 and 30002 on this Mac, inside the supervisor's block 90 (30000–30199).

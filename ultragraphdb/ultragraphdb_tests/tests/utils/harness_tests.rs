@@ -8,10 +8,11 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use compio::runtime::spawn;
@@ -36,17 +37,6 @@ use ultragraphdb_tests::{
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::utils::http_status_tests::{off_runtime, serving, serving_ready_after};
-
-/// Held by every test writing or reading a file the harness writes again on each call, the read key's and a role secret's,
-/// each truncated and written anew: a reader meanwhile finds it short.
-static WRITTEN_AGAIN: Mutex<()> = Mutex::new(());
-
-/// The harness's rewritten files to this test alone, until the guard drops.
-fn keyed() -> TestResult<MutexGuard<'static, ()>> {
-    WRITTEN_AGAIN
-        .lock()
-        .map_err(|_| TestError::new("a test holding the key file failed"))
-}
 
 /// The setting `name` of `settings`.
 fn setting<'a>(settings: &'a [(String, String)], name: &str) -> TestResult<&'a str> {
@@ -86,14 +76,23 @@ fn test_scratch_names_distinct_files_in_the_tests_directory() -> TestResult {
 
 #[test]
 fn test_the_key_file_holds_the_read_key() -> TestResult {
-    let _key = keyed()?;
     assert_eq!(std::fs::read_to_string(key_file())?, READ_KEY);
+    Ok(())
+}
+
+/// A process a scenario started a moment before may be reading the key file when the next bootstrap writes it again: the
+/// write replaces the file whole, so that reader keeps the file it opened, never one truncated and not yet written.
+#[test]
+fn test_writing_the_key_file_again_replaces_it_whole() -> TestResult {
+    let opened = std::fs::metadata(key_file())?.ino();
+    let file = key_file();
+    assert_ne!(std::fs::metadata(&file)?.ino(), opened);
+    assert_eq!(std::fs::read_to_string(&file)?, READ_KEY);
     Ok(())
 }
 
 #[test]
 fn test_a_bootstrap_is_what_a_role_reads() -> TestResult {
-    let _key = keyed()?;
     let variables = bootstrap("127.0.0.1:1", "storage_7");
     let read = Bootstrap::read(RoleKind::Storage, variables)?;
     assert_eq!(read.target(), TARGET);
@@ -105,7 +104,6 @@ fn test_a_bootstrap_is_what_a_role_reads() -> TestResult {
 
 #[test]
 fn test_a_process_ends_with_the_test_and_clears_its_environment() -> TestResult {
-    let _key = keyed()?;
     let log = scratch("process.log");
     let wait = answering("127.0.0.1:1", "/health");
     let started = process(
@@ -129,7 +127,6 @@ fn test_a_process_ends_with_the_test_and_clears_its_environment() -> TestResult 
 
 #[test]
 fn test_a_role_asks_the_double_for_settings_it_serves() -> TestResult {
-    let _key = keyed()?;
     std::fs::create_dir_all(scratch("config-double"))?;
     let settings = compute_on_one_host()?;
     let started = role(
@@ -147,7 +144,6 @@ fn test_a_role_asks_the_double_for_settings_it_serves() -> TestResult {
 
 #[test]
 fn test_the_double_serves_each_instance_apart() -> TestResult {
-    let _key = keyed()?;
     std::fs::create_dir_all(scratch("config-double"))?;
     let first = served_by_double(FRONTEND_BINARY, "first");
     let second = served_by_double(FRONTEND_BINARY, "second");
@@ -173,7 +169,6 @@ fn test_the_double_serves_each_instance_apart() -> TestResult {
 
 #[test]
 fn test_a_role_of_the_service_asks_the_config_service() -> TestResult {
-    let _key = keyed()?;
     let started = role_of_service(
         COMPUTE_BINARY,
         "compute_2",
@@ -221,10 +216,24 @@ fn test_fresh_data_names_a_new_directory_each_time() {
 
 #[test]
 fn test_holding_writes_the_secret_it_names() -> TestResult {
-    let _key = keyed()?;
     let settings = holding(compute_on_one_host()?, "a secret of its own")?;
     let file = setting(&settings, "cluster.role_secret_file")?;
     assert_eq!(std::fs::read_to_string(file)?, "a secret of its own");
+    Ok(())
+}
+
+/// As [`test_writing_the_key_file_again_replaces_it_whole`], of a role secret's file, which a role reads once its settings
+/// arrive. The secret's length is no other test's, so its file is this test's alone.
+#[test]
+fn test_holding_again_replaces_the_secret_file_whole() -> TestResult {
+    let secret = "a secret the test holds twice";
+    let settings = holding(compute_on_one_host()?, secret)?;
+    let file = setting(&settings, "cluster.role_secret_file")?;
+    let opened = std::fs::metadata(file)?.ino();
+    let again = holding(compute_on_one_host()?, secret)?;
+    assert_eq!(setting(&again, "cluster.role_secret_file")?, file);
+    assert_ne!(std::fs::metadata(file)?.ino(), opened);
+    assert_eq!(std::fs::read_to_string(file)?, secret);
     Ok(())
 }
 
@@ -232,7 +241,6 @@ fn test_holding_writes_the_secret_it_names() -> TestResult {
 /// each other; the frontend holds none.
 #[test]
 fn test_each_holding_role_has_a_data_directory_of_its_own() -> TestResult {
-    let _key = keyed()?;
     let (frontend, storage) = (frontend_holding()?, storage_holding()?);
     let storage_again = storage_holding()?;
     for name in ["storage.data_dir", "system.data_dir"] {
@@ -270,7 +278,6 @@ fn cluster() -> TestResult<[Instance; 3]> {
 
 #[test]
 fn test_a_config_folder_passes_the_config_check() -> TestResult {
-    let _key = keyed()?;
     let held = cluster()?;
     let instances: Vec<(&str, &[(String, String)])> = held
         .iter()
@@ -292,7 +299,6 @@ fn test_a_config_folder_passes_the_config_check() -> TestResult {
 
 #[test]
 fn test_a_config_folder_listens_where_it_is_asked() -> TestResult {
-    let _key = keyed()?;
     let own = config_folder_at("127.0.0.1:1", &[], "plaintext = true")?;
     let text = std::fs::read_to_string(&own)?;
     assert!(text.contains("address = \"tcp://127.0.0.1:1\""), "{text}");

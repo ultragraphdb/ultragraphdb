@@ -80,12 +80,24 @@ pub fn scratch(name: &str) -> PathBuf {
         .join(format!("{name}-{}", std::process::id()))
 }
 
-/// The file holding the read key, written once per run.
+/// The file holding the read key, written whole on each call.
 pub fn key_file() -> PathBuf {
     let file = scratch("read.key");
     // Absent, a role says it cannot read its key, which fails the scenario by name.
-    drop(std::fs::write(&file, READ_KEY));
+    drop(replace(&file, READ_KEY));
     file
+}
+
+/// Writes `contents` to `file`, a scratch file, whole: into a scratch file of its own, which then takes `file`'s name. A
+/// process reading `file` meanwhile, such as a config service started a moment before, finds what it held or `contents`,
+/// never the empty file a write in place leaves between its truncation and its write.
+fn replace(file: &Path, contents: &str) -> std::io::Result<()> {
+    let staged = scratch(&format!(
+        "staged-{}",
+        DIRECTORIES.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::write(&staged, contents)?;
+    std::fs::rename(staged, file)
 }
 
 /// The five variables of instance `instance`, asking the service at `address`.
@@ -330,7 +342,7 @@ pub fn frontend_holding() -> TestResult<Vec<(String, String)>> {
 /// When the role secret file cannot be written.
 pub fn holding(settings: Vec<(String, String)>, secret: &str) -> TestResult<Vec<(String, String)>> {
     let file = scratch(&format!("role-secret-{}", secret.len()));
-    std::fs::write(&file, secret)?;
+    replace(&file, secret)?;
     Ok(with(
         settings,
         "cluster.role_secret_file",
