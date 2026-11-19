@@ -17,7 +17,7 @@ use crate::{Steps, four};
     "a client commits a write, receives a session token, and begins a transaction with that token whose read asks for the write"
 )]
 fn token_read(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = scene.iri_in(1, "a")?;
         let version = scene.insert_version(&a, NAME, &string("Ann")).await?;
@@ -43,7 +43,7 @@ fn returns_write(w: &mut Steps) -> TestResult {
     "a transaction begins at snapshot level, reads `<a>`'s statements, another transaction commits a new statement of `<a>`, and the first transaction reads `<a>`'s statements again"
 )]
 fn shared_snapshot(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = scene.iri_in(1, "a")?;
         scene.insert(&a, NAME, &string("Ann")).await?;
@@ -84,7 +84,7 @@ async fn lag(scene: &Scene, lagging: u32, ahead: u32, gap: u64) -> TestResult<(u
     "partition 2 has closed epoch 9 and partition 1 epoch 12, and a monotonic-fast read with its subject unbound runs over both"
 )]
 fn monotonic_over_both(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = scene.iri_in(1, "a")?;
         scene.insert(&a, NAME, &string("Ann")).await?;
@@ -115,7 +115,7 @@ fn at_lower(w: &mut Steps) -> TestResult {
     "a monotonic-fast transaction's first read answers at epoch 9, and its second read touches only a partition whose latest closed epoch is 12"
 )]
 fn never_back(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = scene.iri_in(1, "a")?;
         scene.insert(&a, NAME, &string("Ann")).await?;
@@ -154,7 +154,7 @@ fn at_higher(w: &mut Steps) -> TestResult {
     "a read-only monotonic-fast transaction carries a token of partition 1 at epoch 20, and its read touches partition 1, closed at 21, and partition 2, closed at 18"
 )]
 fn below_token(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = scene.iri_in(1, "a")?;
         let version = scene.insert_version(&a, NAME, &string("Ann")).await?;
@@ -218,7 +218,7 @@ fn at_token(w: &mut Steps) -> TestResult {
 
 #[when("a transaction at latest-state level reads with its subject unbound over two partitions")]
 fn latest_across(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let read = scene.read_of(
             &Pattern::of(None, Some(NAME), None),

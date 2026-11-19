@@ -214,7 +214,7 @@ fn tls_client(w: &mut Steps) -> TestResult {
     Runtime::new()?.block_on(async {
         let cluster = played_cluster()?;
         // The partition is the storage process hosting the system group, which `started` began; compute is played.
-        let frontend = Address::parse(&format!("tcp://{}", system_role_address()?))?;
+        let system = Address::parse(&format!("tcp://{}", system_role_address()?))?;
         let compute = RoleDouble::start(&cluster, Endpoint::Compute, |frame| {
             batch_frame(CLUSTER, frame.stream(), &empty_batch(4, 1), true)
                 .map_or(Answer::Done, Answer::Reply)
@@ -222,7 +222,7 @@ fn tls_client(w: &mut Steps) -> TestResult {
         .await?;
         compute
             .join(
-                &frontend,
+                &system,
                 &cluster,
                 "compute",
                 &Join::compute(compute.address()),

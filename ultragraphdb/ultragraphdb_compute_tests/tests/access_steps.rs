@@ -32,7 +32,7 @@ async fn referrers(scene: &Scene) -> TestResult<(String, Vec<String>)> {
 
 /// The read of who `knows` `<b>` of `referrers`, at a snapshot past them, into `w`.
 fn reverse_read(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let (b, order) = referrers(&scene).await?;
         let read = scene.snapshot(&Pattern::of(None, Some(KNOWS), Some(iri(&b))))?;
@@ -96,7 +96,7 @@ fn not_named(w: &mut Steps) -> TestResult {
     "`R(b)` names groups of partitions 1 and 3, partition 1 holds a matching row, partition 3 has not closed the read's epoch, and the transaction's deadline of 50 ms passes"
 )]
 fn lagging(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let (b, _) = referrers(&scene).await?;
         let epoch = scene.snapshot_epoch() + 2;
@@ -171,7 +171,7 @@ async fn in_graphs(scene: &Scene, graphs: &[&str]) -> TestResult<(String, String
 )]
 fn unbound_graph(w: &mut Steps) -> TestResult {
     const G1: &str = "http://ex.org/g1";
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let (a, b) = in_graphs(&scene, &[G1]).await?;
         let read = scene.snapshot(&Pattern::of(Some(&a), Some(KNOWS), None).any_graph())?;
@@ -202,7 +202,7 @@ fn both_graphs(w: &mut Steps) -> TestResult {
 
 #[when("`<a> <knows> <b>` is held without a statement ID and a read returns it")]
 fn no_statement_id(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let (a, b) = in_graphs(&scene, &[]).await?;
         let read = scene.snapshot(&Pattern::of(Some(&a), Some(KNOWS), None))?;
@@ -243,7 +243,7 @@ async fn parallel(scene: &Scene) -> TestResult<(String, String)> {
     "`<a> <knows> <b>` is held without a statement ID, a parallel edge of it is inserted, and a read returns both"
 )]
 fn parallel_edges(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let (a, _) = parallel(&scene).await?;
         let read = scene.snapshot(&Pattern::of(Some(&a), Some(KNOWS), None))?;
@@ -279,7 +279,7 @@ fn own_reifiers(w: &mut Steps) -> TestResult {
     "`<a> <knows> <b>` is held as two parallel edges, and a read binds its object to `<b>` and its predicate to `knows`"
 )]
 fn reverse_parallel(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let (a, b) = parallel(&scene).await?;
         let read = scene.snapshot(&Pattern::of(None, Some(KNOWS), Some(iri(&b))))?;
@@ -317,7 +317,7 @@ fn reverse_reifiers(w: &mut Steps) -> TestResult {
 fn walked_graphs(w: &mut Steps) -> TestResult {
     const G1: &str = "http://ex.org/g1";
     const G2: &str = "http://ex.org/g2";
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(1, "b")?);
         let object = iri(&b);

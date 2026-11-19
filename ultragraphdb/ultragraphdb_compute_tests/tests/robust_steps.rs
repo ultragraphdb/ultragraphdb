@@ -64,7 +64,7 @@ fn list_of(ids: &[SystemId]) -> Vec<u8> {
 
 /// A core of this process over the played partitions, reading by `times`.
 fn core_over_played(times: ReadTimes) -> TestResult<Rc<ComputeCore>> {
-    let info = played();
+    let info = played()?;
     let settings = holding(
         vec![
             (
@@ -129,7 +129,7 @@ fn list_two_subjects(scene: &Scene) -> TestResult<(Vec<u8>, usize)> {
 
 #[when("a partition's Scan stalls behind the merge, once between two keys and once inside a list")]
 fn stalls_behind(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let (first, rows) = list_two_subjects(&scene)?;
     let pattern = Pattern::of(None, Some(NAME), None);
     let tables = played_tables(1)?;
@@ -163,7 +163,7 @@ fn went_on(w: &mut Steps) -> TestResult {
 
 #[when("a partition's Scan stalls before giving a key")]
 fn stalls_at_once(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let (first, _) = list_two_subjects(&scene)?;
     let pattern = Pattern::of(None, Some(NAME), None);
     let tables = played_tables(1)?;
@@ -187,7 +187,7 @@ fn stalled_read(w: &mut Steps) -> TestResult {
     "a statement's stored record does not read, and a client's connection then reads another list of that partition"
 )]
 fn corrupt_record(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let tables = played_tables(1)?;
     let (bad, good) = (scene.iri_in(1, "bad")?, scene.iri_in(1, "good")?);
     let (bad_id, good_id) = (id_of(&scene, 620)?, id_of(&scene, 621)?);
@@ -239,7 +239,7 @@ fn own_read_alone(w: &mut Steps) -> TestResult {
     "a read at latest level bound to one partition reverses over an object another partition homes and nobody holds"
 )]
 fn later_reverse(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let object = scene.iri_in(2, "nobody")?;
         let read = scene
@@ -265,7 +265,7 @@ fn level_refused(w: &mut Steps) -> TestResult {
     "an edge's commit version in its partition lies below its member's version in the home's own order, and a reverse read names the edge's version"
 )]
 fn named_reverse(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     let clock = &scene.info.clock;
     run(async {
         let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(2, "b")?);
@@ -336,7 +336,7 @@ fn property_removal(reifier: &str, predicate: &str, value: &str) -> TestResult<W
     "a read of a reifier at latest level with limit 2 is resumed, the last property it returned having been removed"
 )]
 fn removed_property(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(1, "b")?);
         let properties = [
@@ -393,7 +393,7 @@ fn third_alone(w: &mut Steps) -> TestResult {
 
 #[when("a read with limit 2 reads a list of many objects held by hash")]
 fn limit_names(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = large_list(&scene, 40, 200).await?;
         let read = scene
@@ -423,7 +423,7 @@ fn own_names(w: &mut Steps) -> TestResult {
 
 #[when("a client of no further credit reads a list whose objects' texts come to many frames")]
 fn no_more_credit(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = large_list(&scene, 64, 100_000).await?;
         let read = scene
@@ -475,7 +475,7 @@ fn connections() -> TestResult<Vec<u32>> {
 
 #[when("two lookups start together on a core that holds no connection")]
 fn together(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let _key = played_index(&scene, id_of(&scene, 901)?)?;
     let before = connections()?;
     run(async {
@@ -511,7 +511,7 @@ const PAST_CREDIT_ARRIVES: Duration = Duration::from_millis(20);
 
 #[when("a partition sends a Scan's stream an Entries frame with the stream's credit spent")]
 fn past_credit(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         // Held by hash, so one frame of the list holds far more rows than a Result frame's worth of their texts.
         let a = large_list(&scene, ROWS_PAST_A_FRAME, 1_000).await?;
@@ -585,7 +585,7 @@ const PIN_DELAY: Duration = Duration::from_millis(160);
 
 #[when("a lookup outlasts its retention over three partitions, and one partition refuses its pin")]
 fn pin_refused(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let key = played_index(&scene, id_of(&scene, 902)?)?;
     let pin = key_prefix(Keyspace::Referrers, false, scene.tenant, None, None);
     played_tables(1)?.script(pin, Script::Refuse(ErrorCode::TooOld, 0));
@@ -620,7 +620,7 @@ fn pins_go_on(w: &mut Steps) -> TestResult {
 fn counted_named(w: &mut Steps) -> TestResult {
     const FRIEND: &str = "http://ex.org/friend";
     const B: &str = "http://ex.org/b";
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let (friend, b) = (id_of(&scene, 800)?, id_of(&scene, 801)?);
     let unnamed: Vec<SystemId> = (810..860)
         .map(|sequence| id_of(&scene, sequence))
@@ -684,7 +684,7 @@ fn lookup_refusal(scene: &Scene) -> TestResult<ErrorReply> {
     "an index list names a system ID its partition's dictionary answers no entry for, and compute's API looks up the value"
 )]
 fn lookup_dangling(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let subject = id_of(&scene, 903)?;
     let _key = played_index(&scene, id_of(&scene, 904)?)?;
     let predicate = id_of(&scene, 900)?;
@@ -715,7 +715,7 @@ fn names_key(w: &mut Steps) -> TestResult {
     "a partition's entry of the looked-up predicate does not decode as a system ID, and compute's API looks up the value"
 )]
 fn lookup_corrupt(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let _key = played_index(&scene, id_of(&scene, 905)?)?;
     let key = term_key(scene.tenant, NAME);
     played_tables(2)?.put(key.clone(), vec![0xFF; 3]);

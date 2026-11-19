@@ -59,7 +59,7 @@ fn list_of(ids: &[SystemId]) -> Vec<u8> {
 
 /// A core of this process over the played partitions, as a query core holds one.
 fn core_over_played() -> TestResult<Rc<ComputeCore>> {
-    let info = played();
+    let info = played()?;
     let settings = holding(
         vec![
             (
@@ -88,7 +88,7 @@ fn core_over_played() -> TestResult<Rc<ComputeCore>> {
     "partitions 1, 2 and 3 each hold a subject whose `name` the `term` index lists under `ann`, and compute's API looks up `ann`"
 )]
 fn value_index(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let predicate = id_of(&scene, 900)?;
     let mut expected = Vec::new();
     for partition in 1..=3u32 {
@@ -151,7 +151,7 @@ fn three_subjects(w: &mut Steps) {
 fn reverse_count(w: &mut Steps) -> TestResult {
     const FRIEND: &str = "http://ex.org/friend";
     const B: &str = "http://ex.org/b";
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let (friend, b) = (id_of(&scene, 800)?, id_of(&scene, 801)?);
     for (partition, count) in [(1u32, 2u32), (2, 1)] {
         let tables = played_tables(partition)?;
@@ -211,7 +211,7 @@ fn dangling_list(scene: &Scene) -> TestResult<(String, Vec<u8>)> {
     "a list names a system ID its partition's dictionary answers no entry for, and a client's read through compute reaches it"
 )]
 fn dangling(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let (subject, key) = dangling_list(&scene)?;
     run(async {
         let pattern = Pattern::of(Some(&subject), Some(KNOWS), None);
@@ -246,7 +246,7 @@ fn names_list(w: &mut Steps) -> TestResult {
 
 #[when("a transaction's reads leave no room for a span")]
 fn no_room(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let subject = scene.iri_in(1, "a")?;
     played_tables(1)?.script(
         term_key(scene.tenant, &subject),
@@ -288,7 +288,7 @@ const RESTARTED_ROWS: u32 = 5;
     "a read with no limit is refused with code 24 after three batches, and its caller runs it again"
 )]
 fn restarts(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let subject = scene.iri_in(1, "a")?;
     let (subject_id, name) = (id_of(&scene, 600)?, id_of(&scene, 601)?);
     let tables = played_tables(1)?;
@@ -343,7 +343,7 @@ fn second_run(w: &mut Steps) -> TestResult {
 
 #[when("a partition takes a Scan and sends nothing more, its connection open")]
 fn hung_partition(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let subject = scene.iri_in(1, "hung")?;
     let tables = played_tables(1)?;
     let dialled = tables.connections();
@@ -384,7 +384,7 @@ fn hung_refused(w: &mut Steps) -> TestResult {
 
 #[when("a partition refuses a Scan with Error 1 of `detail` 1")]
 fn relayed_detail(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let subject = scene.iri_in(1, "a")?;
     played_tables(1)?.script(
         term_key(scene.tenant, &subject),
@@ -410,7 +410,7 @@ fn relays(w: &mut Steps) -> TestResult {
     "a partition's answer holds a frame compute refuses, while another read waits on that connection"
 )]
 fn refused_frame(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(played());
+    let scene = Scene::new(played()?);
     let subject = scene.iri_in(1, "broken")?;
     played_tables(1)?.script(term_key(scene.tenant, &subject), Script::BreakOrder);
     run(async {

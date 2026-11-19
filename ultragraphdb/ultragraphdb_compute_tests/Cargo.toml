@@ -12,7 +12,7 @@ readme.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "The compute binary as a process, end to end, with no container"
+description = "The compute binary and the client endpoint as processes, end to end, with no container"
 publish.workspace = true
 autotests = false
 
@@ -24,19 +24,23 @@ compio = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 service_utils = { workspace = true }
+ultragraphdb_client_compio = { workspace = true }
 ultragraphdb_cluster_placement = { workspace = true }
-ultragraphdb_common_compute = { workspace = true }
+ultragraphdb_common_compute = { workspace = true, features = ["test-utils"] }
 ultragraphdb_common_role = { workspace = true }
 ultragraphdb_common_service = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
+ultragraphdb_protocol_scram = { workspace = true }
 ultragraphdb_protocol_transport = { workspace = true }
+ultragraphdb_protocol_transport_compio = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_store_quads = { workspace = true }
 ultragraphdb_tests = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
+ultragraphdb_transport_tls = { workspace = true, features = ["test-utils"] }
 
 [[test]]
 name = "bdd"

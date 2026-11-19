@@ -58,7 +58,7 @@ echo "=============="
 # One group per binary under test, the groups in sequence and each group's targets side by side, so the machine runs one
 # binary's processes at a time. Each target listens in a block of ports of its own (`bazel/test_ports.bzl`); the image
 # tests, which run Docker containers, are `exclusive`.
-INTEGRATION_GROUPS=(config storage compute frontend supervisor cluster)
+INTEGRATION_GROUPS=(config storage compute supervisor cluster)
 
 # Every integration target belongs to one group, or the sequence below would skip it without a word.
 UNGROUPED=$(command bazel query 'attr(tags, "integration_test", tests(//...)) except attr(tags, "-integration-test", tests(//...))' 2>/dev/null)

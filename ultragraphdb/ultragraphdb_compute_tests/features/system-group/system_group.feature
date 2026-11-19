@@ -3,7 +3,7 @@
 
 Feature: Compute and a lost system group
   openspec/changes/stage-5-8-system-group/specs/system-group/spec.md, "A lost system group is waited for until the
-  deadline": compute's part. The frontend's part is bound in ultragraphdb_frontend_tests.
+  deadline": compute's part. The frontend's part is bound in lost_group.feature.
 
   Scenario: A compute process joins a restarted system group at once
     When the hosting storage process is killed and started again within `join_deadline_ms`

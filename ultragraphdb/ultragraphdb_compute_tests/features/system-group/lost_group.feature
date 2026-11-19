@@ -3,8 +3,8 @@
 
 Feature: The frontend and a lost system group
   openspec/changes/stage-5-8-system-group/specs/system-group/spec.md, "A lost system group is waited for until the deadline":
-  the frontend's part, over the frontend and storage binaries as processes, one storage process hosting the system group.
-  Compute's part is bound in ultragraphdb_compute_tests.
+  the frontend's part, over the role binaries as processes, one storage process hosting the system group.
+  Compute's part is bound in system_group.feature.
 
   Scenario: A frontend started before storage waits
     When the frontend starts while no process listens at `cluster.system_address`, and the hosting storage process starts within the deadline

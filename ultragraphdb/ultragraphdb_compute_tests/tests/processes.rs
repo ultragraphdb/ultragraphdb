@@ -22,9 +22,9 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
-    CLUSTER, FRONTEND_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering, client_address,
-    frontend_observability, not_hosting, role, scratch, storage_holding, storage_observability,
-    system_role_address, until_answering, with,
+    CLUSTER, COMPUTE_BINARY, FRONTEND_BINARY, SECRET, START_SECONDS, STORAGE_BINARY, answering,
+    client_address, compute_observability, frontend_observability, not_hosting, role, scratch,
+    storage_holding, storage_observability, system_role_address, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback};
 
@@ -45,7 +45,7 @@ pub(crate) fn second_observability() -> TestResult<String> {
 /// The tenant every write of these scenarios names.
 pub(crate) const TENANT: u64 = 0;
 
-/// How long a step lets the frontend send the Ended of a commit it answered before a process is killed, so the session holds
+/// How long a step lets the client endpoint send the Ended of a commit it answered before a process is killed, so the session holds
 /// no mark of a connection that closes with it (`PROTOCOL.md` §11.5): far above a turn.
 pub(crate) const ENDED: Duration = Duration::from_millis(300);
 
@@ -126,6 +126,12 @@ impl Roles {
             until_answering(&frontend_observability()?, "/ready")?;
         }
         Ok(())
+    }
+
+    /// Starts compute on `settings`, once its `/ready` answers: its pid.
+    pub(crate) fn start_compute(&mut self, settings: Vec<(String, String)>) -> TestResult<u32> {
+        let wait = answering(&compute_observability()?, "/ready");
+        self.start(COMPUTE_BINARY, &settings, "compute", wait)
     }
 
     /// Starts the frontend on `settings` and waits for nothing.
@@ -229,12 +235,12 @@ pub(crate) fn second_of() -> TestResult<Vec<(String, String)>> {
         }))
 }
 
-/// The administrator's client of the frontend, connected and authenticated, making each commit at most `attempts` times.
+/// The administrator's client of the client endpoint, connected and authenticated, making each commit at most `attempts` times.
 pub(crate) async fn admin(attempts: u32) -> TestResult<Admin> {
     let nonces: fn() -> Result<String, ScramError> = system_nonce;
     let login = ScramLogin::new(ADMIN, PASSWORD, nonces)?;
     let config =
-        ClientConfig::new(CLUSTER, "ultragraphdb-frontend-tests").with_commit_attempts(attempts);
+        ClientConfig::new(CLUSTER, "ultragraphdb-compute-tests").with_commit_attempts(attempts);
     let mut client = Client::new(
         TcpConnector::new(client_address()?.parse()?),
         config,

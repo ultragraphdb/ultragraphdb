@@ -4,7 +4,7 @@
 Feature: A storage process and a broken connection to the system group
   openspec/changes/stage-5-8-system-group/specs/system-group/spec.md, "A lost system group is waited for until the deadline":
   a storage process that does not host the group, over a group the test plays, which breaks the connection the process
-  subscribes on or reads a catalog version on. The frontend's part is bound in ultragraphdb_frontend_tests, compute's in ultragraphdb_compute_tests.
+  subscribes on or reads a catalog version on. The frontend's part and compute's are bound in ultragraphdb_compute_tests.
 
   Scenario: A connection error ending a subscription's connection is joined again
     When the system group ends the connection a storage process that does not host it subscribes on with Error 1 on stream 0

@@ -24,8 +24,7 @@ PORT_LIMIT = 32768
 # passes to `port_env`.
 PACKAGE_BLOCKS = {
     "ultragraphdb/ultragraphdb_tests": (0, 46),
-    "ultragraphdb/ultragraphdb_frontend_tests": (46, 14),
-    "ultragraphdb/ultragraphdb_compute_tests": (60, 8),
+    "ultragraphdb/ultragraphdb_compute_tests": (46, 22),
     "ultragraphdb/ultragraphdb_storage_tests": (68, 20),
     "ultragraphdb/ultragraphdb_config_tests": (88, 1),
     "ultragraphdb/ultragraphdb_supervisor_tests": (89, 2),

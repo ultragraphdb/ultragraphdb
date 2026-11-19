@@ -46,7 +46,7 @@ async fn commit_a_write(scene: &Scene, first: &mut Transaction) -> TestResult<Op
     "a transaction writes `<a> <knows> <b>`, the write is answered, and the same transaction reads `<a> <knows> ?o` before committing"
 )]
 fn own_write(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(solo());
+    let scene = Scene::new(solo()?);
     run(async {
         let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(1, "b")?);
         let pattern = Pattern::of(Some(&a), Some(KNOWS), None);
@@ -78,7 +78,7 @@ fn sees_own(w: &mut Steps) -> TestResult {
     "a transaction writes `<new> <p> \"x\"`, creating `<new>`, removes every object of `<a> <p> ?o`, and reads both"
 )]
 fn new_term(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(solo());
+    let scene = Scene::new(solo()?);
     run(async {
         let (new, a) = (scene.iri_in(1, "new")?, scene.iri_in(1, "a")?);
         scene
@@ -126,7 +126,7 @@ fn names_new(w: &mut Steps) -> TestResult {
 #[when("a transaction scans 10,000 lists through compute")]
 fn ten_thousand(w: &mut Steps) -> TestResult {
     const LISTS: u32 = 10_000;
-    let scene = Scene::new(solo());
+    let scene = Scene::new(solo()?);
     run(async {
         for chunk in (0..LISTS).collect::<Vec<u32>>().chunks(2_000) {
             let mut table = TermTable::new();
@@ -181,7 +181,7 @@ fn one_range(w: &mut Steps) -> TestResult {
     "transaction T1 reads `<nobody> <p> ?o` through compute, finding nothing, transaction T2 commits `<nobody> <p> \"x\"`, and T1 commits a write"
 )]
 fn term_nobody_holds(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(solo());
+    let scene = Scene::new(solo()?);
     run(async {
         let nobody = scene.iri_in(1, "nobody")?;
         let mut first = scene.begin(1, 1).await?;
@@ -206,7 +206,7 @@ fn aborts_absent(w: &mut Steps) {
     "transaction T1 reads `<a> <knows> ?o` through compute, finding nothing, transaction T2 commits `<a> <knows> <b>`, and T1 commits a write"
 )]
 fn range_insert(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(solo());
+    let scene = Scene::new(solo()?);
     run(async {
         let (a, b, c) = (
             scene.iri_in(1, "a")?,
@@ -234,7 +234,7 @@ fn range_insert(w: &mut Steps) -> TestResult {
     "a Commit cancels a read whose Scan records one more span before the Cancel reaches the partition, and another transaction wrote into that span"
 )]
 fn span_after_cancel(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(solo());
+    let scene = Scene::new(solo()?);
     run(async {
         let (a, b, c) = (
             scene.iri_in(1, "a")?,
@@ -290,7 +290,7 @@ fn aborts_range(w: &mut Steps) {
     "transaction T1 reads `?s <knows> <b>` through compute, transaction T2 commits `<c> <knows> <b>` in the same partition, and T1 commits a write"
 )]
 fn reverse_range(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(solo());
+    let scene = Scene::new(solo()?);
     run(async {
         let (a, b, c) = (
             scene.iri_in(1, "a")?,
@@ -326,7 +326,7 @@ async fn two_subjects(scene: &Scene) -> TestResult<Vec<String>> {
     "T1 reads with limit 1 a range holding `<a>` and `<z>`, T2 commits an insert past `<a>` that T1's read did not reach, and T1 commits without resuming"
 )]
 fn stopped_at_limit(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(solo());
+    let scene = Scene::new(solo()?);
     run(async {
         let order = two_subjects(&scene).await?;
         let mut first = scene.begin(1, 1).await?;
@@ -353,7 +353,7 @@ fn t1_commits(w: &mut Steps) {
     "T1 reads `<a> <name> ?o` with limit 1 and its graph unbound, `<a>` holding it in two graphs, T2 commits an insert into the graph T1's read did not reach, and T1 commits a write"
 )]
 fn stopped_before_a_graph(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(solo());
+    let scene = Scene::new(solo()?);
     run(async {
         let a = scene.iri_in(1, "a")?;
         let (g1, g2) = (scene.iri_in(1, "g1")?, scene.iri_in(1, "g2")?);
@@ -382,7 +382,7 @@ fn stopped_before_a_graph(w: &mut Steps) -> TestResult {
     "T1 reads with limit 1, resumes to the range's end, T2 commits an insert into the resumed part, and T1 commits a write"
 )]
 fn resumed_records(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(solo());
+    let scene = Scene::new(solo()?);
     run(async {
         let order = two_subjects(&scene).await?;
         let mut first = scene.begin(1, 1).await?;
@@ -406,7 +406,7 @@ fn resumed_records(w: &mut Steps) -> TestResult {
 )]
 fn record_conflict(w: &mut Steps) -> TestResult {
     const SINCE: &str = "http://ex.org/since";
-    let scene = Scene::new(solo());
+    let scene = Scene::new(solo()?);
     run(async {
         let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(1, "b")?);
         scene
@@ -439,7 +439,7 @@ fn record_conflict(w: &mut Steps) -> TestResult {
 fn graph_gap(w: &mut Steps) -> TestResult {
     const G1: &str = "http://ex.org/g1";
     const G2: &str = "http://ex.org/g2";
-    let scene = Scene::new(solo());
+    let scene = Scene::new(solo()?);
     run(async {
         let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(1, "b")?);
         scene

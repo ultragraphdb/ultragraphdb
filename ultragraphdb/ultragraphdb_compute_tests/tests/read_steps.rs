@@ -82,7 +82,7 @@ pub fn edge_with(
 
 #[when("a read binds its subject to `http://ex.org/a` over two partitions")]
 fn bound_subject(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(2, "b")?);
     run(async {
         scene.insert(&a, KNOWS, &iri(&b)).await?;
@@ -118,7 +118,7 @@ fn asks_one(w: &mut Steps) -> TestResult {
     "`<a>` in partition 1 and `<c>` in partition 2 each hold `name` `\"Ann\"`, and a read binds its object to `\"Ann\"` and its predicate to `name`"
 )]
 fn literal_object(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     let (a, c) = (scene.iri_in(1, "a")?, scene.iri_in(2, "c")?);
     run(async {
         scene.insert(&a, NAME, &string("Ann")).await?;
@@ -156,7 +156,7 @@ fn fanned_out(w: &mut Steps) -> TestResult {
     "a read leaves its subject and object unbound over two partitions that each hold matching rows"
 )]
 fn unbound_subject(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     let (a, c) = (scene.iri_in(1, "a")?, scene.iri_in(2, "c")?);
     run(async {
         scene.insert(&a, NAME, &string("Ann")).await?;
@@ -184,7 +184,7 @@ fn merged(w: &mut Steps) -> TestResult {
 )]
 fn vector_object(w: &mut Steps) -> TestResult {
     const EMBEDDING: &str = "http://ex.org/embedding";
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     let (a, c, d) = (
         scene.iri_in(1, "a")?,
         scene.iri_in(2, "c")?,
@@ -230,7 +230,7 @@ fn vector_rows(w: &mut Steps) -> TestResult {
 )]
 fn reifier_subject(w: &mut Steps) -> TestResult {
     const SINCE: &str = "http://ex.org/since";
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(2, "b")?);
     run(async {
         let write = edge_with(&a, KNOWS, &b, &[(SINCE, "2020")])?;
@@ -282,7 +282,7 @@ fn reifier_rows(w: &mut Steps) -> TestResult {
     "a read-only transaction's read of `<a> <p> ?o` runs, `<a>` homed in partition 1, `<p>` homed in partition 2, and partition 1's dictionary holds no entry of `<p>`"
 )]
 fn term_absent(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     let (a, p) = (scene.iri_in(1, "a")?, scene.iri_in(2, "p")?);
     run(async {
         scene.insert(&a, NAME, &string("Ann")).await?;
@@ -312,7 +312,7 @@ fn absent_no_row(w: &mut Steps) -> TestResult {
 
 #[when("a read of `<a> <knows> ?o` runs against a partition holding both terms")]
 fn two_scans(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(1, "b")?);
     run(async {
         scene.insert(&a, KNOWS, &iri(&b)).await?;
@@ -343,7 +343,7 @@ fn terms_first(w: &mut Steps) -> TestResult {
     "a read-only transaction at latest level takes three Scans of its partition, and a commit lands between the first and the second"
 )]
 fn one_version(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(1, "b")?);
     run(async {
         scene.insert(&a, KNOWS, &iri(&b)).await?;
@@ -393,7 +393,7 @@ fn second_at_version(w: &mut Steps) -> TestResult {
     "a snapshot read asks partitions 1 and 2, partition 1 has closed the read's epoch and partition 2 has not"
 )]
 fn waits_for_close(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     let (a, c) = (scene.iri_in(1, "a")?, scene.iri_in(2, "c")?);
     run(async {
         scene.insert(&a, NAME, &string("Ann")).await?;
@@ -436,7 +436,7 @@ fn no_list_before_close(w: &mut Steps) -> TestResult {
 
 #[when("a read fans out over three partitions")]
 fn fan_out_on_core(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     let subjects = [
         scene.iri_in(1, "a")?,
         scene.iri_in(2, "b")?,

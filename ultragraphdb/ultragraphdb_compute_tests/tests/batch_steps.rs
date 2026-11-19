@@ -21,7 +21,7 @@ const LARGE_ROW: usize = 300_000;
 
 #[when("a client whose Hello names `max_frame` 524,288 reads more rows than one such frame holds")]
 fn more_than_a_frame(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = large_list(&scene, 6, 200_000).await?;
         let read = scene
@@ -57,7 +57,7 @@ fn within_frame(w: &mut Steps) -> TestResult {
     "a client whose Hello names `max_frame` 524,288 reads a row holding a literal of 600,000 bytes"
 )]
 fn row_too_large(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = large_list(&scene, 1, 600_000).await?;
         let read = scene
@@ -80,7 +80,7 @@ fn too_large(w: &mut Steps) -> TestResult {
     "a read stops at its limit, and its rows fill the last batch so that its resume key does not fit"
 )]
 fn key_does_not_fit(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = large_list(&scene, 2, LARGE_ROW).await?;
         let read = scene
@@ -121,7 +121,7 @@ async fn frame_arrives(client: &mut RoleClient) -> bool {
     "a client's Welcome names `initial_credit` 4, compute's Welcome to the frontend names 16, and a read's answer takes more frames"
 )]
 fn starting_credit(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = large_list(&scene, 8, LARGE_ROW).await?;
         let read = scene

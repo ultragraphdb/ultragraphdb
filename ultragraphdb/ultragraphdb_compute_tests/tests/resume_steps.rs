@@ -77,7 +77,7 @@ pub fn hash_of(read: &ComputeRead) -> TestResult<u64> {
 
 #[when("a read with limit 2 matches 5 rows and is resumed twice")]
 fn resumes_twice(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = listed(&scene, 5).await?;
         let read = scene
@@ -118,7 +118,7 @@ fn three_pages(w: &mut Steps) -> TestResult {
 
 #[when("a read with limit 1 and its graph unbound matches one row and is resumed")]
 fn resumed_to_nothing(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = listed(&scene, 1).await?;
         let read = scene
@@ -154,7 +154,7 @@ fn found_nothing(w: &mut Steps) -> TestResult {
 
 #[when("a resume key from one read is used with a different pattern")]
 fn another_pattern(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = listed(&scene, 3).await?;
         let read = scene
@@ -190,7 +190,7 @@ fn decoded_key(w: &mut Steps) -> TestResult {
 
 /// The read of `<a> <knows> ?o` of limit 1 over two objects, into `w`.
 fn key_of_knows(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let (a, b, c) = (
             scene.iri_in(1, "a")?,
@@ -256,7 +256,7 @@ fn identity_holds_terms(w: &mut Steps) -> TestResult {
 
 #[when("a client changes one byte of a resume key and continues its read with it")]
 fn tampered(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = listed(&scene, 3).await?;
         let read = scene
@@ -278,7 +278,7 @@ fn malformed(w: &mut Steps) -> TestResult {
 
 #[when("a read matches nothing")]
 fn matches_nothing(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = scene.iri_in(1, "a")?;
         let read = scene
@@ -304,7 +304,7 @@ fn no_rows_no_key(w: &mut Steps) -> TestResult {
     "a resume key from one read-write transaction's read is used with the same pattern in another read-write transaction"
 )]
 fn another_transaction(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(crate::solo());
+    let scene = Scene::new(crate::solo()?);
     run(async {
         let a = listed(&scene, 3).await?;
         let pattern = Pattern::of(Some(&a), Some(NAME), None);
@@ -327,7 +327,7 @@ fn refused_key(w: &mut Steps) -> TestResult {
     "a read-only transaction at snapshot level reads with limit 2, its connection is lost, and a new Begin names the version the first Begin answered and resumes with the key"
 )]
 fn reconnect(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = listed(&scene, 5).await?;
         let pattern = Pattern::of(Some(&a), Some(NAME), None);
@@ -360,7 +360,7 @@ fn rows_three_on(w: &mut Steps) -> TestResult {
 
 #[when("a reader resumes with a key at a named version the partition has discarded")]
 fn discarded(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(brief());
+    let scene = Scene::new(brief()?);
     run(async {
         let a = listed(&scene, 3).await?;
         let pattern = Pattern::of(Some(&a), Some(NAME), None);
@@ -396,7 +396,7 @@ fn too_old(w: &mut Steps) -> TestResult {
 
 #[when("`<a> <knows> <b>` is held under three statement IDs, and a read with limit 2 is resumed")]
 fn three_statements(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(1, "b")?);
         for at in 0..3 {
@@ -452,7 +452,7 @@ fn statements_resumed(w: &mut Steps) -> TestResult {
     "`<a> <knows> <b>` and `<a> <knows> <c>` are held with no statement ID, and a read with limit 1 is resumed"
 )]
 fn no_statement_ids(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let (a, b, c) = (
             scene.iri_in(1, "a")?,
@@ -512,7 +512,7 @@ fn skips_whole(w: &mut Steps) -> TestResult {
     "a statement's record holds three properties, and a read of its reifier with limit 2 is resumed"
 )]
 fn record_resumed(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let (a, b) = (scene.iri_in(1, "a")?, scene.iri_in(1, "b")?);
         let properties = [
@@ -591,7 +591,7 @@ pub async fn large_list(scene: &Scene, rows: u32, bytes: usize) -> TestResult<St
 
 #[when("a read with limit 10,000 stops at its limit after several batches")]
 fn long_limit(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         // Short literals in the floor's frames: several batches, from a list written in a few commits.
         let a = large_list(&scene, 10_001, 24).await?;
@@ -650,7 +650,7 @@ const HELD_PAST_RETENTION: std::time::Duration = std::time::Duration::from_milli
     "a read at snapshot level has its dictionary Scan answered, and its list Scan arrives past `read_retain_ms` while later epochs close"
 )]
 fn late_list_scan(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(brief());
+    let scene = Scene::new(brief()?);
     run(async {
         let a = scene.iri_in(1, "a")?;
         scene.insert(&a, NAME, &string("kept")).await?;
@@ -686,7 +686,7 @@ fn late_read_answered(w: &mut Steps) -> TestResult {
     "a read at latest level and a read at snapshot level each answer within a quarter of `read_retain_ms`"
 )]
 fn short_reads(w: &mut Steps) -> TestResult {
-    let scene = Scene::new(four());
+    let scene = Scene::new(four()?);
     run(async {
         let a = scene.iri_in(1, "a")?;
         scene.insert(&a, NAME, &string("x")).await?;
@@ -714,7 +714,7 @@ fn pins_by_level(w: &mut Steps) {
 #[when("a read of two graphs stalls on its client's credit past `read_retain_ms`, and goes on")]
 fn outlasts_retention(w: &mut Steps) -> TestResult {
     const GRAPHS: [&str; 2] = ["http://ex.org/g1", "http://ex.org/g2"];
-    let scene = Scene::new(brief());
+    let scene = Scene::new(brief()?);
     run(async {
         let a = scene.iri_in(1, "a")?;
         for graph in GRAPHS {
