@@ -16,6 +16,9 @@ use crate::{Steps, brief, four};
 /// How long a late read's list Scan is held back: past what the brief cluster retains, within what it lets a Scan stall.
 const HELD_PAST_RETENTION: std::time::Duration = std::time::Duration::from_millis(200);
 
+/// How often a later commit lands meanwhile: its four span twice the hold, so what they take decides nothing of it.
+const COMMIT_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
+
 #[when(
     "a read at snapshot level has its dictionary Scan answered, and its list Scan arrives past `read_retain_ms` while later epochs close"
 )]
@@ -29,13 +32,22 @@ fn late_list_scan(w: &mut Steps) -> TestResult {
         let reading = client::answer(&scene, &read);
         let moving_on = async {
             until("the list's Scan seen", || scene.info.log.scans().len() >= 2).await?;
+            // The tap holds every frame compute sends behind the Scan, the grants of the Scan holding the version among them,
+            // so the Scan goes on after the hold whatever the commits take.
+            let releasing = async {
+                compio::time::sleep(HELD_PAST_RETENTION).await;
+                scene.info.log.go_on();
+            };
             // Each commit moves the watermark past the version, and each close the discard version towards it.
-            for _ in 0..4 {
-                compio::time::sleep(HELD_PAST_RETENTION / 4).await;
-                scene.insert(&a, KNOWS, &string("later")).await?;
-            }
-            scene.info.log.go_on();
-            Ok::<(), TestError>(())
+            let committing = async {
+                for _ in 0..4 {
+                    compio::time::sleep(COMMIT_EVERY).await;
+                    scene.insert(&a, KNOWS, &string("later")).await?;
+                }
+                Ok::<(), TestError>(())
+            };
+            let ((), committed) = futures::join!(releasing, committing);
+            committed
         };
         let (answer, moved) = futures::join!(reading, moving_on);
         moved?;

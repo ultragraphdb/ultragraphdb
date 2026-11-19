@@ -2571,6 +2571,8 @@ fn a_dial_past_its_bound_closes_the_connection(w: &mut Steps) -> TestResult {
         ..Options::default()
     };
     let capture = LogCapture::new();
+    let watched = capture.clone();
+    let named = address.clone();
     capture.capture(|| {
         run(w, options, |stage| async move {
             let _whole = &stage;
@@ -2593,6 +2595,9 @@ fn a_dial_past_its_bound_closes_the_connection(w: &mut Steps) -> TestResult {
             stage.read_members().await?;
             let mut client = stage.ann().await?;
             let transaction = client.begin(0).await?;
+            // The Write goes a quarter of the bound after the Begin, so the transaction's limit answers first and the dial's
+            // bound passes a quarter of it later, past what the rest of the exchange takes.
+            pause(u64::from(DIAL_MS / 4)).await;
             client.write(transaction, &stage.on(1)?).await?;
             client.silent(transaction, u64::from(DIAL_MS / 2)).await?;
             // The dial's bound and the transaction's limit are one `transaction_ms`: whichever ends it first tells it so.
@@ -2601,6 +2606,8 @@ fn a_dial_past_its_bound_closes_the_connection(w: &mut Steps) -> TestResult {
                 matches!(told, ErrorCode::Unavailable | ErrorCode::PastLimit),
                 "{told:?}"
             );
+            // The dial's bound passes on this runtime, which ends with the scenario: the run lasts until the dial has logged.
+            until("the dial's warning", || logged_dial(&watched, &named)).await?;
             let _open = client.begin_read_only(ReadLevel::Snapshot).await?;
             Ok(())
         })
@@ -2612,6 +2619,14 @@ fn a_dial_past_its_bound_closes_the_connection(w: &mut Steps) -> TestResult {
         "the address and the bound in the log: {said:?}"
     );
     Ok(())
+}
+
+/// Whether `capture` holds a line naming `address` and the dial's bound.
+fn logged_dial(capture: &LogCapture, address: &str) -> bool {
+    capture.events().iter().any(|event| {
+        let line = event.to_string();
+        line.contains(address) && line.contains(&format!("{DIAL_MS} ms"))
+    })
 }
 
 #[then(
