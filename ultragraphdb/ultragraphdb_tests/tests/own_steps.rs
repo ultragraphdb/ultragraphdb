@@ -6,17 +6,23 @@
 //! Scenarios of a cluster of their own: its settings differ, or a role of it misbehaves. A role that misbehaves is the real
 //! process under a signal: `SIGKILL` for a crash, `SIGSTOP` for one that hangs, its socket still accepting.
 
+use std::task::Poll;
 use std::time::{Duration, Instant};
 
+use compio::runtime::Runtime;
 use cucumber::{then, when};
+use futures::channel::oneshot;
+use futures::future::{Either, select};
 use ultragraphdb_client_compio::{ClientError, ClientErrorEnum, Login};
+use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_protocol_scram::{ScramError, ScramLogin, system_nonce};
 use ultragraphdb_protocol_transport::{Address, ClientMechanism, TransportError};
 use ultragraphdb_protocol_wire::{
-    Begin, BodyBuilder, CATALOG_BYTES_MAX, Command, Declare, Declared, DeclaredKind,
-    DeclaredPredicate, DropCommand, ErrorCode, Header, MAX_FRAME_SIZE,
+    Begin, BodyBuilder, BodyView, CATALOG_BYTES_MAX, Check, CheckKind, CheckOutcome, CheckView,
+    Command, Declare, Declared, DeclaredKind, DeclaredPredicate, DropCommand, ErrorCode, Header,
+    MAX_FRAME_SIZE, SessionCheck,
 };
-use ultragraphdb_tests::CLUSTER;
+use ultragraphdb_tests::{CLUSTER, SECRET};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::Steps;
@@ -31,7 +37,7 @@ use crate::cluster::{
 use crate::lossy_link::LossyLink;
 use crate::read_steps::{big_pattern, until_rows, write_big};
 use crate::request_steps::latest_read;
-use crate::shells::{CompioDial, Knobs, TestClient, pause, run, with_client};
+use crate::shells::{CompioDial, Knobs, Shell, TestClient, pause, run, with_client};
 use crate::transaction_steps::{committed, nothing};
 
 /// The time, to measure a wait a scenario names.
@@ -697,8 +703,23 @@ fn both_seventeen(w: &mut Steps) -> TestResult {
         let _bound = read_whole(&mut held, &own, &Pattern::of(Some(&second), Some(&p))).await?;
         Ok((own, session))
     })?;
-    // The partition gone, the endpoint's own read of it finds no connection, and the commit no partition to ask.
-    cluster(w)?.signal("storage_2", Signal::Kill)?;
+    // The Commit leaves before the partition goes, so it is answered code 17: an Error on the transaction's stream answers its next
+    // request (`PROTOCOL.md` §11.2), and a client that took that Error before it sent the Commit would refuse the Commit itself,
+    // unsent and in no doubt. Stopped, the partition holds the Commit unanswered; the client queues its frame at the first poll,
+    // before it awaits anything, and its connection sends what it queued before it reads.
+    cluster(w)?.signal("storage_2", Signal::Stop)?;
+    let running = cluster(w)?;
+    let commit_refused = run(async {
+        let mut commit = std::pin::pin!(held.commit(own, session));
+        if let Poll::Ready(answered) = futures::poll!(commit.as_mut()) {
+            return Err(TestError::new(format!(
+                "the Commit was answered while its partition was stopped: {answered:?}"
+            )));
+        }
+        running.signal("storage_2", Signal::Kill)?;
+        commit.await.err().context("a refusal")
+    })?;
+    // The partition gone, the endpoint's own read of it finds no connection.
     let read_refused = run(async {
         let reader = held.begin(TENANT, true).await?;
         let pattern = Pattern::of(Some(&second), Some(&p));
@@ -710,7 +731,6 @@ fn both_seventeen(w: &mut Steps) -> TestResult {
             .err()
             .context("a refusal")
     })?;
-    let commit_refused = run(async { held.commit(own, session).await.err().context("a refusal") })?;
     w.seen.refusals = vec![read_refused, commit_refused];
     Ok(())
 }
@@ -1397,6 +1417,71 @@ fn version_refused(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+/// How often a probe asks the system group before it gives up: every `PROBE_GAP` for the step's whole minute.
+const PROBES: u32 = 6_000;
+
+/// How long a probe waits between two asks.
+const PROBE_GAP: Duration = Duration::from_millis(10);
+
+/// Asks the system group at `system` whether it marks `session` of `principal` in flight, by Checks of kind 1, which mark
+/// nothing (`PROTOCOL.md` §11.5, §13.24), until its answer is `marked`: on a role connection of the probe's own, on compio.
+async fn asked_until(system: &str, (session, principal): (u128, u64), marked: bool) -> TestResult {
+    let mut role = RoleClient::dial(&Address::parse(system)?, CLUSTER, "frontend", SECRET).await?;
+    let check = Check::new(vec![SessionCheck::new(
+        session.to_be_bytes(),
+        principal,
+        CheckKind::Asks,
+    )]);
+    for _ in 0..PROBES {
+        let reply = role.request(&check).await?;
+        let view = reply.view()?;
+        let checked = CheckView::from_frame(&view)?;
+        let outcome = checked.get(0).context("the check's outcome")?.outcome();
+        let in_flight = match outcome {
+            CheckOutcome::InFlight => true,
+            CheckOutcome::Passed => false,
+            other => return Err(TestError::new(format!("the check answered {other:?}"))),
+        };
+        if in_flight == marked {
+            return Ok(());
+        }
+        compio::time::sleep(PROBE_GAP).await;
+    }
+    Err(TestError::new(format!(
+        "the system group's mark of session {session:032x} did not become {marked}"
+    )))
+}
+
+/// Waits until the system group at `system` marks `session` of `principal` in flight, or not, as `marked` says, while the
+/// shell's runtime runs the scenario's requests: on the compio shell's own runtime, or beside the Tokio shell's on a blocking
+/// thread of a compio runtime of its own.
+async fn until_marked(system: &str, session: (u128, u64), marked: bool) -> TestResult {
+    match Shell::current() {
+        Shell::Compio => asked_until(system, session, marked).await,
+        Shell::Tokio => {
+            let system = system.to_string();
+            tokio::task::spawn_blocking(move || {
+                Runtime::new()?.block_on(asked_until(&system, session, marked))
+            })
+            .await
+            .map_err(|error| TestError::new(format!("the probe's thread: {error}")))?
+        }
+    }
+}
+
+/// The partition holding the write in flight goes on, once `held` says the link holds the third Register: the write is
+/// answered, and its session's mark ends at the system group, so the registry holds a session it may evict.
+async fn free_registry(
+    running: &Cluster,
+    system: &str,
+    session: (u128, u64),
+    held: Result<(), oneshot::Canceled>,
+) -> TestResult {
+    held.map_err(|_| TestError::new("the link dropped its hold"))?;
+    running.signal("storage_2", Signal::Continue)?;
+    until_marked(system, session, false).await
+}
+
 #[when(
     "a client of 4 commit attempts registers, and a full registry answers its first two Registers code 14"
 )]
@@ -1405,38 +1490,62 @@ fn register_retried(w: &mut Steps) -> TestResult {
     let at = cluster(w)?.client.clone();
     // The group evicts no session while it is quiet, which would refuse the third Register too.
     after_quiet_time(&at);
+    let link = LossyLink::to(&at)?;
     let [p, b] = ["p", "b"].map(|n| w.iri(n));
+    let knobs = Knobs {
+        commit_attempts: Some(4),
+        ..Knobs::default()
+    };
     let (mut first, mut second, session) = run(async {
         let mut first = client(&at).await?;
-        let mut second = TestClient::new(&at, &Knobs::default())?;
+        let mut second = TestClient::new(&link.client_at(), &knobs)?;
         second.connect().await?;
         let session = first.register().await?;
         Ok((first, second, session))
     })?;
+    let marked = (
+        session.number(),
+        first.principal().context("the first client's principal")?,
+    );
+    let system = cluster(w)?.system.clone();
     // The second storage process's partition: the first hosts the system group, which answers the Registers.
     cluster(w)?.signal("storage_2", Signal::Stop)?;
     let running = cluster(w)?;
-    // The commit in flight fills the registry until the partition goes on, past the client's first two attempts, 50 ms apart.
+    // The client sends a Register again only after a 14, so the third waits in the link with two answered 14 before it.
+    let third = link.hold_request(Command::Register, 3);
     let registered = run(async {
-        let free_later = async {
-            pause(Duration::from_millis(120)).await;
-            running.signal("storage_2", Signal::Continue)
-        };
         let registering = async {
-            pause(Duration::from_millis(20)).await;
-            second.register().await
+            // The write in flight's check has marked its session: the full registry holds no session it may evict.
+            until_marked(&system, marked, true).await?;
+            let mut registering = std::pin::pin!(second.register());
+            let registered = match select(third, registering.as_mut()).await {
+                Either::Left((held, _)) => {
+                    let freed = free_registry(running, &system, marked, held).await;
+                    link.release();
+                    freed?;
+                    registering.await
+                }
+                Either::Right((registered, _)) => {
+                    // Answered before a third Register: the partition goes on all the same, so the write ends.
+                    running.signal("storage_2", Signal::Continue)?;
+                    registered
+                }
+            };
+            TestResult::Ok(registered)
         };
-        let (written, registered, freed) = futures::join!(
+        let (written, registered) = futures::join!(
             first.direct_write(direct_of(&a, &p, &iri(&b))?, session),
-            registering,
-            free_later
+            registering
         );
         let _written = written?;
-        freed?;
-        Ok(registered)
+        registered
     })?;
-    w.seen.facts = vec![format!("{registered:?}")];
-    w.committed = registered.is_ok();
+    let streams = link.requests();
+    let mut distinct = streams.clone();
+    distinct.sort_unstable();
+    distinct.dedup();
+    w.seen.facts = vec![format!("{registered:?}"), format!("{streams:?}")];
+    w.committed = registered.is_ok() && streams.len() == 3 && distinct.len() == 3;
     Ok(())
 }
 

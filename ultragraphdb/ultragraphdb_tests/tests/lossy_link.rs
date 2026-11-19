@@ -4,14 +4,16 @@
  */
 
 //! A network between a real client and a real frontend that loses what a scenario says: frames pass whole, and a frame of the
-//! command armed is lost with its connection, or damaged on its way. Every process either side of it is real and does as it
-//! would. It runs on threads of the test's own, in clear text over TCP, since it reads each frame's header.
+//! command armed is lost with its connection, damaged on its way, or held until the scenario lets it go. Every process either
+//! side of it is real and does as it would. It runs on threads of the test's own, in clear text over TCP, since it reads each
+//! frame's header.
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use ultragraphdb_protocol_wire::{Command, HEADER_SIZE};
+use futures::channel::oneshot;
+use ultragraphdb_protocol_wire::{Command, HEADER_SIZE, HeaderView};
 use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 use crate::shells::ClientAt;
@@ -25,6 +27,9 @@ enum Fault {
     LoseReply(Command),
     /// The next reply of this command reaches the client with a bit of its byte `.1` flipped.
     FlipReply(Command, usize),
+    /// The request of this command numbered `.1` from the arming, from 1, waits in the link, and every frame behind it on its
+    /// way, until the link is released.
+    HoldRequest(Command, usize),
 }
 
 /// What the link holds between its threads.
@@ -35,6 +40,14 @@ struct LinkState {
     lost: Vec<Vec<u8>>,
     /// The connections it has carried.
     connections: u32,
+    /// The stream of each request of the held command since the hold was armed, in the order they reached the link.
+    requests: Vec<u64>,
+    /// Told once the held request waits.
+    on_hold: Option<oneshot::Sender<()>>,
+    /// What the held request waits for.
+    released: Option<oneshot::Receiver<()>>,
+    /// What the scenario releases the held request by.
+    releases: Option<oneshot::Sender<()>>,
 }
 
 /// A link from a port of its own to one client endpoint.
@@ -96,6 +109,43 @@ impl LossyLink {
     /// The next reply of `command` arrives with bit `at % 8` of its byte `at` flipped.
     pub(crate) fn flip_reply(&self, command: Command, at: usize) {
         self.arm(Fault::FlipReply(command, at));
+    }
+
+    /// The request of `command` numbered `nth` from now, from 1, waits in the link until [`LossyLink::release`], and every
+    /// frame behind it on its way: the receiver is told once it waits.
+    pub(crate) fn hold_request(&self, command: Command, nth: usize) -> oneshot::Receiver<()> {
+        let (told, on_hold) = oneshot::channel();
+        let (releases, released) = oneshot::channel();
+        let mut held = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        held.requests.clear();
+        held.on_hold = Some(told);
+        held.released = Some(released);
+        held.releases = Some(releases);
+        held.armed = Some(Fault::HoldRequest(command, nth));
+        on_hold
+    }
+
+    /// Lets the held request go on, and every frame behind it: one the hold has not reached yet passes when it does.
+    pub(crate) fn release(&self) {
+        let releases = self
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .releases
+            .take();
+        if let Some(releases) = releases {
+            // A request whose connection closed waits for nothing.
+            let _unheld = releases.send(());
+        }
+    }
+
+    /// The stream of each request of the held command since the hold was armed.
+    pub(crate) fn requests(&self) -> Vec<u64> {
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .requests
+            .clone()
     }
 
     /// The frames lost so far.
@@ -163,21 +213,56 @@ fn next_frame(from: &mut TcpStream) -> Option<Vec<u8>> {
     Some(frame)
 }
 
+/// What the request `frame`, of the command numbered `command`, waits for, when a hold armed for that command reaches it: each
+/// request of the command counted by its stream, and the one the hold names told and held.
+fn held_until(
+    state: &Mutex<LinkState>,
+    frame: &[u8],
+    command: Option<u16>,
+) -> Option<oneshot::Receiver<()>> {
+    let mut held = state.lock().unwrap_or_else(PoisonError::into_inner);
+    let Some(Fault::HoldRequest(armed, nth)) = held.armed else {
+        return None;
+    };
+    if command != Some(armed.number()) {
+        return None;
+    }
+    let stream = HeaderView::new(frame).map_or(0, |header| header.stream());
+    held.requests.push(stream);
+    if held.requests.len() < nth {
+        return None;
+    }
+    held.armed = None;
+    if let Some(told) = held.on_hold.take() {
+        // A scenario that stopped waiting has no one to tell.
+        let _untold = told.send(());
+    }
+    held.released.take()
+}
+
 /// The number of a frame's command, from its header.
 fn command_of(frame: &[u8]) -> Option<u16> {
     let number = frame.get(54..56)?;
     Some(u16::from_le_bytes(number.try_into().ok()?))
 }
 
-/// Carries frames from `from` to `to` until either closes or a frame is lost, then closes both.
+/// Carries frames from `from` to `to` until either closes or a frame is lost, then closes both; a held request, and every frame
+/// behind it, waits until the scenario releases it.
 fn pump(mut from: TcpStream, mut to: TcpStream, state: &Mutex<LinkState>, way: Way) {
     while let Some(mut frame) = next_frame(&mut from) {
         let command = command_of(&frame);
         let matches = |armed: Command| command == Some(armed.number());
+        if way == Way::Request
+            && let Some(released) = held_until(state, &frame, command)
+        {
+            // A release dropped unsent lets the frame go as a release does.
+            let _released = futures::executor::block_on(released);
+        }
         let mut held = state.lock().unwrap_or_else(PoisonError::into_inner);
         let lost = match held.armed {
             Some(Fault::LoseRequest(armed)) => way == Way::Request && matches(armed),
             Some(Fault::LoseReply(armed)) => way == Way::Reply && matches(armed),
+            Some(Fault::HoldRequest(..)) => false,
             Some(Fault::FlipReply(armed, at)) => {
                 if way == Way::Reply && matches(armed) {
                     // A frame shorter than `at` takes it in its last byte.

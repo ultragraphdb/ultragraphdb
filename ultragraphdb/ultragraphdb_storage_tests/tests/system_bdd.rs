@@ -124,6 +124,10 @@ pub(crate) struct Steps {
     placements: Vec<Vec<(u32, u32, u32)>>,
     status: u16,
     pub(crate) epochs: Vec<u64>,
+    /// The wall-clock time a partition's process was stopped at, in microseconds.
+    pub(crate) stopped_at: u64,
+    /// The sequencer's times on the closes read while it was stopped, in microseconds, in the order of `epochs`.
+    pub(crate) close_times: Vec<u64>,
     /// What the system group held, as read before and after its host's restart.
     pub(crate) books: Vec<String>,
     /// Block leases' starts and ends.
@@ -259,6 +263,17 @@ pub(crate) async fn commit_on(
     partition: u32,
     write: &Write,
 ) -> TestResult<u64> {
+    let answer = commit_answer(client, partition, write).await?;
+    refused_at(partition, &answer)?;
+    Ok(CommitView::from_frame(&answer.view()?)?.commit_version())
+}
+
+/// As [`commit_on`], the Commit's answer returned as it came, a refusal included; a refused Write fails.
+pub(crate) async fn commit_answer(
+    client: &mut RoleClient,
+    partition: u32,
+    write: &Write,
+) -> TestResult<ReceivedFrame> {
     let bind = Bind::new(partition, BindKind::Transaction, TENANT, 0, 1, [7; 16]);
     drop(client.request(&bind).await?);
     let stream = client.last_stream();
@@ -267,9 +282,7 @@ pub(crate) async fn commit_on(
     refused_at(partition, &held)?;
     drop(held);
     client.send_on(stream, &Commit::new([0; 16], 0, 0)).await?;
-    let answer = client.next_frame().await?;
-    refused_at(partition, &answer)?;
-    Ok(CommitView::from_frame(&answer.view()?)?.commit_version())
+    Ok(client.next_frame().await?)
 }
 
 /// Commits `count` writes of distinct objects to `partition` at `address`, each in a round of its own: the last version.
@@ -288,7 +301,7 @@ fn commits(address: &str, partition: u32, partitions: u32, count: u32) -> TestRe
 }
 
 /// Fails on `frame` when it is an Error of `partition`.
-fn refused_at(partition: u32, frame: &ReceivedFrame) -> TestResult {
+pub(crate) fn refused_at(partition: u32, frame: &ReceivedFrame) -> TestResult {
     let view = frame.view()?;
     if view.command() == Command::Error {
         let refusal = ErrorReplyView::from_frame(&view)?;

@@ -9,7 +9,7 @@
 //! `features/system/pinned.feature`.
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use compio::runtime::Runtime;
 use cucumber::{then, when};
@@ -18,15 +18,16 @@ use ultragraphdb_core_ids::Version;
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     BodyView, BucketRange, Catalog, CatalogView, Challenge, ChallengeView, CloseRequest, Command,
-    Declare, DeclareView, Declared, DeclaredPredicate, EpochCloseView, ErrorReplyView, Lease,
-    LeaseView, Placement, PlacementView, Subscribe, TenantRun,
+    CommitView, ConflictKind, Declare, DeclareView, Declared, DeclaredPredicate, EpochCloseView,
+    ErrorCode, ErrorReplyView, Lease, LeaseView, Placement, PlacementView, Subscribe, TenantRun,
 };
 use ultragraphdb_tests::{CLUSTER, SECRET, START_SECONDS, exit_is, fresh_data, scratch, with};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult, loopback};
 
 use crate::{
-    FIRST_OFFSET, SECOND_OFFSET, Steps, TENANT, commit_on, edge_write, first_observed, hosting,
-    instance, rounds_replayed, second_observed, services, started, subject_of, system_address,
+    FIRST_OFFSET, SECOND_OFFSET, Steps, TENANT, commit_answer, edge_write, first_observed, hosting,
+    instance, refused_at, rounds_replayed, second_observed, services, started, subject_of,
+    system_address,
 };
 
 /// The closes the scenario's group holds before its host is killed.
@@ -47,8 +48,8 @@ const LEASED_SIZE: u64 = 16;
 /// The catalog versions declared before the hosting process restarts: version 3 is the last.
 const VERSIONS: u64 = 3;
 
-/// `epoch_ms_max` in the delayed partition's scenario, and how long its process is stopped: ten such epochs, past
-/// `epoch_ms_max` as the scenario asks.
+/// `epoch_ms_max` in the delayed partition's scenario, and the window after its process is stopped, by the sequencer's
+/// clock, that it stays stopped through: ten such epochs, past `epoch_ms_max` as the scenario asks.
 const EPOCH_MS_MAX: u64 = 50;
 const STOPPED_MS: u64 = 10 * EPOCH_MS_MAX;
 
@@ -78,6 +79,18 @@ fn answered(what: &str, frame: &ReceivedFrame) -> TestResult {
         )));
     }
     Ok(())
+}
+
+/// Whether `frame` aborts a transaction that executed against another catalog version than the one in effect at its
+/// commit: code 2 (Conflict), kind 5 (Catalog), retryable (`PROTOCOL.md` §9.4, §11.13).
+fn catalog_aborted(frame: &ReceivedFrame) -> TestResult<bool> {
+    let view = frame.view()?;
+    if view.command() != Command::Error {
+        return Ok(false);
+    }
+    let refusal = ErrorReplyView::from_frame(&view)?;
+    Ok(refusal.code() == ErrorCode::Conflict
+        && ConflictKind::from_number(refusal.detail()) == Some(ConflictKind::Catalog))
 }
 
 /// Sends `pid` the signal `signal`, by the host's `kill`.
@@ -300,7 +313,8 @@ fn books_held(w: &mut Steps) -> TestResult {
 }
 
 /// Commits writes of distinct objects to `partition` at `address` until one commits at `epoch` or later, its epoch
-/// returned: what the partition's open epoch, one past the last close delivered to it, has reached. Gives up past
+/// returned: what the partition's open epoch, one past the last close delivered to it, has reached. A transaction the
+/// partition aborts for a catalog version taking effect ([`catalog_aborted`]) runs again. Gives up past
 /// [`START_SECONDS`].
 #[expect(
     clippy::disallowed_methods,
@@ -319,10 +333,21 @@ fn committed_at_or_after(
         // Ends at a commit of `epoch` or later, or past the bound (Ultra rule 2).
         for at in 0u32.. {
             let write = edge_write(&subject, &format!("http://ex.org/late{at}"));
-            let committed = Version::from_u64(commit_on(&mut client, partition, &write).await?)
-                .epoch()
-                .get();
-            if committed >= epoch {
+            let answer = commit_answer(&mut client, partition, &write).await?;
+            // A transaction that executed against another catalog version than the one in effect at its commit epoch is
+            // aborted, code 2 kind 5, and runs again on a new Bind against the version in effect (`PROTOCOL.md` §11.13,
+            // *Transactions against a version*; §9.4, code 2: "the whole transaction on a new Begin"). The partition takes
+            // the closes at its own pace, behind the group's under load, so one bound before the close opening a
+            // version's epoch may commit after it. Any other refusal fails.
+            let committed = if catalog_aborted(&answer)? {
+                None
+            } else {
+                refused_at(partition, &answer)?;
+                let version = CommitView::from_frame(&answer.view()?)?.commit_version();
+                Some(Version::from_u64(version).epoch().get())
+            };
+            drop(answer);
+            if let Some(committed) = committed.filter(|committed| *committed >= epoch) {
                 return Ok(committed);
             }
             if began.elapsed() > Duration::from_secs(START_SECONDS) {
@@ -367,32 +392,50 @@ fn partition_delayed(w: &mut Steps) -> TestResult {
     let during = Runtime::new()?.block_on(async {
         let mut closes = group_as("frontend").await?;
         closes.send_only(&Subscribe::at_latest()).await?;
-        let mut during = vec![close_epoch(&closes.next_frame().await?)?];
+        let mut during = vec![timed_close(&closes.next_frame().await?)?];
         signal(pid, "-STOP")?;
         let stopped = Instant::now();
-        let window = Duration::from_millis(STOPPED_MS);
-        // Ends once the window has passed (Ultra rule 2).
-        while let Some(left) = window.checked_sub(stopped.elapsed()) {
-            match compio::time::timeout(left, closes.next_frame()).await {
-                Ok(frame) => during.push(close_epoch(&frame?)?),
-                Err(_) => break,
-            }
+        let stopped_at = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros())?;
+        // Read until a close the sequencer made past the window, by the time it recorded on it: a close a loaded machine
+        // hands this reader late is still counted in the window it was made in. Ends at that close, or past
+        // START_SECONDS (Ultra rule 2).
+        let window_end = stopped_at + STOPPED_MS * 1_000;
+        while during.last().is_some_and(|(_, time)| *time <= window_end) {
+            let left = Duration::from_secs(START_SECONDS)
+                .checked_sub(stopped.elapsed())
+                .context("a close made past the window while the partition is stopped")?;
+            let frame = compio::time::timeout(left, closes.next_frame())
+                .await
+                .map_err(|_| {
+                    TestError::new(format!(
+                        "no close made past {STOPPED_MS} ms after the stop read in {START_SECONDS} s"
+                    ))
+                })??;
+            during.push(timed_close(&frame)?);
         }
-        TestResult::Ok(during)
+        TestResult::Ok((stopped_at, during))
     });
     // Run again whatever the closes read, so the scenario's end stops it as any other.
     signal(pid, "-CONT")?;
-    let during = during?;
-    let last = *during.last().context("a close")?;
+    let (stopped_at, during) = during?;
+    let last = during.last().context("a close")?.0;
     // The partition's open epoch passes the last close the group sent while it was stopped once it has read them all.
     let reached = committed_at_or_after(
         &format!("tcp://{}", loopback(SECOND_OFFSET)?),
         (2, 2),
         last + 1,
     )?;
-    w.epochs = during;
+    w.stopped_at = stopped_at;
+    w.close_times = during.iter().map(|(_, time)| *time).collect();
+    w.epochs = during.iter().map(|(epoch, _)| *epoch).collect();
     w.epochs.push(reached);
     Ok(())
+}
+
+/// The epoch of `frame`, a close, and the sequencer's wall-clock time recorded on it, in microseconds.
+fn timed_close(frame: &ReceivedFrame) -> TestResult<(u64, u64)> {
+    let close = EpochCloseView::from_frame(&frame.view()?)?;
+    Ok((close.epoch(), close.time()))
 }
 
 #[then(
@@ -409,14 +452,22 @@ fn closes_on_time(w: &mut Steps) -> TestResult {
         next += 1;
         assert_eq!(*epoch, next, "{:?}", w.epochs);
     }
-    // On time: a close per `epoch_ms_max`, at least half of those the window holds counted, where a group waiting on the
-    // stopped partition would have closed none.
+    // On time: a close per `epoch_ms_max` by the times the sequencer recorded on them (sequencer, "The sequencer closes
+    // epochs at its own wall-clock time"), at least half of those the window after the stop holds made in it, where a group
+    // waiting on the stopped partition would have made none, and handed none over before it ran again.
+    let window = w.stopped_at..=w.stopped_at + STOPPED_MS * 1_000;
+    let made = w
+        .close_times
+        .iter()
+        .filter(|time| window.contains(time))
+        .count();
     let on_time = usize::try_from(STOPPED_MS / EPOCH_MS_MAX / 2)?;
     assert!(
-        closed.len() >= on_time,
-        "{} closes in {STOPPED_MS} ms: {:?}",
-        closed.len(),
-        w.epochs
+        made >= on_time,
+        "{made} closes made in the {STOPPED_MS} ms after the stop at {}: {:?} at {:?}",
+        w.stopped_at,
+        w.epochs,
+        w.close_times
     );
     let last = closed.last().unwrap_or(first);
     assert!(reached > last, "{:?}", w.epochs);
@@ -436,8 +487,6 @@ fn restarts_with_version(w: &mut Steps) -> TestResult {
     )?;
     w.roles = Some(util);
     let effective = Runtime::new()?.block_on(async {
-        let mut closes = group_as("frontend").await?;
-        closes.send_only(&Subscribe::at_latest()).await?;
         let mut asking = group_as("frontend").await?;
         let mut effective = 0;
         for built_on in 0..VERSIONS {
@@ -457,13 +506,11 @@ fn restarts_with_version(w: &mut Steps) -> TestResult {
             }
             effective = Version::from_u64(built.commit_version()).epoch().get();
         }
-        // The group's closes past the one opening the effective epoch, so the partition, which receives the same closes,
-        // takes version 3 in effect before a transaction binds there: one bound across that close would be aborted.
-        // Ends at that close, the sequencer closing every `epoch_ms_max` (Ultra rule 2).
-        while close_epoch(&closes.next_frame().await?)? <= effective {}
         TestResult::Ok(effective)
     })?;
-    // A round at the epoch version 3 takes effect or later: its records name version 3.
+    // A round at the epoch version 3 takes effect or later: its records name version 3. The partition takes the closes at
+    // its own pace, so a transaction bound before the close opening that epoch and committed after it is aborted and runs
+    // again, as `committed_at_or_after` does.
     let _epoch = committed_at_or_after(
         &format!("tcp://{}", loopback(FIRST_OFFSET)?),
         (1, 1),

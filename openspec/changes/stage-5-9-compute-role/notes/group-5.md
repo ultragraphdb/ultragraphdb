@@ -353,3 +353,73 @@ until a captured log of the next failure shows the cause.
 - The config service a test starts outlives a test killed by its pid: `config_process` starts it with `clear_env` and no
   `ULTRAGRAPHDB_PARENT_PID`. Under Bazel the process group's kill covers it.
 - RustRover holds 127.0.0.1:30001 and 30002 on this Mac, inside the supervisor's block 90 (30000–30199).
+
+## `system_books_bdd`: two test assumptions, fixed (2026-11-19)
+
+Reproduced from the runfiles copies, one port base per run (45000–48200), the nine other storage targets looping beside
+it: 4 failures in 12 runs, each "A partition recovers from the group of its own process" refused with "Transaction has been
+aborted". After the fix: 0 failures in 36 runs under the same load, six fsync hammers in part of it, and the storage group
+under Bazel 15 of 15.
+
+### The abort is the protocol's answer
+
+Every abort, 25 in the diagnostic runs, was code 2 kind 5 (Catalog). The partition takes the group's closes at its own
+pace: under load partition 1 committed at epochs 12 to 31 while version 3 took effect at 69, then jumped to 94. A
+transaction bound before the close opening a version's epoch and committed after it aborts, as `PROTOCOL.md` §11.13,
+*Transactions against a version*, states: "A read-write transaction that executed against another catalog version than the
+one in effect at its commit epoch, or than the last its partition's rounds took effect, its commit-time operations included,
+aborts with code 2, kind 5 (Catalog), and its retry executes against the version in effect"; §9.4 runs code 2 again as "the
+whole transaction on a new Begin". The step waited for the group's close past the effective epoch, assuming the partition
+had it too. `committed_at_or_after` now runs a Catalog abort again on a new Bind; any other refusal fails.
+
+### The closes count by the sequencer's clock
+
+"3 closes in 500 ms" counted the closes a subscriber received in 500 ms of the test's clock. The sequencer's recorded gaps
+stayed 50.0–84.6 ms (median 50.6, 285 gaps) while delivery to the subscriber lagged up to 169 ms; under fsync load 9 closes
+were made in a window and 6 received in it. The step now keeps the partition stopped until a close made past the window is
+read, and counts the closes whose recorded time lies in the 500 ms after the stop: at least 5, as before. A group waiting on
+the stopped partition makes none, or hands none over, and still fails.
+
+### Found, not changed
+
+- After a start under load a partition's delivered closes lag the group's by up to about 57 epochs (about 1.1 s at 20 ms),
+  advance about 30 closes a second while the group makes 50, then jump about 60 at once (`CLOSES_PER_TURN_MAX` is 64).
+  Cause not traced.
+- `Transaction::begin` executes against the applier's installed catalog, which changes when the takes-effect round is
+  applied, while the commit step takes the version in effect at the close's delivery. A transaction begun between the two
+  aborts with Catalog, and so does a retry begun in the same window, against §11.13's "its retry executes against the
+  version in effect". Two consecutive Catalog aborts were seen twice in 8 runs; three versions take effect in that scenario,
+  so they may be two separate boundaries rather than this window. Open.
+- The sequencer closes at its deadline at the earliest, so every recorded gap exceeds `epoch_ms_max` (minimum 50.0 ms for a
+  50 ms maximum, median 50.6): the sequencer spec's "at most `epoch_ms_max` after the previous close" holds only on its
+  stepped clock.
+- `bdd_wire_protocol_parked_requests` failed twice in about 30 load-loop runs; later runs overwrote the logs.
+
+## `bdd_wire_protocol_process_faults`: two step races, fixed (2026-11-19)
+
+### Code 17 on a read and a Commit
+
+Reproduced from runfiles copies: 34 failures in 40 runs of the feature under load, each the Commit's refusal
+`Refused{Other, 17}`. Traced: the endpoint answers both streams by §11.12 *Errors*: the transaction's stream 17 when its
+Bind's role connection closes, and the read's stream its own 17. The client takes the transaction's Error as the answer of
+its next request (§11.2). Taken before the Commit was sent, it refuses the Commit unsent, and so not in doubt (§11.5); taken
+after, it is the Commit's 17, in doubt. The step killed `storage_2` and then sent the Commit, so the order was luck. The step
+now stops `storage_2`, polls the Commit once so the client queues it, then kills the partition and reads. 0 failures in
+90 runs, 50 of them under load. No product change: the earlier reading, a read taking another stream's refusal, was wrong.
+
+### A Register answered busy
+
+Not reproduced in 314 runs under CPU and IO load. The step waited on time: 20 ms for the write's check to mark the session,
+120 ms before `storage_2` went on, and the client's 50 ms retries. It now waits on conditions: a Check of kind 1 on a role
+connection says when the session is marked and when it no longer is, and `LossyLink::hold_request` holds the client's third
+Register until the mark is gone. The client takes 4 attempts, as the scenario says, and the step checks three Registers on
+three streams. 0 failures in 90 runs, 50 of them under load. The client's retry matches §11.3 and §11.5.
+
+### Found, not changed
+
+- `commit_seventeen` ("Code 17 on a commit is in doubt") and `storage_closes` kill a partition and then commit: the same
+  race, narrower, since no read sits between.
+- `register_exhausted` waits 50 ms for the session's mark.
+- `bdd_client_endpoint_limits`, "A read holding a write back is named at the limit": failed once in the cluster group with
+  the limit's message lacking the read's stream, and passed alone; the message comes from `past_limit` in
+  `client_session_timers.rs`.
