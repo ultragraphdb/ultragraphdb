@@ -4,8 +4,9 @@
  */
 
 //! A cluster played in the test's own process for compute's reads: a frontend answering Placement and Members, partitions
-//! answering each Scan from a table of keys and recording what they were asked, and a compute core serving its sessions, all on
-//! the test's runtime over loopback TCP. What compute sends and answers crosses real role connections, built by the wire crate.
+//! answering each Scan from a table of keys and recording what they were asked, and a compute core whose reads a client's
+//! session hands to its executor, all on the test's runtime over loopback TCP. What compute sends and answers crosses real role
+//! connections, built by the wire crate.
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -18,10 +19,10 @@ use compio::runtime::spawn;
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap, TenantRun};
-use ultragraphdb_common_compute::{ComputeCore, ComputeSession, ReadTimes};
+use ultragraphdb_common_compute::{ComputeCore, ReadExecutor, ReadTimes};
 use ultragraphdb_common_role::{
-    Answer, COMPUTE_WELCOME_CREDIT, OpenRequests, PARTITION_INITIAL_CREDIT, Push, ROLE_ITERATIONS,
-    RoleClient, RoleCluster, RoleCredentials, RoleSecret, Server, Session, serve_connection,
+    Answer, OpenRequests, PARTITION_INITIAL_CREDIT, Push, ROLE_ITERATIONS, RoleCluster,
+    RoleCredentials, RoleSecret, Server, Session, serve_connection,
 };
 use ultragraphdb_core_ids::{Bucket, Epoch, Sequence, SystemId, Tenant, TypePrefix, Version};
 use ultragraphdb_core_keys::{Graph, QuadKey};
@@ -35,6 +36,8 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_quads::{id_key, iri_bucket, term_key};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+
+use crate::apart::apart_session::ReadSession;
 
 /// The played cluster's identity.
 pub const CLUSTER: u64 = 7;
@@ -519,11 +522,11 @@ impl Session for FrontendConnection {
     }
 }
 
-/// The played cluster: its partitions, the compute core's address, and what compute's sessions hold open.
+/// The played cluster: its partitions, the compute core, and what its reads hold open.
 #[derive(Debug)]
 pub struct Played {
     partitions: Vec<Rc<Partition>>,
-    compute: Address,
+    core: Rc<ComputeCore>,
     map: PlacementMap,
     open: OpenRequests,
 }
@@ -592,26 +595,14 @@ impl Played {
         let frontend_server =
             Server::new(CLUSTER, "compute", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
         let connection = FrontendConnection { partitions, listed };
-        let frontend = serve(frontend_server, credentials.clone(), move || {
-            connection.clone()
-        })
-        .await?;
+        let frontend = serve(frontend_server, credentials, move || connection.clone()).await?;
         let cluster = RoleCluster::new(CLUSTER, secret, Duration::from_secs(5));
         let core = ComputeCore::new(cluster, frontend, times, "compute");
-        let open = OpenRequests::default();
-        let compute_server = Server::new(CLUSTER, "role", Endpoint::Compute)?
-            .with_welcome(|welcome| welcome.with_initial_credit(COMPUTE_WELCOME_CREDIT))
-            .with_iterations(ROLE_ITERATIONS);
-        let held = open.clone();
-        let compute = serve(compute_server, credentials, move || {
-            ComputeSession::new(Rc::clone(&core)).with_open(held.clone())
-        })
-        .await?;
         Ok(Self {
             partitions: played,
-            compute,
+            core,
             map: PlacementMap::even(partitions, NodeId::new(1))?,
-            open,
+            open: OpenRequests::default(),
         })
     }
 
@@ -646,8 +637,9 @@ impl Played {
         self.open.count()
     }
 
-    /// A connection to compute, as the frontend's.
-    pub async fn client(&self) -> TestResult<RoleClient> {
-        Ok(RoleClient::dial(&self.compute, CLUSTER, "compute", PASSWORD).await?)
+    /// A client connection's reads on compute's core, each counted open until it ends, as the connection's session runs them.
+    pub fn client(&self) -> ReadSession {
+        let executor = ReadExecutor::new(Rc::clone(&self.core)).with_open(self.open.clone());
+        ReadSession::new(CLUSTER, executor)
     }
 }

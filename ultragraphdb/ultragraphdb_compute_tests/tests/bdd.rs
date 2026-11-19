@@ -4,9 +4,8 @@
  */
 
 //! The compute binary as a process, bound to `features/`, with no container: its client endpoint over storage processes and
-//! the system group one hosts; and, until stage 5.9's task 6.4 binds them to the client endpoint, the reads the read features
-//! send as ComputeReads to a compute session the test serves in process over real storage processes. One scenario runs at a
-//! time: the binaries listen at their declared ports.
+//! the system group one hosts; and the read features' reads, sent to its client endpoint over real or played storage
+//! partitions and a played system group. One scenario runs at a time: the binaries listen at their declared ports.
 
 mod access_steps;
 mod books_steps;

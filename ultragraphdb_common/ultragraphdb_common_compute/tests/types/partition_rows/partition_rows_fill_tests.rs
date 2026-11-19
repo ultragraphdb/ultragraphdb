@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use ultragraphdb_common_role::{OpenRequests, RoleClient};
+use ultragraphdb_common_role::OpenRequests;
 use ultragraphdb_core_keys::{Graph, Keyspace, key_prefix};
 use ultragraphdb_protocol_wire::ErrorCode;
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -19,6 +19,7 @@ use crate::apart::apart_reads::{
     Lists, P, TENANT, TWO_BY_TWO, answer_on, forward, hold_lists, hold_two_predicates, holding, id,
     list_of, name, of_p, of_s, read_of, rows_listed,
 };
+use crate::apart::apart_session::ReadSession;
 
 /// Every row of every list, in the store's key order, each list's key and its end in frames of their own.
 #[test]
@@ -115,9 +116,7 @@ fn test_a_subject_read_reads_its_predicates_list_then_each_list() -> TestResult 
     run(async {
         let cluster = ApartCluster::start(1).await?;
         let [p1, o1, p2, o2] = hold_two_predicates(cluster.partition(1)?)?;
-        let mut client = cluster
-            .compute(times(Duration::from_secs(1)), OpenRequests::default())
-            .await?;
+        let mut client = cluster.session(times(Duration::from_secs(1)), OpenRequests::default());
         let answer = answer_on(&mut client, &of_s(0, Vec::new())).await?;
         let row = |p: &str, o: &str| vec![Some(p.to_string()), Some(o.to_string()), None];
         assert_eq!(answer.whole()?, [row(p1, o1), row(p2, o2)].as_slice());
@@ -132,9 +131,7 @@ fn test_a_subject_read_resumed_goes_on_at_the_next_predicate() -> TestResult {
     run(async {
         let cluster = ApartCluster::start(1).await?;
         let [p1, o1, p2, o2] = hold_two_predicates(cluster.partition(1)?)?;
-        let mut client = cluster
-            .compute(times(Duration::from_secs(1)), OpenRequests::default())
-            .await?;
+        let mut client = cluster.session(times(Duration::from_secs(1)), OpenRequests::default());
         let row = |p: &str, o: &str| vec![Some(p.to_string()), Some(o.to_string()), None];
         let first = answer_on(&mut client, &of_s(1, Vec::new())).await?;
         assert_eq!(first.whole()?, [row(p1, o1)].as_slice());
@@ -168,9 +165,7 @@ fn test_a_read_of_every_graph_walks_each_graph_in_turn() -> TestResult {
         name(partition, "http://ex.org/o2", o2);
         let named = crate::apart::apart_reads::forward_in(Graph::Named(graph), p, s2);
         partition.put(named.clone(), list_of(&[o2]));
-        let mut client = cluster
-            .compute(times(Duration::from_secs(1)), OpenRequests::default())
-            .await?;
+        let mut client = cluster.session(times(Duration::from_secs(1)), OpenRequests::default());
         let answer = answer_on(&mut client, &read_of((true, None, Some(P)), 0, Vec::new())).await?;
         let default_row = vec![
             None,
@@ -224,9 +219,7 @@ fn test_a_scan_stalled_behind_the_merge_goes_on_where_it_stopped() -> TestResult
         partition.frame_per_key();
         partition.script(lists.clone(), Script::StallInList, 1);
         partition.script(lists, Script::StallPastKey, 1);
-        let mut client = cluster
-            .compute(times(Duration::from_secs(1)), OpenRequests::default())
-            .await?;
+        let mut client = cluster.session(times(Duration::from_secs(1)), OpenRequests::default());
         let answer = answer_on(&mut client, &of_p(0, Vec::new())).await?;
         assert_eq!(answer.whole()?, rows_listed(LISTS).as_slice());
         Ok(())
@@ -241,9 +234,7 @@ fn test_a_stall_past_a_one_key_range_goes_on_at_the_next_range() -> TestResult {
         let partition = cluster.partition(1)?;
         let [p1, o1, p2, o2] = hold_two_predicates(partition)?;
         partition.script(forward(id(201)?, id(200)?), Script::StallPastKey, 1);
-        let mut client = cluster
-            .compute(times(Duration::from_secs(1)), OpenRequests::default())
-            .await?;
+        let mut client = cluster.session(times(Duration::from_secs(1)), OpenRequests::default());
         let answer = answer_on(&mut client, &of_s(0, Vec::new())).await?;
         let row = |p: &str, o: &str| vec![Some(p.to_string()), Some(o.to_string()), None];
         assert_eq!(answer.whole()?, [row(p1, o1), row(p2, o2)].as_slice());
@@ -251,8 +242,9 @@ fn test_a_stall_past_a_one_key_range_goes_on_at_the_next_range() -> TestResult {
     })
 }
 
-/// The first key of `<p>`'s lists in a cluster holding [`TWO_BY_TWO`], and a connection to compute.
-async fn scripted(script: Script, times_fired: u32) -> TestResult<(ApartCluster, RoleClient)> {
+/// A cluster holding [`TWO_BY_TWO`] whose partition's Scans of `<p>`'s lists take `script`, and a client's reads on its
+/// compute core.
+async fn scripted(script: Script, times_fired: u32) -> TestResult<(ApartCluster, ReadSession)> {
     let cluster = ApartCluster::start(1).await?;
     let partition = cluster.partition(1)?;
     let p = hold_lists(partition, (Graph::Default, P), TWO_BY_TWO, 100)?;
@@ -264,9 +256,7 @@ async fn scripted(script: Script, times_fired: u32) -> TestResult<(ApartCluster,
         Some(p),
     );
     partition.script(lists, script, times_fired);
-    let client = cluster
-        .compute(times(Duration::from_secs(1)), OpenRequests::default())
-        .await?;
+    let client = cluster.session(times(Duration::from_secs(1)), OpenRequests::default());
     Ok((cluster, client))
 }
 
@@ -347,7 +337,7 @@ fn test_a_scan_stopped_by_its_limit_short_of_a_row_goes_on() -> TestResult {
                 datatype: Some(FLOAT32_VECTOR.to_string()),
             }),
         };
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = read(&mut client, &snapshot_of(&bound)?.with_limit(1))
             .await?
             .answered()?;

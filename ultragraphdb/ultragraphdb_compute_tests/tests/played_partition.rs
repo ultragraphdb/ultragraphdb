@@ -19,8 +19,9 @@ use ultragraphdb_common_role::{
 };
 use ultragraphdb_protocol_transport::{Endpoint, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Closed, ClosedPartition, ClosedView, Command, Entries, EntriesEnd,
-    ErrorCode, ErrorReply, FLAG_LAST, Header, ObjectRecords, ObjectRecordsBuilder, ScanView,
+    Bind, BindView, BodyBuilder, BodyView, Closed, ClosedPartition, ClosedView, Command, Entries,
+    EntriesEnd, ErrorCode, ErrorReply, FLAG_LAST, Header, ObjectRecords, ObjectRecordsBuilder,
+    ScanView,
 };
 use ultragraphdb_tests::{CLUSTER, SECRET, scratch};
 use ultragraphdb_tool_bdd::TestResult;
@@ -311,6 +312,28 @@ impl Session for PartitionConnection {
                 Ok(replied) => Answer::Reply(replied),
                 Err(refusal) => Answer::Refuse(refusal),
             };
+        }
+        if command == Command::Bind {
+            // A read-write transaction's read binds it at the partition first (`PROTOCOL.md` §13.10): bound at `VERSION`.
+            let Ok(bind) = BindView::from_frame(&view) else {
+                return Answer::Refuse(ErrorReply::new(ErrorCode::Protocol, "a Bind"));
+            };
+            let reply = Bind::new(
+                bind.partition(),
+                bind.kind(),
+                bind.tenant(),
+                bind.epoch(),
+                bind.principal(),
+                bind.transaction(),
+            )
+            .with_read_version(VERSION);
+            return match frame_of(&reply, stream, true) {
+                Ok(replied) => Answer::Reply(replied),
+                Err(refusal) => Answer::Refuse(refusal),
+            };
+        }
+        if command == Command::Cancel {
+            return Answer::Done;
         }
         let scan = match ScanView::from_frame(&view) {
             Ok(scan) => scan,

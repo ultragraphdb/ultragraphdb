@@ -11,10 +11,10 @@
 use std::time::Duration;
 
 use ultragraphdb_common_compute::{ReadTimes, read_times_of};
-use ultragraphdb_common_role::RoleClient;
-use ultragraphdb_protocol_wire::{ComputeRead, Credit, MAX_FRAME_FLOOR_U32, ReadLevel, ScanAt};
+use ultragraphdb_protocol_wire::{MAX_FRAME_FLOOR_U32, ReadLevel, ScanAt};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
+use crate::apart::apart_session::{ReadSession, SessionRead};
 use crate::utils::played_answers::{Batch, Pattern, answer_on, next_of, read_of, snapshot};
 use crate::utils::played_cluster::{Partition, Played, id, run, version, within};
 
@@ -52,10 +52,8 @@ fn hold_rows(partition: &Partition, rows: u64, base: u64) -> TestResult {
 }
 
 /// `read` sent on `client` with a credit of one frame: its first batch.
-async fn first_batch(client: &mut RoleClient, read: ComputeRead) -> TestResult<(u64, Batch)> {
-    client
-        .send_only(&read.with_client_limits(MAX_FRAME_FLOOR_U32, 1))
-        .await?;
+async fn first_batch(client: &mut ReadSession, read: SessionRead) -> TestResult<(u64, Batch)> {
+    client.send_only(&read.with_client_limits(MAX_FRAME_FLOOR_U32, 1))?;
     let stream = client.last_stream();
     let batch = next_of(client).await?.map_err(|refused| {
         ultragraphdb_tool_bdd::TestError::new(format!("refused: {refused:?}"))
@@ -65,7 +63,7 @@ async fn first_batch(client: &mut RoleClient, read: ComputeRead) -> TestResult<(
 
 /// The rest of the read on `stream` after `batch`, a frame's credit granted per batch after `pause`: how many batches it took.
 async fn rest_of(
-    client: &mut RoleClient,
+    client: &mut ReadSession,
     stream: u64,
     mut batch: Batch,
     pause: Duration,
@@ -73,7 +71,7 @@ async fn rest_of(
     let mut batches = 1;
     while !batch.last {
         compio::time::sleep(pause).await;
-        client.send_on(stream, &Credit::new(1)).await?;
+        client.credit(stream, 1)?;
         batch = next_of(client).await?.ok().context("a batch")?;
         batches += 1;
     }
@@ -89,7 +87,7 @@ fn test_a_snapshot_read_holds_its_version_from_its_first_frame() -> TestResult {
         let played = Played::start(1, read_times_of(None, None)).await?;
         let partition = played.partition(1)?;
         hold_rows(partition, 3, 10)?;
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let read = snapshot(&Pattern::of(None, Some(P), None))?;
         let (stream, batch) = first_batch(&mut client, read).await?;
         compio::time::sleep(Duration::from_millis(50)).await;
@@ -124,7 +122,7 @@ fn test_a_short_latest_read_holds_no_version() -> TestResult {
         let played = Played::start(1, read_times_of(None, None)).await?;
         let partition = played.partition(1)?;
         hold_rows(partition, 1, 10)?;
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let read = read_of(
             &Pattern::of(None, Some(P), None),
             true,
@@ -145,7 +143,7 @@ fn test_each_partition_holds_its_version() -> TestResult {
         for (number, base) in [(1, 10), (2, 100)] {
             hold_rows(played.partition(number)?, 1, base)?;
         }
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let read = snapshot(&Pattern::of(None, Some(P), None))?;
         let (stream, batch) = first_batch(&mut client, read).await?;
         compio::time::sleep(Duration::from_millis(20)).await;
@@ -173,7 +171,7 @@ fn test_a_read_going_on_holds_its_version_past_one_scans_grants() -> TestResult 
         let partition = played.partition(1)?;
         partition.split_frames();
         hold_rows(partition, 12, 10)?;
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let read = snapshot(&Pattern::of(None, Some(P), None))?;
         let (stream, batch) = first_batch(&mut client, read).await?;
         let pause = Duration::from_millis(100);
@@ -195,7 +193,7 @@ fn test_a_stopped_read_opens_no_further_scan() -> TestResult {
         let played = Played::start(1, quick()).await?;
         let partition = played.partition(1)?;
         hold_rows(partition, 2, 10)?;
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let read = snapshot(&Pattern::of(None, Some(P), None))?;
         let (stream, batch) = first_batch(&mut client, read).await?;
         compio::time::sleep(ONE_SCAN * 2).await;
@@ -260,7 +258,7 @@ fn test_a_partition_asked_twice_at_one_version_is_held_once() -> TestResult {
             Some(P),
             Some(crate::utils::played_answers::iri(&object)),
         );
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let first = answer_on(&mut client, &snapshot(&pattern)?.with_limit(1)).await?;
         assert_eq!(first.whole()?.len(), 1);
         let resume = first.batches.last().context("a batch")?.resume.clone();
@@ -304,7 +302,7 @@ fn test_a_pin_refused_holds_nothing_and_the_read_goes_on() -> TestResult {
             .read(tenant, true, ReadLevel::Snapshot)?
             .with_read_version(version()?)
             .with_epoch(crate::utils::played_cluster::EPOCH);
-        let answer = reads_answer(&mut cluster.client().await?, &read).await?;
+        let answer = reads_answer(&mut cluster.client(), &read).await?;
         answer.ended()?;
         assert_eq!(answer.column(0), OBJECTS);
         assert!(

@@ -631,7 +631,7 @@ pub(crate) async fn pause(ms: u64) {
     compio::time::sleep(Duration::from_millis(ms)).await;
 }
 
-/// The `transaction` identity's read version in a ComputeRead `frame` the double took.
+/// The frame `bytes` a double took, checked whole against the cluster and the largest frame.
 pub(crate) fn view_frame(bytes: &[u8]) -> TestResult<FrameView<'_>> {
     Ok(FrameView::validate(bytes, CLUSTER, MAX_FRAME_SIZE)?)
 }

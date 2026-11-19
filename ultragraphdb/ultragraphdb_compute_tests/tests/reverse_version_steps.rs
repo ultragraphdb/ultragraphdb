@@ -8,11 +8,14 @@
 
 use cucumber::{then, when};
 use ultragraphdb_protocol_wire::{
-    ComputeRead, ErrorCode, ReadLevel, StatementTarget, TermTable, Write, WriteChange,
+    Begin, ErrorCode, ReadLevel, StatementTarget, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-use crate::scene::{KNOWS, NAME, Pattern, Scene, edge_with, iri, run, string};
+use crate::client::{self, ClientRead, EndpointClient, next_of};
+use crate::scene::{
+    DEADLINE_MS, KNOWS, NAME, Pattern, ReadAnswer, Scene, edge_with, iri, run, string,
+};
 use crate::{Steps, four};
 
 #[when(
@@ -21,15 +24,42 @@ use crate::{Steps, four};
 fn later_reverse(w: &mut Steps) -> TestResult {
     let scene = Scene::new(four()?);
     run(async {
-        let object = scene.iri_in(2, "nobody")?;
-        let read = scene
-            .read_of(
-                &Pattern::of(None, Some(KNOWS), Some(iri(&object))),
-                true,
-                ReadLevel::Latest,
-            )?
-            .with_partition(1);
-        w.answers = vec![scene.answer(&read).await?];
+        let (subject, object) = (scene.iri_in(1, "a")?, scene.iri_in(2, "nobody")?);
+        scene.insert(&subject, NAME, &string("Ann")).await?;
+        // A transaction at latest level binds to the partition of its first read (`PROTOCOL.md` §11.11).
+        let first = client::read_at(
+            &scene,
+            &Pattern::of(Some(&subject), None, None),
+            true,
+            ReadLevel::Latest,
+        )?;
+        let reverse = client::read_at(
+            &scene,
+            &Pattern::of(None, Some(KNOWS), Some(iri(&object))),
+            true,
+            ReadLevel::Latest,
+        )?;
+        let mut client = EndpointClient::connect(scene.info, first.max_frame).await?;
+        let transaction = client
+            .begin(&first.begin)
+            .await?
+            .map_err(|refused| TestError::new(format!("the Begin was refused: {refused:?}")))?;
+        let _stream = client.send_read(transaction, &first).await?;
+        let bound = next_of(&mut client).await?.map_err(|refused| {
+            TestError::new(format!("the first read was refused: {refused:?}"))
+        })?;
+        if !bound.last {
+            return Err(TestError::new(format!(
+                "the first read answered more than one batch: {bound:?}"
+            )));
+        }
+        let _stream = client.send_read(transaction, &reverse).await?;
+        let mut answer = ReadAnswer::default();
+        match next_of(&mut client).await? {
+            Ok(batch) => answer.batches.push(batch),
+            Err(refused) => answer.refused = Some(refused),
+        }
+        w.answers = vec![answer];
         Ok(())
     })
 }
@@ -65,14 +95,16 @@ fn named_reverse(w: &mut Steps) -> TestResult {
                 .await?;
         }
         let edge_version = scene.insert_version(&a, KNOWS, &iri(&b)).await?;
-        let read = scene
-            .read_of(
-                &Pattern::of(None, Some(KNOWS), Some(iri(&b))),
-                true,
-                ReadLevel::Snapshot,
-            )?
-            .with_named_version(edge_version);
-        let answer = scene.answer(&read).await;
+        let mut read = client::read_at(
+            &scene,
+            &Pattern::of(None, Some(KNOWS), Some(iri(&b))),
+            true,
+            ReadLevel::Snapshot,
+        )?;
+        read.begin = Begin::new(scene.tenant, edge_version, true)
+            .with_level(ReadLevel::Snapshot)
+            .with_deadline_ms(DEADLINE_MS);
+        let answer = client::answer(&scene, &read).await;
         clock.release(1);
         clock.release(2);
         assert!(
@@ -108,28 +140,27 @@ fn removed_property(w: &mut Steps) -> TestResult {
         scene
             .commit(1, &edge_with(&a, KNOWS, &b, &properties)?)
             .await?;
-        let of_edge = scene.snapshot(&Pattern::of(Some(&a), Some(KNOWS), None))?;
-        let reifier = scene
-            .answer(&of_edge)
+        let of_edge = client::snapshot(&scene, &Pattern::of(Some(&a), Some(KNOWS), None)).await?;
+        let reifier = client::answer(&scene, &of_edge)
             .await?
             .column(1)
             .first()
             .cloned()
             .context("its reifier")?;
-        let read = scene
-            .read_of(
-                &Pattern::of(Some(&reifier), None, None),
-                true,
-                ReadLevel::Latest,
-            )?
-            .with_limit(2);
-        let first = scene.answer(&read).await?;
+        let mut read = client::read_at(
+            &scene,
+            &Pattern::of(Some(&reifier), None, None),
+            true,
+            ReadLevel::Latest,
+        )?;
+        read.limit = 2;
+        let first = client::answer(&scene, &read).await?;
         let predicate = first.column(0).get(1).cloned().context("a predicate")?;
         let value = first.column(1).get(1).cloned().context("a value")?;
         scene
             .commit(1, &property_removal(&reifier, &predicate, &value)?)
             .await?;
-        let second = scene.answer(&resumed(&read, first.resume())).await?;
+        let second = client::answer(&scene, &resumed(&read, first.resume())).await?;
         w.answers = vec![first, second];
         Ok(())
     })
@@ -171,26 +202,11 @@ fn property_removal(reifier: &str, predicate: &str, value: &str) -> TestResult<W
     ))
 }
 
-/// The same read with `key` in its resume section.
-pub(crate) fn resumed(read: &ComputeRead, key: Vec<u8>) -> ComputeRead {
-    let again = ComputeRead::new(
-        read.tenant(),
-        read.read_only(),
-        read.level(),
-        read.terms().clone(),
-        *read.pattern(),
-        key,
-    )
-    .with_principal(read.principal())
-    .with_limit(read.limit())
-    .with_deadline_ms(read.deadline_ms())
-    .with_client_limits(read.max_frame(), read.credit())
-    .with_epoch(read.epoch())
-    .with_partition(read.partition())
-    .with_transaction(read.transaction());
-    if read.named() {
-        again.with_named_version(read.read_version())
-    } else {
-        again.with_read_version(read.read_version())
+/// The same read with `key` in its resume section, in a transaction of its own: its Begin is the first's, naming the version
+/// the first Begin answered, which at levels 1 and 2 is 0, the key's `scope` (`PROTOCOL.md` §11.8).
+fn resumed(read: &ClientRead, key: Vec<u8>) -> ClientRead {
+    ClientRead {
+        resume: key,
+        ..read.clone()
     }
 }

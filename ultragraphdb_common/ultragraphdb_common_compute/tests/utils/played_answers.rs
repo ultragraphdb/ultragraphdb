@@ -3,20 +3,19 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The frontend's side of a played read: a ComputeRead built from a pattern's terms, and compute's answer as a test reads it.
+//! The client's side of a played read: a Read built from a pattern's terms, handed to compute's executor as the client's
+//! session hands it, and its answer as a test reads it.
 
 use std::time::Duration;
 
-use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_core_terms::{TermView, Text};
-use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Command, ComputeRead, ComputeReadView, Credit, ErrorCode,
-    ErrorReplyView, FLAG_LAST, FrameView, Header, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE, PatternSlot,
+    BodyView, Command, ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_FLOOR_U32, PatternSlot,
     QuadPattern, ReadLevel, RequestTerm, ResultTermView, ResultView, TermTable,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
+use crate::apart::apart_session::{ReadSession, SessionFrame, SessionRead};
 use crate::utils::played_cluster::{CLUSTER, EPOCH, TENANT, version, within};
 
 /// The principal every played read is a client's of.
@@ -25,7 +24,7 @@ pub const PRINCIPAL: u64 = 3;
 /// The milliseconds a played read's transaction has left.
 const DEADLINE_MS: u32 = 5_000;
 
-/// How long one frame of compute's may take.
+/// How long one frame of a read's may take.
 const FRAME_WAIT: Duration = Duration::from_secs(10);
 
 /// A pattern's graph slot.
@@ -95,10 +94,10 @@ pub fn read_of(
     read_only: bool,
     level: ReadLevel,
     resume: Vec<u8>,
-) -> TestResult<ComputeRead> {
+) -> TestResult<SessionRead> {
     let (terms, slots) = pattern.table()?;
     Ok(
-        ComputeRead::new(TENANT, read_only, level, terms, slots, resume)
+        SessionRead::new(TENANT, read_only, level, terms, slots, resume)
             .with_principal(PRINCIPAL)
             .with_deadline_ms(DEADLINE_MS)
             .with_client_limits(MAX_FRAME_FLOOR_U32, 4),
@@ -106,17 +105,15 @@ pub fn read_of(
 }
 
 /// `pattern` read at snapshot level at [`EPOCH`], at its version bound.
-pub fn snapshot(pattern: &Pattern) -> TestResult<ComputeRead> {
+pub fn snapshot(pattern: &Pattern) -> TestResult<SessionRead> {
     Ok(read_of(pattern, true, ReadLevel::Snapshot, Vec::new())?
         .with_read_version(version()?)
         .with_epoch(EPOCH))
 }
 
 /// The pattern hash compute keys `read`'s resume key by: its pattern's sections, as the frame carries them.
-pub fn pattern_hash(read: &ComputeRead) -> TestResult<u64> {
-    let frame = read.frame(Header::new(CLUSTER, Command::ComputeRead))?;
-    let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)?;
-    Ok(ComputeReadView::from_frame(&view)?.pattern_hash())
+pub fn pattern_hash(read: &SessionRead) -> TestResult<u64> {
+    read.pattern_hash(CLUSTER)
 }
 
 /// One Result frame, each cell by its text.
@@ -185,7 +182,7 @@ fn cell_of(term: ResultTermView<'_>) -> String {
 }
 
 /// `frame`, a Result, as a test reads it.
-fn batch_of(frame: &ReceivedFrame) -> TestResult<Batch> {
+fn batch_of(frame: &SessionFrame) -> TestResult<Batch> {
     let view = frame.view()?;
     let result = ResultView::from_frame(&view)?;
     let mut rows = Vec::with_capacity(result.rows() as usize);
@@ -208,11 +205,8 @@ fn batch_of(frame: &ReceivedFrame) -> TestResult<Batch> {
 }
 
 /// The next frame of `client`: a batch, or a refusal.
-pub async fn next_of(client: &mut RoleClient) -> TestResult<Result<Batch, Refused>> {
-    let frame = within(FRAME_WAIT, "compute's next frame", async {
-        Ok(client.next_frame().await?)
-    })
-    .await?;
+pub async fn next_of(client: &mut ReadSession) -> TestResult<Result<Batch, Refused>> {
+    let frame = within(FRAME_WAIT, "compute's next frame", client.next_frame()).await?;
     let view = frame.view()?;
     if view.command() != Command::Error {
         return Ok(Ok(batch_of(&frame)?));
@@ -225,9 +219,9 @@ pub async fn next_of(client: &mut RoleClient) -> TestResult<Result<Batch, Refuse
     }))
 }
 
-/// Sends `read` on `client` and reads its answer, granting a frame's credit per batch.
-pub async fn answer_on(client: &mut RoleClient, read: &ComputeRead) -> TestResult<ReadAnswer> {
-    client.send_only(read).await?;
+/// Starts `read` on `client` and reads its answer, granting a frame's credit per batch.
+pub async fn answer_on(client: &mut ReadSession, read: &SessionRead) -> TestResult<ReadAnswer> {
+    client.send_only(read)?;
     let stream = client.last_stream();
     let mut answer = ReadAnswer::default();
     loop {
@@ -242,7 +236,7 @@ pub async fn answer_on(client: &mut RoleClient, read: &ComputeRead) -> TestResul
                 if last {
                     return Ok(answer);
                 }
-                client.send_on(stream, &Credit::new(1)).await?;
+                client.credit(stream, 1)?;
             }
         }
     }

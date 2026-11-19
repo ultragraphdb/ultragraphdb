@@ -3,21 +3,20 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A ComputeRead as the frontend sends it, and its answer as the test reads it.
+//! A client's Read as its session hands it to compute's executor, and its answer as the test reads it.
 
 use std::time::Duration;
 
-use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_core_terms::{TermView, Text};
-use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
-    BodyView, Command, ComputeRead, Credit, ErrorCode, ErrorReplyView, FLAG_LAST,
-    MAX_FRAME_SIZE_U32, PatternSlot, QuadPattern, ReadLevel, RequestTerm, ResultTermView,
-    ResultView, TermTable,
+    BodyView, Command, ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_SIZE_U32, PatternSlot,
+    QuadPattern, ReadLevel, RequestTerm, ResultTermView, ResultView, TermTable,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-/// How long the test waits on one frame of compute's: past every wait the played roles are given.
+use crate::apart::apart_session::{ReadSession, SessionFrame, SessionRead};
+
+/// How long the test waits on one frame of a read's: past every wait the played roles are given.
 pub const ANSWER_WAIT: Duration = Duration::from_secs(10);
 
 /// How long a read's transaction has, in milliseconds.
@@ -142,7 +141,7 @@ fn cell_of(term: ResultTermView<'_>) -> Cell {
 }
 
 /// `frame`, a Result, as the test reads it.
-fn batch_of(frame: &ReceivedFrame) -> TestResult<Batch> {
+fn batch_of(frame: &SessionFrame) -> TestResult<Batch> {
     let view = frame.view()?;
     let result = ResultView::from_frame(&view)?;
     result.check_pattern()?;
@@ -166,7 +165,7 @@ fn batch_of(frame: &ReceivedFrame) -> TestResult<Batch> {
 }
 
 /// The Error `frame` holds, if it is one.
-fn refusal_of(frame: &ReceivedFrame) -> TestResult<Option<Refused>> {
+fn refusal_of(frame: &SessionFrame) -> TestResult<Option<Refused>> {
     let view = frame.view()?;
     if view.command() != Command::Error {
         return Ok(None);
@@ -180,16 +179,15 @@ fn refusal_of(frame: &ReceivedFrame) -> TestResult<Option<Refused>> {
 }
 
 /// The next frame of `client`, failing past [`ANSWER_WAIT`].
-pub async fn next_frame(client: &mut RoleClient) -> TestResult<ReceivedFrame> {
+pub async fn next_frame(client: &mut ReadSession) -> TestResult<SessionFrame> {
     compio::time::timeout(ANSWER_WAIT, client.next_frame())
         .await
         .map_err(|_| TestError::new(format!("no frame came within {ANSWER_WAIT:?}")))?
-        .map_err(TestError::from)
 }
 
-/// Sends `read` on `client` and reads its answer to its end, granting a frame of credit per batch.
-pub async fn answer_on(client: &mut RoleClient, read: &ComputeRead) -> TestResult<ReadAnswer> {
-    client.send_only(read).await?;
+/// Starts `read` on `client` and reads its answer to its end, granting a frame of credit per batch.
+pub async fn answer_on(client: &mut ReadSession, read: &SessionRead) -> TestResult<ReadAnswer> {
+    client.send_only(read)?;
     let stream = client.last_stream();
     let mut answer = ReadAnswer::default();
     loop {
@@ -205,7 +203,7 @@ pub async fn answer_on(client: &mut RoleClient, read: &ComputeRead) -> TestResul
         if last {
             return Ok(answer);
         }
-        client.send_on(stream, &Credit::new(1)).await?;
+        client.credit(stream, 1)?;
     }
 }
 
@@ -256,10 +254,10 @@ impl Pattern {
     }
 
     /// The read of the pattern in `tenant` at `level`, the client's frame and credit generous, nothing else set.
-    pub fn read(&self, tenant: u64, read_only: bool, level: ReadLevel) -> TestResult<ComputeRead> {
+    pub fn read(&self, tenant: u64, read_only: bool, level: ReadLevel) -> TestResult<SessionRead> {
         let (terms, slots) = self.table()?;
         Ok(
-            ComputeRead::new(tenant, read_only, level, terms, slots, Vec::new())
+            SessionRead::new(tenant, read_only, level, terms, slots, Vec::new())
                 .with_principal(1)
                 .with_deadline_ms(DEADLINE_MS)
                 .with_client_limits(MAX_FRAME_SIZE_U32, 4),

@@ -11,23 +11,23 @@ use std::time::Duration;
 
 use cucumber::{then, when};
 use ultragraphdb_common_compute::{ComputeCore, LookupAt, ReadTimes, read_times_of};
-use ultragraphdb_common_role::RoleCluster;
+use ultragraphdb_common_role::{PARTITION_INITIAL_CREDIT, RoleCluster};
 use ultragraphdb_common_service::{RoleIdentity, RoleStart};
 use ultragraphdb_core_ids::{SystemId, Tenant, TypePrefix};
 use ultragraphdb_core_keys::{CountDirection, Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_terms::{EncodedTerm, Hash128};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_wire::{Credit, ErrorCode, ErrorReply, ObjectRecordsBuilder, ReadLevel};
+use ultragraphdb_protocol_wire::{
+    Credit, DEFAULT_INITIAL_CREDIT, ErrorCode, ErrorReply, ObjectRecordsBuilder, ReadLevel,
+};
 use ultragraphdb_store_quads::{id_key, term_key};
 use ultragraphdb_tests::{CLUSTER, SECRET, holding, render_settings};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
+use crate::client::{self, EndpointClient};
 use crate::played_partition::{PlayedTables, Script};
-use crate::scene::{
-    FLOOR, NAME, Pattern, Scene, answer_on, compute_client, large_list, next_batch, reads, run,
-    until,
-};
+use crate::scene::{FLOOR, NAME, Pattern, Refused, Scene, large_list, reads, run, until};
 use crate::{Steps, four, played, played_tables};
 
 /// The first token a lookup names, the `term` tokenizer's.
@@ -85,6 +85,11 @@ fn refusal_text(reply: &ErrorReply) -> TestError {
     TestError::new(format!("{}: {}", reply.code().number(), reply.message()))
 }
 
+/// Compute's refusal of a client's frame, where the step expects none.
+fn refused_text(refused: Refused) -> TestError {
+    TestError::new(format!("refused: {refused:?}"))
+}
+
 /// Partition 1 holds `<s1> <name>` three objects and `<s2> <name>` one: the read of `?s <name> ?o`, and how many rows it holds.
 fn list_two_subjects(scene: &Scene) -> TestResult<(Vec<u8>, usize)> {
     let tables = played_tables(1)?;
@@ -130,11 +135,11 @@ fn stalls_behind(w: &mut Steps) -> TestResult {
     let pattern = Pattern::of(None, Some(NAME), None);
     let tables = played_tables(1)?;
     run(async {
-        let read = scene.snapshot_at(&pattern, 1)?;
+        let read = client::snapshot_at(&scene, &pattern, 1).await?;
         tables.script(first.clone(), Script::StallPastKey);
-        let past_key = scene.answer(&read).await?;
+        let past_key = client::answer(&scene, &read).await?;
         tables.script(first.clone(), Script::StallInList);
-        let in_list = scene.answer(&read).await?;
+        let in_list = client::answer(&scene, &read).await?;
         w.answers = vec![past_key, in_list];
         Ok(())
     })?;
@@ -165,8 +170,8 @@ fn stalls_at_once(w: &mut Steps) -> TestResult {
     let tables = played_tables(1)?;
     tables.script(first, Script::Refuse(ErrorCode::TimedOut, 1));
     run(async {
-        let read = scene.snapshot_at(&pattern, 1)?;
-        w.answers = vec![scene.answer(&read).await?];
+        let read = client::snapshot_at(&scene, &pattern, 1).await?;
+        w.answers = vec![client::answer(&scene, &read).await?];
         Ok(())
     })
 }
@@ -203,17 +208,19 @@ fn corrupt_record(w: &mut Steps) -> TestResult {
     );
     tables.put(predicates_of(good_id).to_bytes(), list_of(&[]));
     run(async {
-        let mut client = compute_client(scene.info).await?;
         let read_of = |subject: &str| {
-            scene.read_of(
+            client::read_at(
+                &scene,
                 &Pattern::of(Some(subject), None, None),
                 true,
                 ReadLevel::Latest,
             )
         };
-        let refused = answer_on(&mut client, &read_of(&bad)?).await?;
+        let (first, second) = (read_of(&bad)?, read_of(&good)?);
+        let mut client = EndpointClient::connect(scene.info, first.max_frame).await?;
+        let refused = client::answer_on(&mut client, &first).await?;
         let dialled = tables.connections();
-        let answered = answer_on(&mut client, &read_of(&good)?).await?;
+        let answered = client::answer_on(&mut client, &second).await?;
         w.numbers = vec![u64::from(tables.connections() - dialled)];
         w.answers = vec![refused, answered];
         Ok(())
@@ -236,10 +243,9 @@ fn limit_names(w: &mut Steps) -> TestResult {
     let scene = Scene::new(four()?);
     run(async {
         let a = large_list(&scene, 40, 200).await?;
-        let read = scene
-            .snapshot(&Pattern::of(Some(&a), Some(NAME), None))?
-            .with_limit(2);
-        w.answers = vec![scene.answer(&read).await?];
+        let mut read = client::snapshot(&scene, &Pattern::of(Some(&a), Some(NAME), None)).await?;
+        read.limit = 2;
+        w.answers = vec![client::answer(&scene, &read).await?];
         w.numbers = scene
             .info
             .log
@@ -261,17 +267,25 @@ fn own_names(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+/// The objects of the list a client of no further credit reads, and the bytes of each one's text.
+const TEXTS: u32 = 64;
+const TEXT_BYTES: usize = 100_000;
+
+/// The bytes a partition's frame holds, a turn's (`ultragraphdb_common_storage`'s `TURN_BYTES`).
+const TURN_BYTES: usize = 256 * 1024;
+
 #[when("a client of no further credit reads a list whose objects' texts come to many frames")]
 fn no_more_credit(w: &mut Steps) -> TestResult {
     let scene = Scene::new(four()?);
     run(async {
-        let a = large_list(&scene, 64, 100_000).await?;
-        let read = scene
-            .snapshot(&Pattern::of(Some(&a), Some(NAME), None))?
-            .with_client_limits(FLOOR, 1);
-        let mut client = compute_client(scene.info).await?;
-        client.send_only(&read).await?;
-        let _batch = next_batch(&mut client).await?;
+        let a = large_list(&scene, TEXTS, TEXT_BYTES).await?;
+        let mut read = client::snapshot(&scene, &Pattern::of(Some(&a), Some(NAME), None)).await?;
+        read.max_frame = FLOOR;
+        // The Welcome's credit alone: the client grants no more.
+        let mut client = EndpointClient::connect(scene.info, read.max_frame).await?;
+        let transaction = client.begin(&read.begin).await?.map_err(refused_text)?;
+        client.send_read(transaction, &read).await?;
+        let _batch = client::next_of(&mut client).await?.map_err(refused_text)?;
         compio::time::sleep(Duration::from_millis(100)).await;
         w.numbers = vec![scene.info.log.versions().len() as u64];
         Ok(())
@@ -281,8 +295,18 @@ fn no_more_credit(w: &mut Steps) -> TestResult {
 #[then("the partition sent no more than a few frames of them")]
 fn few_frames(w: &mut Steps) -> TestResult {
     let frames = *w.numbers.first().context("the frames")?;
-    // The terms', the list's and those of about a Result frame's names, at a turn's 256 KiB: 6,400,000 bytes of text would take 25.
-    assert!(frames <= 12, "{frames} frames");
+    // The rows of the Result frames the Welcome's credit takes, and of the one compute builds meanwhile.
+    let rows =
+        (usize::try_from(DEFAULT_INITIAL_CREDIT)? + 1) * (usize::try_from(FLOOR)? / TEXT_BYTES);
+    let per_frame = TURN_BYTES / TEXT_BYTES;
+    // The terms' frame, the list's, those of the rows' names and the one the partition's credit sends ahead.
+    let few = 2 + rows.div_ceil(per_frame) + usize::try_from(PARTITION_INITIAL_CREDIT)?;
+    let whole = 2 + usize::try_from(TEXTS)?.div_ceil(per_frame);
+    assert!(few < whole, "{few} frames of {whole}");
+    assert!(
+        usize::try_from(frames)? <= few,
+        "{frames} frames, {few} expected"
+    );
     Ok(())
 }
 
@@ -355,17 +379,16 @@ fn past_credit(w: &mut Steps) -> TestResult {
     run(async {
         // Held by hash, so one frame of the list holds far more rows than a Result frame's worth of their texts.
         let a = large_list(&scene, ROWS_PAST_A_FRAME, 1_000).await?;
-        let read = scene
-            .snapshot(&Pattern::of(Some(&a), Some(NAME), None))?
-            .with_client_limits(FLOOR, 1);
-        let mut client = compute_client(scene.info).await?;
+        let mut read = client::snapshot(&scene, &Pattern::of(Some(&a), Some(NAME), None)).await?;
+        read.max_frame = FLOOR;
+        let mut client = EndpointClient::connect(scene.info, read.max_frame).await?;
         // The partition goes on past compute's grants, while compute drains the list's first frame at the client's credit.
         scene.info.log.overgrant_lists(64);
-        client.send_only(&read).await?;
-        let stream = client.last_stream();
+        let transaction = client.begin(&read.begin).await?.map_err(refused_text)?;
+        let stream = client.send_read(transaction, &read).await?;
         let mut answer = crate::scene::ReadAnswer::default();
         loop {
-            match crate::scene::next_of(&mut client).await? {
+            match client::next_of(&mut client).await? {
                 Ok(batch) => {
                     let last = batch.last;
                     answer.batches.push(batch);
@@ -393,8 +416,8 @@ fn past_credit(w: &mut Steps) -> TestResult {
         })
         .await?;
         let after = scene.iri_in(1, "after")?;
-        let again = scene.snapshot(&Pattern::of(Some(&after), Some(NAME), None))?;
-        w.answers = vec![answer, scene.answer(&again).await?];
+        let again = client::snapshot(&scene, &Pattern::of(Some(&after), Some(NAME), None)).await?;
+        w.answers = vec![answer, client::answer(&scene, &again).await?];
         Ok(())
     })?;
     w.scene = Some(scene);

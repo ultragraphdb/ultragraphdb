@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 use ultragraphdb_common_compute::LookupAt;
-use ultragraphdb_common_role::{OpenRequests, RoleClient};
+use ultragraphdb_common_role::OpenRequests;
 use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_protocol_wire::ErrorCode;
 use ultragraphdb_store_quads::term_key;
@@ -22,6 +22,7 @@ use crate::apart::apart_reads::{
     P, TENANT, TWO_BY_TWO, answer_on, cancel, hold_lists, id, list_of, name, of_p, rows_listed,
     send_read,
 };
+use crate::apart::apart_session::ReadSession;
 
 /// The predicate a lookup names, and the subject its value index lists.
 const NAME: &str = "http://ex.org/name";
@@ -48,7 +49,7 @@ const DECIDED_AFTER: Duration = Duration::from_millis(800);
 async fn scripted(
     script: Script,
     stall: Duration,
-) -> TestResult<(ApartCluster, RoleClient, Vec<u8>)> {
+) -> TestResult<(ApartCluster, ReadSession, Vec<u8>)> {
     let cluster = ApartCluster::start(1).await?;
     let partition = cluster.partition(1)?;
     let p = hold_lists(partition, (Graph::Default, P), TWO_BY_TWO, 100)?;
@@ -60,9 +61,7 @@ async fn scripted(
         Some(p),
     );
     partition.script(lists.clone(), script, 1);
-    let client = cluster
-        .compute(times(stall), OpenRequests::default())
-        .await?;
+    let client = cluster.session(times(stall), OpenRequests::default());
     Ok((cluster, client, lists))
 }
 
@@ -89,10 +88,10 @@ fn test_a_partition_silent_under_a_read_given_up_is_hung() -> TestResult {
     run(async {
         let (cluster, mut client, lists) = scripted(Script::Silent, STALL).await?;
         let partition = cluster.partition(1)?;
-        let silent = send_read(&mut client, &of_p(0, Vec::new())).await?;
+        let silent = send_read(&mut client, &of_p(0, Vec::new()))?;
         partition.until_asked(&lists).await?;
         compio::time::sleep(GIVE_UP_AT).await;
-        cancel(&mut client, silent).await?;
+        cancel(&mut client, silent)?;
         compio::time::sleep(DECIDED_AFTER).await;
         let next = answer_on(&mut client, &of_p(0, Vec::new())).await?;
         assert_eq!(next.whole()?, rows_listed(TWO_BY_TWO).as_slice());
@@ -107,12 +106,12 @@ fn test_a_partition_answering_after_a_read_given_up_keeps_its_connection() -> Te
     run(async {
         let (cluster, mut client, lists) = scripted(Script::Silent, STALL).await?;
         let partition = cluster.partition(1)?;
-        let silent = send_read(&mut client, &of_p(0, Vec::new())).await?;
+        let silent = send_read(&mut client, &of_p(0, Vec::new()))?;
         partition.until_asked(&lists).await?;
         let answered = answer_on(&mut client, &of_p(0, Vec::new())).await?;
         assert_eq!(answered.whole()?, rows_listed(TWO_BY_TWO).as_slice());
         compio::time::sleep(GIVE_UP_AT).await;
-        cancel(&mut client, silent).await?;
+        cancel(&mut client, silent)?;
         compio::time::sleep(DECIDED_AFTER).await;
         let next = answer_on(&mut client, &of_p(0, Vec::new())).await?;
         assert_eq!(next.whole()?, rows_listed(TWO_BY_TWO).as_slice());

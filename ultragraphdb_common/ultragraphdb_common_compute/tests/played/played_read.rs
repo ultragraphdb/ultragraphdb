@@ -3,17 +3,18 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A ComputeRead as the frontend sends one, and its answer as the frontend reads it: every Result batch's rows by their terms,
-//! or the Error that ended the stream.
+//! A client's Read as its session hands it to compute's executor, and its answer as the client reads it: every Result batch's
+//! rows by their terms, or the Error that ended the stream.
 
 use std::time::Duration;
 
-use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_protocol_wire::{
-    ABSENT, BodyView, Cancel, Command, ComputeRead, Credit, ErrorCode, ErrorReplyView, FLAG_LAST,
-    PatternSlot, QuadPattern, ReadLevel, RequestTerm, ResultView, TermTable,
+    ABSENT, BodyView, Command, ErrorCode, ErrorReplyView, FLAG_LAST, PatternSlot, QuadPattern,
+    ReadLevel, RequestTerm, ResultView, TermTable,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+
+use crate::apart::apart_session::{ReadSession, SessionRead};
 
 use super::played_data::TENANT;
 use super::played_partition::{EPOCH, version};
@@ -48,7 +49,7 @@ pub fn read_of(
     read_only: bool,
     level: ReadLevel,
     resume: Vec<u8>,
-) -> TestResult<ComputeRead> {
+) -> TestResult<SessionRead> {
     let mut terms = TermTable::new();
     let mut iri = |held: &Option<String>| {
         held.as_deref().map_or(PatternSlot::Unbound, |iri| {
@@ -62,19 +63,19 @@ pub fn read_of(
     };
     let pattern = QuadPattern::new(PatternSlot::DefaultGraph, subject, predicate, object);
     Ok(
-        ComputeRead::new(TENANT, read_only, level, terms, pattern, resume)
+        SessionRead::new(TENANT, read_only, level, terms, pattern, resume)
             .with_client_limits(MAX_FRAME, CREDIT)
             .with_deadline_ms(10_000),
     )
 }
 
 /// A read-only read of `bound` at the snapshot of the played epoch and version.
-pub fn snapshot_of(bound: &Bound) -> TestResult<ComputeRead> {
+pub fn snapshot_of(bound: &Bound) -> TestResult<SessionRead> {
     snapshot_from(bound, Vec::new())
 }
 
 /// A read-only read of `bound` at the snapshot of the played epoch and version, from `resume`.
-pub fn snapshot_from(bound: &Bound, resume: Vec<u8>) -> TestResult<ComputeRead> {
+pub fn snapshot_from(bound: &Bound, resume: Vec<u8>) -> TestResult<SessionRead> {
     Ok(read_of(bound, true, ReadLevel::Snapshot, resume)?
         .with_read_version(version())
         .with_epoch(EPOCH))
@@ -167,25 +168,25 @@ impl ReadOutcome {
     }
 }
 
-/// Sends `read` on a stream of its own: the stream.
-pub async fn send(client: &mut RoleClient, read: &ComputeRead) -> TestResult<u64> {
-    client.send_only(read).await?;
+/// Starts `read` on a stream of its own: the stream.
+pub fn send(client: &mut ReadSession, read: &SessionRead) -> TestResult<u64> {
+    client.send_only(read)?;
     Ok(client.last_stream())
 }
 
 /// Cancels the read on `stream`.
-pub async fn cancel(client: &mut RoleClient, stream: u64) -> TestResult {
-    Ok(client.send_on(stream, &Cancel).await?)
+pub fn cancel(client: &mut ReadSession, stream: u64) -> TestResult {
+    client.cancel(stream)
 }
 
-/// Sends `read` and reads its answer to its last frame, granting a frame of credit for each it takes.
-pub async fn read(client: &mut RoleClient, read: &ComputeRead) -> TestResult<ReadOutcome> {
-    let stream = send(client, read).await?;
+/// Starts `read` and reads its answer to its last frame, granting a frame of credit for each it takes.
+pub async fn read(client: &mut ReadSession, read: &SessionRead) -> TestResult<ReadOutcome> {
+    let stream = send(client, read)?;
     answer_of(client, stream).await
 }
 
 /// The answer on `stream`, to its last frame.
-pub async fn answer_of(client: &mut RoleClient, stream: u64) -> TestResult<ReadOutcome> {
+pub async fn answer_of(client: &mut ReadSession, stream: u64) -> TestResult<ReadOutcome> {
     let mut outcome = ReadOutcome::default();
     loop {
         let frame = compio::time::timeout(FRAME_WAIT, client.next_frame())
@@ -223,7 +224,7 @@ pub async fn answer_of(client: &mut RoleClient, stream: u64) -> TestResult<ReadO
         if last {
             return Ok(outcome);
         }
-        client.send_on(stream, &Credit::new(1)).await?;
+        client.credit(stream, 1)?;
     }
 }
 

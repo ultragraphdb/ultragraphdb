@@ -302,3 +302,125 @@ its code" depends on them. That is against the approval's wording ("compute's Jo
 - `ultragraphdb_tests`' "An empty namespace comes up" holds out its node-list clause until group 7, as `pods.feature`
   notes.
 - `specification/conformance/storage/__pycache__/` is untracked. This work did not make it.
+
+## Task 6.4: compute_tests' reads on the client endpoint, and ComputeSession removed (2026-11-19, base `dabad993`)
+
+The plan, the foundation and the worker briefs are in `notes/group-6-4-plan.md`. `common_compute`'s move onto
+`ReadExecutor` is in `notes/group-6-4-common-compute.md`. Nothing in the workspace serves or sends a ComputeRead any
+more. The ComputeRead wire builder, view, golden frame and fuzz target stay; they are task 1.5's.
+
+### The accepted decisions
+
+- Until this task, `ultragraphdb_compute_tests`' reads ran against an in-process `ComputeSession`.
+- `joining.rs`' Members and liveness asks stay, without the Join.
+- `system-group/system_group.feature` was removed, and `played_frontend.rs` became `played_system.rs`.
+- `CoreListener` stays: the client endpoint listens through it.
+
+### Scenario accounting, `ultragraphdb_compute_tests`
+
+Before the foundation, the crate held 113 scenarios. 80 of them sent ComputeRead to the in-process session:
+
+| Class | Count | What happened |
+|---|---|---|
+| COVERED | 45 | Removed. 40 are bound through the binaries in `ultragraphdb_tests`, 5 through `ReadExecutor` in `common_compute`'s `executor.feature` |
+| RELAY | 1 | Removed: "A read's stream starts with the frontend's credit". The delta replaced it with "…the client's credit", bound in `common_compute` |
+| In-process lookups | 7 | Kept as they are: they drive `ComputeCore`'s lookups in the test process and never reached the session |
+| REBIND | 27 | Rebound to the compute binary's client endpoint, texts unchanged: 1 in the foundation as its worked example, 6 by W1, 8 by W2, 6 by W3, 6 by W4 |
+
+After: 67 scenarios over 21 targets, all passing. Each changed target, scenarios passed of run:
+
+| Target | Scenarios |
+|---|---|
+| `bdd_quad_reads_compute_reads` | 4 of 4 |
+| `bdd_quad_reads_lookups` | 8 of 8 |
+| `bdd_quad_reads_read_faults` | 7 of 7 |
+| `bdd_quad_reads_referrers_and_versions` | 6 of 6 |
+| `bdd_quad_reads_transaction_reads` | 3 of 3 |
+| `bdd_term_dictionary_dangling` | 3 of 3 |
+| `bdd_wire_protocol_past_credit` | 1 of 1 |
+| `bdd_index_maintenance_reverse_count` | 2 of 2 |
+
+`system-identity/resume_keys.feature` and `tests/batch_steps.rs` were removed by `git rm`; all their scenarios were
+COVERED.
+
+`ultragraphdb_tests`' "A bound literal object fans out" took the delta's text: `<a>`, partition 1's row, before `<c>`,
+partition 2's. Its Then now asserts that order; before, it compared the rows as a set.
+
+### `common_compute`
+
+- 137 unit tests, the property tests and every scenario drive their reads through a `ReadSession` over `ReadExecutor`,
+  with their inputs and expectations unchanged.
+- Three tests are removed, since they tested the session itself:
+  - `compute_session_tests.rs`' two unit tests;
+  - the property test `test_both_callers_get_one_answer`.
+- After the move, these went:
+  - `src/types/compute_session.rs` (by `git rm`) and its export;
+  - `ReadRequest::of`, which only the session called.
+- Doc comments that named a ComputeRead were restated: `route_sink.rs`' `with_credit` and `tests/endpoint_stage.rs`'
+  `view_frame`.
+
+### What the workers changed beyond the binding
+
+- **W1: the frame bound in "A client holding no credit holds a frame's worth of names".**
+  - The bound is now derived rather than stated: 2 frames (the terms' and the list's), plus the frames the rows of
+    `DEFAULT_INITIAL_CREDIT + 1` Result frames at the floor take, plus the partition's initial credit. That comes to 16,
+    in place of the stated 12. The run observed 14.
+  - The step also asserts that the bound is below what the whole list takes.
+  - It restates `ultragraphdb_common_storage`'s `TURN_BYTES` locally (256 KiB), naming its source, because the test
+    crate does not depend on storage.
+- **W2: the retention fixture.** Each graph holds `ROWS_PER_GRAPH = DEFAULT_INITIAL_CREDIT` rows, so the first graph's
+  batches spend the client's starting credit and the read stalls before the second graph.
+- **W3 and W4: session-token reads.** Where a scenario needs the read to wait on a partition's close, the read is a
+  snapshot Begin naming no version and carrying a session token of the epoch (`SessionToken::new(1, 1, epoch)`). A named
+  version above a partition's watermark is refused at once with code 27 (`PROTOCOL.md` §6.2, §11.11).
+- **W4: the code-25 scenario.** "A later latest-state reverse read of another home is refused" runs in one read-only
+  transaction at latest level. The transaction's first read binds it to partition 1, and the reverse read of a home on
+  partition 2 is then refused with code 25.
+- **W3: a gap carried over.** In "A span recorded after a Cancel only widens the commit's check", a refusal of conflict
+  kind Range does not prove that the span recorded after the Cancel was counted, as opposed to the read's earlier spans.
+  The old binding had the same gap. It is recorded here, not closed.
+
+### The snapshot race and its fix
+
+- `client::snapshot`/`snapshot_at` named a read version at the top of epoch latest + 1, which the partitions had usually
+  not closed. Compute's Scans were refused at once with code 27 (`PROTOCOL.md` §6.2, §11.11). W4 saw it in 4 of 10
+  serial runs.
+- Both helpers are now async and wait, through `Scene::closed_through`, until every partition of the scene's cluster has
+  closed the epoch, then build the read.
+  - Every caller reads with no partition held.
+  - The played partitions report epoch 9, past the epoch 1 their callers name.
+- W4's local waits in `access_steps.rs` and `reverse_version_steps.rs` are gone.
+- Proof: 10 serial runs of `bdd_quad_reads_referrers_and_versions`, 6 of 6 scenarios each time. Every other target using
+  the helpers passed once in the compute group.
+
+### "A read past the read set's room ends its transaction"
+
+- The played partition now answers a Bind with a Bind reply at its `VERSION`, flagged `LAST` as its Closed reply is, and
+  a Cancel with nothing.
+- The scripted `TooLarge`, `detail` 524,288, on the dictionary Scan then reaches the client with its detail. The scenario
+  passes. No library code changed.
+
+### The old ComputeRead layer in `scene.rs`
+
+Removed:
+
+- `compute_client`, `answer_on`, `next_batch`, `next_of`;
+- the `Scene` read builders `snapshot`, `snapshot_at`, `read_of` and `answer`;
+- `Transaction::read`, and `Transaction.identity` with its initialiser.
+
+`Scene::begin` stays for `commit_version`. Every read now goes through `tests/client.rs`.
+
+### Found, not changed
+
+- `AGENTS.md` still names `ComputeSession` in `common_compute`'s row. That table is checkpoint C's.
+
+### The gate
+
+- `make build` passes.
+- The Clippy aspect over `//ultragraphdb_common/ultragraphdb_common_compute/...`,
+  `//ultragraphdb/ultragraphdb_compute_tests/...` and `//ultragraphdb/ultragraphdb_tests/...` is clean.
+- `rustfmt --check` over every changed Rust file is clean.
+- `bazel test //ultragraphdb_common/ultragraphdb_common_compute/...`: 13 of 13 targets.
+- The compute group passes 21 of 21 targets, 67 scenarios.
+- The cluster group passes 40 of 40 targets; `bdd_quad_reads_spread` passes 8 of 8 scenarios.
+- No run failed, so no rerun was needed and no intermittent is recorded.

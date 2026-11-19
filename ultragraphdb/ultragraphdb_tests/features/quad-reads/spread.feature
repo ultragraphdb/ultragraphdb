@@ -10,7 +10,7 @@ Feature: Reads over a spread tenant
 
   Scenario: A bound literal object fans out
     When `<a>` in partition 1 and `<c>` in partition 2 each hold `name` `"Ann"`, and a read binds its object to `"Ann"` and its predicate to `name`
-    Then compute asks every partition of the tenant's run, reads no referrer set, and returns `<a>` and `<c>` merged in key order
+    Then compute asks every partition of the tenant's run, reads no referrer set, and returns `<a>`, partition 1's row, before `<c>`, partition 2's
 
   Scenario: An unbound subject merges every partition
     When a read leaves its subject and object unbound over two partitions that each hold matching rows

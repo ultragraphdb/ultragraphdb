@@ -72,8 +72,12 @@ pub fn read_at(
     })
 }
 
-/// `pattern` read at snapshot level, read-only, at the version bounding `epoch`.
-pub fn snapshot_at(scene: &Scene, pattern: &Pattern, epoch: u64) -> TestResult<ClientRead> {
+/// `pattern` read at snapshot level, read-only, at the version bounding `epoch`, once every partition of the scene's cluster has
+/// closed `epoch`: a named version above a partition's watermark in an epoch it has not closed is refused at once with code 27
+/// (`PROTOCOL.md` §6.2, §11.11), so the read is sent only when no partition it can reach would refuse it.
+pub async fn snapshot_at(scene: &Scene, pattern: &Pattern, epoch: u64) -> TestResult<ClientRead> {
+    let partitions: Vec<u32> = (1..=scene.info.partitions).collect();
+    scene.closed_through(epoch, &partitions).await?;
     let mut read = read_at(scene, pattern, true, ReadLevel::Snapshot)?;
     let bound = Version::bound_of(Epoch::new(epoch)?);
     read.begin = Begin::new(scene.tenant, bound, true)
@@ -82,9 +86,9 @@ pub fn snapshot_at(scene: &Scene, pattern: &Pattern, epoch: u64) -> TestResult<C
     Ok(read)
 }
 
-/// `pattern` read at snapshot level past everything committed so far.
-pub fn snapshot(scene: &Scene, pattern: &Pattern) -> TestResult<ClientRead> {
-    snapshot_at(scene, pattern, scene.snapshot_epoch())
+/// `pattern` read at snapshot level past everything committed so far, once the cluster's partitions have closed its epoch.
+pub async fn snapshot(scene: &Scene, pattern: &Pattern) -> TestResult<ClientRead> {
+    snapshot_at(scene, pattern, scene.snapshot_epoch()).await
 }
 
 /// `read`'s answer, on a connection of its own.

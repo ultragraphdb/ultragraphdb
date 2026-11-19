@@ -12,7 +12,6 @@ mod check_round_trips_tests;
 #[cfg(test)]
 mod client_session_tests;
 mod compute_core;
-mod compute_session_tests;
 #[cfg(test)]
 mod endpoint_view_tests;
 mod link_tests;

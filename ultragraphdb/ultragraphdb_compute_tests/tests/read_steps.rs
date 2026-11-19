@@ -7,6 +7,7 @@
 
 use cucumber::{then, when};
 use futures::FutureExt;
+use ultragraphdb_core_ids::{Epoch, SessionToken};
 use ultragraphdb_core_keys::Keyspace;
 use ultragraphdb_protocol_wire::{ReadLevel, ScanAt};
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -32,7 +33,7 @@ fn term_absent(w: &mut Steps) -> TestResult {
     run(async {
         scene.insert(&a, NAME, &string("Ann")).await?;
         scene.info.log.clear();
-        let read = client::snapshot(&scene, &Pattern::of(Some(&a), Some(&p), None))?;
+        let read = client::snapshot(&scene, &Pattern::of(Some(&a), Some(&p), None)).await?;
         w.answers = vec![client::answer(&scene, &read).await?];
         Ok(())
     })?;
@@ -62,8 +63,8 @@ fn two_scans(w: &mut Steps) -> TestResult {
     run(async {
         scene.insert(&a, KNOWS, &iri(&b)).await?;
         scene.info.log.clear();
-        let read = scene.snapshot(&Pattern::of(Some(&a), Some(KNOWS), None))?;
-        w.answers = vec![scene.answer(&read).await?];
+        let read = client::snapshot(&scene, &Pattern::of(Some(&a), Some(KNOWS), None)).await?;
+        w.answers = vec![client::answer(&scene, &read).await?];
         Ok(())
     })?;
     w.scene = Some(scene);
@@ -94,9 +95,14 @@ fn one_version(w: &mut Steps) -> TestResult {
         scene.insert(&a, KNOWS, &iri(&b)).await?;
         scene.info.log.clear();
         // A bound subject alone: its terms, its predicates' list, then its lists.
-        let read = scene.read_of(&Pattern::of(Some(&a), None, None), true, ReadLevel::Latest)?;
+        let read = client::read_at(
+            &scene,
+            &Pattern::of(Some(&a), None, None),
+            true,
+            ReadLevel::Latest,
+        )?;
         scene.info.log.pause_after(1);
-        let reading = scene.answer(&read);
+        let reading = client::answer(&scene, &read);
         let committing = async {
             let reached = until("two Scans seen", || scene.info.log.scans().len() >= 2).await;
             let landed = scene.insert(&a, KNOWS, &iri(&a)).await;
@@ -147,8 +153,18 @@ fn waits_for_close(w: &mut Steps) -> TestResult {
         let epoch = scene.snapshot_epoch() + 2;
         scene.info.clock.hold(2, epoch - 1);
         scene.closed_through(epoch, &[1]).await?;
-        let read = scene.snapshot_at(&Pattern::of(None, Some(NAME), None), epoch)?;
-        let reading = scene.answer(&read);
+        // A snapshot Begin naming no version reads at compute's latest closed epoch, waiting on each partition's close of it; its
+        // token, of that epoch, keeps it from reading below. A version named would be read at without waiting.
+        let mut read = client::read_at(
+            &scene,
+            &Pattern::of(None, Some(NAME), None),
+            true,
+            ReadLevel::Snapshot,
+        )?;
+        read.begin = read
+            .begin
+            .with_token(SessionToken::new(1, 1, Epoch::new(epoch)?));
+        let reading = client::answer(&scene, &read);
         let releasing = async {
             let reached = until("every partition reached", || {
                 scene.info.log.partitions() == [1, 2, 3, 4]

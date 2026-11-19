@@ -13,13 +13,14 @@ use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, SystemId, Version};
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::{
-    BodyView, ComputeRead, ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_FLOOR,
-    MAX_FRAME_FLOOR_U32, ReadLevel, ResumeKey, ResumeKeyView, ResumeRow, ScanAt, TermTable,
+    BodyView, ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_FLOOR, MAX_FRAME_FLOOR_U32,
+    ReadLevel, ResumeKey, ResumeKeyView, ResumeRow, ScanAt, TermTable,
 };
 use ultragraphdb_store_quads::{ReferrerSet, term_key};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::apart::apart_cluster::links_holding_streams;
+use crate::apart::apart_session::SessionRead;
 use crate::played_reads::played_cluster::{PlayedCluster, run};
 use crate::played_reads::played_data::{
     bucket_at, first_bucket, forward_key, home_of, id_in, ids_list, iri_at, name, name_key, place,
@@ -38,7 +39,7 @@ const OBJECTS: [&str; 3] = ["http://ex.org/o1", "http://ex.org/o2", "http://ex.o
 const SNAPSHOT: u64 = 5;
 
 /// `pattern` read-only at snapshot level at [`SNAPSHOT`].
-fn snapshot(pattern: &Pattern, tenant: u64) -> TestResult<ComputeRead> {
+fn snapshot(pattern: &Pattern, tenant: u64) -> TestResult<SessionRead> {
     Ok(pattern
         .read(tenant, true, ReadLevel::Snapshot)?
         .with_read_version(Version::bound_of(Epoch::new(SNAPSHOT)?))
@@ -60,8 +61,8 @@ async fn one_list() -> TestResult<(PlayedCluster, u64)> {
 }
 
 /// `read`'s answer on a connection of its own.
-async fn answer(cluster: &PlayedCluster, read: &ComputeRead) -> TestResult<ReadAnswer> {
-    answer_on(&mut cluster.client().await?, read).await
+async fn answer(cluster: &PlayedCluster, read: &SessionRead) -> TestResult<ReadAnswer> {
+    answer_on(&mut cluster.client(), read).await
 }
 
 /// A read at a snapshot names its epoch and its one partition in its batches, and holds its version from its first frame on by
@@ -92,7 +93,7 @@ fn test_a_snapshot_read_names_its_epoch_and_holds_its_version() -> TestResult {
 }
 
 /// A read-write transaction's batches and a named version's name epoch 0 (`PROTOCOL.md` §13.12, Result `epoch`), whatever epoch
-/// their ComputeRead carries; a named version is held at once.
+/// their read's transaction holds; a named version is held at once.
 #[test]
 fn test_a_read_write_or_named_read_names_epoch_zero() -> TestResult {
     run(async {
@@ -136,7 +137,7 @@ fn test_a_limited_read_resumes_after_its_last_row() -> TestResult {
         let key = first.resume();
         assert!(!key.is_empty(), "a row is left");
         let (terms, slots) = pattern.table()?;
-        let resumed = ComputeRead::new(tenant, true, ReadLevel::Snapshot, terms, slots, key)
+        let resumed = SessionRead::new(tenant, true, ReadLevel::Snapshot, terms, slots, key)
             .with_principal(1)
             .with_deadline_ms(crate::played_reads::read_answer::DEADLINE_MS)
             .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE_U32, 4)
@@ -293,7 +294,7 @@ fn test_a_read_over_two_partitions_merges_in_key_order_and_resumes() -> TestResu
         assert_eq!(read.whole()?.partition, 0, "two partitions reached");
         let first = answer(&cluster, &snapshot(&pattern, tenant)?.with_limit(1)).await?;
         let (terms, slots) = pattern.table()?;
-        let resumed = ComputeRead::new(
+        let resumed = SessionRead::new(
             tenant,
             true,
             ReadLevel::Snapshot,
@@ -483,10 +484,10 @@ fn test_a_resume_key_of_another_pattern_or_version_is_refused() -> TestResult {
         assert!(!key.is_empty(), "a row is left");
         let asked = cluster.partition(1)?.read_scans().len();
         let other = Pattern::of(Some(SUBJECT), None, None);
-        let at = |of: &Pattern, epoch: u64| -> TestResult<ComputeRead> {
+        let at = |of: &Pattern, epoch: u64| -> TestResult<SessionRead> {
             let (terms, slots) = of.table()?;
             Ok(
-                ComputeRead::new(tenant, true, ReadLevel::Snapshot, terms, slots, key.clone())
+                SessionRead::new(tenant, true, ReadLevel::Snapshot, terms, slots, key.clone())
                     .with_principal(1)
                     .with_deadline_ms(crate::played_reads::read_answer::DEADLINE_MS)
                     .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE_U32, 4)
@@ -532,22 +533,26 @@ fn test_a_resume_key_naming_an_unheld_term_past_the_frame_is_refused_within_it()
         let forged =
             ResumeKey::new(key.pattern(), key.scope(), key.partition(), terms, row).encode();
         let (table, slots) = pattern.table()?;
-        let resumed = ComputeRead::new(tenant, true, ReadLevel::Snapshot, table, slots, forged)
+        let resumed = SessionRead::new(tenant, true, ReadLevel::Snapshot, table, slots, forged)
             .with_principal(1)
             .with_deadline_ms(DEADLINE_MS)
             .with_client_limits(MAX_FRAME_FLOOR_U32, 4)
             .with_read_version(Version::bound_of(Epoch::new(SNAPSHOT)?))
             .with_epoch(SNAPSHOT);
-        let mut client = cluster.client().await?;
-        client.send_only(&resumed).await?;
+        let mut client = cluster.client();
+        client.send_only(&resumed)?;
         let frame = next_frame(&mut client).await?;
         assert!(
             frame.bytes().len() <= MAX_FRAME_FLOOR,
             "the refusal fits the read's max_frame: {} bytes",
             frame.bytes().len()
         );
-        assert_ne!(frame.flags() & FLAG_LAST, 0, "the refusal ends the read");
         let view = frame.view()?;
+        assert_ne!(
+            view.header().flags() & FLAG_LAST,
+            0,
+            "the refusal ends the read"
+        );
         let refused = ErrorReplyView::from_frame(&view)?.to_body()?;
         assert_eq!(refused.code(), ErrorCode::Protocol);
         let message = refused.message();

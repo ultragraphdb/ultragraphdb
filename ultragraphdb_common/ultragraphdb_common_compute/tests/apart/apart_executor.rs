@@ -55,7 +55,7 @@ pub fn pattern_of(frame: &[u8]) -> TestResult<ReadPattern> {
         .map_err(|refusal| TestError::new(format!("{refusal:?}")))
 }
 
-/// `pattern`'s read in the read-write transaction bound at partition 1, as `apart_reads::read_of` names it to a ComputeRead.
+/// `pattern`'s read in the read-write transaction bound at partition 1, as `apart_reads::read_of` names it.
 pub fn bound(pattern: ReadPattern) -> ReadRequest {
     ReadRequest::new(pattern, TENANT, false, ReadLevel::Snapshot)
         .with_partition(1)

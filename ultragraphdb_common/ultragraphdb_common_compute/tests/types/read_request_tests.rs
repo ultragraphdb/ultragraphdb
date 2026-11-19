@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! What compute takes from a ComputeRead (`PROTOCOL.md` §13.12): its bound slots, the columns its unbound slots make, a read-write
-//! transaction's terms and scope, and the deadline its Scans wait by.
+//! What compute takes from a client's Read and its transaction (`PROTOCOL.md` §11.12, *Reads*): its bound slots, the columns its
+//! unbound slots make, a read-write transaction's terms and scope, and the deadline its Scans wait by.
 
 use std::num::NonZeroU64;
 
@@ -13,12 +13,13 @@ use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Version};
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::{
-    ComputeRead, ErrorCode, MAX_FRAME_SIZE_U32, PatternSlot, QuadPattern, ReadLevel, RequestTerm,
-    ResumeKeyView, TermTable,
+    ErrorCode, MAX_FRAME_SIZE_U32, PatternSlot, QuadPattern, ReadLevel, RequestTerm, ResumeKeyView,
+    TermTable,
 };
 use ultragraphdb_store_quads::{ReferrerSet, term_key};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
+use crate::apart::apart_session::SessionRead;
 use crate::played_reads::played_cluster::{PlayedCluster, run};
 use crate::played_reads::played_data::{
     Placed, first_bucket, ids_list, place, reverse_key, tenant_over,
@@ -50,7 +51,7 @@ async fn one_list() -> TestResult<(PlayedCluster, u64, Placed)> {
 /// `pattern`'s answer read-only at latest level.
 async fn latest(cluster: &PlayedCluster, tenant: u64, pattern: &Pattern) -> TestResult<ReadAnswer> {
     let read = pattern.read(tenant, true, ReadLevel::Latest)?;
-    answer_on(&mut cluster.client().await?, &read).await
+    answer_on(&mut cluster.client(), &read).await
 }
 
 /// A read's columns are its unbound slots and the reifier's (`PROTOCOL.md` §13.12, Result `columns`), whichever slots are bound.
@@ -150,7 +151,7 @@ fn test_only_a_read_only_read_with_no_term_waits_on_a_dictionary_scan() -> TestR
             .with_partition(1)
             .with_transaction(TRANSACTION)
             .with_read_version(Version::bound_of(Epoch::new(5)?));
-        let answer = answer_on(&mut cluster.client().await?, &written).await?;
+        let answer = answer_on(&mut cluster.client(), &written).await?;
         assert_eq!(answer.whole()?.columns, 4);
         assert_eq!(answer.column(2), OBJECTS);
         assert!(
@@ -179,7 +180,7 @@ fn test_a_read_write_read_names_its_iris_and_holds_no_version() -> TestResult {
             .with_partition(1)
             .with_transaction(TRANSACTION)
             .with_read_version(Version::bound_of(Epoch::new(5)?));
-        let answer = answer_on(&mut cluster.client().await?, &written).await?;
+        let answer = answer_on(&mut cluster.client(), &written).await?;
         assert_eq!(answer.column(0), OBJECTS);
         let scans = part.scans();
         let gate = scans.first().context("the dictionary Scan")?;
@@ -202,7 +203,7 @@ fn test_a_resume_key_is_bound_to_its_transaction() -> TestResult {
             .with_read_version(version)
             .with_epoch(5)
             .with_limit(1);
-        let first = answer_on(&mut cluster.client().await?, &snapshot).await?;
+        let first = answer_on(&mut cluster.client(), &snapshot).await?;
         let key = first.resume();
         assert_eq!(ResumeKeyView::read(&key)?.scope(), version);
         let written = pattern
@@ -211,7 +212,7 @@ fn test_a_resume_key_is_bound_to_its_transaction() -> TestResult {
             .with_transaction(TRANSACTION)
             .with_read_version(version)
             .with_limit(1);
-        let second = answer_on(&mut cluster.client().await?, &written).await?;
+        let second = answer_on(&mut cluster.client(), &written).await?;
         let written_key = second.resume();
         assert_eq!(
             ResumeKeyView::read(&written_key)?.scope(),
@@ -231,7 +232,7 @@ fn test_a_scan_waits_for_its_epoch_within_the_reads_deadline() -> TestResult {
             .read(tenant, true, ReadLevel::Snapshot)?
             .with_read_version(Version::bound_of(Epoch::new(5)?))
             .with_epoch(5);
-        let answer = answer_on(&mut cluster.client().await?, &read).await?;
+        let answer = answer_on(&mut cluster.client(), &read).await?;
         assert_eq!(answer.column(0), OBJECTS);
         let scans = cluster.partition(1)?.read_scans();
         let gate = scans.first().context("the dictionary Scan")?;
@@ -281,11 +282,11 @@ fn test_a_slot_bound_to_a_term_it_cannot_hold_is_refused_naming_the_term() -> Te
             };
             let pattern = QuadPattern::new(graph, at(1), at(2), at(3));
             let read =
-                ComputeRead::new(tenant, true, ReadLevel::Latest, terms, pattern, Vec::new())
+                SessionRead::new(tenant, true, ReadLevel::Latest, terms, pattern, Vec::new())
                     .with_principal(1)
                     .with_deadline_ms(DEADLINE_MS)
                     .with_client_limits(MAX_FRAME_SIZE_U32, 4);
-            let answer = answer_on(&mut cluster.client().await?, &read).await?;
+            let answer = answer_on(&mut cluster.client(), &read).await?;
             let refused = answer.refusal()?;
             assert_eq!(
                 (refused.code, refused.detail),

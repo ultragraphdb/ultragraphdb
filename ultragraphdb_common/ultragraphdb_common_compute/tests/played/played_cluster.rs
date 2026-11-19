@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A cluster on the test's one runtime: a played frontend, played partitions, and one [`ComputeCore`] whose
-//! [`ComputeSession`]s serve at an address of their own, which the test dials as the frontend does.
+//! A cluster on the test's one runtime: a played frontend, played partitions, and one [`ComputeCore`] whose reads a client's
+//! session hands to its executor.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -12,15 +12,13 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use compio::runtime::{Runtime, spawn};
-use ultragraphdb_common_compute::{ComputeCore, ComputeSession, ReadTimes};
-use ultragraphdb_common_role::{
-    COMPUTE_WELCOME_CREDIT, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server,
-    serve_connection,
-};
-use ultragraphdb_protocol_transport::{Address, Endpoint};
-use ultragraphdb_protocol_transport_compio::Listener;
+use compio::runtime::Runtime;
+use ultragraphdb_common_compute::{ComputeCore, ReadExecutor, ReadTimes};
+use ultragraphdb_common_role::{RoleCluster, RoleSecret};
+use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+
+use crate::apart::apart_session::ReadSession;
 
 use super::played_frontend::{PlayedFrontend, even_ranges};
 use super::played_partition::PlayedPartition;
@@ -77,10 +75,9 @@ pub fn run<T>(work: impl Future<Output = TestResult<T>>) -> TestResult<T> {
 /// A played cluster.
 #[derive(Debug)]
 pub struct PlayedCluster {
-    cluster: RoleCluster,
     frontend: PlayedFrontend,
     partitions: Vec<PlayedPartition>,
-    compute: String,
+    core: Rc<ComputeCore>,
 }
 
 impl PlayedCluster {
@@ -104,33 +101,15 @@ impl PlayedCluster {
             played.push(started);
         }
         let core = ComputeCore::new(
-            cluster.clone(),
+            cluster,
             Address::parse(frontend.address())?,
             times,
             "compute",
         );
-        let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
-        let compute = listener.local_address()?.to_string();
-        let credentials = cluster.secret().credentials()?;
-        let server = Server::new(cluster.id(), "role", Endpoint::Compute)?
-            .with_welcome(|welcome| welcome.with_initial_credit(COMPUTE_WELCOME_CREDIT))
-            .with_iterations(ROLE_ITERATIONS);
-        spawn(async move {
-            while let Ok(carrier) = listener.accept().await {
-                let session = ComputeSession::new(Rc::clone(&core));
-                let (server, credentials) = (server.clone(), credentials.clone());
-                spawn(
-                    async move { serve_connection(carrier, &server, credentials, session).await },
-                )
-                .detach();
-            }
-        })
-        .detach();
         Ok(Self {
-            cluster,
             frontend,
             partitions: played,
-            compute,
+            core,
         })
     }
 
@@ -147,15 +126,8 @@ impl PlayedCluster {
             .context("a played partition")
     }
 
-    /// A connection to compute, as the frontend dials one.
-    pub async fn client(&self) -> TestResult<RoleClient> {
-        let address = Address::parse(&self.compute)?;
-        Ok(RoleClient::dial(
-            &address,
-            self.cluster.id(),
-            "compute",
-            self.cluster.secret().password(),
-        )
-        .await?)
+    /// A client connection's reads on compute's core, as the connection's session runs them.
+    pub fn client(&self) -> ReadSession {
+        ReadSession::new(CLUSTER, ReadExecutor::new(Rc::clone(&self.core)))
     }
 }

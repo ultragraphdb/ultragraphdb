@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A played frontend and played partitions on the test's runtime, and compute on a runtime of its own on another thread.
+//! A played frontend and played partitions on the test's runtime, and compute's core beside them.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -11,13 +11,12 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use compio::runtime::{Runtime, spawn, spawn_blocking};
-use futures::channel::oneshot;
+use compio::runtime::{Runtime, spawn};
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
-use ultragraphdb_common_compute::{ComputeCore, ComputeSession, ReadTimes};
+use ultragraphdb_common_compute::{ComputeCore, ReadExecutor, ReadTimes};
 use ultragraphdb_common_role::{
-    Answer, COMPUTE_WELCOME_CREDIT, OpenRequests, PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS,
-    RoleClient, RoleCluster, RoleSecret, Server, Session, serve_connection,
+    Answer, OpenRequests, PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS, RoleCluster, RoleSecret,
+    Server, Session, serve_connection,
 };
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame};
@@ -29,15 +28,13 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use super::apart_partition::PlayedPartition;
+use super::apart_session::ReadSession;
 
 /// The played cluster's identity.
 pub const CLUSTER: u64 = 7;
 
 /// How long one test's work may take in all.
 const TEST_WAIT: Duration = Duration::from_secs(30);
-
-/// How long the test waits for compute to listen.
-const LISTEN_WAIT: Duration = Duration::from_secs(5);
 
 /// The secret files written, so each cluster writes its own.
 static SECRETS: AtomicU64 = AtomicU64::new(0);
@@ -199,63 +196,10 @@ impl ApartCluster {
         )
     }
 
-    /// Compute on a thread of its own, reading by `times` and counting its open reads in `open`: a connection to it, as the
-    /// frontend dials one. Its runtime serves that one connection, so a read that never yields holds that thread alone.
-    pub async fn compute(&self, times: ReadTimes, open: OpenRequests) -> TestResult<RoleClient> {
-        let (told, listening) = oneshot::channel::<TestResult<String>>();
-        let (cluster, frontend) = (self.cluster.clone(), self.frontend.clone());
-        spawn_blocking(move || {
-            let runtime = match Runtime::new() {
-                Ok(runtime) => runtime,
-                Err(error) => return drop(told.send(Err(error.into()))),
-            };
-            runtime.block_on(serve_compute((cluster, frontend), times, open, told));
-        })
-        .detach();
-        let address = compio::time::timeout(LISTEN_WAIT, listening)
-            .await
-            .map_err(|_| TestError::new("compute did not listen"))???;
-        let password = self.cluster.secret().password();
-        let address = Address::parse(&address)?;
-        let dial = RoleClient::dial(&address, CLUSTER, "compute", password);
-        // Compute serves on a runtime of its own, so a compute that stops answering fails the dial here rather than holding it.
-        Ok(compio::time::timeout(LISTEN_WAIT, dial)
-            .await
-            .map_err(|_| TestError::new("compute did not answer the dial"))??)
-    }
-}
-
-/// Serves compute's one connection on this runtime, telling `told` where it listens or why it cannot.
-async fn serve_compute(
-    (cluster, frontend): (RoleCluster, Address),
-    times: ReadTimes,
-    open: OpenRequests,
-    told: oneshot::Sender<TestResult<String>>,
-) {
-    let listening = async {
-        let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
-        let server = Server::new(CLUSTER, "role", Endpoint::Compute)?
-            .with_welcome(|welcome| welcome.with_initial_credit(COMPUTE_WELCOME_CREDIT))
-            .with_iterations(ROLE_ITERATIONS);
-        let credentials = cluster.secret().credentials()?;
-        TestResult::Ok((listener, server, credentials))
-    };
-    let (listener, server, credentials) = match listening.await {
-        Ok(listening) => listening,
-        Err(error) => return drop(told.send(Err(error))),
-    };
-    drop(
-        told.send(
-            listener
-                .local_address()
-                .map(|address| address.to_string())
-                .map_err(Into::into),
-        ),
-    );
-    let core = ComputeCore::new(cluster, frontend, times, "compute");
-    if let Ok(carrier) = listener.accept().await {
-        let session = ComputeSession::new(core).with_open(open);
-        serve_connection(carrier, &server, credentials, session).await;
+    /// A client connection's reads on a compute core of this runtime reading by `times`, each counted among `open` until it
+    /// ends, as the connection's session runs them.
+    pub fn session(&self, times: ReadTimes, open: OpenRequests) -> ReadSession {
+        ReadSession::new(CLUSTER, ReadExecutor::new(self.core(times)).with_open(open))
     }
 }
 

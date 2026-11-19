@@ -9,9 +9,10 @@ use compio::runtime::Runtime;
 use ultragraphdb_common_compute::read_times_of;
 use ultragraphdb_core_keys::Graph;
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_protocol_wire::{ComputeRead, ReadLevel, ScanAt};
+use ultragraphdb_protocol_wire::{ReadLevel, ScanAt};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
+use crate::apart::apart_session::SessionRead;
 use crate::utils::played_answers::{Pattern, answer_on, read_of, snapshot};
 use crate::utils::played_cluster::{Asked, EPOCH, Played, WAIT, id, version, within};
 
@@ -20,7 +21,7 @@ const P: &str = "http://ex.org/p";
 const O: &str = "http://ex.org/o";
 
 /// The first Scan one partition holding `<s> <p> <o>` is asked by `read` of `?s <p> ?o`, the read answered whole.
-fn first_scan(read: impl FnOnce(&Pattern) -> TestResult<ComputeRead>) -> TestResult<Asked> {
+fn first_scan(read: impl FnOnce(&Pattern) -> TestResult<SessionRead>) -> TestResult<Asked> {
     Runtime::new()?.block_on(within(WAIT, "the read", async {
         let played = Played::start(1, read_times_of(None, None)).await?;
         let partition = played.partition(1)?;
@@ -29,7 +30,7 @@ fn first_scan(read: impl FnOnce(&Pattern) -> TestResult<ComputeRead>) -> TestRes
         partition.term(P, p);
         partition.term(O, o);
         partition.quads(Graph::Default, s, p, &[EncodedTerm::id(o)]);
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let pattern = Pattern::of(None, Some(P), None);
         let rows = answer_on(&mut client, &read(&pattern)?).await?.whole()?;
         // The columns: the unbound subject and object, then the reifier, which no statement names here.

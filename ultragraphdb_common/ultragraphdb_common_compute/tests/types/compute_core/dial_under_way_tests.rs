@@ -29,8 +29,8 @@ fn test_a_read_cancelled_while_its_core_dials_leaves_the_next_to_dial() -> TestR
             object: None,
         };
         played.frontend().delay_members(HELD);
-        let mut client = played.client().await?;
-        let stream = send(&mut client, &snapshot_of(&bound)?).await?;
+        let mut client = played.client();
+        let stream = send(&mut client, &snapshot_of(&bound)?)?;
         let asked = async {
             while played.frontend().members_asked() == 0 {
                 compio::time::sleep(Duration::from_millis(5)).await;
@@ -39,10 +39,10 @@ fn test_a_read_cancelled_while_its_core_dials_leaves_the_next_to_dial() -> TestR
         compio::time::timeout(HELD * 2, asked)
             .await
             .map_err(|_| TestError::new("compute never asked the frontend for the members"))?;
-        cancel(&mut client, stream).await?;
+        cancel(&mut client, stream)?;
         played.frontend().delay_members(Duration::ZERO);
         compio::time::sleep(HELD / 5).await;
-        let mut next = played.client().await?;
+        let mut next = played.client();
         let answer = compio::time::timeout(HELD * 4, read(&mut next, &snapshot_of(&bound)?))
             .await
             .map_err(|_| TestError::new("the read after the cancelled one did not end"))??;
@@ -66,8 +66,8 @@ fn test_a_read_waiting_on_a_dial_given_up_dials_for_itself() -> TestResult {
             object: None,
         };
         played.frontend().delay_members(HELD);
-        let mut dialling = played.client().await?;
-        let stream = send(&mut dialling, &snapshot_of(&bound)?).await?;
+        let mut dialling = played.client();
+        let stream = send(&mut dialling, &snapshot_of(&bound)?)?;
         let asked = async {
             while played.frontend().members_asked() == 0 {
                 compio::time::sleep(Duration::from_millis(5)).await;
@@ -76,11 +76,11 @@ fn test_a_read_waiting_on_a_dial_given_up_dials_for_itself() -> TestResult {
         compio::time::timeout(HELD * 2, asked)
             .await
             .map_err(|_| TestError::new("compute never asked the frontend for the members"))?;
-        let mut waiting = played.client().await?;
-        let waiting_stream = send(&mut waiting, &snapshot_of(&bound)?).await?;
+        let mut waiting = played.client();
+        let waiting_stream = send(&mut waiting, &snapshot_of(&bound)?)?;
         // The second read reaches the dial under way and waits on it.
         compio::time::sleep(HELD / 5).await;
-        cancel(&mut dialling, stream).await?;
+        cancel(&mut dialling, stream)?;
         played.frontend().delay_members(Duration::ZERO);
         let answer = compio::time::timeout(HELD * 4, answer_of(&mut waiting, waiting_stream))
             .await

@@ -9,6 +9,7 @@ use cucumber::{then, when};
 use ultragraphdb_protocol_wire::ReadLevel;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
+use crate::client;
 use crate::scene::{NAME, Pattern, Scene, closed_at, run, string};
 use crate::{Steps, four};
 
@@ -33,12 +34,13 @@ fn monotonic_over_both(w: &mut Steps) -> TestResult {
         let a = scene.iri_in(1, "a")?;
         scene.insert(&a, NAME, &string("Ann")).await?;
         let (low, _) = lag(&scene, 2, 1, 3).await?;
-        let read = scene.read_of(
+        let read = client::read_at(
+            &scene,
             &Pattern::of(None, Some(NAME), None),
             true,
             ReadLevel::MonotonicFast,
         )?;
-        let answer = scene.answer(&read).await;
+        let answer = client::answer(&scene, &read).await;
         scene.info.clock.release(2);
         w.answers = vec![answer?];
         w.numbers = vec![low];

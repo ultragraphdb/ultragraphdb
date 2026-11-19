@@ -34,7 +34,7 @@ impl RouteSink {
         }
     }
 
-    /// The sink of a read's stream, which starts with `credit`, as its ComputeRead names (`PROTOCOL.md` §11.3).
+    /// The sink of a read's stream, which starts with `credit`, as its client's Welcome names (`PROTOCOL.md` §11.3).
     #[must_use]
     pub fn with_credit(mut self, credit: u32) -> Self {
         self.credit = Some(credit);

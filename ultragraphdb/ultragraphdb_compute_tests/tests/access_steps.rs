@@ -6,9 +6,11 @@
 //! Reverse reads and the keyspace a read takes by its bound positions.
 
 use cucumber::{then, when};
-use ultragraphdb_protocol_wire::ErrorCode;
+use ultragraphdb_core_ids::{Epoch, SessionToken};
+use ultragraphdb_protocol_wire::{ErrorCode, ReadLevel};
 use ultragraphdb_tool_bdd::TestResult;
 
+use crate::client;
 use crate::scene::{KNOWS, Pattern, Scene, iri, run};
 use crate::{Steps, four};
 
@@ -32,8 +34,8 @@ fn reverse_read(w: &mut Steps) -> TestResult {
     let scene = Scene::new(four()?);
     run(async {
         let (b, order) = referrers(&scene).await?;
-        let read = scene.snapshot(&Pattern::of(None, Some(KNOWS), Some(iri(&b))))?;
-        w.answers = vec![scene.answer(&read).await?];
+        let read = client::snapshot(&scene, &Pattern::of(None, Some(KNOWS), Some(iri(&b)))).await?;
+        w.answers = vec![client::answer(&scene, &read).await?];
         w.iris = order;
         Ok(())
     })?;
@@ -66,10 +68,20 @@ fn lagging(w: &mut Steps) -> TestResult {
         let (b, _) = referrers(&scene).await?;
         let epoch = scene.snapshot_epoch() + 2;
         scene.info.clock.hold(3, epoch - 1);
-        let read = scene
-            .snapshot_at(&Pattern::of(None, Some(KNOWS), Some(iri(&b))), epoch)?
-            .with_deadline_ms(50);
-        let answer = scene.answer(&read).await;
+        // A snapshot Begin naming no version reads at the epoch compute last saw closed, never below its token's: a token of
+        // partition 1 naming `epoch` holds the Begin until compute has seen `epoch - 1` close, and the read waits on the
+        // partitions' close of `epoch` (`PROTOCOL.md` §4.8, §11.11). A named version would be refused at once instead.
+        let mut read = client::read_at(
+            &scene,
+            &Pattern::of(None, Some(KNOWS), Some(iri(&b))),
+            true,
+            ReadLevel::Snapshot,
+        )?;
+        read.begin = read
+            .begin
+            .with_deadline_ms(50)
+            .with_token(SessionToken::new(1, 1, Epoch::new(epoch)?));
+        let answer = client::answer(&scene, &read).await;
         scene.info.clock.release(3);
         w.answers = vec![answer?];
         Ok(())

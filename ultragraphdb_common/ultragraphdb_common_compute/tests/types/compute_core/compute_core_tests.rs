@@ -38,7 +38,7 @@ fn test_a_placement_other_than_the_even_map_refuses_the_read() -> TestResult {
         let list = OneList::new("subject", "predicate", 2)?;
         list.hold_in(played.partition(1)?);
         list.hold_in(played.partition(2)?);
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = read(&mut client, &snapshot_of(&bound_list(&list))?).await?;
         let (code, message) = answer.refusal.context("the read's refusal")?;
         assert_eq!(code, ErrorCode::Unavailable);
@@ -54,7 +54,7 @@ fn test_every_batch_names_the_cluster() -> TestResult {
         let played = PlayedCluster::start(1, quiet_times()).await?;
         let list = OneList::new("subject", "predicate", 2)?;
         list.hold_in(played.partition(1)?);
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = read(&mut client, &snapshot_of(&bound_list(&list))?)
             .await?
             .answered()?;
@@ -72,7 +72,7 @@ fn test_the_reads_of_a_core_share_its_connection_to_a_partition() -> TestResult 
         let partition = played.partition(1)?;
         let list = OneList::new("subject", "predicate", 2)?;
         list.hold_in(partition);
-        let mut client = played.client().await?;
+        let mut client = played.client();
         for _ in 0..3 {
             let answer = read(&mut client, &snapshot_of(&bound_list(&list))?)
                 .await?
@@ -98,7 +98,7 @@ const SLOW: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// The refusal of a read of `list` on `played`: its code and message.
 async fn refusal_of(played: &PlayedCluster, list: &OneList) -> TestResult<(ErrorCode, String)> {
-    let mut client = played.client().await?;
+    let mut client = played.client();
     let answer = read(&mut client, &snapshot_of(&bound_list(list))?).await?;
     answer.refusal.context("the read's refusal")
 }
@@ -190,7 +190,7 @@ fn test_reads_arriving_during_a_dial_share_it() -> TestResult {
         played
             .frontend()
             .delay_members(std::time::Duration::from_millis(200));
-        let (mut first, mut second) = (played.client().await?, played.client().await?);
+        let (mut first, mut second) = (played.client(), played.client());
         let read_one = snapshot_of(&bound_list(&list))?;
         let (one, two) =
             futures::future::join(read(&mut first, &read_one), read(&mut second, &read_one)).await;
@@ -212,7 +212,7 @@ fn test_members_listing_compute_processes_reach_the_partition() -> TestResult {
         played.frontend().list_compute("127.0.0.1:1");
         let list = OneList::new("subject", "predicate", 2)?;
         list.hold_in(played.partition(1)?);
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = read(&mut client, &snapshot_of(&bound_list(&list))?)
             .await?
             .answered()?;
@@ -229,7 +229,7 @@ fn test_the_placement_and_the_members_are_read_at_the_group() -> TestResult {
         let played = PlayedCluster::start(1, quiet_times()).await?;
         let list = OneList::new("subject", "predicate", 2)?;
         list.hold_in(played.partition(1)?);
-        let mut client = played.client().await?;
+        let mut client = played.client();
         for _ in 0..2 {
             let answer = read(&mut client, &snapshot_of(&bound_list(&list))?)
                 .await?

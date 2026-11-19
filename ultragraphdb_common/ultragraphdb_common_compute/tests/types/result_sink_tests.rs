@@ -14,11 +14,12 @@ use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::Graph;
 use ultragraphdb_core_terms::{EncodedTerm, TermError};
 use ultragraphdb_protocol_wire::{
-    Credit, ErrorCode, MAX_FRAME_FLOOR, MAX_FRAME_FLOOR_U32, ResultBatch, ResultTerm, ResumeKey,
-    ResumeRow, TermTable,
+    ErrorCode, MAX_FRAME_FLOOR, MAX_FRAME_FLOOR_U32, ResultBatch, ResultTerm, ResumeKey, ResumeRow,
+    TermTable,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
+use crate::apart::apart_session::SessionRead;
 use crate::utils::played_answers::{
     Pattern, ReadAnswer, answer_on, next_of, pattern_hash, snapshot,
 };
@@ -68,11 +69,11 @@ fn hold_rows(partition: &Partition, objects: &[String]) -> TestResult {
 /// The answer to `read` over one partition `fill` fills.
 async fn answer(
     fill: impl FnOnce(&Partition) -> TestResult,
-    read: &ultragraphdb_protocol_wire::ComputeRead,
+    read: &SessionRead,
 ) -> TestResult<(Played, ReadAnswer)> {
     let played = Played::start(1, read_times_of(None, None)).await?;
     fill(played.partition(1)?)?;
-    let mut client = played.client().await?;
+    let mut client = played.client();
     let answered = answer_on(&mut client, read).await?;
     Ok((played, answered))
 }
@@ -233,10 +234,10 @@ fn test_a_read_holds_its_batches_to_its_clients_credit() -> TestResult {
         let played = Played::start(1, read_times_of(None, None)).await?;
         let objects: Vec<String> = (0..4).map(|i| long_iri(i, 200_000)).collect();
         hold_rows(played.partition(1)?, &objects)?;
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let read =
             snapshot(&Pattern::of(None, Some(P), None))?.with_client_limits(MAX_FRAME_FLOOR_U32, 1);
-        client.send_only(&read).await?;
+        client.send_only(&read)?;
         let stream = client.last_stream();
         let first = next_of(&mut client)
             .await?
@@ -245,7 +246,7 @@ fn test_a_read_holds_its_batches_to_its_clients_credit() -> TestResult {
         assert!(!first.last);
         compio::time::sleep(Duration::from_millis(50)).await;
         assert_eq!(played.open_reads(), 1, "the read waits for credit");
-        client.send_on(stream, &Credit::new(1)).await?;
+        client.credit(stream, 1)?;
         let last = next_of(&mut client).await?.ok().context("the last batch")?;
         assert!(last.last);
         within(Duration::from_secs(5), "the read's end", async {
@@ -397,10 +398,10 @@ fn test_a_read_waiting_for_credit_ends_with_its_connection() -> TestResult {
         let played = Played::start(1, read_times_of(None, None)).await?;
         let objects: Vec<String> = (0..4).map(|i| long_iri(i, 200_000)).collect();
         hold_rows(played.partition(1)?, &objects)?;
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let read =
             snapshot(&Pattern::of(None, Some(P), None))?.with_client_limits(MAX_FRAME_FLOOR_U32, 1);
-        client.send_only(&read).await?;
+        client.send_only(&read)?;
         let first = next_of(&mut client)
             .await?
             .ok()

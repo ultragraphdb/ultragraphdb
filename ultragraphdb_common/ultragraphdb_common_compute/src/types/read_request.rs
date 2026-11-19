@@ -5,9 +5,7 @@
 
 use std::time::Instant;
 
-use ultragraphdb_protocol_wire::{
-    ComputeReadView, ErrorReply, MAX_FRAME_FLOOR_U32, ReadLevel, RequestTerm,
-};
+use ultragraphdb_protocol_wire::{MAX_FRAME_FLOOR_U32, ReadLevel, RequestTerm};
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::types::graph_slot::GraphSlot;
@@ -15,7 +13,7 @@ use crate::types::read_pattern::ReadPattern;
 use crate::utils::clock::now;
 
 /// A read as the executor runs it, for as long as it runs: what its request asks ([`ReadPattern`]) and what it takes of its
-/// transaction when it starts, built by [`ReadRequest::new`] and its setters, or from a ComputeRead, its frame given back.
+/// transaction when it starts, built by [`ReadRequest::new`] and its setters.
 #[derive(Debug)]
 pub struct ReadRequest {
     pub(crate) stream: u64,
@@ -135,29 +133,6 @@ impl ReadRequest {
     pub fn with_max_frame(mut self, max_frame: u32) -> Self {
         self.max_frame = max_frame;
         self
-    }
-
-    /// The read `view` asks on `stream`.
-    pub(crate) fn of(view: &ComputeReadView<'_>, stream: u64) -> Result<Self, ErrorReply> {
-        let pattern = ReadPattern::of_parts(
-            (view.terms(), view.pattern()),
-            view.limit(),
-            view.resume(),
-            view.pattern_hash(),
-        )?;
-        let read = Self::new(pattern, view.tenant(), view.read_only(), view.level())
-            .with_partition(view.partition())
-            .with_transaction(view.transaction())
-            .with_epoch(view.epoch())
-            .with_principal(view.principal())
-            .with_deadline_ms(view.deadline_ms())
-            .with_max_frame(view.max_frame());
-        let read = if view.named() {
-            read.with_named_version(view.read_version())
-        } else {
-            read.with_read_version(view.read_version())
-        };
-        Ok(Self { stream, ..read })
     }
 
     /// Whether the read is a read-write transaction's.

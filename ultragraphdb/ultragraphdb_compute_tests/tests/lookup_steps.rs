@@ -16,13 +16,14 @@ use ultragraphdb_core_ids::{SystemId, Tenant};
 use ultragraphdb_core_keys::{CountDirection, Graph, QuadKey};
 use ultragraphdb_core_terms::{EncodedTerm, Hash128};
 use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_wire::{ErrorCode, ObjectRecordsBuilder, ReadLevel};
+use ultragraphdb_protocol_wire::{ErrorCode, MAX_FRAME_SIZE_U32, ObjectRecordsBuilder, ReadLevel};
 use ultragraphdb_store_quads::{id_key, literal_key, term_key};
 use ultragraphdb_tests::{CLUSTER, SECRET, holding, render_settings};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
+use crate::client::{self, EndpointClient, answer_on};
 use crate::played_partition::{PlayedTables, Script};
-use crate::scene::{FLOOR, KNOWS, NAME, Pattern, Scene, answer_on, compute_client, run};
+use crate::scene::{FLOOR, KNOWS, NAME, Pattern, Scene, run};
 use crate::{Steps, played, played_tables};
 
 /// The tag of an `xsd:string` held by hash (`PROTOCOL.md` §10.1).
@@ -215,11 +216,11 @@ fn dangling(w: &mut Steps) -> TestResult {
     let (subject, key) = dangling_list(&scene)?;
     run(async {
         let pattern = Pattern::of(Some(&subject), Some(KNOWS), None);
-        let read = scene.read_of(&pattern, true, ReadLevel::Latest)?;
-        let mut client = crate::scene::compute_client(scene.info).await?;
-        w.answers = vec![crate::scene::answer_on(&mut client, &read).await?];
+        let read = client::read_at(&scene, &pattern, true, ReadLevel::Latest)?;
+        let mut client = EndpointClient::connect(scene.info, read.max_frame).await?;
+        w.answers = vec![answer_on(&mut client, &read).await?];
         // The connection stays open: another read on it is answered.
-        let next = crate::scene::answer_on(&mut client, &read).await?;
+        let next = answer_on(&mut client, &read).await?;
         w.answers.push(next);
         Ok(())
     })?;
@@ -277,17 +278,17 @@ fn restarts(w: &mut Steps) -> TestResult {
     .to_bytes();
     tables.put(key.clone(), records.value().to_vec());
     tables.script(key.clone(), Script::ThenRefuse(ErrorCode::TimedOut, 1));
-    let read = scene
-        .read_of(
-            &Pattern::of(Some(&subject), Some(NAME), None),
-            true,
-            ReadLevel::Latest,
-        )?
-        .with_client_limits(FLOOR, 16);
+    let mut read = client::read_at(
+        &scene,
+        &Pattern::of(Some(&subject), Some(NAME), None),
+        true,
+        ReadLevel::Latest,
+    )?;
+    read.max_frame = FLOOR;
     run(async {
-        let stalled = scene.answer(&read).await?;
+        let stalled = client::answer(&scene, &read).await?;
         tables.unscript(&key);
-        let again = scene.answer(&read).await?;
+        let again = client::answer(&scene, &read).await?;
         w.answers = vec![stalled, again];
         Ok(())
     })
@@ -318,10 +319,10 @@ fn hung_partition(w: &mut Steps) -> TestResult {
     let other = scene.iri_in(1, "after")?;
     run(async {
         // One connection, so one compute core: each core holds a connection of its own to the partition, and this one's has closed.
-        let mut client = compute_client(scene.info).await?;
+        let mut client = EndpointClient::connect(scene.info, MAX_FRAME_SIZE_U32).await?;
         let read_of = |iri: &str| {
             let pattern = Pattern::of(Some(iri), Some(KNOWS), None);
-            scene.read_of(&pattern, true, ReadLevel::Latest)
+            client::read_at(&scene, &pattern, true, ReadLevel::Latest)
         };
         w.answers = vec![answer_on(&mut client, &read_of(&subject)?).await?];
         // The next read dials the partition again, over a connection of its own.
@@ -359,8 +360,8 @@ fn relayed_detail(w: &mut Steps) -> TestResult {
     );
     run(async {
         let pattern = Pattern::of(Some(&subject), Some(KNOWS), None);
-        let read = scene.read_of(&pattern, true, ReadLevel::Latest)?;
-        w.answers = vec![scene.answer(&read).await?];
+        let read = client::read_at(&scene, &pattern, true, ReadLevel::Latest)?;
+        w.answers = vec![client::answer(&scene, &read).await?];
         Ok(())
     })
 }
@@ -382,8 +383,8 @@ fn refused_frame(w: &mut Steps) -> TestResult {
     played_tables(1)?.script(term_key(scene.tenant, &subject), Script::BreakOrder);
     run(async {
         let pattern = Pattern::of(Some(&subject), Some(KNOWS), None);
-        let read = scene.read_of(&pattern, true, ReadLevel::Latest)?;
-        w.answers = vec![scene.answer(&read).await?];
+        let read = client::read_at(&scene, &pattern, true, ReadLevel::Latest)?;
+        w.answers = vec![client::answer(&scene, &read).await?];
         Ok(())
     })?;
     w.scene = Some(scene);

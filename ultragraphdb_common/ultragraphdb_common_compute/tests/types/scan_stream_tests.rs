@@ -10,7 +10,7 @@
 use std::time::Duration;
 
 use ultragraphdb_common_compute::{ReadTimes, read_times_of};
-use ultragraphdb_protocol_wire::{Cancel, ErrorCode, ReadLevel};
+use ultragraphdb_protocol_wire::{ErrorCode, ReadLevel};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::played_reads::played_cluster::{PlayedCluster, run};
@@ -54,7 +54,7 @@ fn test_a_partitions_refusal_comes_back_as_it_was_sent() -> TestResult {
             true,
             ReadLevel::Latest,
         )?;
-        let answer = answer_on(&mut cluster.client().await?, &read).await?;
+        let answer = answer_on(&mut cluster.client(), &read).await?;
         let refused = answer.refusal()?;
         assert_eq!((refused.code, refused.detail), (ErrorCode::TooOld, 42));
         Ok(())
@@ -82,7 +82,7 @@ fn test_a_scan_given_up_before_its_end_is_cancelled() -> TestResult {
         let read = Pattern::of(Some(SUBJECT), None, None)
             .read(tenant, true, ReadLevel::Latest)?
             .with_limit(2);
-        let answer = answer_on(&mut cluster.client().await?, &read).await?;
+        let answer = answer_on(&mut cluster.client(), &read).await?;
         assert_eq!(answer.column(1), OBJECTS);
         assert!(!answer.resume().is_empty(), "a row is left");
         // The Cancel leaves as the read's Scans are dropped, after its last batch: waited for, a bounded while.
@@ -118,17 +118,17 @@ fn test_a_read_given_up_on_a_silent_partition_closes_its_connection() -> TestRes
             ReadLevel::Latest,
         )?;
         // A read first, so the placement, the members and the connection are held and the silent Scan is asked at once.
-        let mut client = cluster.client().await?;
+        let mut client = cluster.client();
         assert_eq!(answer_on(&mut client, &other).await?.column(0), OBJECTS);
         let read = Pattern::of(Some(SUBJECT), Some(PREDICATE), None).read(
             tenant,
             true,
             ReadLevel::Latest,
         )?;
-        client.send_only(&read).await?;
+        client.send_only(&read)?;
         let stream = client.last_stream();
         compio::time::sleep(Duration::from_millis(1_500)).await;
-        client.send_on(stream, &Cancel).await?;
+        client.cancel(stream)?;
         compio::time::sleep(Duration::from_millis(1_100)).await;
         assert_eq!(part.connections(), 1);
         let answer = answer_on(&mut client, &other).await?;
@@ -156,13 +156,13 @@ fn silent_and_other(part: &PlayedPartition, tenant: u64, placed: &Placed) -> Tes
 }
 
 /// A cluster of one partition holding two lists of `<p>`, whose Scans of those lists take `scripts` in order, once each, and a
-/// connection to compute reading by `stall`: the lists' key prefix.
+/// client's reads on a compute core reading by `stall`: the lists' key prefix.
 async fn scripted_apart(
     scripts: &[crate::apart::apart_partition::Script],
     stall: Duration,
 ) -> TestResult<(
     crate::apart::apart_cluster::ApartCluster,
-    ultragraphdb_common_role::RoleClient,
+    crate::apart::apart_session::ReadSession,
     Vec<u8>,
 )> {
     use ultragraphdb_core_keys::{Graph, Keyspace, key_prefix};
@@ -183,12 +183,10 @@ async fn scripted_apart(
     for script in scripts {
         partition.script(lists.clone(), *script, 1);
     }
-    let client = cluster
-        .compute(
-            times(stall),
-            ultragraphdb_common_role::OpenRequests::default(),
-        )
-        .await?;
+    let client = cluster.session(
+        times(stall),
+        ultragraphdb_common_role::OpenRequests::default(),
+    );
     Ok((cluster, client, lists))
 }
 
@@ -228,9 +226,9 @@ fn test_a_scan_waiting_when_its_connection_closes_is_refused() -> TestResult {
             Duration::from_secs(5),
         )
         .await?;
-        let waiting = send_read(&mut client, &of_p(0, Vec::new())).await?;
+        let waiting = send_read(&mut client, &of_p(0, Vec::new()))?;
         cluster.partition(1)?.until_asked(&lists).await?;
-        let breaking = send_read(&mut client, &of_p(0, Vec::new())).await?;
+        let breaking = send_read(&mut client, &of_p(0, Vec::new()))?;
         let mut refused = Vec::new();
         for _ in 0..2 {
             let frame = next_frame(&mut client).await?;

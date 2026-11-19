@@ -559,10 +559,13 @@ fn holds_the_facts(w: &Steps) -> TestResult {
 }
 
 #[then(
-    "compute asks every partition of the tenant's run, reads no referrer set, and returns `<a>` and `<c>` merged in key order"
+    "compute asks every partition of the tenant's run, reads no referrer set, and returns `<a>`, partition 1's row, before `<c>`, partition 2's"
 )]
 fn literal_object_read(w: &mut Steps) -> TestResult {
-    holds_the_facts(w)
+    // The facts are `<a>`, partition 1's, then `<c>`, partition 2's, the order the rows come in.
+    let answer = w.seen.answers.first().context("the answer")?;
+    assert_eq!(answer.column(0), w.seen.facts, "{}", w.over());
+    Ok(())
 }
 
 #[when(

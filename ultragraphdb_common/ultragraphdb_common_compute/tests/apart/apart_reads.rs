@@ -3,27 +3,26 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! What a test holds in a played partition, and a read-write transaction's reads of it through compute, as the frontend sends
-//! them and reads their answers (`PROTOCOL.md` §13.12).
+//! What a test holds in a played partition, and a read-write transaction's reads of it through compute's executor, as a
+//! client's session hands them over and the client reads their answers (`PROTOCOL.md` §11.12, *Reads*).
 
 use std::time::Duration;
 
 use ultragraphdb_cluster_placement::TenantRun;
-use ultragraphdb_common_role::{OpenRequests, RoleClient};
+use ultragraphdb_common_role::OpenRequests;
 use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, Tenant, TypePrefix};
 use ultragraphdb_core_keys::{Graph, QuadKey};
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
-    BodyView, Cancel, Command, ComputeRead, Credit, ErrorCode, ErrorReplyView, FLAG_LAST,
-    MAX_FRAME_SIZE_U32, ObjectRecordsBuilder, PatternSlot, QuadPattern, ReadLevel, ResultView,
-    TermTable,
+    BodyView, Command, ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_SIZE_U32,
+    ObjectRecordsBuilder, PatternSlot, QuadPattern, ReadLevel, ResultView, TermTable,
 };
 use ultragraphdb_store_quads::{id_key, term_key};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use super::apart_cluster::{ApartCluster, times};
 use super::apart_partition::{PlayedPartition, VERSION};
+use super::apart_session::{ReadSession, SessionFrame, SessionRead};
 
 /// The tenant every read names.
 pub const TENANT: u64 = 1;
@@ -31,7 +30,7 @@ pub const TENANT: u64 = 1;
 /// The transaction the reads belong to, bound at partition 1.
 pub const TRANSACTION: [u8; 16] = [7; 16];
 
-/// How long the test waits on one frame of compute's: past every wait a test's times give compute.
+/// How long the test waits on one frame of a read's: past every wait a test's times give compute.
 pub const ANSWER_WAIT: Duration = Duration::from_secs(5);
 
 /// The system ID of `sequence` in the tenant's run.
@@ -90,7 +89,7 @@ pub fn read_of(
     (any_graph, subject, predicate): (bool, Option<&str>, Option<&str>),
     limit: u32,
     resume: Vec<u8>,
-) -> ComputeRead {
+) -> SessionRead {
     let mut terms = TermTable::new();
     let graph = if any_graph {
         PatternSlot::Unbound
@@ -104,7 +103,7 @@ pub fn read_of(
         PatternSlot::Bound(terms.iri(iri))
     });
     let pattern = QuadPattern::new(graph, subject, predicate, PatternSlot::Unbound);
-    ComputeRead::new(TENANT, false, ReadLevel::Snapshot, terms, pattern, resume)
+    SessionRead::new(TENANT, false, ReadLevel::Snapshot, terms, pattern, resume)
         .with_partition(1)
         .with_transaction(TRANSACTION)
         .with_read_version(VERSION)
@@ -134,27 +133,26 @@ impl ReadAnswer {
 }
 
 /// The next frame of `client`, failing past [`ANSWER_WAIT`].
-pub async fn next_frame(client: &mut RoleClient) -> TestResult<ReceivedFrame> {
+pub async fn next_frame(client: &mut ReadSession) -> TestResult<SessionFrame> {
     compio::time::timeout(ANSWER_WAIT, client.next_frame())
         .await
-        .map_err(|_| TestError::new(format!("compute sent no frame within {ANSWER_WAIT:?}")))?
-        .map_err(TestError::from)
+        .map_err(|_| TestError::new(format!("compute gave no frame within {ANSWER_WAIT:?}")))?
 }
 
-/// Sends `read` on a stream of its own: the stream.
-pub async fn send_read(client: &mut RoleClient, read: &ComputeRead) -> TestResult<u64> {
-    client.send_only(read).await?;
+/// Starts `read` on a stream of its own: the stream.
+pub fn send_read(client: &mut ReadSession, read: &SessionRead) -> TestResult<u64> {
+    client.send_only(read)?;
     Ok(client.last_stream())
 }
 
 /// Cancels the read on `stream`.
-pub async fn cancel(client: &mut RoleClient, stream: u64) -> TestResult {
-    Ok(client.send_on(stream, &Cancel).await?)
+pub fn cancel(client: &mut ReadSession, stream: u64) -> TestResult {
+    client.cancel(stream)
 }
 
-/// Sends `read` and reads its answer to its end, granting a frame of credit per batch.
-pub async fn answer_on(client: &mut RoleClient, read: &ComputeRead) -> TestResult<ReadAnswer> {
-    let stream = send_read(client, read).await?;
+/// Starts `read` and reads its answer to its end, granting a frame of credit per batch.
+pub async fn answer_on(client: &mut ReadSession, read: &SessionRead) -> TestResult<ReadAnswer> {
+    let stream = send_read(client, read)?;
     let mut answer = ReadAnswer::default();
     loop {
         let frame = next_frame(client).await?;
@@ -181,7 +179,7 @@ pub async fn answer_on(client: &mut RoleClient, read: &ComputeRead) -> TestResul
         if view.header().flags() & FLAG_LAST != 0 {
             return Ok(answer);
         }
-        client.send_on(stream, &Credit::new(1)).await?;
+        client.credit(stream, 1)?;
     }
 }
 
@@ -242,21 +240,19 @@ pub fn rows_listed(lists: Lists<'_>) -> Vec<Vec<Option<String>>> {
 pub const P: &str = "http://ex.org/p";
 
 /// A read binding `<p>` alone, of at most `limit` rows from `resume`.
-pub fn of_p(limit: u32, resume: Vec<u8>) -> ultragraphdb_protocol_wire::ComputeRead {
+pub fn of_p(limit: u32, resume: Vec<u8>) -> SessionRead {
     read_of((false, None, Some(P)), limit, resume)
 }
 
-/// A cluster of one partition holding `lists` of `<p>`, framed per key when `per_key`, and a connection to compute.
-pub async fn holding(lists: Lists<'_>, per_key: bool) -> TestResult<(ApartCluster, RoleClient)> {
+/// A cluster of one partition holding `lists` of `<p>`, framed per key when `per_key`, and a client's reads on its compute core.
+pub async fn holding(lists: Lists<'_>, per_key: bool) -> TestResult<(ApartCluster, ReadSession)> {
     let cluster = ApartCluster::start(1).await?;
     let partition = cluster.partition(1)?;
     let _p = hold_lists(partition, (Graph::Default, P), lists, 100)?;
     if per_key {
         partition.frame_per_key();
     }
-    let client = cluster
-        .compute(times(Duration::from_secs(1)), OpenRequests::default())
-        .await?;
+    let client = cluster.session(times(Duration::from_secs(1)), OpenRequests::default());
     Ok((cluster, client))
 }
 
@@ -298,7 +294,7 @@ pub fn hold_two_predicates(partition: &PlayedPartition) -> TestResult<[&'static 
 }
 
 /// A read of `<s>` alone.
-pub fn of_s(limit: u32, resume: Vec<u8>) -> ultragraphdb_protocol_wire::ComputeRead {
+pub fn of_s(limit: u32, resume: Vec<u8>) -> SessionRead {
     read_of((false, Some(S), None), limit, resume)
 }
 

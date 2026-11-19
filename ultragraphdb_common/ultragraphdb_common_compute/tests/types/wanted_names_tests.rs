@@ -37,7 +37,7 @@ fn test_a_page_naming_more_terms_than_a_scan_holds_reads_them_in_several() -> Te
             predicate: Some(list.predicate.iri.clone()),
             object: None,
         };
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = compio::time::timeout(READ_BOUND, read(&mut client, &snapshot_of(&bound)?))
             .await
             .map_err(|_| TestError::new("the read of the page did not end within its bound"))??

@@ -29,7 +29,7 @@ fn test_a_bound_subject_alone_reads_each_list_its_predicates_list_names() -> Tes
             predicate: None,
             object: None,
         };
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = read(&mut client, &snapshot_of(&bound)?).await?.answered()?;
         assert_eq!(answer.texts(), lists.rows());
         let firsts: Vec<Vec<u8>> = partition
@@ -74,7 +74,7 @@ fn test_a_bound_object_alone_reads_each_reverse_list_its_predicates_list_names()
             predicate: None,
             object: Some(RequestTerm::Iri(object.iri.clone())),
         };
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = read(&mut client, &snapshot_of(&bound)?).await?.answered()?;
         let firsts: Vec<Vec<u8>> = partition
             .scans()
@@ -173,7 +173,7 @@ fn test_an_unbound_graph_is_walked_in_the_accesss_keyspace() -> TestResult {
         for (pattern, keyspace) in walks {
             let asked = part.read_scans().len();
             let read = pattern.read(tenant, true, ReadLevel::Latest)?;
-            let answer = answer_on(&mut cluster.client().await?, &read).await?;
+            let answer = answer_on(&mut cluster.client(), &read).await?;
             answer.ended()?;
             assert!(answer.rows().is_empty(), "nothing is held in any graph");
             let prefix = key_prefix(keyspace, false, tenant, None, None);

@@ -54,9 +54,8 @@ fn test_one_key_ranges_are_scanned_together_at_no_limit() -> TestResult {
     run(async {
         let cluster = ApartCluster::start(1).await?;
         let _iris = hold_two_predicates(cluster.partition(1)?)?;
-        let mut client = cluster
-            .compute(times(std::time::Duration::from_secs(1)), Default::default())
-            .await?;
+        let mut client =
+            cluster.session(times(std::time::Duration::from_secs(1)), Default::default());
         let _answer = answer_on(&mut client, &of_s(0, Vec::new())).await?;
         // `hold_two_predicates` names the subject 200 and its first predicate 201.
         let first = forward(id(201)?, id(200)?);
@@ -72,9 +71,8 @@ fn test_one_row_wanted_asks_one_one_key_range() -> TestResult {
     run(async {
         let cluster = ApartCluster::start(1).await?;
         let _iris = hold_two_predicates(cluster.partition(1)?)?;
-        let mut client = cluster
-            .compute(times(std::time::Duration::from_secs(1)), Default::default())
-            .await?;
+        let mut client =
+            cluster.session(times(std::time::Duration::from_secs(1)), Default::default());
         let _answer = answer_on(&mut client, &of_s(1, Vec::new())).await?;
         let first = forward(id(201)?, id(200)?);
         let scan = scan_from(&cluster.partition(1)?.scans(), &first)?;

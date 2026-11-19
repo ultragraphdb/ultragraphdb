@@ -28,9 +28,7 @@ fn test_a_cross_partition_read_names_both_partitions_in_its_detail() -> TestResu
             })
             .context("a subject partition 2 homes")?;
         let cluster = ApartCluster::start(2).await?;
-        let mut client = cluster
-            .compute(times(Duration::from_secs(1)), OpenRequests::default())
-            .await?;
+        let mut client = cluster.session(times(Duration::from_secs(1)), OpenRequests::default());
         let read = read_of(
             (false, Some(&subject), Some("http://ex.org/p")),
             0,

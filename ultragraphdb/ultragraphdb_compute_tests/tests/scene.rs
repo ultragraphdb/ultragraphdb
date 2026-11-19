@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! What a scenario does to its cluster: writes through real Binds and Commits, reads through a real ComputeRead, a Scene's tenant
-//! its own.
+//! What a scenario does to its cluster: writes through real Binds and Commits, reads through the compute process's client
+//! endpoint (`crate::client`), a Scene's tenant its own.
 
 use std::future::Future;
 use std::time::Duration;
@@ -12,15 +12,14 @@ use std::time::Duration;
 use compio::runtime::Runtime;
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_role::RoleClient;
-use ultragraphdb_core_ids::{Epoch, Version};
+use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_core_keys::Keyspace;
 use ultragraphdb_core_terms::{TermView, Text};
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
-    Bind, BindKind, BindView, BodyView, Closed, ClosedView, Command, Commit, CommitView,
-    ComputeRead, Credit, ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_FLOOR_U32,
-    MAX_FRAME_SIZE_U32, PatternSlot, QuadPattern, ReadLevel, RequestTerm, ResultTermView,
-    ResultView, TermTable, Write, WriteChange,
+    Bind, BindKind, BindView, BodyView, Closed, ClosedView, Command, Commit, CommitView, ErrorCode,
+    ErrorReplyView, FLAG_LAST, MAX_FRAME_FLOOR_U32, PatternSlot, QuadPattern, RequestTerm,
+    ResultTermView, ResultView, TermTable, Write, WriteChange,
 };
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{CLUSTER, SECRET};
@@ -193,53 +192,6 @@ pub fn refusal_of(frame: &ReceivedFrame) -> TestResult<Option<Refused>> {
     }))
 }
 
-/// A connection compute's session takes reads on, as a role's.
-pub async fn compute_client(info: &ClusterInfo) -> TestResult<RoleClient> {
-    let target = Address::parse(&info.compute_address())?;
-    Ok(RoleClient::dial(&target, CLUSTER, "compute", SECRET).await?)
-}
-
-/// Sends `read` on `client` and reads its answer, granting a frame's credit per batch.
-pub async fn answer_on(client: &mut RoleClient, read: &ComputeRead) -> TestResult<ReadAnswer> {
-    client.send_only(read).await?;
-    let stream = client.last_stream();
-    let mut answer = ReadAnswer::default();
-    loop {
-        let what = format!("batch {} of the read", answer.batches.len() + 1);
-        let frame = answer_of(client, &what).await?;
-        if let Some(refused) = refusal_of(&frame)? {
-            answer.refused = Some(refused);
-            return Ok(answer);
-        }
-        let batch = batch_of(&frame)?;
-        drop(frame);
-        let last = batch.last;
-        answer.batches.push(batch);
-        if last {
-            return Ok(answer);
-        }
-        client.send_on(stream, &Credit::new(1)).await?;
-    }
-}
-
-/// A batch read off `client`.
-pub async fn next_batch(client: &mut RoleClient) -> TestResult<Batch> {
-    let frame = answer_of(client, "a batch").await?;
-    if let Some(refused) = refusal_of(&frame)? {
-        return Err(TestError::new(format!("refused: {refused:?}")));
-    }
-    batch_of(&frame)
-}
-
-/// The next frame of `client`, a batch or a refusal.
-pub async fn next_of(client: &mut RoleClient) -> TestResult<Result<Batch, Refused>> {
-    let frame = answer_of(client, "a batch or a refusal").await?;
-    match refusal_of(&frame)? {
-        Some(refused) => Ok(Err(refused)),
-        None => Ok(Ok(batch_of(&frame)?)),
-    }
-}
-
 /// A quad pattern by its terms.
 #[derive(Debug, Clone, Default)]
 pub struct Pattern {
@@ -403,7 +355,6 @@ impl Scene {
             stream,
             partition,
             read_version,
-            identity: [identity; 16],
         })
     }
 
@@ -426,42 +377,6 @@ impl Scene {
     /// A snapshot epoch at or above everything committed so far, about to close.
     pub fn snapshot_epoch(&self) -> u64 {
         self.info.clock.latest() + 1
-    }
-
-    /// `pattern` read at snapshot level at `epoch`.
-    pub fn snapshot_at(&self, pattern: &Pattern, epoch: u64) -> TestResult<ComputeRead> {
-        let bound = Version::bound_of(Epoch::new(epoch)?);
-        Ok(self
-            .read_of(pattern, true, ReadLevel::Snapshot)?
-            .with_read_version(bound)
-            .with_epoch(epoch))
-    }
-
-    /// `pattern` read at snapshot level past everything committed so far.
-    pub fn snapshot(&self, pattern: &Pattern) -> TestResult<ComputeRead> {
-        self.snapshot_at(pattern, self.snapshot_epoch())
-    }
-
-    /// `pattern` read at `level`, the client's frame and credit generous, with nothing else set.
-    pub fn read_of(
-        &self,
-        pattern: &Pattern,
-        read_only: bool,
-        level: ReadLevel,
-    ) -> TestResult<ComputeRead> {
-        let (terms, slots) = pattern.table()?;
-        Ok(
-            ComputeRead::new(self.tenant, read_only, level, terms, slots, Vec::new())
-                .with_principal(PRINCIPAL)
-                .with_deadline_ms(DEADLINE_MS)
-                .with_client_limits(MAX_FRAME_SIZE_U32, 4),
-        )
-    }
-
-    /// `read`'s answer, on a connection of its own.
-    pub async fn answer(&self, read: &ComputeRead) -> TestResult<ReadAnswer> {
-        let mut client = compute_client(self.info).await?;
-        answer_on(&mut client, read).await
     }
 }
 
@@ -503,7 +418,6 @@ pub struct Transaction {
     pub stream: u64,
     pub partition: u32,
     pub read_version: u64,
-    pub identity: [u8; 16],
 }
 
 impl Transaction {
@@ -544,16 +458,6 @@ impl Transaction {
             return Ok(Err(refused));
         }
         Ok(Ok(CommitView::from_frame(&answer.view()?)?.commit_version()))
-    }
-
-    /// `pattern` read in the transaction, of `limit` rows, 0 for no limit.
-    pub fn read(&self, scene: &Scene, pattern: &Pattern, limit: u32) -> TestResult<ComputeRead> {
-        Ok(scene
-            .read_of(pattern, false, ReadLevel::Snapshot)?
-            .with_partition(self.partition)
-            .with_transaction(self.identity)
-            .with_read_version(self.read_version)
-            .with_limit(limit))
     }
 }
 

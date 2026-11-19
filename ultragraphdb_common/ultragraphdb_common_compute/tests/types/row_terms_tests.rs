@@ -15,6 +15,7 @@ use ultragraphdb_protocol_wire::{ReadLevel, RequestTermView, ResumeKeyView};
 use ultragraphdb_store_quads::is_skolem;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
+use crate::apart::apart_session::SessionRead;
 use crate::played_reads::played_cluster::{PlayedCluster, run};
 use crate::played_reads::played_data::{
     first_bucket, forward_key, id_in, ids_list, list_of, literal_held, name, skolem_iri,
@@ -67,7 +68,7 @@ fn test_a_skolem_subject_comes_back_a_blank_node() -> TestResult {
         }
         let read =
             Pattern::of(None, Some(PREDICATE), None).read(tenant, true, ReadLevel::Latest)?;
-        let answer = answer_on(&mut cluster.client().await?, &read).await?;
+        let answer = answer_on(&mut cluster.client(), &read).await?;
         let named = cells(&answer, 0)?;
         let texts: Vec<&str> = named.iter().map(|cell| cell.text.as_str()).collect();
         assert_eq!(texts, [SUBJECT, skolem.as_str()]);
@@ -100,7 +101,7 @@ fn test_a_reifier_comes_back_a_blank_node() -> TestResult {
             true,
             ReadLevel::Latest,
         )?;
-        let answer = answer_on(&mut cluster.client().await?, &read).await?;
+        let answer = answer_on(&mut cluster.client(), &read).await?;
         let reifiers = cells(&answer, 1)?;
         let first = reifiers.first().context("the row's reifier")?;
         assert_eq!(first.text, reifier);
@@ -132,7 +133,7 @@ fn test_a_datatype_held_by_id_comes_back_by_its_iris_hash() -> TestResult {
             true,
             ReadLevel::Latest,
         )?;
-        let answer = answer_on(&mut cluster.client().await?, &read).await?;
+        let answer = answer_on(&mut cluster.client(), &read).await?;
         let objects = cells(&answer, 0)?;
         let object = objects.first().context("the literal")?;
         assert_eq!(object.annotation.as_deref(), Some(datatype_iri));
@@ -179,7 +180,7 @@ fn test_a_resume_key_names_a_literal_by_its_lexical_form() -> TestResult {
             let read = pattern
                 .read(tenant, true, ReadLevel::Latest)?
                 .with_limit(limit);
-            let answer = answer_on(&mut cluster.client().await?, &read).await?;
+            let answer = answer_on(&mut cluster.client(), &read).await?;
             let key = answer.resume();
             let view = ResumeKeyView::read(&key)?;
             let last = view
@@ -193,23 +194,14 @@ fn test_a_resume_key_names_a_literal_by_its_lexical_form() -> TestResult {
 }
 
 /// `pattern` read at latest level in `tenant`, from `resume`.
-fn resumed(
-    pattern: &Pattern,
-    tenant: u64,
-    resume: Vec<u8>,
-) -> TestResult<ultragraphdb_protocol_wire::ComputeRead> {
+fn resumed(pattern: &Pattern, tenant: u64, resume: Vec<u8>) -> TestResult<SessionRead> {
     let (terms, slots) = pattern.table()?;
-    Ok(ultragraphdb_protocol_wire::ComputeRead::new(
-        tenant,
-        true,
-        ReadLevel::Latest,
-        terms,
-        slots,
-        resume,
+    Ok(
+        SessionRead::new(tenant, true, ReadLevel::Latest, terms, slots, resume)
+            .with_principal(1)
+            .with_deadline_ms(crate::played_reads::read_answer::DEADLINE_MS)
+            .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE_U32, 4),
     )
-    .with_principal(1)
-    .with_deadline_ms(crate::played_reads::read_answer::DEADLINE_MS)
-    .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE_U32, 4))
 }
 
 /// In the store's order: a string, the language strings `tagged` and one of each direction, a known datatype's literal not in its
@@ -262,7 +254,7 @@ fn test_a_read_resumed_at_a_tagged_or_typed_literal_goes_on_after_it() -> TestRe
         part.put(forward_key(tenant, predicate, subject), list_of(&list));
         let pattern = Pattern::of(Some(SUBJECT), Some(PREDICATE), None);
         let whole = answer_on(
-            &mut cluster.client().await?,
+            &mut cluster.client(),
             &pattern.read(tenant, true, ReadLevel::Latest)?,
         )
         .await?;
@@ -275,14 +267,14 @@ fn test_a_read_resumed_at_a_tagged_or_typed_literal_goes_on_after_it() -> TestRe
         assert_eq!(tagged_cell.annotation.as_deref(), tagged.language());
         for limit in 1..literals.len() {
             let first = answer_on(
-                &mut cluster.client().await?,
+                &mut cluster.client(),
                 &pattern
                     .read(tenant, true, ReadLevel::Latest)?
                     .with_limit(u32::try_from(limit)?),
             )
             .await?;
             let rest = answer_on(
-                &mut cluster.client().await?,
+                &mut cluster.client(),
                 &resumed(&pattern, tenant, first.resume())?,
             )
             .await?;

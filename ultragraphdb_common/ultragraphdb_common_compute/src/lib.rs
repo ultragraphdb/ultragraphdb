@@ -37,7 +37,6 @@ pub use crate::types::auth_throttle::AuthThrottle;
 pub use crate::types::check_round_trips::CheckRoundTrips;
 pub use crate::types::client_session::ClientSession;
 pub use crate::types::compute_core::ComputeCore;
-pub use crate::types::compute_session::ComputeSession;
 pub use crate::types::endpoint_core::EndpointCore;
 pub use crate::types::endpoint_limits::EndpointLimits;
 pub use crate::types::endpoint_view::EndpointView;

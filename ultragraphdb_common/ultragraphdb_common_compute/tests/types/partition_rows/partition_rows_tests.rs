@@ -6,9 +6,10 @@
 //! One partition's part of a read (`PROTOCOL.md` §13.12, §13.13): its dictionary Scan resolving the pattern's terms, the version
 //! its first answer chose, which every later Scan reads and a read-only read holds, and the rows it gives the merge.
 
-use ultragraphdb_protocol_wire::{ComputeRead, MAX_FRAME_SIZE_U32, ReadLevel, RequestTerm, ScanAt};
+use ultragraphdb_protocol_wire::{MAX_FRAME_SIZE_U32, ReadLevel, RequestTerm, ScanAt};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
+use crate::apart::apart_session::SessionRead;
 use crate::played::played_cluster::{PlayedCluster, quiet_times, run};
 use crate::played::played_data::{
     OneList, Term, iri_homed, plain, referrer_set, referrers, reverse,
@@ -28,11 +29,11 @@ fn bound_list(list: &OneList) -> Bound {
 /// `read`'s answer from a cluster of one partition holding `list`, and the cluster.
 async fn read_list(
     list: &OneList,
-    read_of_list: &ComputeRead,
+    read_of_list: &SessionRead,
 ) -> TestResult<(ReadOutcome, PlayedCluster)> {
     let played = PlayedCluster::start(1, quiet_times()).await?;
     list.hold_in(played.partition(1)?);
-    let mut client = played.client().await?;
+    let mut client = played.client();
     let answer = read(&mut client, read_of_list).await?;
     Ok((answer, played))
 }
@@ -73,7 +74,7 @@ fn test_a_read_reaching_one_partition_names_it() -> TestResult {
             2,
         )?;
         list.hold_in(played.partition(2)?);
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = read(&mut client, &snapshot_of(&bound_list(&list))?)
             .await?
             .answered()?;
@@ -215,7 +216,7 @@ fn test_a_reverse_read_follows_the_referrer_set_from_the_home() -> TestResult {
             predicate: Some(predicate.iri.clone()),
             object: Some(RequestTerm::Iri(object.iri.clone())),
         };
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = read(&mut client, &snapshot_of(&bound)?).await?.answered()?;
         assert_eq!(answer.column(0), vec![Some(subject.iri.clone())]);
         let gate = member
@@ -351,7 +352,7 @@ fn test_what_a_partition_holds_that_does_not_read_refuses_the_read() -> TestResu
             let placed = place(part, tenant, (first_bucket(tenant), 1), (S, P), &OBJECTS)?;
             let pattern = breaks(part, tenant, &placed)?;
             let read = pattern.read(tenant, true, ReadLevel::Latest)?;
-            let answer = answer_on(&mut cluster.client().await?, &read).await?;
+            let answer = answer_on(&mut cluster.client(), &read).await?;
             let refused = answer.refusal().map_err(|_| {
                 ultragraphdb_tool_bdd::TestError::new(format!("{what}: no refusal: {answer:?}"))
             })?;
@@ -426,7 +427,7 @@ fn test_a_referrer_set_answered_over_frames_is_read_to_its_last() -> TestResult 
             PatternSlot::Bound(p),
             PatternSlot::Bound(o),
         );
-        let read = ultragraphdb_protocol_wire::ComputeRead::new(
+        let read = SessionRead::new(
             TENANT,
             true,
             ReadLevel::Snapshot,
@@ -439,9 +440,7 @@ fn test_a_referrer_set_answered_over_frames_is_read_to_its_last() -> TestResult 
         .with_principal(1)
         .with_deadline_ms(10_000)
         .with_client_limits(MAX_FRAME_SIZE_U32, 4);
-        let mut client = cluster
-            .compute(times(Duration::from_secs(1)), OpenRequests::default())
-            .await?;
+        let mut client = cluster.session(times(Duration::from_secs(1)), OpenRequests::default());
         let answer = answer_on(&mut client, &read).await?;
         let rows = answer.whole()?;
         let first = rows.first().and_then(|row| row.first()).cloned().flatten();

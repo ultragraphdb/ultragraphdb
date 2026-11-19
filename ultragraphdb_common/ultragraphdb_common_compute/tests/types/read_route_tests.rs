@@ -11,10 +11,11 @@ use std::num::NonZeroU64;
 use ultragraphdb_common_compute::read_times_of;
 use ultragraphdb_core_ids::{BucketGroup, Epoch};
 use ultragraphdb_core_keys::QuadKey;
-use ultragraphdb_protocol_wire::{ComputeRead, ErrorCode, ReadLevel};
+use ultragraphdb_protocol_wire::{ErrorCode, ReadLevel};
 use ultragraphdb_store_quads::{ReferrerSet, iri_bucket};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
+use crate::apart::apart_session::SessionRead;
 use crate::utils::played_answers::{Pattern, ReadAnswer, answer_on, iri, read_of, snapshot};
 use crate::utils::played_cluster::{Played, TENANT, id, run};
 
@@ -26,12 +27,12 @@ fn partitions_detail(partition: u32, other: u32) -> u64 {
 }
 
 /// A read-only read at latest level of `pattern`.
-fn latest(pattern: &Pattern) -> TestResult<ComputeRead> {
+fn latest(pattern: &Pattern) -> TestResult<SessionRead> {
     read_of(pattern, true, ReadLevel::Latest, Vec::new())
 }
 
 /// A read-write transaction's read of `pattern`, the transaction bound to `partition`.
-fn read_write(pattern: &Pattern, partition: u32) -> TestResult<ComputeRead> {
+fn read_write(pattern: &Pattern, partition: u32) -> TestResult<SessionRead> {
     Ok(read_of(pattern, false, ReadLevel::Snapshot, Vec::new())?
         .with_partition(partition)
         .with_transaction([5; 16])
@@ -55,8 +56,8 @@ async fn each_holding(partitions: u32) -> TestResult<(Played, Vec<String>)> {
 }
 
 /// `read`'s answer from `played` on a connection of its own.
-async fn answer(played: &Played, read: &ComputeRead) -> TestResult<ReadAnswer> {
-    let mut client = played.client().await?;
+async fn answer(played: &Played, read: &SessionRead) -> TestResult<ReadAnswer> {
+    let mut client = played.client();
     answer_on(&mut client, read).await
 }
 

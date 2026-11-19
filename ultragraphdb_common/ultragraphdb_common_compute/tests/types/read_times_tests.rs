@@ -9,9 +9,10 @@
 use std::time::Duration;
 
 use ultragraphdb_common_compute::ReadTimes;
-use ultragraphdb_protocol_wire::{ComputeRead, ReadLevel};
+use ultragraphdb_protocol_wire::ReadLevel;
 use ultragraphdb_tool_bdd::TestResult;
 
+use crate::apart::apart_session::SessionRead;
 use crate::played::played_cluster::{PlayedCluster, run};
 use crate::played::played_data::{OneList, forward};
 use crate::played::played_partition::PlayedPartition;
@@ -21,7 +22,7 @@ use crate::played::played_read::{Bound, read, read_of, snapshot_of};
 async fn slow_read(
     times: ReadTimes,
     delay: Duration,
-    asked: impl Fn(&Bound) -> TestResult<ComputeRead>,
+    asked: impl Fn(&Bound) -> TestResult<SessionRead>,
 ) -> TestResult<PlayedPartition> {
     let played = PlayedCluster::start(1, times).await?;
     let partition = played.partition(1)?.clone();
@@ -33,7 +34,7 @@ async fn slow_read(
         predicate: Some(list.predicate.iri.clone()),
         object: None,
     };
-    let mut client = played.client().await?;
+    let mut client = played.client();
     let answer = read(&mut client, &asked(&bound)?).await?.answered()?;
     assert_eq!(answer.column(0), list.object_iris());
     Ok(partition)

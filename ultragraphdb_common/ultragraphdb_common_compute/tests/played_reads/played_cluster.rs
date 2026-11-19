@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A cluster on the test's own runtime: a played frontend, played partitions and the crate's compute core serving its role address,
-//! each over a TCP port of its own, every connection authenticated as the roles authenticate.
+//! A cluster on the test's own runtime: a played frontend and played partitions, each over a TCP port of its own, every connection
+//! authenticated as the roles authenticate, and the crate's compute core, whose reads a client's session hands to its executor.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -13,15 +13,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use compio::runtime::{Runtime, spawn};
-use ultragraphdb_common_compute::{ComputeCore, ComputeSession, ReadTimes};
+use ultragraphdb_common_compute::{ComputeCore, ReadExecutor, ReadTimes};
 use ultragraphdb_common_role::{
-    COMPUTE_WELCOME_CREDIT, PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS, RoleClient, RoleCluster,
-    RoleCredentials, RoleSecret, Server, Session, serve_connection,
+    PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS, RoleCluster, RoleCredentials, RoleSecret, Server,
+    Session, serve_connection,
 };
 use ultragraphdb_protocol_transport::{Address, Endpoint};
 use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::Welcome;
 use ultragraphdb_tool_bdd::{TestError, TestResult};
+
+use crate::apart::apart_session::ReadSession;
 
 use super::played_frontend::FrontendConnection;
 use super::played_partition::{PartitionConnection, PlayedPartition};
@@ -54,7 +56,6 @@ pub struct PlayedCluster {
     pub partitions: Vec<Rc<PlayedPartition>>,
     /// The compute core, as the query core calls its lookups.
     pub core: Rc<ComputeCore>,
-    compute: Address,
 }
 
 /// What every played role authenticates its peers against, and the cluster's settings, read from a file of the test's.
@@ -77,12 +78,11 @@ async fn listener() -> TestResult<(Listener, Address)> {
     Ok((listener, address))
 }
 
-/// The Welcome of each played role's endpoint: a partition's and compute's stream credit as their services state it.
+/// The Welcome of each played role's endpoint: a partition's stream credit as its service states it.
 fn welcome_of(endpoint: Endpoint) -> fn(Welcome) -> Welcome {
     match endpoint {
         Endpoint::Partition => |welcome| welcome.with_initial_credit(PARTITION_INITIAL_CREDIT),
-        Endpoint::Compute => |welcome| welcome.with_initial_credit(COMPUTE_WELCOME_CREDIT),
-        Endpoint::Client | Endpoint::Frontend => |welcome| welcome,
+        Endpoint::Compute | Endpoint::Client | Endpoint::Frontend => |welcome| welcome,
     }
 }
 
@@ -141,7 +141,7 @@ impl PlayedCluster {
         serve(
             frontend_listener,
             Endpoint::Frontend,
-            credentials.clone(),
+            credentials,
             move || FrontendConnection {
                 cluster: CLUSTER,
                 partitions,
@@ -150,18 +150,9 @@ impl PlayedCluster {
         )?;
         let cluster = RoleCluster::new(CLUSTER, secret, Duration::from_secs(5));
         let core = ComputeCore::new(cluster, frontend, times, "compute");
-        let (compute_listener, compute) = listener().await?;
-        let serving = Rc::clone(&core);
-        serve(
-            compute_listener,
-            Endpoint::Compute,
-            credentials,
-            move || ComputeSession::new(Rc::clone(&serving)),
-        )?;
         Ok(Self {
             partitions: played,
             core,
-            compute,
         })
     }
 
@@ -172,8 +163,8 @@ impl PlayedCluster {
             .ok_or_else(|| TestError::new(format!("no partition {partition}")))
     }
 
-    /// A connection to compute's role address, as the frontend's.
-    pub async fn client(&self) -> TestResult<RoleClient> {
-        Ok(RoleClient::dial(&self.compute, CLUSTER, "compute", PASSWORD).await?)
+    /// A client connection's reads on compute's core, as the connection's session runs them.
+    pub fn client(&self) -> ReadSession {
+        ReadSession::new(CLUSTER, ReadExecutor::new(Rc::clone(&self.core)))
     }
 }

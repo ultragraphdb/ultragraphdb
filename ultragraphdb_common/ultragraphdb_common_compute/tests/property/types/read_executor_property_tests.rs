@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The executor's laws, L5.1, L5.2, L5.4 to L5.7, L5.9, L5.10 and L5.14 of `notes/laws.md`, over played partitions: the
+//! The executor's laws, L5.1, L5.2, L5.4 to L5.7, L5.9 and L5.10 of `notes/laws.md`, over played partitions: the
 //! model of a read's answer is `PROTOCOL.md` §9.1's, the rows of the partitions asked partition by partition in ascending
 //! order of partition, within a partition in the order its entries give them.
 
@@ -15,7 +15,6 @@ use compio::runtime::{Runtime, spawn};
 use hegel::TestCase;
 use hegel::generators as gs;
 use ultragraphdb_common_compute::ReadExecutor;
-use ultragraphdb_common_role::OpenRequests;
 use ultragraphdb_core_keys::Graph;
 use ultragraphdb_protocol_wire::{
     MAX_FRAME_FLOOR, MAX_FRAME_FLOOR_U32, MAX_FRAME_SIZE_U32, RequestTerm, ResumeKey,
@@ -26,7 +25,7 @@ use crate::apart::apart_cluster::{ApartCluster, times};
 use crate::apart::apart_executor::{
     STREAM, bound, executed, gives_within, next_of, pattern_of, read_frame, snapshot, take,
 };
-use crate::apart::apart_reads::{P, ReadAnswer, answer_on, hold_lists, read_of, rows_listed};
+use crate::apart::apart_reads::{P, ReadAnswer, hold_lists, rows_listed};
 
 /// Rows a model holds: each its subject, its object and an absent reifier.
 type Rows = Vec<Vec<Option<String>>>;
@@ -362,40 +361,4 @@ async fn yield_now() {
         std::task::Poll::Pending
     })
     .await;
-}
-
-/// L5.14: a read of drawn lists answers the same rows, batches and resume key through the session's seam in process and as a
-/// ComputeRead through `ComputeSession`, over the same played partitions.
-#[hegel::test(test_cases = 10)]
-fn test_both_callers_get_one_answer(tc: TestCase) {
-    let held = draw_held(&tc, 1, 3);
-    let limit = tc.draw(gs::integers::<u32>().min_value(0).max_value(4));
-    let both = on_runtime(async {
-        let cluster = ApartCluster::start(1).await.ok()?;
-        hold(&cluster, 1, &held, 100, false)?;
-        let mut executor = ReadExecutor::new(cluster.core(times(Duration::from_secs(2))));
-        let frame = read_frame((false, None, Some(P)), limit, Vec::new()).ok()?;
-        let (in_process, _sizes) = executed(&mut executor, bound(pattern_of(&frame).ok()?))
-            .await
-            .ok()?;
-        let mut client = cluster
-            .compute(times(Duration::from_secs(2)), OpenRequests::default())
-            .await
-            .ok()?;
-        let relayed = answer_on(
-            &mut client,
-            &read_of((false, None, Some(P)), limit, Vec::new()),
-        )
-        .await
-        .ok()?;
-        Some((in_process, relayed))
-    });
-    assert!(both.is_some(), "a read did not run");
-    let Some((in_process, relayed)) = both else {
-        return;
-    };
-    assert_eq!(in_process.rows, relayed.rows);
-    assert_eq!(in_process.batches, relayed.batches);
-    assert_eq!(in_process.resume, relayed.resume);
-    assert_eq!(in_process.refused, relayed.refused);
 }

@@ -43,7 +43,7 @@ fn test_every_unbound_position_is_named_by_the_dictionary() -> TestResult {
         partition.term(subject, s);
         partition.term(object, o);
         partition.quads(Graph::Named(g), s, id(1)?, &[EncodedTerm::id(o)]);
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let pattern = Pattern::of(None, Some(P), None).in_graph(GraphTerm::Unbound);
         let mut answered = answer_on(&mut client, &snapshot(&pattern)?)
             .await?
@@ -79,7 +79,7 @@ fn test_one_dictionary_scan_names_a_pages_rows() -> TestResult {
         let partition = played.partition(1)?;
         let rows = short_rows(5);
         let ids = hold_rows(partition, &rows)?;
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let read = snapshot(&Pattern::of(None, Some(P), None))?;
         assert_eq!(
             answer_on(&mut client, &read).await?.whole()?,
@@ -116,7 +116,7 @@ fn test_a_page_whose_names_pass_a_frame_is_named_in_parts() -> TestResult {
             .map(|i| (format!("http://ex.org/s{i}"), long_iri(i, 400_000)))
             .collect();
         let ids = hold_rows(partition, &rows)?;
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let read = snapshot(&Pattern::of(None, Some(P), None))?;
         assert_eq!(
             answer_on(&mut client, &read).await?.whole()?,
@@ -162,10 +162,8 @@ fn test_a_row_that_does_not_read_refuses_the_read_after_the_rows_before_it() -> 
             ids.iter().all(|(s, _)| *s < corrupt),
             "the corrupt row is the last"
         );
-        let mut client = played.client().await?;
-        client
-            .send_only(&snapshot(&Pattern::of(None, Some(P), None))?)
-            .await?;
+        let mut client = played.client();
+        client.send_only(&snapshot(&Pattern::of(None, Some(P), None))?)?;
         let first = next_of(&mut client).await?;
         let batch = first.ok().context("the first row's batch")?;
         assert_eq!(batch.rows, cells_of(rows.get(..1).context("a row")?));
@@ -181,7 +179,7 @@ fn test_a_limit_ends_with_the_resume_key_of_the_last_row() -> TestResult {
         let played = Played::start(1, read_times_of(None, None)).await?;
         let rows = short_rows(2);
         let _ids = hold_rows(played.partition(1)?, &rows)?;
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let read = snapshot(&Pattern::of(None, Some(P), None))?.with_limit(1);
         let answered = answer_on(&mut client, &read).await?;
         assert_eq!(answered.whole()?, cells_of(rows.get(..1).context("a row")?));

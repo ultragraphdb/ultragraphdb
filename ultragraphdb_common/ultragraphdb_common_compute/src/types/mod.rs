@@ -15,7 +15,6 @@ pub mod client_session;
 pub(crate) mod client_transaction;
 pub(crate) mod commit_hold;
 pub mod compute_core;
-pub mod compute_session;
 pub(crate) mod counted_frame;
 pub(crate) mod destination;
 pub mod endpoint_core;

@@ -6,16 +6,17 @@
 //! A read of a read-write transaction: a Scan naming it, seeing its writes and recording what its commit validates.
 
 use cucumber::{then, when};
-use ultragraphdb_core_ids::Version;
 use ultragraphdb_core_keys::Keyspace;
-use ultragraphdb_protocol_wire::{Cancel, ErrorCode, ReadLevel, TermTable, Write, WriteChange};
+use ultragraphdb_protocol_wire::{
+    Cancel, Command, Commit, ErrorCode, ReadLevel, TermTable, Write, WriteChange,
+};
 use ultragraphdb_store_quads::term_key;
 use ultragraphdb_tool_bdd::{TestError, TestResult};
 
+use crate::client::{self, EndpointClient};
 use crate::played_partition::Script;
 use crate::scene::{
-    KNOWS, NAME, Pattern, Scene, Transaction, compute_client, insert_of, iri, reads, run, string,
-    until,
+    KNOWS, NAME, Pattern, Scene, insert_of, iri, reads, refusal_of, run, string, until,
 };
 use crate::{Steps, played, played_tables, solo};
 
@@ -30,15 +31,36 @@ fn unrelated(scene: &Scene) -> TestResult<Write> {
     insert_of(None, &scene.iri_in(1, "unrelated")?, NAME, &string("x"))
 }
 
-/// Writes something unrelated in `first`, then commits: its refusal's conflict kind, `None` for a commit that holds.
-async fn commit_a_write(scene: &Scene, first: &mut Transaction) -> TestResult<Option<u64>> {
-    first.write(&unrelated(scene)?).await?;
-    match first.try_commit().await? {
-        Ok(_) => Ok(None),
-        Err(refused) => {
-            assert_eq!(refused.code, ErrorCode::Conflict, "{refused:?}");
-            Ok(Some(refused.detail))
+/// Writes something unrelated in the client's transaction on `transaction`, then commits: its refusal's conflict kind, `None`
+/// for a commit that holds. A frame on the read's stream `read` fails it.
+async fn commit_a_write(
+    scene: &Scene,
+    client: &mut EndpointClient,
+    (transaction, read): (u64, u64),
+) -> TestResult<Option<u64>> {
+    client.send_on(transaction, &unrelated(scene)?).await?;
+    client
+        .send_on(transaction, &Commit::new([0; 16], 0, 0))
+        .await?;
+    loop {
+        let frame = client.next_frame("the answer to the Commit").await?;
+        let stream = frame.view()?.header().stream();
+        if stream == read {
+            return Err(TestError::new("a frame of the read reached the client"));
         }
+        if stream != transaction {
+            continue;
+        }
+        if let Some(refused) = refusal_of(&frame)? {
+            assert_eq!(refused.code, ErrorCode::Conflict, "{refused:?}");
+            return Ok(Some(refused.detail));
+        }
+        let command = frame.view()?.command();
+        return if command == Command::Commit {
+            Ok(None)
+        } else {
+            Err(TestError::new(format!("the Commit answered {command:?}")))
+        };
     }
 }
 
@@ -63,9 +85,13 @@ fn ten_thousand(w: &mut Steps) -> TestResult {
             scene.commit(1, &Write::new(table, changes)).await?;
         }
         scene.info.log.clear();
-        let own = scene.begin(1, 1).await?;
-        let read = own.read(&scene, &Pattern::of(None, Some(NAME), None), 0)?;
-        w.answers = vec![scene.answer(&read).await?];
+        let read = client::read_at(
+            &scene,
+            &Pattern::of(None, Some(NAME), None),
+            false,
+            ReadLevel::Snapshot,
+        )?;
+        w.answers = vec![client::answer(&scene, &read).await?];
         Ok(())
     })?;
     w.scene = Some(scene);
@@ -113,18 +139,26 @@ fn span_after_cancel(w: &mut Steps) -> TestResult {
         scene
             .commit(1, &insert_of(None, &c, KNOWS, &iri(&b))?)
             .await?;
-        let mut first = scene.begin(1, 1).await?;
         let log = &scene.info.log;
         log.clear();
         // The dictionary's Scan goes on; the Scan of `<a>`'s list, the one more span, waits at the tap for compute's Cancel of it.
         log.pause_until_next_frame(1);
-        let read = first.read(&scene, &Pattern::of(Some(&a), Some(KNOWS), None), 0)?;
-        let mut client = compute_client(scene.info).await?;
-        client.send_only(&read).await?;
-        let stream = client.last_stream();
+        let read = client::read_at(
+            &scene,
+            &Pattern::of(Some(&a), Some(KNOWS), None),
+            false,
+            ReadLevel::Snapshot,
+        )?;
+        let mut client = EndpointClient::connect(scene.info, read.max_frame).await?;
+        let transaction = match client.begin(&read.begin).await? {
+            Ok(transaction) => transaction,
+            Err(refused) => return Err(TestError::new(format!("the Begin: {refused:?}"))),
+        };
+        let stream = client.send_read(transaction, &read).await?;
         until("two Scans seen", || log.scans().len() >= 2).await?;
         assert_eq!(log.scans().len(), 2, "the list's Scan held");
-        // The Cancel a Commit sends; compute's own Cancel of its Scan lets the Scan held go on, then follows it on the same connection.
+        // The Cancel a Commit has compute send. A Commit's own Cancel goes on the reads' connection and its Commit on the Bind
+        // stream's, which the tap does not order, so the client's Cancel of the read stands for it, the Commit following.
         client.send_on(stream, &Cancel).await?;
         // The tap lets compute's Cancel go on once the partition has replied to the Scan held, so the Scan has run before it.
         until("a Cancel seen", || log.cancels() >= 1).await?;
@@ -133,8 +167,8 @@ fn span_after_cancel(w: &mut Steps) -> TestResult {
         scene
             .commit(1, &insert_of(None, &a, KNOWS, &iri(&b))?)
             .await?;
-        w.kind = commit_a_write(&scene, &mut first).await?;
-        let late = compio::time::timeout(SILENCE, client.next_frame()).await;
+        w.kind = commit_a_write(&scene, &mut client, (transaction, stream)).await?;
+        let late = compio::time::timeout(SILENCE, client.next_frame("a late frame")).await;
         assert!(late.is_err(), "a frame reached the client after its Cancel");
         Ok(())
     })
@@ -157,12 +191,8 @@ fn no_room(w: &mut Steps) -> TestResult {
     );
     run(async {
         let pattern = Pattern::of(Some(&subject), Some(KNOWS), None);
-        let read = scene
-            .read_of(&pattern, false, ReadLevel::Snapshot)?
-            .with_partition(1)
-            .with_transaction([9; 16])
-            .with_read_version(Version::bound_of(ultragraphdb_core_ids::Epoch::new(9)?));
-        w.answers = vec![scene.answer(&read).await?];
+        let read = client::read_at(&scene, &pattern, false, ReadLevel::Snapshot)?;
+        w.answers = vec![client::answer(&scene, &read).await?];
         Ok(())
     })
 }

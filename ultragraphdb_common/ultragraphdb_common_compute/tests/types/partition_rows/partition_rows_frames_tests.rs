@@ -44,7 +44,7 @@ fn test_a_bound_object_takes_its_record_alone() -> TestResult {
                 datatype: None,
             }),
         };
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = read(&mut client, &snapshot_of(&bound)?).await?.answered()?;
         assert_eq!(answer.texts(), vec![vec![None]]);
         Ok(())
@@ -106,7 +106,7 @@ fn test_an_object_held_under_statements_is_a_row_per_statement() -> TestResult {
     run(async {
         let played = PlayedCluster::start(1, quiet_times()).await?;
         let (bound, rows) = statements_in(played.partition(1)?)?;
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let whole = read(&mut client, &snapshot_of(&bound)?).await?.answered()?;
         assert_eq!(whole.texts(), rows);
         let at = rows
@@ -195,7 +195,7 @@ fn test_a_bound_reifier_reads_its_statements_properties() -> TestResult {
             predicate: None,
             object: None,
         };
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let whole = read(&mut client, &snapshot_of(&bound)?).await?.answered()?;
         assert_eq!(whole.texts(), reified.rows);
         let first = read(&mut client, &snapshot_of(&bound)?.with_limit(1))
@@ -222,7 +222,7 @@ fn test_a_bound_reifier_takes_the_properties_matching_the_pattern() -> TestResul
     run(async {
         let played = PlayedCluster::start(1, quiet_times()).await?;
         let reified = reified_in(played.partition(1)?)?;
-        let mut client = played.client().await?;
+        let mut client = played.client();
         for property in [&reified.first, &reified.second] {
             let bound = Bound {
                 subject: Some(reified.reifier.iri.clone()),

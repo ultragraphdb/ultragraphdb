@@ -24,7 +24,7 @@ fn test_a_read_resumed_goes_on_after_the_keys_row() -> TestResult {
         let played = Played::start(1, read_times_of(None, None)).await?;
         let rows = short_rows(3);
         let _ids = hold_rows(played.partition(1)?, &rows)?;
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let pattern = Pattern::of(None, Some(P), None);
         let first = answer_on(&mut client, &snapshot(&pattern)?.with_limit(1)).await?;
         let resume = first.batches.last().context("a batch")?.resume.clone();
@@ -63,7 +63,7 @@ fn test_a_resume_key_of_an_unheld_term_is_refused() -> TestResult {
         let resumed = read_of(&pattern, true, ReadLevel::Snapshot, resume)?
             .with_read_version(read.read_version())
             .with_epoch(read.epoch());
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answered = answer_on(&mut client, &resumed).await?;
         assert_eq!(answered.refusal()?.code, ErrorCode::Protocol);
         Ok(())
@@ -109,7 +109,7 @@ fn test_a_resume_key_of_a_term_no_row_names_is_refused() -> TestResult {
             let resumed = read_of(&pattern, true, ReadLevel::Snapshot, resume)?
                 .with_read_version(read.read_version())
                 .with_epoch(read.epoch());
-            let mut client = played.client().await?;
+            let mut client = played.client();
             let answered = answer_on(&mut client, &resumed).await?;
             assert_eq!(answered.refusal()?.code, ErrorCode::Protocol);
         }

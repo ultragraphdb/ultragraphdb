@@ -10,6 +10,7 @@ use ultragraphdb_core_terms::{FLOAT32_VECTOR, format_vector};
 use ultragraphdb_protocol_wire::RequestTerm;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
+use crate::apart::apart_session::SessionRead;
 use crate::played::played_cluster::{PlayedCluster, quiet_times, run};
 use crate::played::played_data::{
     OneList, Term, TwoLists, forward, literal, plain, records, reverse, subject_predicates,
@@ -29,7 +30,7 @@ fn test_a_bound_iri_object_reads_its_one_record() -> TestResult {
             predicate: Some(list.predicate.iri.clone()),
             object: Some(RequestTerm::Iri(object.iri.clone())),
         };
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = read(&mut client, &snapshot_of(&bound)?).await?.answered()?;
         assert_eq!(answer.texts(), vec![vec![None]]);
         Ok(())
@@ -63,7 +64,7 @@ fn test_a_bound_literal_object_alone_reads_its_reverse_list() -> TestResult {
                 datatype: None,
             }),
         };
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = read(&mut client, &snapshot_of(&bound)?).await?.answered()?;
         assert_eq!(answer.column(0), vec![Some(subject.iri.clone())]);
         let scanned = partition
@@ -106,7 +107,7 @@ fn test_a_bound_vector_object_reads_the_forward_lists() -> TestResult {
                 datatype: Some(FLOAT32_VECTOR.to_string()),
             }),
         };
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = read(&mut client, &snapshot_of(&bound)?).await?.answered()?;
         let first = subjects.first().context("a subject")?;
         assert_eq!(answer.column(0), vec![Some(first.iri.clone())]);
@@ -135,7 +136,7 @@ fn test_a_reverse_read_of_no_referrer_reads_no_list_at_the_home() -> TestResult 
             predicate: Some(predicate.iri.clone()),
             object: Some(RequestTerm::Iri(object.iri.clone())),
         };
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let answer = read(&mut client, &snapshot_of(&bound)?).await?.answered()?;
         assert_eq!(answer.texts(), Vec::<Vec<Option<String>>>::new());
         let listed = home
@@ -160,7 +161,7 @@ fn test_a_read_resumed_in_a_list_goes_on_after_its_last_row() -> TestResult {
             predicate: Some(list.predicate.iri.clone()),
             object: None,
         };
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let first = read(&mut client, &snapshot_of(&bound)?.with_limit(2))
             .await?
             .answered()?;
@@ -204,7 +205,7 @@ fn test_a_read_resumed_in_a_predicates_list_asks_from_where_it_stopped() -> Test
             predicate: None,
             object: None,
         };
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let rows = lists.rows();
         let first = read(&mut client, &snapshot_of(&bound)?.with_limit(3))
             .await?
@@ -259,7 +260,7 @@ fn test_a_bound_term_the_partition_does_not_name_answers_no_row() -> TestResult 
                 object: Some(RequestTerm::Iri(unnamed.iri.clone())),
             },
         ] {
-            let mut client = played.client().await?;
+            let mut client = played.client();
             let answer = read(&mut client, &snapshot_of(&bound)?).await?.answered()?;
             assert!(answer.texts().is_empty(), "{bound:?}");
         }
@@ -304,7 +305,7 @@ fn hold_in_graph(
 #[test]
 fn test_a_read_in_a_named_graph_resumes_in_that_graph() -> TestResult {
     use ultragraphdb_common_compute::read_times_of;
-    use ultragraphdb_protocol_wire::{ComputeRead, MAX_FRAME_SIZE_U32, ReadLevel};
+    use ultragraphdb_protocol_wire::{MAX_FRAME_SIZE_U32, ReadLevel};
 
     use crate::played_reads::played_cluster::PlayedCluster as ReadsCluster;
     use crate::played_reads::played_data::tenant_over;
@@ -319,10 +320,10 @@ fn test_a_read_in_a_named_graph_resumes_in_that_graph() -> TestResult {
         let tenant = tenant_over(1, 1)?;
         let part = cluster.partition(1)?;
         hold_in_graph(part, tenant, (S, P, G), &OBJECTS)?;
-        let read = |pattern: &Pattern, resume: Vec<u8>| -> TestResult<ComputeRead> {
+        let read = |pattern: &Pattern, resume: Vec<u8>| -> TestResult<SessionRead> {
             let (terms, slots) = pattern.table()?;
             Ok(
-                ComputeRead::new(tenant, true, ReadLevel::Latest, terms, slots, resume)
+                SessionRead::new(tenant, true, ReadLevel::Latest, terms, slots, resume)
                     .with_principal(1)
                     .with_deadline_ms(DEADLINE_MS)
                     .with_client_limits(MAX_FRAME_SIZE_U32, 4),
@@ -334,7 +335,7 @@ fn test_a_read_in_a_named_graph_resumes_in_that_graph() -> TestResult {
             pattern
         };
         let absent = in_graph(Some(Some("http://ex.org/absent".to_string())));
-        let none = answer_on(&mut cluster.client().await?, &read(&absent, Vec::new())?).await?;
+        let none = answer_on(&mut cluster.client(), &read(&absent, Vec::new())?).await?;
         none.ended()?;
         assert!(
             none.rows().is_empty(),
@@ -346,16 +347,12 @@ fn test_a_read_in_a_named_graph_resumes_in_that_graph() -> TestResult {
             (in_graph(None), 1),
         ] {
             let first = answer_on(
-                &mut cluster.client().await?,
+                &mut cluster.client(),
                 &read(&pattern, Vec::new())?.with_limit(1),
             )
             .await?;
             assert_eq!(first.column(column), OBJECTS[..1]);
-            let rest = answer_on(
-                &mut cluster.client().await?,
-                &read(&pattern, first.resume())?,
-            )
-            .await?;
+            let rest = answer_on(&mut cluster.client(), &read(&pattern, first.resume())?).await?;
             rest.ended()?;
             assert_eq!(rest.column(column), OBJECTS[1..]);
             if column == 1 {

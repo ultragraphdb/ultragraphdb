@@ -54,7 +54,7 @@ async fn read_literal_as(
     partition.term(P, p);
     partition.term(DATATYPE, datatype);
     partition.quads(Graph::Default, s, p, &[encoded(literal, datatype)?]);
-    let mut client = played.client().await?;
+    let mut client = played.client();
     let read = snapshot(&Pattern::of(None, Some(P), Some(term)))?;
     let rows = answer_on(&mut client, &read).await?.whole()?;
     let lists = partition
@@ -167,7 +167,7 @@ fn test_a_vector_object_reads_the_forward_lists() -> TestResult {
             };
             partition.put(forward.to_bytes(), list_of(std::slice::from_ref(object)));
         }
-        let mut client = played.client().await?;
+        let mut client = played.client();
         let read = snapshot(&Pattern::of(None, Some(P), Some(term_of(&vector))))?;
         let rows = answer_on(&mut client, &read).await?.whole()?;
         assert_eq!(rows, the_subject());

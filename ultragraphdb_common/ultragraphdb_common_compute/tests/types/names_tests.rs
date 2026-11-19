@@ -48,7 +48,7 @@ fn test_a_read_names_each_object_by_its_dictionary_text() -> TestResult {
             true,
             ReadLevel::Latest,
         )?;
-        let answer = answer_on(&mut cluster.client().await?, &read).await?;
+        let answer = answer_on(&mut cluster.client(), &read).await?;
         let last = answer.whole()?;
         assert_eq!(last.columns, 2, "the object and the reifier");
         assert_eq!(answer.column(0), objects);
@@ -75,7 +75,7 @@ fn test_a_read_names_each_predicate_by_its_dictionary_text() -> TestResult {
         let part = cluster.partition(1)?;
         let held = two_predicates(part, tenant)?;
         let read = Pattern::of(Some(SUBJECT), None, None).read(tenant, true, ReadLevel::Latest)?;
-        let answer = answer_on(&mut cluster.client().await?, &read).await?;
+        let answer = answer_on(&mut cluster.client(), &read).await?;
         answer.ended()?;
         assert_eq!(answer.column(0), [PREDICATE, OTHER_PREDICATE]);
         assert_eq!(answer.column(1), ["http://ex.org/o1", "http://ex.org/o1"]);
@@ -154,7 +154,7 @@ fn test_a_long_literal_is_named_by_its_hashed_text() -> TestResult {
             true,
             ReadLevel::Latest,
         )?;
-        let answer = answer_on(&mut cluster.client().await?, &read).await?;
+        let answer = answer_on(&mut cluster.client(), &read).await?;
         answer.ended()?;
         let rows = answer.rows();
         let cell = rows
@@ -216,7 +216,7 @@ async fn first_asked(texts: &[String]) -> TestResult<usize> {
     let part = cluster.partition(1)?;
     let first = first_listed_twice(part, tenant, texts)?;
     let read = Pattern::of(Some(SUBJECT), None, None).read(tenant, true, ReadLevel::Latest)?;
-    let answer = answer_on(&mut cluster.client().await?, &read).await?;
+    let answer = answer_on(&mut cluster.client(), &read).await?;
     answer.ended()?;
     assert_eq!(answer.rows().len(), texts.len() + 1);
     let key = name_key(tenant, first);
