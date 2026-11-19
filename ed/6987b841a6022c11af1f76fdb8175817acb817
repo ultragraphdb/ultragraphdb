@@ -1,0 +1,45 @@
+ultragraphdb/ultragraphdb_tests/tests/own_steps.rs
+  s_21eff977e05256::t_1d93432e7c638c 9
+  s_21eff977e05256::t_69860e72f4ccf1 1527-1532
+  s_21eff977e05256::t_5e80fca29ec34a 706-722,1447,1468
+  s_21eff977e05256::t_87496bd01c05bc 1444-1446
+  s_21eff977e05256::t_97ad2d6c1dd707 1448-1450,1465-1467
+  s_21eff977e05256::t_e599648315e7c6 1469-1471
+  s_21eff977e05256::t_124c53b9c20d8a 1524-1526
+  s_21eff977e05256::t_5a7d3523d72834 1533-1534
+  s_21eff977e05256::t_52ea41dea04d50 12,14-15,17,21-23,25,40,1420-1443,1451-1464,1472-1484,1493,1495-1498,1501,1506-1510,1514-1515,1518-1523,1536,1538,1541,1543-1548
+ultragraphdb/ultragraphdb_storage_tests/tests/system_books_steps.rs
+  s_21eff977e05256::t_a2162ff40632f8 342-348,350
+  s_21eff977e05256::t_f35636f87bf78a 84-95,439
+  s_21eff977e05256::t_2c1ef69385af7c 21-22
+  s_21eff977e05256::t_90f5513e08788b 338-341
+  s_21eff977e05256::t_565df5c336b26b 28-30
+  s_21eff977e05256::t_57e1fa263a8071 409-413
+  s_21eff977e05256::t_36734470fcd156 316-317
+  s_21eff977e05256::t_229c05ce960d16 349
+  s_21eff977e05256::t_74ee26319db361 12,51-52,336-337,395,398-408,414,416,420-421,428-430,435-438,440,455-463,466-470,511-513
+ultragraphdb/ultragraphdb_storage_tests/tests/system_bdd.rs
+  s_21eff977e05256::t_fef22ba8ef5e9e 304
+  s_21eff977e05256::t_71af511cd6e485 266-276,285
+  s_21eff977e05256::t_ed5b79f9e61a4f 127-130
+openspec/changes/stage-5-9-compute-role/notes/group-5.md
+  s_21eff977e05256::t_1c092a6a99b6c3 356-425
+ultragraphdb/ultragraphdb_tests/tests/lossy_link.rs
+  s_21eff977e05256::t_fa1824ea57d6cc 7-9,15-16,30-32,43-50,114-150,216-242,249-250,255-260,265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ed6987b841a6022c11af1f76fdb8175817acb817",
+  "prompts": {},
+  "sessions": {
+    "s_21eff977e05256": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "267d1cd9-f3b0-4e2d-81ca-8de0aa23f509",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
