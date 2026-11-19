@@ -286,6 +286,11 @@ impl EndpointView {
         released
     }
 
+    /// The Begin of `ticket` no longer waits: its hold is let go undecided.
+    pub(crate) fn unhold(&mut self, ticket: u64) {
+        let _undecided: Option<(u64, Instant)> = self.holds.remove(&ticket);
+    }
+
     /// The earliest deadline a held Begin waits for.
     #[must_use]
     pub fn next_deadline(&self) -> Option<Instant> {

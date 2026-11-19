@@ -8,14 +8,14 @@ use std::rc::Rc;
 use ultragraphdb_core_keys::{Keyspace, key_prefix};
 use ultragraphdb_protocol_wire::{Scan, ScanAt, ScanRange};
 
-use crate::types::link::Link;
+use crate::types::partition_link::PartitionLink;
 use crate::types::scan_stream::ScanStream;
 use crate::utils::keys::past_alone;
 
 /// A version to keep.
 #[derive(Debug)]
 pub(crate) struct PinTarget {
-    pub(crate) link: Rc<Link>,
+    pub(crate) link: Rc<PartitionLink>,
     pub(crate) tenant: u64,
     pub(crate) principal: u64,
     pub(crate) version: u64,

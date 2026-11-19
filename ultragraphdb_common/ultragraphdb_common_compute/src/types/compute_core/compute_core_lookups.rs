@@ -41,7 +41,7 @@ impl ComputeCore {
         let key = term_key(tenant, iri);
         let mut open = Vec::new();
         for (holder, _) in map.holders_of_run(Tenant::new(tenant), epoch) {
-            let link = self.link(holder.get()).await?;
+            let link = self.link(holder.get())?;
             let mut scan = Scan::new(
                 ScanAt::ReadVersion,
                 bound,

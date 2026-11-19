@@ -146,14 +146,14 @@ The suite's inputs were read for cases where two distinct quantities coincide:
 4. **`ultragraphdb_common_service`.** `Readiness::follow` lives there, since a binary holds no unit test. A small edit to
    a crate outside group 4's list.
 
-### Checkpoint C, prepared
+### Checkpoint C, prepared (done in phase 4 with the user's approval, 2026-11-19)
 
 What task 4.3 removes, with the test over `RoleLink` that holds each removed test's law:
 
 | Removed test | Law held by |
 |---|---|
 | `compute_core_tests`: `test_the_reads_of_a_core_share_its_connection_to_a_partition` | `role_link_tests`' `test_a_transactions_bind_and_reads_share_one_link`, `link_tests`' `test_a_link_kept_holds_no_stream_of_a_lookup_returned` (rebound) |
-| `compute_core_tests`: `test_a_system_group_silent_past_the_bound_refuses_the_read` | its placement half by `test_a_placement_other_than_the_even_map_refuses_the_read` over links; its Members half has no ask left to hang |
+| `compute_core_tests`: `test_a_system_group_silent_past_the_bound_refuses_the_read` | its placement half by `test_a_system_group_silent_on_placement_past_the_bound_refuses_the_read`, written in phase 4 over links; its Members half has no ask left to hang, Members being the system link's (`system_link_tests`) |
 | `compute_core_tests`: `test_a_partition_not_reached_refuses_the_read` | `test_a_dial_past_its_bound_closes_the_link`, `test_a_storage_process_restarted_under_a_read_is_dialled_again` |
 | `compute_core_tests`: `test_reads_arriving_during_a_dial_share_it` | `test_a_failed_write_closes_the_link_and_the_next_request_dials_again` (one dial per link) |
 | `compute_core_tests`: `test_members_listing_compute_processes_reach_the_partition` | `role_links_tests`' Members tests: `RoleLinks::learned` lists storage alone |
@@ -162,4 +162,75 @@ What task 4.3 removes, with the test over `RoleLink` that holds each removed tes
 
 Code: `src/types/link.rs`; `ComputeCore`'s `links`, `dialling`, `addresses`, `address_of`, `fetch_members`, `link`'s dial
 path, `dial_for_all`, `dial`, `DialUnderWay` (`compute_core/dial_under_way.rs`), and `ComputeCore::new`;
-`PlayedCluster::start_own` and `start_placed_own`. To be confirmed against phase 4's code at checkpoint C.
+`PlayedCluster::start_own` and `start_placed_own`.
+
+## Phase 4 and task 4.3 (2026-11-19, base `f53c12ce`)
+
+The user approved the four recommendations: task 4.3's removals land with phase 4; `ComputeCore::over` reads Placement
+at the group itself; Frontier and Neighbours move to the stage that adds them to the wire; `Readiness::follow` stays in
+`common_service`.
+
+### What was built
+
+- **`RoleLink` carries reads.** A stream's reader is a session's `RouteSink` or a read's channel of whole frames
+  (`Reader`). `open_read` builds the request's frame before it registers anything, so a request that cannot be built or
+  sent leaves no stream (C4.1, C4.2); a read's frames that spend credit are held to the Welcome's `initial_credit` and what
+  it granted, one past them refused as `PastCredit` naming the stream (C4.5); a frame its stream's requests are not
+  answered by closes the link, for a read's stream as for a Bind's (C4.9, C4.10); a frame of a stream that ended, or whose
+  reader went, is checked whole and dropped (C4.7, C4.13); a read's frame goes on unread, its checksums the read's to check
+  once. The reader takes frames into a pool of one buffer and a new one while a read holds it, as `Link` did, and ends
+  when the link closes, so a link closed by compute drops its socket. A failed write already marked the link closed;
+  every stream is told once, and `RoleLinks` dials again for the next request (C4.3, C4.4).
+- **`PartitionLink`** (`src/types/partition_link.rs`) is a read's way to one partition over the core's `RoleLink`: open,
+  grant, cancel, forget, close (logging why once), the step count and the hung watch, the API `Link` gave the executor.
+  `ScanStream`, `PartitionRows`, `PinTarget`, `Asked`, the lookups and `closed_epoch` take it.
+- **`ComputeCore::over(links, group, times)`** holds the core's links, the group's address for Placement and Catalog, the
+  times and the step count. `ComputeCore::link` takes the partition's link from `RoleLinks`, which Members fills through
+  the core's system link; a partition listed nowhere is answered 17 at once.
+- **`SystemLink`.** A waiter's waker is kept once (`Waker::will_wake`), so the link holds one per waiter; a dropped
+  `token` takes its hold from the view and any outcome decided for it (`EndpointView::unhold`).
+- **Readiness (design D14).** Each endpoint core's `SystemLink` sets a readiness of its own; core 0's loop sets the role's
+  by `Readiness::follow` every 20 ms, ready exactly while every core's is. `service.rs`' doc says so. A core whose thread
+  could not start leaves the role unready, where before it was ready with a core missing.
+- **Task 4.3**, the list above: `link.rs`, `dial_under_way.rs` and `dial_under_way_tests.rs` deleted from the working tree,
+  `ComputeCore::new` and its connections removed, six `compute_core_tests` removed and one written over links in their
+  place, `PlayedCluster::start_own` and `start_placed_own` removed. Four harness helpers only those tests called went with
+  them: `played/PlayedPartition::connections`, `played/played_read::cancel`, `PlayedSystem::delay_members` and
+  `placement_asked`. `compute_core_catalog_tests` and `ultragraphdb_compute_tests`' `lookup_steps.rs` and
+  `robust_steps.rs` build their cores with `over` (`cluster::played_links`).
+- **The specification of Frontier.** `tasks.md` 4.2, `notes/laws.md` (L4.1) and `notes/corner-cases.md` (C4.10) say where
+  they went.
+
+### A test corrected
+
+`test_a_frame_past_credit_closes_the_link_and_ends_every_read` read the past-credit read's frames before the other
+stream's close, but the probe tells the streams' frames in any order across streams, each stream's in its own order; the
+other stream's close came first. The test now compares each stream's tells: the read's `initial_credit` frames then the
+close, the other's close. Its assertion is unchanged.
+
+### Counts
+
+| Target | Before group 4 | Phase 2 | Phase 4 |
+|---|---|---|---|
+| `common_compute` unit | 300 | 322 (20 C4.x, 2 system link) | 315 (6 and 2 removed, 1 added) |
+| `common_compute` property | 17 | 21 | 21 |
+| `common_compute` BDD, 11 targets | 147 scenarios | 148 | 148 |
+| `common_service` unit | 74 | 77 | 77 |
+| `compute_tests`, 21 targets | 67 scenarios | 68 | 68 |
+
+### The gate
+
+- `make build` passes; the Clippy aspect over `common_compute`, `common_service`, `ultragraphdb_compute` and
+  `ultragraphdb_compute_tests` is clean; `rustfmt --edition 2024 --check` over every changed Rust file is clean.
+- The changed crates' doc, unit, property, Loom and BDD targets: 14 of 14 pass.
+- `make property-random`'s run for `common_compute`'s property target: 20 of 20 fresh seeds pass.
+- The integration groups, in `make test`'s order: config 1 of 1, storage 15 of 15, compute 21 of 21 (the readiness
+  scenario among them, 2 of 2), supervisor 2 of 2 (`image_bdd` ran in Docker, 7 of 7), cluster 40 of 40.
+- One intermittent, rerun once and passed: `common_compute:bdd_endpoint`'s "A role connection's dial past its bound
+  closes it", its log holding no warning naming the address and the bound. The scenario's transaction limit and the
+  dial's bound are one `transaction_ms`; when the limit answers first the scenario ends, and its runtime with it, before
+  the dial's timeout logs. The scenario and the dial path are unchanged by this group. Recorded, not root-caused: it did
+  not repeat.
+- The three suspects of checkpoint C (`term_dictionary_dangling`, `quad_reads_lookups`, `system_group_lost_group`) did not
+  show.
+

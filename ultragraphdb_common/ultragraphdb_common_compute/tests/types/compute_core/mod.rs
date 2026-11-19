@@ -6,4 +6,3 @@
 mod compute_core_catalog_tests;
 mod compute_core_lookups_tests;
 mod compute_core_tests;
-mod dial_under_way_tests;

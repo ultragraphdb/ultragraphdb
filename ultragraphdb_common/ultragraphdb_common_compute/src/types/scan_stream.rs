@@ -10,11 +10,10 @@ use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
-    BodyView, Cancel, Command, EntriesSequence, EntriesView, ErrorReply, ErrorReplyView, FLAG_LAST,
-    Scan,
+    BodyView, Command, EntriesSequence, EntriesView, ErrorReply, ErrorReplyView, FLAG_LAST, Scan,
 };
 
-use crate::types::link::Link;
+use crate::types::partition_link::PartitionLink;
 use crate::types::read_fault::ReadFault;
 use crate::types::refused::Refused;
 use crate::types::scan_facts::ScanFacts;
@@ -25,7 +24,7 @@ use crate::utils::refusals::unavailable;
 /// past the one frame a partition's Welcome starts a stream with, a stream given up cancelled.
 #[derive(Debug)]
 pub(crate) struct ScanStream {
-    link: Rc<Link>,
+    link: Rc<PartitionLink>,
     stream: u64,
     /// How long a frame may take once asked for: the Scan's wait for its epoch and the link's answer bound.
     wait: Duration,
@@ -43,9 +42,8 @@ pub(crate) struct ScanStream {
 
 impl ScanStream {
     /// Sends `scan` on `link`.
-    pub(crate) fn open(link: &Rc<Link>, scan: &Scan) -> Result<Self, ErrorReply> {
-        let (stream, frames) = link.open_stream()?;
-        link.send(stream, scan)?;
+    pub(crate) fn open(link: &Rc<PartitionLink>, scan: &Scan) -> Result<Self, ErrorReply> {
+        let (stream, frames) = link.open(scan)?;
         let deadline = Duration::from_millis(u64::from(scan.deadline_ms()));
         let wait = deadline.saturating_add(link.answer_wait());
         Ok(Self {
@@ -168,11 +166,12 @@ impl ScanStream {
 
 impl Drop for ScanStream {
     fn drop(&mut self) {
-        if !self.ended {
-            // A connection closed has cancelled every stream on it.
-            drop(self.link.send(self.stream, &Cancel));
+        if self.ended {
+            self.link.forget(self.stream);
+        } else {
+            // A connection closed has cancelled every stream on it: its Cancel is not sent.
+            self.link.cancel(self.stream);
         }
-        self.link.forget(self.stream);
         // A read given up while its partition stays silent, as compute gives up a hung read first, leaves its wait to the
         // link, so a silent connection still closes for the reads after it.
         if !self.ended

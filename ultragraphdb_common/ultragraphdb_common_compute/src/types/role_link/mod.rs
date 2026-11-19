@@ -9,18 +9,21 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use std::task::Waker;
+use std::time::Instant;
 
-use futures::channel::mpsc::UnboundedReceiver;
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Cancel, Command, ErrorReply, Header, HeaderView, MAX_FRAME_SIZE_U32,
+    BodyBuilder, Cancel, Command, Credit, ErrorReply, Header, HeaderView, MAX_FRAME_SIZE_U32,
 };
 
 use crate::types::commit_hold::CommitHold;
 use crate::types::counted_frame::CountedFrame;
 use crate::types::link_event::LinkEvent;
 use crate::types::route_sink::RouteSink;
+use crate::utils::clock::now;
+use crate::utils::refusals::unavailable;
 
 /// A frame waiting to leave, by the stream it asks on.
 #[derive(Debug)]
@@ -31,11 +34,23 @@ struct Outgoing {
     frame: CountedFrame,
 }
 
+/// Who reads a stream: a client session, told what each frame says, or a read, handed each frame whole to check itself, its
+/// frames that spend credit held to the partition's `initial_credit` and what it granted since (`PROTOCOL.md` §11.3).
+#[derive(Debug)]
+enum Reader {
+    Session(RouteSink),
+    Read {
+        frames: UnboundedSender<ReceivedFrame>,
+        spent: u32,
+        granted: u32,
+    },
+}
+
 /// A stream open on a link: who reads it, and the requests sent on it, which each frame on it answers (`PROTOCOL.md` §2.5,
 /// step 3).
 #[derive(Debug)]
 struct Route {
-    sink: RouteSink,
+    reader: Reader,
     /// The request that opened it.
     opened: Command,
     /// The other requests sent on it, each once: a Bind's stream carries its transaction's Writes, Operations and Commit, or
@@ -44,6 +59,14 @@ struct Route {
 }
 
 impl Route {
+    /// Whether the stream is a read's whose reader went without letting it go: its frames are late.
+    fn reader_gone(&self) -> bool {
+        match &self.reader {
+            Reader::Read { frames, .. } => frames.is_closed(),
+            Reader::Session(_) => false,
+        }
+    }
+
     /// Whether a frame of `command` answers a request sent on the stream: an Error, or a command one of them is answered by.
     fn answers(&self, command: Command) -> bool {
         std::iter::once(&self.opened)
@@ -71,6 +94,12 @@ struct Routes {
     /// the connections' bounds limit its length.
     outgoing: VecDeque<Outgoing>,
     writer: Option<Waker>,
+    /// The waker of the task reading the connection, which a close ends.
+    reader: Option<Waker>,
+    /// The credit each read's stream starts with, the peer's Welcome's.
+    initial_credit: u32,
+    /// When the peer last sent a frame; `None` before its first.
+    heard: Option<Instant>,
 }
 
 impl Routes {
@@ -183,7 +212,7 @@ impl RoleLink {
             return stream;
         };
         let route = Route {
-            sink,
+            reader: Reader::Session(sink),
             opened,
             sent: Vec::new(),
         };
@@ -208,19 +237,73 @@ impl RoleLink {
     /// frame arriving later on the number is a stray.
     pub(crate) fn open_read<B: BodyBuilder>(
         &self,
-        _body: &B,
+        body: &B,
     ) -> Result<(u64, UnboundedReceiver<ReceivedFrame>), ErrorReply> {
-        unimplemented!()
+        let mut routes = self.routes.borrow_mut();
+        if routes.closed {
+            return Err(unavailable("the role connection closed under the read"));
+        }
+        let stream = routes.next;
+        debug_assert!(stream != 0, "stream 0 is the connection's own");
+        let frame = body
+            .frame(self.header(B::COMMAND, stream))
+            .map_err(|rule| ErrorReply::protocol(&rule))?;
+        routes.next = stream.saturating_add(1);
+        let (frames, arriving) = unbounded();
+        let route = Route {
+            reader: Reader::Read {
+                frames,
+                spent: 0,
+                granted: 0,
+            },
+            opened: B::COMMAND,
+            sent: Vec::new(),
+        };
+        let _none = routes.open.insert(stream, route);
+        let writer = routes.queue(stream, true, CountedFrame::uncounted(frame));
+        drop(routes);
+        if let Some(writer) = writer {
+            writer.wake();
+        }
+        Ok((stream, arriving))
     }
 
-    /// Grants the read's `stream` one more frame that spends credit: a Credit of one frame leaves on it.
-    pub(crate) fn grant(&self, _stream: u64) {
-        unimplemented!()
+    /// Grants the read's `stream` one more frame that spends credit: a Credit of one frame leaves on it. A stream ended, or
+    /// one of a session, is granted nothing.
+    pub(crate) fn grant(&self, stream: u64) {
+        let granted = match self.routes.borrow_mut().open.get_mut(&stream) {
+            Some(Route {
+                reader: Reader::Read { granted, .. },
+                ..
+            }) => {
+                *granted = granted.saturating_add(1);
+                true
+            }
+            Some(Route {
+                reader: Reader::Session(_),
+                ..
+            })
+            | None => false,
+        };
+        // A Credit that cannot be built sends nothing, and the stream's frames stay within what left before.
+        if granted && let Ok(frame) = Credit::new(1).frame(self.header(Command::Credit, stream)) {
+            self.leave(stream, CountedFrame::uncounted(frame));
+        }
     }
 
     /// How many streams are open on the link: each a request sent and not yet ended.
     pub(crate) fn streams_open(&self) -> usize {
-        unimplemented!()
+        self.routes.borrow().open.len()
+    }
+
+    /// Closes the connection, as a frame the link refuses closes it: every stream on it is told, and its reader and writer end.
+    pub(crate) fn close(&self) {
+        role_link_tasks::closed(self);
+    }
+
+    /// When the peer last sent a frame on the connection; the dial's start before its first.
+    pub(crate) fn heard(&self) -> Instant {
+        self.routes.borrow().heard.unwrap_or_else(now)
     }
 
     /// Sends the request `frame` on `stream`, already open, which the stream's frames may answer from here on.
@@ -259,8 +342,12 @@ impl RoleLink {
     /// Keeps `hold` with `stream` until the stream ends, by its last frame or the connection's close; a stream already ended
     /// lets it go at once.
     pub(crate) fn hold(&self, stream: u64, hold: CommitHold) {
-        if let Some(route) = self.routes.borrow_mut().open.get_mut(&stream) {
-            route.sink.hold(hold);
+        if let Some(Route {
+            reader: Reader::Session(sink),
+            ..
+        }) = self.routes.borrow_mut().open.get_mut(&stream)
+        {
+            sink.hold(hold);
         }
     }
 

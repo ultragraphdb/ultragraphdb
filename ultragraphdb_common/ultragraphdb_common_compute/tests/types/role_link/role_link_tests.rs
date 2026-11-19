@@ -31,8 +31,8 @@ use crate::apart::apart_cluster::{
 };
 use crate::apart::apart_executor::{executed, pattern_of, read_frame, snapshot};
 use crate::apart::apart_link::{
-    LOOK, PARTITION, Probed, QUIET, WAIT, bind, closes, entries_on, frame_on, open_bind, opened,
-    probed, scan, scan_from, taken, told, told_quietly,
+    LOOK, PARTITION, Probed, WAIT, bind, closes, entries_on, frame_on, open_bind, opened, probed,
+    scan, scan_from, taken, told, told_quietly,
 };
 use crate::apart::apart_partition::{EPOCH, Script, VERSION};
 use crate::apart::apart_reads::{
@@ -140,24 +140,34 @@ fn test_a_frame_past_credit_closes_the_link_and_ends_every_read() -> TestResult 
             for _ in 0..=credit {
                 request.answer_with(entries_on(spent, false)?);
             }
+            // The streams' tells interleave in any order; each stream's own come in its order.
             let mut seen = Vec::new();
-            for _ in 0..credit {
+            for _ in 0..credit + 2 {
                 seen.push(told(&mut probe).await?);
             }
-            let mut expected = vec![other, spent];
-            expected.sort_unstable();
-            assert_eq!(closes(&mut probe, 2).await?, expected);
-            compio::time::sleep(QUIET).await;
-            TestResult::Ok((seen, double.count(Command::Error)))
+            assert_eq!(
+                told_quietly(&mut probe).await,
+                None,
+                "each stream told the close once"
+            );
+            let of = |stream: u64| -> Vec<Told> {
+                seen.iter()
+                    .filter(|(of, _)| *of == stream)
+                    .map(|(_, what)| *what)
+                    .collect()
+            };
+            TestResult::Ok(((of(spent), of(other)), double.count(Command::Error)))
         })
     })?;
+    let (spent, other) = seen;
     let credit = usize::try_from(DEFAULT_INITIAL_CREDIT)?;
-    assert_eq!(seen.len(), credit);
-    assert!(
-        seen.iter()
-            .all(|(_, what)| *what == Told::Frame(Command::Entries)),
-        "{seen:?}"
+    let mut expected = vec![Told::Frame(Command::Entries); credit];
+    expected.push(Told::Closed);
+    assert_eq!(
+        spent, expected,
+        "the frames within the credit, then the close"
     );
+    assert_eq!(other, vec![Told::Closed]);
     assert_eq!(errors_sent, 0, "the side that dialled sends no Error");
     let refusals: Vec<String> = capture
         .events()

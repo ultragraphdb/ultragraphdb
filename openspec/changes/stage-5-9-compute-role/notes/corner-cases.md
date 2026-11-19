@@ -237,6 +237,10 @@ Each case drives `RoleLink` against the played partition of T 4.2. C4.1 to C4.8 
 | C4.21 | a storage process restarted at its address while reads are open | the link closes, the reads are answered code 17, compute reads Members again and dials, and the next read is answered | client-endpoint, "Compute finds the partitions in Members" |
 | C4.22 | a monotonic-fast read over two partitions, before its Scans | a Closed leaves on each partition's link; each link carries its own Scan after it | P §11.12, *Reads* |
 
+C4.10's two Frontier inputs, a Neighbours frame on a Scan's stream and an Entries frame on a Frontier's stream, are the
+stage's that adds Frontier (532) and Neighbours (533) to `ultragraphdb_protocol_wire`, which holds neither; group 4 covers
+the Held on a Scan's stream (decided 2026-11-19, `notes/group-4.md`).
+
 ## 1. The wire, `ultragraphdb_protocol_wire`
 
 ### An advertised address and a tag

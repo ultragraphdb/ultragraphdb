@@ -10,6 +10,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use service_utils::ServiceUtil;
+use ultragraphdb_common_compute::RoleLinks;
+use ultragraphdb_common_role::RoleCluster;
+use ultragraphdb_protocol_wire::Join;
 use ultragraphdb_tests::{
     COMPUTE_BINARY, STORAGE_BINARY, answering, compute_holding, not_hosting, role, scratch,
     storage_holding, with,
@@ -171,6 +174,17 @@ pub fn start_compute(util: &ServiceUtil, base: u32, extra: &[(&str, &str)]) -> T
         &scratch(&format!("compute-{base}.log")),
         wait,
     )?)?)
+}
+
+/// The links a compute core of this process reads over, dialling as compute: each partition where it listens, as the played
+/// group's Members lists it, and the map left to the core's own read of Placement (design D2).
+pub fn played_links(info: &ClusterInfo, cluster: &RoleCluster) -> RoleLinks {
+    let links = RoleLinks::new(cluster.clone(), "compute".to_string());
+    for partition in 1..=info.partitions {
+        let address = format!("tcp://127.0.0.1:{}", info.partition_port(partition));
+        links.joined(&Join::storage(address, vec![partition]));
+    }
+    links
 }
 
 /// A tenant no earlier scenario wrote.

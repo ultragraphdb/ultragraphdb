@@ -9,7 +9,7 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use ultragraphdb_common_compute::{ComputeCore, ReadTimes};
+use ultragraphdb_common_compute::{ComputeCore, ReadTimes, RoleLinks};
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{CatalogFrames, ErrorCode, ErrorReply, MAX_FRAME_SIZE};
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -24,7 +24,8 @@ const TENANT: u64 = 4;
 async fn group_and_core(times: ReadTimes) -> TestResult<(PlayedSystem, Rc<ComputeCore>)> {
     let cluster = role_cluster(SECRET, Duration::from_secs(5))?;
     let group = PlayedSystem::start(&cluster, even_ranges(1)?).await?;
-    let core = ComputeCore::new(cluster, Address::parse(group.address())?, times, "compute");
+    let links = RoleLinks::new(cluster, "compute".to_string());
+    let core = ComputeCore::over(links, Address::parse(group.address())?, times);
     Ok((group, core))
 }
 

@@ -79,10 +79,11 @@ struct LinkState {
     lost_since: Option<Instant>,
     /// Bumped by every change the view's waiters wait for, which wakes them.
     changes: u64,
-    /// The waiters' wakers, taken whole at each change: a waiter adds its own each time it is polled with no change, so
-    /// it holds one for each such poll since the last change.
+    /// The waiters' wakers, taken whole at each change: a waiter adds its own when it is polled with no change and the link
+    /// holds none that wakes the same task, so it holds one for each waiter.
     watchers: Vec<Waker>,
-    /// The Begins a token holds, decided and not yet taken by their waiter: one for each [`SystemLink::token`] waiting.
+    /// The Begins a token holds, decided and not yet taken by their waiter: one for each [`SystemLink::token`] waiting, since
+    /// a token dropped takes its own away.
     decided: HashMap<u64, HoldOutcome>,
     next_hold: u64,
     /// The placement version the latest close assigned, which the next Placement read holds.
@@ -112,6 +113,14 @@ impl LinkState {
         self.sender.take()
     }
 
+    /// The waiter polled with `waker` is told of the next change: its waker is kept once, however often it is polled before
+    /// that change (Ultra rule 2).
+    fn watch(&mut self, waker: &Waker) {
+        if !self.watchers.iter().any(|held| held.will_wake(waker)) {
+            self.watchers.push(waker.clone());
+        }
+    }
+
     /// The view's waiters are told something changed; their wakers, for after the borrow.
     fn changed(&mut self) -> Vec<Waker> {
         self.changes = self.changes.wrapping_add(1);
@@ -130,9 +139,9 @@ impl LinkState {
 ///
 /// Cancellation: a check or an ask whose future is dropped before its answer stays with the link until the answer
 /// arrives or the connection closes, and the answer then finds no one to tell; a check that marked its session in
-/// flight leaves it so, as [`crate::ClientSession`] says. A [`SystemLink::token`] dropped leaves its hold with the view
-/// until its close or its deadline, and its outcome with the link, which nothing takes. [`SystemLink::answering`]
-/// dropped leaves its waker, which the next change wakes for nothing.
+/// flight leaves it so, as [`crate::ClientSession`] says. A [`SystemLink::token`] dropped takes its hold from the view and
+/// any outcome decided for it from the link. [`SystemLink::answering`] dropped leaves its waker, which the next change
+/// wakes for nothing.
 ///
 /// Data plane (Ultra rule 3) for the Checks and Endeds of a commit's path, each frame the `Vec` the wire's builders return
 /// and each check's answer a channel of its own; control plane for the rest.
@@ -200,7 +209,7 @@ impl SystemLink {
     #[cfg(feature = "test-utils")]
     #[must_use]
     pub fn watchers_held(&self) -> usize {
-        unimplemented!()
+        self.state.borrow().watchers.len()
     }
 
     /// The outcomes of [`SystemLink::token`]'s holds the link has decided and no waiter has taken: one for each token still
@@ -208,7 +217,7 @@ impl SystemLink {
     #[cfg(feature = "test-utils")]
     #[must_use]
     pub fn outcomes_held(&self) -> usize {
-        unimplemented!()
+        self.state.borrow().decided.len()
     }
 
     /// The link counting its Check frames' round trips as endpoint core `core`'s.
@@ -365,6 +374,8 @@ impl SystemLink {
             }
             ticket
         };
+        // Dropped, as when the request's future is, the token takes its hold and any outcome decided for it away.
+        let _waiting = Waiting { link: self, ticket };
         // Each pass waits for a close or the deadline, by which the view decides the hold (Ultra rule 2).
         loop {
             let seen = {
@@ -395,7 +406,7 @@ impl SystemLink {
             if state.changes != seen {
                 return Poll::Ready(());
             }
-            state.watchers.push(context.waker().clone());
+            state.watch(context.waker());
             Poll::Pending
         });
         let wait = deadline.saturating_duration_since(now());
@@ -409,6 +420,20 @@ impl SystemLink {
         for watcher in watchers {
             watcher.wake();
         }
+    }
+}
+
+/// A [`SystemLink::token`] waiting: dropped, it lets go of its hold and of the outcome another waiter's pass decided for it.
+struct Waiting<'a> {
+    link: &'a SystemLink,
+    ticket: u64,
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        let mut state = self.link.state.borrow_mut();
+        state.view.unhold(self.ticket);
+        let _untaken: Option<HoldOutcome> = state.decided.remove(&self.ticket);
     }
 }
 

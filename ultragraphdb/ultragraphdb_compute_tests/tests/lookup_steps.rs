@@ -22,6 +22,7 @@ use ultragraphdb_tests::{CLUSTER, SECRET, holding, render_settings};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::client::{self, EndpointClient, answer_on};
+use crate::cluster::played_links;
 use crate::played_partition::{PlayedTables, Script};
 use crate::scene::{FLOOR, KNOWS, NAME, Pattern, Scene, run};
 use crate::{Steps, played, played_tables};
@@ -77,11 +78,10 @@ fn core_over_played() -> TestResult<Rc<ComputeCore>> {
     )?;
     let cluster = RoleCluster::read(&start)?;
     let system = Address::parse(&format!("tcp://127.0.0.1:{}", info.base + 1))?;
-    Ok(ComputeCore::new(
-        cluster,
+    Ok(ComputeCore::over(
+        played_links(info, &cluster),
         system,
         read_times_of(None, None),
-        "compute",
     ))
 }
 

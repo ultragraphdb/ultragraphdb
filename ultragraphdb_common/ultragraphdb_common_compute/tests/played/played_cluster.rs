@@ -95,30 +95,14 @@ impl PlayedCluster {
         partitions: u32,
         times: ReadTimes,
     ) -> TestResult<Self> {
-        Self::started(ranges, partitions, times, false).await
+        Self::started(ranges, partitions, times).await
     }
 
-    /// A cluster of `partitions` partitions placed evenly, compute reading by `times` over connections its core dials of its
-    /// own, where it asks the system group's Members (task 4.3 removes them).
-    pub async fn start_own(partitions: u32, times: ReadTimes) -> TestResult<Self> {
-        Self::start_placed_own(even_ranges(partitions)?, partitions, times).await
-    }
-
-    /// As [`PlayedCluster::start_own`], the system group answering the placement `ranges`.
-    pub async fn start_placed_own(
-        ranges: Vec<(u32, u32, u32)>,
-        partitions: u32,
-        times: ReadTimes,
-    ) -> TestResult<Self> {
-        Self::started(ranges, partitions, times, true).await
-    }
-
-    /// The cluster, its core's connections its own when `own`.
+    /// The cluster over the placement `ranges`, compute reading by `times` over its core's links.
     async fn started(
         ranges: Vec<(u32, u32, u32)>,
         partitions: u32,
         times: ReadTimes,
-        own: bool,
     ) -> TestResult<Self> {
         let cluster = role_cluster(SECRET, Duration::from_secs(5))?;
         let system = PlayedSystem::start(&cluster, ranges).await?;
@@ -131,12 +115,8 @@ impl PlayedCluster {
             played.push(started);
         }
         let group = Address::parse(system.address())?;
-        let core = if own {
-            ComputeCore::new(cluster, group, times, "compute")
-        } else {
-            let map = PlacementMap::even(partitions, NodeId::new(1))?;
-            ComputeCore::over(links_listing(&cluster, map, &listed), group, times)
-        };
+        let map = PlacementMap::even(partitions, NodeId::new(1))?;
+        let core = ComputeCore::over(links_listing(&cluster, map, &listed), group, times);
         Ok(Self {
             system,
             partitions: played,

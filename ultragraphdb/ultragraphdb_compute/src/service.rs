@@ -38,8 +38,9 @@ const CONNECTIONS_MAX_DEFAULT: u32 = 4_096;
 /// The compute role: its endpoint cores dial the system group at `cluster.system_address` (design D5) and serve clients at
 /// `[endpoint] address`, when set, over TLS 1.3 or clear text as the table says, on an endpoint core per CPU, each running its
 /// clients' reads in process. It listens at no role address and sends the group no Join until the node list is built (task
-/// 3.7). It is ready once its first core's view holds a close and a placement and Members lists every partition, and runs
-/// until the service stops, or until the system group, or a partition the group lists, has been gone for `[cluster]
+/// 3.7). It is ready only while every endpoint core's link to the system group holds: each core's view holds a close and a
+/// placement, Members lists every partition and a partition answers (design D14), since any core may accept a client and relay
+/// its authentication over its own link. It runs until the service stops, or until the system group, or a partition the group lists, has been gone for `[cluster]
 /// join_deadline_ms`, when every core stops accepting connections and the open requests are finished, for at most the
 /// endpoint's `transaction_ms`.
 ///
@@ -64,24 +65,25 @@ pub(crate) async fn compute_role(
     let config = start.config();
     let open = OpenRequests::new(stopping.clone());
     let address = system_address(&start)?;
+    let clients = match config.endpoint().address() {
+        Some(endpoint) => Some(Clients::bind(config, endpoint, cluster.id(), &open).await?),
+        None => None,
+    };
+    let cores = cores_readiness(clients.is_some());
     let links = core_links(&cluster, config);
     let system = SystemLink::dial(
         address.clone(),
         cluster.clone(),
         links.clone(),
         endpoint_limits(config).transaction_ms(),
-        readiness.clone(),
+        cores.first().cloned().unwrap_or_default(),
     );
-    let clients = match config.endpoint().address() {
-        Some(endpoint) => Some(Clients::bind(config, endpoint, cluster.id(), &open).await?),
-        None => None,
-    };
     if let Some(clients) = &clients {
-        start_cores(config, &cluster, &address, clients, &stopping)?;
+        start_cores(config, &cluster, &address, clients, (&stopping, &cores))?;
     }
     let mut accepting = Vec::new();
     let core = clients.as_ref().map(|clients| {
-        let reads = core_reads(&cluster, &address, config);
+        let reads = core_reads(&links, &address, config);
         clients.core(system.clone(), links, (0, reads))
     });
     if let (Some(clients), Some(core)) = (clients, &core) {
@@ -97,6 +99,7 @@ pub(crate) async fn compute_role(
     let deadline = cluster.deadline();
     let mut lost = None;
     while !stopping.is_stopping() {
+        readiness.follow(&cores);
         // The phases of the writes the endpoint relays and its Checks' round trips, logged as they fall due.
         core.iter().for_each(EndpointCore::report_phases);
         if system
@@ -126,6 +129,17 @@ pub(crate) async fn compute_role(
     let finish = Duration::from_millis(u64::from(endpoint_limits(config).transaction_ms()));
     let _left = finish_open(accepting, &open, finish).await;
     lost.map_or(Ok(()), Err)
+}
+
+/// One readiness for each endpoint core, each its link's to the system group, which the role follows (design D14): a core per CPU
+/// the process may use when it serves clients, and the first alone when it does not.
+fn cores_readiness(serving: bool) -> Vec<Readiness> {
+    let runtimes = if serving {
+        std::thread::available_parallelism().map_or(1, usize::from)
+    } else {
+        1
+    };
+    (0..runtimes).map(|_| Readiness::default()).collect()
 }
 
 /// Starts [`hold`] on this runtime, and returns where it leaves the failure that stops the role.
@@ -256,21 +270,19 @@ struct CoreStart {
     clients: Clients,
     stopping: Stopping,
     core: usize,
+    /// The readiness of the core's link to the system group, which the role follows.
+    readiness: Readiness,
 }
 
-/// A core's connections to the partitions its clients' reads run over, dialling as compute: the placement map and where each
-/// partition listens asked at the system group's role address `system`, and no Join sent (`PROTOCOL.md` §11.12, *Reads*).
-fn core_reads(cluster: &RoleCluster, system: &Address, config: &ServiceConfig) -> Rc<ComputeCore> {
+/// A core's reads, over its links to the partitions, which its client sessions' Bind streams share (design D2): the placement
+/// map asked at the system group's role address `system`, where each partition listens learned by the core's link from
+/// Members, and no Join sent (`PROTOCOL.md` §11.12, *Reads*).
+fn core_reads(links: &RoleLinks, system: &Address, config: &ServiceConfig) -> Rc<ComputeCore> {
     let times: ReadTimes = read_times_of(
         config.storage().scan_stall_ms(),
         config.storage().read_retain_ms(),
     );
-    ComputeCore::new(
-        cluster.clone(),
-        system.clone(),
-        times,
-        &RoleKind::Compute.to_string(),
-    )
+    ComputeCore::over(links.clone(), system.clone(), times)
 }
 
 /// A core's links to the partitions, dialling as compute; the placement map is its link's to read.
@@ -279,15 +291,15 @@ fn core_links(cluster: &RoleCluster, config: &ServiceConfig) -> RoleLinks {
         .with_dial_ms(endpoint_limits(config).transaction_ms())
 }
 
-/// Starts an endpoint core on each CPU the process may use but the first, the service's own.
+/// Starts an endpoint core for each of `cores` but the first, the service's own, each setting its readiness as its link holds.
 fn start_cores(
     config: &ServiceConfig,
     cluster: &RoleCluster,
     system: &Address,
     clients: &Clients,
-    stopping: &Stopping,
+    (stopping, cores): (&Stopping, &[Readiness]),
 ) -> Result<(), RoleError> {
-    for core in 1..std::thread::available_parallelism().map_or(1, usize::from) {
+    for (core, readiness) in cores.iter().enumerate().skip(1) {
         let start = CoreStart {
             config: config.clone(),
             cluster: cluster.clone(),
@@ -295,6 +307,7 @@ fn start_cores(
             clients: clients.another()?,
             stopping: stopping.clone(),
             core,
+            readiness: readiness.clone(),
         };
         #[expect(
             clippy::disallowed_methods,
@@ -326,15 +339,16 @@ async fn serve_core(start: CoreStart) {
         clients,
         stopping,
         core,
+        readiness,
     } = start;
     let links = core_links(&cluster, &config);
-    let reads = core_reads(&cluster, &system, &config);
+    let reads = core_reads(&links, &system, &config);
     let link = SystemLink::dial(
         system,
         cluster,
         links.clone(),
         endpoint_limits(&config).transaction_ms(),
-        Readiness::default(),
+        readiness,
     );
     let endpoint = clients.core(link, links, (core, reads));
     let listener = match clients.listener.on_this_core() {

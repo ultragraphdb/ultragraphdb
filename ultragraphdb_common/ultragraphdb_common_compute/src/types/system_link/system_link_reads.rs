@@ -279,7 +279,7 @@ async fn withdrawn(link: &SystemLink, was_ready: bool) {
         if was_ready && !state.readiness.is_ready() {
             return Poll::Ready(());
         }
-        state.watchers.push(context.waker().clone());
+        state.watch(context.waker());
         Poll::Pending
     })
     .await;

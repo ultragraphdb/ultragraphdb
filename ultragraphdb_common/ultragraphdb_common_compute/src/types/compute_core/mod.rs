@@ -5,84 +5,56 @@
 
 mod compute_core_catalog;
 mod compute_core_lookups;
-mod dial_under_way;
 mod lookup_partition;
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::rc::Rc;
 
-use futures::channel::oneshot;
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
-use ultragraphdb_common_role::{RoleClient, RoleCluster};
+use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_protocol_transport::{Address, TransportError};
-use ultragraphdb_protocol_wire::{
-    BodyView, ErrorReply, Members, MembersView, Placement, PlacementView, RoleKind,
-};
+use ultragraphdb_protocol_wire::{BodyView, ErrorReply, Placement, PlacementView};
 
-use self::dial_under_way::DialUnderWay;
-use crate::types::link::Link;
+use crate::types::partition_link::PartitionLink;
 use crate::types::read_times::ReadTimes;
 use crate::types::role_links::RoleLinks;
 use crate::utils::bounded::bounded;
 use crate::utils::refusals::unavailable;
 
-/// Who else waits on a partition's dial under way: one per call of [`ComputeCore::link`] waiting, so the reads under way
-/// on the core, each by the partitions it reaches, bound it (Ultra rule 2).
-type DialWaiters = Vec<oneshot::Sender<Result<Rc<Link>, ErrorReply>>>;
-
-/// One core's connections to the system group and the partitions, and what it read of them: no state is shared between cores, and
-/// a read runs wholly on the core that holds this (`PROTOCOL.md` §11.12).
+/// One core's way to the partitions and what it read of the system group: its reads go on the core's links, one connection to
+/// each partition's role address, which its client sessions' Bind streams share (design D2). No state is shared between
+/// cores, and a read runs wholly on the core that holds this (`PROTOCOL.md` §11.12).
 ///
-/// Shared by an `Rc` among the core's sessions and reads, so what it learns sits in `RefCell`s, each borrowed for one step
-/// and never across an `.await` (Ultra rule 9).
+/// Shared by an `Rc` among the core's sessions and reads, so what it learns sits in a `RefCell`, borrowed for one step and
+/// never across an `.await` (Ultra rule 9).
 #[derive(Debug)]
 pub struct ComputeCore {
-    cluster: RoleCluster,
-    /// The system group's role address, which it reads Members, Placement and Catalog at (`PROTOCOL.md` §11.12).
+    /// The core's links to the other roles, where Members put each partition's role address.
+    links: RoleLinks,
+    /// The system group's role address, which it reads Placement and Catalog at (`PROTOCOL.md` §11.12).
     group: Address,
     times: ReadTimes,
-    name: String,
     placement: RefCell<Option<Rc<PlacementMap>>>,
-    /// Where each storage partition listens: one entry per partition the group's Members lists, which bounds it.
-    addresses: RefCell<HashMap<u32, Address>>,
-    /// The core's one connection per partition, and the dials under way: each one entry per partition a read reaches at most,
-    /// which the placement map bounds.
-    links: RefCell<HashMap<u32, Rc<Link>>>,
-    dialling: RefCell<HashMap<u32, DialWaiters>>,
-    /// The steps the core's reads have taken, shared by an `Rc` with each of its links and each read's sink on the core's one
-    /// thread, which count a step as they take it (Ultra rule 9).
+    /// The steps the core's reads have taken, shared by an `Rc` with each of its partitions' links and each read's sink on the
+    /// core's one thread, which count a step as they take it (Ultra rule 9).
     steps: Rc<Cell<u64>>,
 }
 
 impl ComputeCore {
-    /// The core of a process of `cluster` joined at the system group's role address `group`, dialling as the role `name`,
-    /// reading by `times`.
-    #[must_use]
-    pub fn new(cluster: RoleCluster, group: Address, times: ReadTimes, name: &str) -> Rc<Self> {
-        Rc::new(Self {
-            cluster,
-            group,
-            times,
-            name: name.to_string(),
-            placement: RefCell::default(),
-            addresses: RefCell::default(),
-            links: RefCell::default(),
-            dialling: RefCell::default(),
-            steps: Rc::default(),
-        })
-    }
-
     /// The core whose reads travel on `links`, the core's one connection to each partition, beside the Bind streams its client
     /// sessions open there (design D2): a read's Scans and Closed leave on the link to their partition's role address, which
     /// Members gave `links`, and a link closed under a read answers it code 17 and is dialled again by the next request
     /// (`PROTOCOL.md` §11.12, *Errors*). The placement map is read at the system group's role address `group`, by `times`.
     #[must_use]
     pub fn over(links: RoleLinks, group: Address, times: ReadTimes) -> Rc<Self> {
-        drop((links, group, times));
-        unimplemented!()
+        Rc::new(Self {
+            links,
+            group,
+            times,
+            placement: RefCell::default(),
+            steps: Rc::default(),
+        })
     }
 
     /// The connections to partitions the core holds open, and how many of them hold a stream: a read that ended, by its last
@@ -90,7 +62,7 @@ impl ComputeCore {
     #[cfg(feature = "test-utils")]
     #[must_use]
     pub fn links_held(&self) -> (usize, usize) {
-        unimplemented!()
+        self.links.links_held()
     }
 
     /// The steps this core's reads have taken: each Entries frame a read consumed and each Result frame it built but its
@@ -107,7 +79,7 @@ impl ComputeCore {
 
     /// The cluster's identity.
     pub(crate) fn cluster_id(&self) -> u64 {
-        self.cluster.id()
+        self.links.cluster()
     }
 
     /// The times reads keep their versions by.
@@ -118,11 +90,12 @@ impl ComputeCore {
     /// A connection to the system group.
     /// A dropped future leaves no connection.
     async fn dial_group(&self) -> Result<RoleClient, TransportError> {
+        let cluster = self.links.role_cluster();
         RoleClient::dial(
             &self.group,
-            self.cluster.id(),
-            &self.name,
-            self.cluster.secret().password(),
+            cluster.id(),
+            self.links.name(),
+            cluster.secret().password(),
         )
         .await
     }
@@ -181,134 +154,22 @@ impl ComputeCore {
         }
     }
 
-    /// Where `partition` listens, asking the system group's Members when it is not yet known.
-    /// A dropped future leaves the addresses as they were.
-    async fn address_of(&self, partition: u32) -> Result<Address, ErrorReply> {
-        if let Some(address) = self.addresses.borrow().get(&partition) {
-            return Ok(address.clone());
-        }
-        let fetched = async {
-            self.fetch_members()
-                .await
-                .map_err(|error| unavailable(format!("the members: {error}")))
-        };
-        bounded(
-            self.times.answer_wait(),
-            || "the system group's members".to_string(),
-            fetched,
-        )
-        .await?;
-        self.addresses
-            .borrow()
-            .get(&partition)
-            .cloned()
-            .ok_or_else(|| {
-                unavailable(format!(
-                    "partition {partition} has joined no storage process yet"
-                ))
-            })
-    }
-
-    /// Notes where each storage partition listens, from the system group's Members. The addresses change only once the
-    /// reply is in, so a dropped future changes none.
-    async fn fetch_members(&self) -> Result<(), TransportError> {
-        let mut client = self.dial_group().await?;
-        let reply = client.request(&Members::new()).await?;
-        let view = reply.view().map_err(TransportError::protocol)?;
-        let members = MembersView::from_frame(&view).map_err(TransportError::protocol)?;
-        let mut addresses = self.addresses.borrow_mut();
-        for member in (0..members.len()).filter_map(|index| members.member(index)) {
-            if member.kind() == RoleKind::Storage
-                // A `u32`, lossless.
-                && let Some(text) = members.address(member.address() as usize)
-            {
-                let _old = addresses.insert(member.partition(), Address::parse(text)?);
-            }
-        }
-        Ok(())
-    }
-
-    /// The core's one connection to `partition`, dialled when it has none or the one it had closed, concurrent reads sharing one
-    /// dial.
-    /// A future dropped while it waits on another's dial leaves that dial going on; one dropped while it dials ends the
-    /// dial as [`ComputeCore::dial_for_all`] says.
-    pub(crate) async fn link(&self, partition: u32) -> Result<Rc<Link>, ErrorReply> {
-        // Each turn returns a link held, dials, or waits on the dial under way, which answers within the answer bound; a
-        // waiter whose dial was dropped looks again (Ultra rule 2).
-        loop {
-            let held = self.links.borrow().get(&partition).cloned();
-            if let Some(link) = held.filter(|link| !link.is_closed()) {
-                return Ok(link);
-            }
-            let waiting = match self.dialling.borrow_mut().entry(partition) {
-                Entry::Vacant(free) => {
-                    let _none = free.insert(Vec::new());
-                    None
-                }
-                Entry::Occupied(mut under_way) => {
-                    let (told, answer) = oneshot::channel();
-                    under_way.get_mut().push(told);
-                    Some(answer)
-                }
-            };
-            let Some(answer) = waiting else {
-                return self.dial_for_all(partition).await;
-            };
-            // A dial dropped with its read's task answers no one, and the next to look dials.
-            if let Ok(dialled) = answer.await {
-                return dialled;
-            }
-        }
-    }
-
-    /// Dials `partition`, the connection or its refusal answering everyone who waited on it.
-    /// A dropped future drops its `DialUnderWay`, which ends the dial for those waiting on it: each looks again, and
-    /// the next dials.
-    async fn dial_for_all(&self, partition: u32) -> Result<Rc<Link>, ErrorReply> {
-        let under_way = DialUnderWay {
-            core: self,
-            partition,
-        };
-        let dialled = self.dial(partition).await;
-        if let Ok(link) = &dialled {
-            let _closed = self.links.borrow_mut().insert(partition, Rc::clone(link));
-        }
-        let waiters = self.dialling.borrow_mut().remove(&partition);
-        drop(under_way);
-        for told in waiters.into_iter().flatten() {
-            // A waiter gone is a read that ended meanwhile.
-            drop(told.send(dialled.clone()));
-        }
-        dialled
-    }
-
-    /// A new connection to `partition`.
-    /// A dropped future leaves no connection, and the addresses as they were.
-    async fn dial(&self, partition: u32) -> Result<Rc<Link>, ErrorReply> {
-        let address = self.address_of(partition).await?;
-        let dialled = async {
-            RoleClient::dial(
-                &address,
-                self.cluster.id(),
-                &self.name,
-                self.cluster.secret().password(),
-            )
-            .await
-            .map_err(|error| {
-                unavailable(format!("the connection to partition {partition}: {error}"))
-            })
-        };
-        let wait = self.times.answer_wait();
-        let what = || format!("the connection to partition {partition}");
-        let client = bounded(wait, what, dialled).await.inspect_err(|_| {
-            // Where it listens may have moved with a restart: asked again by the next read.
-            drop(self.addresses.borrow_mut().remove(&partition));
+    /// The core's way to `partition`: its link to the role address Members listed for it, dialled when it has none or the one it
+    /// had closed, which the core's sessions share.
+    ///
+    /// # Errors
+    ///
+    /// Code 17 for a partition no storage process has joined for, or listed at an address that does not parse.
+    pub(crate) fn link(&self, partition: u32) -> Result<Rc<PartitionLink>, ErrorReply> {
+        let link = self.links.partition(partition).ok_or_else(|| {
+            unavailable(format!(
+                "partition {partition} has joined no storage process at an address compute can dial"
+            ))
         })?;
-        Ok(Link::start(
+        Ok(Rc::new(PartitionLink::new(
+            link,
             partition,
-            self.cluster.id(),
-            (wait, self.step_count()),
-            client,
-        ))
+            (self.times.answer_wait(), self.step_count()),
+        )))
     }
 }

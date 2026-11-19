@@ -29,9 +29,9 @@ use self::open_scan::OpenScan;
 use self::row_filter::RowFilter;
 use self::skip::Skip;
 use crate::types::access::Access;
-use crate::types::link::Link;
 use crate::types::names::Names;
 use crate::types::page::Page;
+use crate::types::partition_link::PartitionLink;
 use crate::types::pin_target::PinTarget;
 use crate::types::range_spec::RangeSpec;
 use crate::types::read_at::ReadAt;
@@ -45,7 +45,7 @@ use crate::utils::keys::past_alone;
 /// those rows, read before the merge sees them.
 #[derive(Debug)]
 pub(crate) struct PartitionRows {
-    link: Rc<Link>,
+    link: Rc<PartitionLink>,
     shared: Rc<ReadShared>,
     first: ReadAt,
     chosen: Option<(u64, u64)>,
@@ -71,7 +71,7 @@ const RANGES_PER_SCAN_MAX: usize = 4_096;
 
 impl PartitionRows {
     /// A read of the partition of `link`, whose first Scan reads as `first` says.
-    pub(crate) fn new(link: Rc<Link>, shared: Rc<ReadShared>, first: ReadAt) -> Self {
+    pub(crate) fn new(link: Rc<PartitionLink>, shared: Rc<ReadShared>, first: ReadAt) -> Self {
         let names = Names::new(shared.read.tenant);
         Self {
             link,

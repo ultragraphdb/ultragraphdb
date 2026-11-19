@@ -562,7 +562,7 @@ const WAITERS_AT_REST: usize = 2;
 /// The Members asks a test sends, each a frame the link reads while its waiters wait.
 const ASKS: usize = 50;
 
-/// Task 4.2 (`notes/group-5-lift-frontend.md`, found 1): the link holds one waker for each waiter, however many frames it reads
+/// Task 4.2 (found by task 5.1's lift, its first finding): the link holds one waker for each waiter, however many frames it reads
 /// between two changes of its view, where a waiter polled again pushed one more each time.
 #[test]
 fn test_a_waiter_holds_one_waker_however_often_it_is_polled() -> TestResult {
@@ -581,7 +581,7 @@ fn test_a_waiter_holds_one_waker_however_often_it_is_polled() -> TestResult {
     })
 }
 
-/// Task 4.2 (`notes/group-5-lift-frontend.md`, found 2): a token dropped while it waits leaves no outcome with the link once
+/// Task 4.2 (found by task 5.1's lift, its second finding): a token dropped while it waits leaves no outcome with the link once
 /// its hold is decided by another waiter's pass, and the other waiter takes its own.
 #[test]
 fn test_a_dropped_token_leaves_no_outcome() -> TestResult {

@@ -174,11 +174,6 @@ pub fn send(client: &mut ReadSession, read: &SessionRead) -> TestResult<u64> {
     Ok(client.last_stream())
 }
 
-/// Cancels the read on `stream`.
-pub fn cancel(client: &mut ReadSession, stream: u64) -> TestResult {
-    client.cancel(stream)
-}
-
 /// Starts `read` and reads its answer to its last frame, granting a frame of credit for each it takes.
 pub async fn read(client: &mut ReadSession, read: &SessionRead) -> TestResult<ReadOutcome> {
     let stream = send(client, read)?;

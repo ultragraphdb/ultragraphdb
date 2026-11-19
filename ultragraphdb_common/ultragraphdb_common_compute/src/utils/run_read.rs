@@ -187,18 +187,18 @@ async fn first_at(
     Ok(ReadAt::at_epoch(lowest.max(read.epoch)))
 }
 
-/// The latest epoch `partition` has closed. A partition silent past [`crate::types::link::Link::answer_wait`] is hung, and its connection closes.
+/// The latest epoch `partition` has closed. A partition silent past [`crate::types::partition_link::PartitionLink::answer_wait`] is
+/// hung, and its connection closes.
 /// A dropped future forgets its stream, by its `Asked`.
 async fn closed_epoch(core: &Rc<ComputeCore>, partition: u32) -> Result<u64, ErrorReply> {
     use futures::StreamExt;
 
-    let link = core.link(partition).await?;
-    let (stream, mut frames) = link.open_stream()?;
+    let link = core.link(partition)?;
+    let (stream, mut frames) = link.open(&Closed::request(&[partition]))?;
     let asked = Asked {
         link: Rc::clone(&link),
         stream,
     };
-    link.send(stream, &Closed::request(&[partition]))?;
     let Ok(next) = compio::time::timeout(link.answer_wait(), frames.next()).await else {
         let why = format!(
             "partition {partition}'s answer to a Closed did not come within {:?}",
@@ -242,7 +242,7 @@ async fn gated_parts(
     let terms = terms_of(&shared.read, object_from_home);
     let mut open = Vec::with_capacity(partitions.len());
     for partition in partitions {
-        let link = core.link(*partition).await?;
+        let link = core.link(*partition)?;
         let part = PartitionRows::new(link, Rc::clone(shared), first);
         let gate = part.open_gate(terms.clone())?;
         open.push((part, gate));
@@ -267,7 +267,7 @@ async fn reverse_parts(
     home: u32,
 ) -> Result<Opened, ErrorReply> {
     let read = &shared.read;
-    let link = core.link(home).await?;
+    let link = core.link(home)?;
     let mut at_home = PartitionRows::new(Rc::clone(&link), Rc::clone(shared), ReadAt::of(read));
     let terms = terms_of(read, false);
     let gate = at_home.open_gate(terms)?;
@@ -444,7 +444,7 @@ async fn ids_at_homes(
             let gate = part.open_gate(terms)?;
             ids.extend(part.finish_gate(gate).await?);
         } else {
-            let link = core.link(home).await?;
+            let link = core.link(home)?;
             let mut part = PartitionRows::new(link, Rc::clone(shared), ReadAt::of(read));
             let gate = part.open_gate(terms)?;
             ids.extend(part.finish_gate(gate).await?);

@@ -26,6 +26,7 @@ use ultragraphdb_tests::{CLUSTER, SECRET, holding, render_settings};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::client::{self, EndpointClient};
+use crate::cluster::played_links;
 use crate::played_partition::{PlayedTables, Script};
 use crate::scene::{FLOOR, NAME, Pattern, Refused, Scene, large_list, reads, run, until};
 use crate::{Steps, four, played, played_tables};
@@ -77,7 +78,11 @@ fn core_over_played(times: ReadTimes) -> TestResult<Rc<ComputeCore>> {
     )?;
     let cluster = RoleCluster::read(&start)?;
     let system = Address::parse(&format!("tcp://127.0.0.1:{}", info.base + 1))?;
-    Ok(ComputeCore::new(cluster, system, times, "compute"))
+    Ok(ComputeCore::over(
+        played_links(info, &cluster),
+        system,
+        times,
+    ))
 }
 
 /// A lookup's refusal as a test reads it.

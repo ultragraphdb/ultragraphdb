@@ -185,11 +185,6 @@ impl PlayedSystem {
         self.torn.set(torn);
     }
 
-    /// Answers each Members `delay` after it arrives.
-    pub fn delay_members(&self, delay: Duration) {
-        self.members_delay.set(delay);
-    }
-
     /// Answers each Placement `delay` after it arrives.
     pub fn delay_placement(&self, delay: Duration) {
         self.placement_delay.set(delay);
@@ -203,11 +198,6 @@ impl PlayedSystem {
     /// How many Members it was asked.
     pub fn members_asked(&self) -> u32 {
         self.counts.members.get()
-    }
-
-    /// How many Placements it was asked.
-    pub fn placement_asked(&self) -> u32 {
-        self.counts.placement.get()
     }
 
     /// How many Catalogs it was asked.

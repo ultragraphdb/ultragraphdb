@@ -221,11 +221,6 @@ impl PlayedPartition {
             .sum()
     }
 
-    /// How many connections it took.
-    pub fn connections(&self) -> u32 {
-        self.log.borrow().connections
-    }
-
     /// What `range` holds at the played version, at most `limit` entries, 0 for no limit: the entries, and whether the limit
     /// stopped it.
     fn entries_in(&self, range: &SeenRange, limit: u32) -> (Found, bool) {

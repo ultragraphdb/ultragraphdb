@@ -5,11 +5,11 @@
 
 use std::rc::Rc;
 
-use crate::types::link::Link;
+use crate::types::partition_link::PartitionLink;
 
 /// A lookup's one partition, its version chosen by the first Scan.
 #[derive(Debug)]
 pub(super) struct LookupPartition {
-    pub(crate) link: Rc<Link>,
+    pub(crate) link: Rc<PartitionLink>,
     pub(crate) version: u64,
 }

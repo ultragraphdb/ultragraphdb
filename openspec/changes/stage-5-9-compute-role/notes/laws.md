@@ -115,6 +115,10 @@ played partition of T 4.2 answers; its tap grants or withholds what each law nee
 | L4.3 | Refusal | a frame on a stream whose reader is gone, numbered below the next stream the link will open: valid, or with one rule of P §2.5 steps 4 to 15 broken | the valid frame is dropped and the link stays open; the broken one is refused by its rule and closes the link; a frame on a stream at or above that number closes the link whatever it holds | P §2.5 step 3, §11.2; T 0.7; `notes/feasibility.md` §4, case 4 |
 | L4.4 | Order independence | 2 to 4 played partitions, bound to ports in a drawn order and listed in the read's subject in another | each request reaches the partition its subject names, and the read's rows are those of L5.1's model, whatever order the doubles bound their ports in | P §9.1 (partitions ascend by number, not by address); `notes/feasibility.md` §4, case 5 |
 
+Frontier (532) and Neighbours (533) are not in `ultragraphdb_protocol_wire`: L4.1's Frontier requests are drawn by the stage
+that adds the commands to the wire, not by group 4 (decided 2026-11-19, `notes/group-4.md`). `RoleLink` records any
+request by its command, so it carries a Frontier once the wire has one.
+
 L5.1 to L5.13 hold unchanged over `RoleLink`: group 4 runs them with the connection changed beneath them and writes
 none of them again. L5.11's order is then kept by one task queue (D 2), which the law does not name.
 

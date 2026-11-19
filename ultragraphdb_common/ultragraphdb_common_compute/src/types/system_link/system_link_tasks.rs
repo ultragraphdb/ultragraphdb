@@ -98,7 +98,7 @@ async fn run(link: &SystemLink, client: RoleClient) {
         if state.stopped || state.refused {
             return Poll::Ready(());
         }
-        state.watchers.push(context.waker().clone());
+        state.watch(context.waker());
         Poll::Pending
     });
     // Whichever ends first ends the connection, and the other is dropped with it.

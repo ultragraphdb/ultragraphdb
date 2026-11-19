@@ -66,6 +66,29 @@ impl RoleLinks {
         self.cluster.id()
     }
 
+    /// The cluster's identity and secret, which the core's own connections to the system group dial with.
+    pub(crate) fn role_cluster(&self) -> &RoleCluster {
+        &self.cluster
+    }
+
+    /// The role name the core dials as.
+    pub(crate) fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The links open to role addresses, and how many of them hold a stream.
+    #[cfg(feature = "test-utils")]
+    pub(crate) fn links_held(&self) -> (usize, usize) {
+        let held = self.held.borrow();
+        let open: Vec<&RoleLink> = held
+            .open
+            .values()
+            .filter(|link| !link.is_closed())
+            .collect();
+        let holding = open.iter().filter(|link| link.streams_open() > 0).count();
+        (open.len(), holding)
+    }
+
     /// The core's placement map, when it holds one.
     #[must_use]
     pub fn map(&self) -> Option<PlacementMap> {
