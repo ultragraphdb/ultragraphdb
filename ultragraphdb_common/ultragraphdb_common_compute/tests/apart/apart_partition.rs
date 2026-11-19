@@ -16,8 +16,9 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use ultragraphdb_common_role::{Answer, Push, Session};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Closed, ClosedPartition, ClosedView, Command, Entries, EntriesEnd,
-    ErrorCode, ErrorReply, FLAG_LAST, Header, ObjectRecords, ObjectRecordsBuilder, ScanView,
+    BindView, BodyBuilder, BodyView, Closed, ClosedPartition, ClosedView, Command, Entries,
+    EntriesEnd, ErrorCode, ErrorReply, FLAG_LAST, Header, ObjectRecords, ObjectRecordsBuilder,
+    ScanView,
 };
 use ultragraphdb_tool_bdd::{TestError, TestResult};
 
@@ -85,6 +86,8 @@ pub struct PlayedPartition {
     scripts: RefCell<Vec<(Vec<u8>, Script, u32)>>,
     per_key: Cell<bool>,
     scans: RefCell<Vec<SeenScan>>,
+    /// Every request it took, by the connection it came on, counted from 1, and its command, in the order taken.
+    requests: RefCell<Vec<(u32, Command)>>,
     connections: Cell<u32>,
 }
 
@@ -97,6 +100,7 @@ impl PlayedPartition {
             scripts: RefCell::default(),
             per_key: Cell::new(false),
             scans: RefCell::default(),
+            requests: RefCell::default(),
             connections: Cell::new(0),
         })
     }
@@ -124,6 +128,11 @@ impl PlayedPartition {
     /// How many connections it took.
     pub fn connections(&self) -> u32 {
         self.connections.get()
+    }
+
+    /// Every request it took, by the connection it came on, counted from 1, and its command, in the order taken.
+    pub fn requests(&self) -> Vec<(u32, Command)> {
+        self.requests.borrow().clone()
     }
 
     /// Waits until it has been asked a Scan first naming a key that starts with `prefix`, failing past [`ASKED_WAIT`].
@@ -163,11 +172,12 @@ impl PlayedPartition {
 
     /// A new connection's session.
     pub fn connection(self: &Rc<Self>) -> PartitionConnection {
-        self.connections
-            .set(self.connections.get().saturating_add(1));
+        let connection = self.connections.get().saturating_add(1);
+        self.connections.set(connection);
         let (pushes, pushed) = unbounded();
         PartitionConnection {
             played: Rc::clone(self),
+            connection,
             pushes,
             pushed,
             pacing: Cell::new(None),
@@ -291,6 +301,8 @@ fn protocol(why: String) -> ErrorReply {
 #[derive(Debug)]
 pub struct PartitionConnection {
     played: Rc<PlayedPartition>,
+    /// Which of the partition's connections it is, counted from 1.
+    connection: u32,
     pushes: UnboundedSender<(u64, Vec<u8>)>,
     pushed: UnboundedReceiver<(u64, Vec<u8>)>,
     /// While a paced Scan is answered: the gap between its frames and how many it queued so far.
@@ -453,6 +465,23 @@ impl Session for PartitionConnection {
             Ok(view) => view,
             Err(rule) => return Answer::Refuse(ErrorReply::protocol(&rule)),
         };
+        self.played
+            .requests
+            .borrow_mut()
+            .push((self.connection, view.command()));
+        if view.command() == Command::Bind {
+            // A transaction's Bind, read at the partition's version, its stream left open for what it carries.
+            let bound = BindView::from_frame(&view)
+                .and_then(|bind| bind.to_body())
+                .map(|bind| bind.with_read_version(VERSION))
+                .map_err(|rule| ErrorReply::protocol(&rule))
+                .and_then(|bind| frame_of(&bind, stream, false));
+            return bound.map_or_else(Answer::Refuse, Answer::Reply);
+        }
+        if view.command() == Command::Write {
+            return frame_of(&ultragraphdb_protocol_wire::Held, stream, false)
+                .map_or_else(Answer::Refuse, Answer::Reply);
+        }
         if view.command() == Command::Closed {
             let asked = ClosedView::from_frame(&view)
                 .ok()

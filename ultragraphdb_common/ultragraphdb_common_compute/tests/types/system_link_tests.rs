@@ -555,6 +555,58 @@ fn test_a_token_ahead_waits_for_its_close() -> TestResult {
     })
 }
 
+/// The waiters a played link holds at rest: its connection's task, waiting for the link to stop, and its Members task, waiting
+/// for readiness to be withdrawn.
+const WAITERS_AT_REST: usize = 2;
+
+/// The Members asks a test sends, each a frame the link reads while its waiters wait.
+const ASKS: usize = 50;
+
+/// Task 4.2 (`notes/group-5-lift-frontend.md`, found 1): the link holds one waker for each waiter, however many frames it reads
+/// between two changes of its view, where a waiter polled again pushed one more each time.
+#[test]
+fn test_a_waiter_holds_one_waker_however_often_it_is_polled() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let at = played("watchers", SystemPlay::new(CLUSTER, 2)).await?;
+        for _ in 0..ASKS {
+            at.link.members().await.replied()?;
+        }
+        compio::time::sleep(Duration::from_millis(50)).await;
+        let held = at.link.watchers_held();
+        assert!(
+            held <= WAITERS_AT_REST,
+            "{held} wakers after {ASKS} frames read, for {WAITERS_AT_REST} waiters"
+        );
+        Ok(())
+    })
+}
+
+/// Task 4.2 (`notes/group-5-lift-frontend.md`, found 2): a token dropped while it waits leaves no outcome with the link once
+/// its hold is decided by another waiter's pass, and the other waiter takes its own.
+#[test]
+fn test_a_dropped_token_leaves_no_outcome() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let at = played("dropped-token", SystemPlay::new(CLUSTER, 1)).await?;
+        let closed = at.link.view().latest_closed();
+        let deadline = now().await + WAIT;
+        let link = at.link.clone();
+        let dropped = compio::runtime::spawn(async move { link.token(closed + 2, deadline).await });
+        // The dropped token's task runs to its wait, where its hold is with the view, before it is dropped.
+        compio::time::sleep(Duration::from_millis(20)).await;
+        drop(dropped);
+        let link = at.link.clone();
+        let waiting = compio::runtime::spawn(async move { link.token(closed + 2, deadline).await });
+        compio::time::sleep(Duration::from_millis(20)).await;
+        at.play.close(closed + 1, 0, &[]);
+        waiting
+            .await
+            .map_err(|_| TestError::new("the token's task"))?
+            .replied()?;
+        assert_eq!(at.link.outcomes_held(), 0);
+        Ok(())
+    })
+}
+
 /// C5.11: a subscription the group ends is opened again with `latest`; the view then reads Placement and the current version
 /// of each tenant it holds before it answers.
 #[test]

@@ -303,12 +303,11 @@ async fn counted_endpoint(
     if let Some(map) = map {
         links.set_map(map);
     }
-    // The core's reads run in it, over connections of its own to the partitions the group lists (design D3).
-    let compute = ComputeCore::new(
-        cluster_named("compute")?,
+    // The core's reads run in it, over its links to the partitions the group lists, beside its Bind streams (design D2).
+    let compute = ComputeCore::over(
+        links.clone(),
         group,
         ReadTimes::new(Duration::from_secs(30), Duration::from_secs(600)),
-        "compute",
     );
     let core = EndpointCore::new(
         link,

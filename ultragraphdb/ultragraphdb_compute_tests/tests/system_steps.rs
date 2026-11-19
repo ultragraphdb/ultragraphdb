@@ -31,6 +31,7 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::Steps;
 use crate::endpoint_steps::{ADMIN, PASSWORD, client_address};
+use crate::gate::gate;
 use crate::processes::{
     ENDED, Roles, admin, host_of, second_of, second_role_address, subject_of, write_of,
 };
@@ -590,6 +591,91 @@ fn unready_while_lost(w: &mut Steps) -> TestResult {
     assert_eq!(unready, "503", "{log}");
     assert_eq!(healthy, "200", "{log}");
     assert_eq!(after, "200", "{log}");
+    w.processes = Roles::default();
+    Ok(())
+}
+
+/// The gate's step: compute's `i`th connection to the system group is carried after `i` of them, so its cores' links open over
+/// seconds.
+const GATE_STEP: Duration = Duration::from_millis(300);
+
+/// The logins opened at once for each of compute's runtimes: several land on each core whatever the order of accepts.
+const LOGINS_PER_RUNTIME: usize = 4;
+
+/// Where the gate in front of the system group listens: offset 17 above the target's port base, one the harness leaves free.
+fn gate_address() -> TestResult<String> {
+    Ok(format!("tcp://{}", ultragraphdb_tool_bdd::loopback(17)?))
+}
+
+#[when(
+    "compute's runtimes' connections to the system group open seconds apart, and as soon as its `/ready` answers, clients open four logins for each of its runtimes at once"
+)]
+fn logins_once_ready(w: &mut Steps) -> TestResult {
+    let mut roles = Roles::default();
+    roles.start_host(host_of(1)?, true)?;
+    // The compute process runs a runtime per CPU it may use, as this test process sees them on the same host.
+    let runtimes = std::thread::available_parallelism().map_or(1, usize::from);
+    let group: std::net::SocketAddr = system_role_address()?
+        .trim_start_matches("tcp://")
+        .parse()?;
+    let runtime = Runtime::new()?;
+    let answers = runtime.block_on(async {
+        let gated = gate(&gate_address()?, group, GATE_STEP).await?;
+        let settings = with(
+            compute_holding()?,
+            "cluster.system_address",
+            &gate_address()?,
+        );
+        roles.start_compute_unwaited(settings)?;
+        let observability = compute_observability()?;
+        let mut ready = false;
+        for _ in 0..START_SECONDS * 100 {
+            if http_status(&observability, "/ready").is_ok_and(|status| status == 200) {
+                ready = true;
+                break;
+            }
+            compio::time::sleep(LOOK).await;
+        }
+        if !ready {
+            return Err(TestError::new("compute's /ready never answered"));
+        }
+        let logins = (0..runtimes * LOGINS_PER_RUNTIME).map(|_| authenticated_once());
+        let answers = futures::future::join_all(logins).await;
+        TestResult::Ok((answers, gated.get()))
+    })?;
+    let (answers, gated) = answers;
+    let refused: Vec<String> = answers
+        .iter()
+        .filter_map(|answer| match answer {
+            Ok(None) => None,
+            Ok(Some(refusal)) => Some(format!("{refusal:?}")),
+            Err(error) => Some(error.to_string()),
+        })
+        .collect();
+    w.seen = vec![
+        answers.len().to_string(),
+        format!("{refused:?}"),
+        gated.to_string(),
+        runtimes.to_string(),
+        roles.last_log("compute")?,
+    ];
+    w.processes = roles;
+    Ok(())
+}
+
+#[then("every login authenticates, and none is refused with code 17")]
+fn every_login_authenticates(w: &mut Steps) -> TestResult {
+    let [count, refused, gated, runtimes, log] = w.seen.as_slice() else {
+        return Err(TestError::new(format!("{:?}", w.seen)));
+    };
+    let runtimes: usize = runtimes.parse()?;
+    assert_eq!(count, &(runtimes * LOGINS_PER_RUNTIME).to_string());
+    let gated: usize = gated.parse()?;
+    assert!(
+        gated >= runtimes,
+        "every runtime's link went through the gate: {gated} connections for {runtimes} runtimes"
+    );
+    assert_eq!(refused, "[]", "{log}");
     w.processes = Roles::default();
     Ok(())
 }

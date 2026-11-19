@@ -77,6 +77,7 @@ rust_test(
 # The scenarios' sources, which every BDD target below compiles.
 BDD_SRCS = glob(["tests/apart/**/*.rs"]) + [
     "tests/bdd.rs",
+    "tests/cores_steps.rs",
     "tests/declaring_steps.rs",
     "tests/endpoint_stage.rs",
     "tests/endpoint_steps.rs",
@@ -110,7 +111,10 @@ BDD_FEATURES = {
         "client-endpoint/empty_commit.feature",
         "client-endpoint/held.feature",
     ],
-    "bdd_executor": ["quad-reads/executor.feature"],
+    "bdd_executor": [
+        "quad-reads/cores.feature",
+        "quad-reads/executor.feature",
+    ],
     "bdd_quad_reads": [
         "quad-reads/order.feature",
         "term-dictionary/in_turn.feature",

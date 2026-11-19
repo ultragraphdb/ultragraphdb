@@ -70,6 +70,8 @@ pub use crate::utils::term_rules::{check_change, check_operation, check_table};
 #[cfg(feature = "test-utils")]
 pub use crate::utils_test::double_frame::DoubleFrame;
 #[cfg(feature = "test-utils")]
+pub use crate::utils_test::link_probe::{LinkProbe, Told};
+#[cfg(feature = "test-utils")]
 pub use crate::utils_test::page_bytes::page_held_bytes;
 #[cfg(feature = "test-utils")]
 pub use crate::utils_test::role_double::{

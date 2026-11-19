@@ -146,6 +146,13 @@ The findings on compute's `Link` are corner cases of group 4, which removes `Lin
 rules. The reader rule written three times becomes one before group 3 writes a fourth (task 0.7). The two mutants only
 real time tells apart take a clock (tasks 3.7 and 6.6). Storage's two findings land in group 3 (task 3.6).
 
+**D14. Compute is ready once every core's link to the system group holds** (decided 2026-11-19, checkpoint C's flake of
+group 6). Every core accepts clients from one shared queue and relays their authentication over its own `SystemLink`, so
+a core whose link has not yet subscribed refuses a login with code 17 while another core's link already made the role
+ready. Each core's link holds a readiness of its own, and the role's `/ready` answers 200 only while all of them hold,
+503 while any is withdrawn. *Alternative:* a core accepting no client until its link holds. It keeps a core's refusals
+out of sight but leaves `/ready` saying more than the role can serve.
+
 ## Risks / Trade-offs
 
 - **A read's CPU now shares a core with commits' relays** → D3's bound; measured in group 9 as the relay delay of a

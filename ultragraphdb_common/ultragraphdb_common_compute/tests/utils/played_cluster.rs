@@ -37,6 +37,7 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_store_quads::{id_key, iri_bucket, term_key};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
+use crate::apart::apart_cluster::links_listing;
 use crate::apart::apart_session::ReadSession;
 
 /// The played cluster's identity.
@@ -594,10 +595,12 @@ impl Played {
         }
         let system_server =
             Server::new(CLUSTER, "compute", Endpoint::System)?.with_iterations(ROLE_ITERATIONS);
+        let listing = listed.borrow().clone();
         let connection = SystemConnection { partitions, listed };
         let system = serve(system_server, credentials, move || connection.clone()).await?;
         let cluster = RoleCluster::new(CLUSTER, secret, Duration::from_secs(5));
-        let core = ComputeCore::new(cluster, system, times, "compute");
+        let map = PlacementMap::even(partitions, NodeId::new(1))?;
+        let core = ComputeCore::over(links_listing(&cluster, map, &listing), system, times);
         Ok(Self {
             partitions: played,
             core,

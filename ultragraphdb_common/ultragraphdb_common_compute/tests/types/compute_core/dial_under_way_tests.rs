@@ -20,7 +20,7 @@ const HELD: Duration = Duration::from_millis(500);
 #[test]
 fn test_a_read_cancelled_while_its_core_dials_leaves_the_next_to_dial() -> TestResult {
     run(async {
-        let played = PlayedCluster::start(1, quiet_times()).await?;
+        let played = PlayedCluster::start_own(1, quiet_times()).await?;
         let list = OneList::new("subject", "predicate", 2)?;
         list.hold_in(played.partition(1)?);
         let bound = Bound {
@@ -57,7 +57,7 @@ fn test_a_read_waiting_on_a_dial_given_up_dials_for_itself() -> TestResult {
     use crate::played::played_read::answer_of;
 
     run(async {
-        let played = PlayedCluster::start(1, quiet_times()).await?;
+        let played = PlayedCluster::start_own(1, quiet_times()).await?;
         let list = OneList::new("subject", "predicate", 2)?;
         list.hold_in(played.partition(1)?);
         let bound = Bound {

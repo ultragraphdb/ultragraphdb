@@ -10,10 +10,11 @@ use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use std::task::Waker;
 
+use futures::channel::mpsc::UnboundedReceiver;
 use ultragraphdb_common_role::RoleClient;
-use ultragraphdb_protocol_transport::Address;
+use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Cancel, Command, Header, HeaderView, MAX_FRAME_SIZE_U32,
+    BodyBuilder, Cancel, Command, ErrorReply, Header, HeaderView, MAX_FRAME_SIZE_U32,
 };
 
 use crate::types::commit_hold::CommitHold;
@@ -193,6 +194,33 @@ impl RoleLink {
             writer.wake();
         }
         stream
+    }
+
+    /// Opens the stream of a read's request `body`, a Scan or a Closed, built on the stream it opens: its number, and where its
+    /// frames arrive whole and unread, for the read to check each once. The stream's frames that spend credit are held to the
+    /// partition's Welcome's `initial_credit` and what [`RoleLink::grant`] adds, one past it closing the connection
+    /// (`PROTOCOL.md` §11.3); a frame its request is not answered by closes it too (§2.5, step 3). The receiver ends when the
+    /// stream does: by its last frame, its read forgetting it, or the connection's close, which a read takes as code 17.
+    ///
+    /// # Errors
+    ///
+    /// The rule the request's frame breaks, and code 17 on a closed connection: either way no stream is registered, and a
+    /// frame arriving later on the number is a stray.
+    pub(crate) fn open_read<B: BodyBuilder>(
+        &self,
+        _body: &B,
+    ) -> Result<(u64, UnboundedReceiver<ReceivedFrame>), ErrorReply> {
+        unimplemented!()
+    }
+
+    /// Grants the read's `stream` one more frame that spends credit: a Credit of one frame leaves on it.
+    pub(crate) fn grant(&self, _stream: u64) {
+        unimplemented!()
+    }
+
+    /// How many streams are open on the link: each a request sent and not yet ended.
+    pub(crate) fn streams_open(&self) -> usize {
+        unimplemented!()
     }
 
     /// Sends the request `frame` on `stream`, already open, which the stream's frames may answer from here on.

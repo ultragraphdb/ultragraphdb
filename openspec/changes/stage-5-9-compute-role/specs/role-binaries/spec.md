@@ -104,8 +104,8 @@ thread that starts its runtimes to all the CPUs they take and to no single one, 
 every thread it starts that CPU alone to ask for. Pinning SHALL be a performance choice and never a condition of
 correctness: where the platform cannot bind a thread, as macOS cannot, offering only a cache-locality hint, the role
 SHALL run unpinned and say so. Compute SHALL accept and serve clients on each of its runtimes, one per CPU it may use,
-on one client address bound once: its readiness on the first, each runtime dialling its own connections to the system
-group and to the partitions, and its counts of failed authentications held by its first runtime for all of them
+on one client address bound once: ready only once every runtime is, each runtime dialling its own connections to the
+system group and to the partitions, and its counts of failed authentications held by its first runtime for all of them
 (client-endpoint, "Connections authenticate against the metadata group's principals"). At start each role SHALL log, per
 runtime, the CPU it asked for and what it has, read back from the operating system where it can be.
 
@@ -134,12 +134,13 @@ address. Until then `/health` SHALL answer 503. Storage binds its partitions' ad
 `/ready`, so its `/health` answers while it recovers and a peer dialling it meanwhile is refused at once. Each role
 SHALL also serve `/ready`, answering once its dependencies are reachable: storage once its partitions have recovered
 their logs and joined, and in the hosting instance once the system group has recovered and listens before them
-(system-group, "The hosting process starts the group first and stops it last"); compute once the system group answers
-it, its view holds a placement and a close, Members lists every partition of the placement and a storage partition
-answers. Compute's `/ready` SHALL answer 503 from the moment its connection to the system group closes until the group
-answers it again, its view holds a close, Members lists every partition of the placement and a storage partition
-answers, and 200 again from then (system-group, "A lost system group is waited for until the deadline"); its `/health`
-is unaffected, and storage's `/ready` stays as stated above. On SIGTERM compute SHALL announce itself draining
+(system-group, "The hosting process starts the group first and stops it last"); compute once, on every one of its
+runtimes, the system group answers that runtime's connection, the runtime's view holds a placement and a close, Members
+lists every partition of the placement and a storage partition answers, since any runtime may accept a client and relay
+its authentication to the group. Compute's `/ready` SHALL answer 503 from the moment any runtime's connection to the
+system group closes until the group answers that runtime again, its view holds a close, Members lists every partition of
+the placement and a storage partition answers, and 200 again once every runtime holds so (system-group, "A lost system
+group is waited for until the deadline"); its `/health` is unaffected, and storage's `/ready` stays as stated above. On SIGTERM compute SHALL announce itself draining
 (node-discovery, "A draining node is announced before it stops"), stop accepting connections and finish its open
 requests, and storage SHALL apply and sync what its partitions' logs hold, then stop the system group it hosts, before
 it exits.
@@ -156,6 +157,11 @@ it exits.
 - **WHEN** compute is ready, and the hosting storage process is killed and started again within `join_deadline_ms`
 - **THEN** compute's `/ready` answers 503 once its connection to the system group has closed while its `/health` answers
   200, and its `/ready` answers 200 again once the group answers it, Members lists every partition and one answers
+
+#### Scenario: Compute is ready only once every runtime's link holds
+- **WHEN** compute's runtimes' connections to the system group open seconds apart, and as soon as its `/ready` answers,
+  clients open four logins for each of its runtimes at once
+- **THEN** every login authenticates, and none is refused with code 17
 
 #### Scenario: Storage flushes on shutdown
 - **WHEN** storage receives SIGTERM after acknowledging commits

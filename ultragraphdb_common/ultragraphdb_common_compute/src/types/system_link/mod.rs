@@ -195,6 +195,22 @@ impl SystemLink {
         link
     }
 
+    /// The wakers the link holds for the waiters of its view, its own tasks' among them: one for each waiter at most, however
+    /// often a waiter is polled between two changes (Ultra rule 2).
+    #[cfg(feature = "test-utils")]
+    #[must_use]
+    pub fn watchers_held(&self) -> usize {
+        unimplemented!()
+    }
+
+    /// The outcomes of [`SystemLink::token`]'s holds the link has decided and no waiter has taken: one for each token still
+    /// waiting at most, a token dropped leaving none.
+    #[cfg(feature = "test-utils")]
+    #[must_use]
+    pub fn outcomes_held(&self) -> usize {
+        unimplemented!()
+    }
+
     /// The link counting its Check frames' round trips as endpoint core `core`'s.
     #[must_use]
     pub fn with_core(mut self, core: usize) -> Self {

@@ -12,6 +12,8 @@ mod read_executor_property_tests;
 #[cfg(test)]
 mod relay_authenticator_property_tests;
 #[cfg(test)]
+mod role_link_property_tests;
+#[cfg(test)]
 mod system_link_property_tests;
 #[cfg(test)]
 mod system_turns_property_tests;

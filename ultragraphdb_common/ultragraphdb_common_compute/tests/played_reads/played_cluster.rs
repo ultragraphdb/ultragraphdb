@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use compio::runtime::{Runtime, spawn};
+use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_compute::{ComputeCore, ReadExecutor, ReadTimes};
 use ultragraphdb_common_role::{
     PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS, RoleCluster, RoleCredentials, RoleSecret, Server,
@@ -24,6 +25,7 @@ use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::Welcome;
 use ultragraphdb_tool_bdd::{TestError, TestResult};
 
+use crate::apart::apart_cluster::links_listing;
 use crate::apart::apart_session::ReadSession;
 
 use super::played_partition::{PartitionConnection, PlayedPartition};
@@ -139,6 +141,7 @@ impl PlayedCluster {
             played.push(at);
         }
         let (system_listener, system) = listener().await?;
+        let listing = listed.clone();
         serve(system_listener, Endpoint::System, credentials, move || {
             SystemConnection {
                 cluster: CLUSTER,
@@ -147,7 +150,8 @@ impl PlayedCluster {
             }
         })?;
         let cluster = RoleCluster::new(CLUSTER, secret, Duration::from_secs(5));
-        let core = ComputeCore::new(cluster, system, times, "compute");
+        let map = PlacementMap::even(partitions, NodeId::new(1))?;
+        let core = ComputeCore::over(links_listing(&cluster, map, &listing), system, times);
         Ok(Self {
             partitions: played,
             core,

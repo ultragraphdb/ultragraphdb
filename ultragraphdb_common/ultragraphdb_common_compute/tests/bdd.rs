@@ -9,6 +9,7 @@
 // The played cluster of the unit tests, which the executor's scenarios read through, included by path.
 #[path = "apart/mod.rs"]
 pub mod apart;
+mod cores_steps;
 mod declaring_steps;
 mod endpoint_stage;
 mod endpoint_steps;

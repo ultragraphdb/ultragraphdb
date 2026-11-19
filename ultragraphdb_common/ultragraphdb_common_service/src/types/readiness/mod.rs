@@ -42,6 +42,12 @@ impl Readiness {
         self.ready.store(ready, Ordering::Release);
     }
 
+    /// Sets the role ready exactly while every one of `parts` is: a role whose cores each hold a readiness of their own, as each
+    /// compute core's link to the system group does, is ready only while all of them are, and not ready for none.
+    pub fn follow(&self, _parts: &[Readiness]) {
+        unimplemented!()
+    }
+
     /// Whether the role has bound the addresses it serves from its start.
     #[must_use]
     pub fn is_listening(&self) -> bool {

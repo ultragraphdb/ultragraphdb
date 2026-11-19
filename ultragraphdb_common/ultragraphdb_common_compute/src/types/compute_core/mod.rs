@@ -25,6 +25,7 @@ use ultragraphdb_protocol_wire::{
 use self::dial_under_way::DialUnderWay;
 use crate::types::link::Link;
 use crate::types::read_times::ReadTimes;
+use crate::types::role_links::RoleLinks;
 use crate::utils::bounded::bounded;
 use crate::utils::refusals::unavailable;
 
@@ -72,6 +73,24 @@ impl ComputeCore {
             dialling: RefCell::default(),
             steps: Rc::default(),
         })
+    }
+
+    /// The core whose reads travel on `links`, the core's one connection to each partition, beside the Bind streams its client
+    /// sessions open there (design D2): a read's Scans and Closed leave on the link to their partition's role address, which
+    /// Members gave `links`, and a link closed under a read answers it code 17 and is dialled again by the next request
+    /// (`PROTOCOL.md` §11.12, *Errors*). The placement map is read at the system group's role address `group`, by `times`.
+    #[must_use]
+    pub fn over(links: RoleLinks, group: Address, times: ReadTimes) -> Rc<Self> {
+        drop((links, group, times));
+        unimplemented!()
+    }
+
+    /// The connections to partitions the core holds open, and how many of them hold a stream: a read that ended, by its last
+    /// frame, its refusal or its task's drop, holds none.
+    #[cfg(feature = "test-utils")]
+    #[must_use]
+    pub fn links_held(&self) -> (usize, usize) {
+        unimplemented!()
     }
 
     /// The steps this core's reads have taken: each Entries frame a read consumed and each Result frame it built but its

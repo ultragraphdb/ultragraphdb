@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use compio::runtime::{JoinHandle, spawn};
@@ -35,6 +35,8 @@ pub struct RoleDouble {
     cluster: u64,
     seen: Rc<RefCell<Vec<DoubleFrame>>>,
     connections: Rc<RefCell<Vec<JoinHandle<()>>>>,
+    /// Every connection it accepted, those it closed among them.
+    accepted: Rc<Cell<usize>>,
     accepting: Rc<RefCell<Option<JoinHandle<()>>>>,
     reading: ParkedBytes,
 }
@@ -73,6 +75,7 @@ impl RoleDouble {
             cluster: cluster.id(),
             seen: Rc::default(),
             connections: Rc::default(),
+            accepted: Rc::default(),
             accepting: Rc::default(),
             reading: ParkedBytes::new(1),
         };
@@ -95,6 +98,7 @@ impl RoleDouble {
                     serve_connection(carrier, &server, credentials, session).await;
                 });
                 held.connections.borrow_mut().push(task);
+                held.accepted.set(held.accepted.get().saturating_add(1));
             }
         });
         *double.accepting.borrow_mut() = Some(accepting);
@@ -158,6 +162,12 @@ impl RoleDouble {
     #[must_use]
     pub fn count(&self, command: Command) -> usize {
         self.frames(command).len()
+    }
+
+    /// How many connections it accepted, those it closed since among them.
+    #[must_use]
+    pub fn accepted(&self) -> usize {
+        self.accepted.get()
     }
 
     /// How many of the connections it accepted have ended.

@@ -33,6 +33,7 @@ mod read_times_tests;
 mod relay_authenticator_tests;
 mod result_sink_tests;
 mod resume_terms_tests;
+mod role_link;
 #[cfg(test)]
 mod role_links_tests;
 mod row_terms_tests;

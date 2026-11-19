@@ -8,6 +8,8 @@
 
 pub mod apart_cluster;
 pub mod apart_executor;
+pub mod apart_link;
 pub mod apart_partition;
 pub mod apart_reads;
 pub mod apart_session;
+pub mod apart_tap;

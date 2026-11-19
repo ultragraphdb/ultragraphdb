@@ -68,7 +68,7 @@ fn test_every_batch_names_the_cluster() -> TestResult {
 #[test]
 fn test_the_reads_of_a_core_share_its_connection_to_a_partition() -> TestResult {
     run(async {
-        let played = PlayedCluster::start(1, quiet_times()).await?;
+        let played = PlayedCluster::start_own(1, quiet_times()).await?;
         let partition = played.partition(1)?;
         let list = OneList::new("subject", "predicate", 2)?;
         list.hold_in(partition);
@@ -109,7 +109,7 @@ async fn refusal_of(played: &PlayedCluster, list: &OneList) -> TestResult<(Error
 fn test_a_system_group_silent_past_the_bound_refuses_the_read() -> TestResult {
     run(async {
         for placement in [true, false] {
-            let played = PlayedCluster::start(1, short_times()).await?;
+            let played = PlayedCluster::start_own(1, short_times()).await?;
             let list = OneList::new("subject", "predicate", 2)?;
             list.hold_in(played.partition(1)?);
             if placement {
@@ -154,7 +154,7 @@ fn test_a_partition_not_reached_refuses_the_read() -> TestResult {
             (Some(closed), "the connection to partition 2"),
         ];
         for (address, why) in listed {
-            let played = PlayedCluster::start_placed(even_ranges(2)?, 1, quiet_times()).await?;
+            let played = PlayedCluster::start_placed_own(even_ranges(2)?, 1, quiet_times()).await?;
             if let Some(address) = &address {
                 played.system().list(2, address);
             }
@@ -183,7 +183,7 @@ fn test_a_partition_not_reached_refuses_the_read() -> TestResult {
 #[test]
 fn test_reads_arriving_during_a_dial_share_it() -> TestResult {
     run(async {
-        let played = PlayedCluster::start(1, quiet_times()).await?;
+        let played = PlayedCluster::start_own(1, quiet_times()).await?;
         let partition = played.partition(1)?;
         let list = OneList::new("subject", "predicate", 2)?;
         list.hold_in(partition);
@@ -208,7 +208,7 @@ fn test_reads_arriving_during_a_dial_share_it() -> TestResult {
 #[test]
 fn test_members_listing_compute_processes_reach_the_partition() -> TestResult {
     run(async {
-        let played = PlayedCluster::start(1, quiet_times()).await?;
+        let played = PlayedCluster::start_own(1, quiet_times()).await?;
         played.system().list_compute("127.0.0.1:1");
         let list = OneList::new("subject", "predicate", 2)?;
         list.hold_in(played.partition(1)?);
@@ -226,7 +226,7 @@ fn test_members_listing_compute_processes_reach_the_partition() -> TestResult {
 #[test]
 fn test_the_placement_and_the_members_are_read_at_the_group() -> TestResult {
     run(async {
-        let played = PlayedCluster::start(1, quiet_times()).await?;
+        let played = PlayedCluster::start_own(1, quiet_times()).await?;
         let list = OneList::new("subject", "predicate", 2)?;
         list.hold_in(played.partition(1)?);
         let mut client = played.client();

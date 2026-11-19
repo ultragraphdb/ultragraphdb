@@ -186,12 +186,11 @@ impl Stage {
         } else {
             links.set_map(map.clone());
         }
-        // The core's reads run in it, over connections of its own to the partitions (design D3).
-        let compute = ComputeCore::new(
-            cluster.clone(),
+        // The core's reads run in it, over its links to the partitions, beside its Bind streams (design D2).
+        let compute = ComputeCore::over(
+            links.clone(),
             role_address.clone(),
             ReadTimes::new(options.limits.scan_stall(), Duration::from_secs(600)),
-            "compute",
         );
         let core = EndpointCore::new(
             system.clone(),

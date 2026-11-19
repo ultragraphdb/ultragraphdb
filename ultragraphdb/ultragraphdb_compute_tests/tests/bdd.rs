@@ -13,6 +13,7 @@ mod client;
 mod cluster;
 mod endpoint_read_steps;
 mod endpoint_steps;
+mod gate;
 mod level_steps;
 mod lookup_steps;
 mod played_partition;
